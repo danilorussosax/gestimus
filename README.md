@@ -211,6 +211,7 @@ npm run cleanup:e2e   # pulisce i record di test dal DB
 
 | File | Contenuto |
 |------|-----------|
+| [`LISTINO.md`](LISTINO.md) | **Listino piani commerciali** — documento per i clienti finali |
 | [`DEPLOY-IONOS.md`](DEPLOY-IONOS.md) | Guida completa per il deploy su VPS IONOS |
 | [`MULTITENANT_PLAN.md`](MULTITENANT_PLAN.md) | Design dell'architettura multitenant |
 | [`POCKETBASE.md`](POCKETBASE.md) | Note sul backend PocketBase |
