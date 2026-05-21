@@ -121,6 +121,10 @@ function updateHeader() {
   const badge = $('#role-badge');
   const logoutBtn = $('#logout-btn');
   const headerLogo = $('#header-logo');
+  const seedBtn = $('#seed-btn');
+  // Funzionalità riservata al superadmin: caricamento dati di esempio.
+  // Gli admin di tenant non devono poter wipe-and-reseed il loro DB dal footer.
+  if (seedBtn) seedBtn.classList.toggle('hidden', meta.role !== 'superadmin');
   // Pre-login l'utente non ha accesso a `enti` ma `enti_public` espone branding.
   const ente = db.getEnte();
   const entePublic = db.getEntePublic();

@@ -125,7 +125,7 @@ export function renderHome(root) {
                   const fs = db.fasiByConcorso(c.id);
                   const cs = db.candidatiByConcorso(c.id);
                   return `
-                    <tr>
+                    <tr data-open-concorso="${escapeHtml(c.id)}" class="cursor-pointer hover:bg-brand-50/50 transition-colors" title="Apri l'amministrazione di questo concorso">
                       <td><span class="font-medium">${escapeHtml(c.nome)}</span></td>
                       <td class="hidden md:table-cell">${escapeHtml(String(c.anno))}</td>
                       <td class="hidden md:table-cell">${cs.length}</td>
@@ -156,12 +156,23 @@ export function renderHome(root) {
 
   renderPbCard(root.querySelector('#pb-card'));
 
+  // Card "Configurazione admin": porta DIRETTAMENTE al selettore concorso
+  // (renderConcorsoSelector), da cui l'admin sceglie un concorso esistente o
+  // ne crea uno nuovo / lo elimina. Non auto-seleziona il primo.
   root.querySelector('[data-action="role-admin"]')?.addEventListener('click', () => {
     db.setRole('admin');
-    if (!db.state.meta.activeConcorsoId && db.state.concorsi.length > 0) {
-      db.setActiveConcorso(db.state.concorsi[0].id);
-    }
+    db.setActiveConcorso(null);
     location.hash = '#/admin';
+  });
+
+  // Click su qualsiasi riga della tabella concorsi in basso → apre l'amministrazione
+  // di quel concorso (setActiveConcorso + role=admin + #/admin).
+  root.querySelectorAll('[data-open-concorso]').forEach(tr => {
+    tr.addEventListener('click', () => {
+      db.setRole('admin');
+      db.setActiveConcorso(tr.dataset.openConcorso);
+      location.hash = '#/admin';
+    });
   });
 
   const sel = root.querySelector('#commissario-select');
@@ -201,6 +212,9 @@ async function renderPbCard(host) {
   const totalLegacy = legacyTotal();
   const s = db.state;
   const totalPb = s.concorsi.length + s.commissari.length + s.candidati.length + s.fasi.length + s.candidati_fase.length + s.valutazioni.length;
+  // L'admin UI di PocketBase è una funzione di sistema riservata al super admin.
+  // Gli admin di tenant gestiscono i loro dati dalla UI dell'app.
+  const isSuperAdmin = db.state.meta.role === 'superadmin';
 
   if (totalLegacy === 0) {
     host.innerHTML = `
@@ -210,7 +224,7 @@ async function renderPbCard(host) {
         <div class="flex-1 min-w-0 text-sm text-ink-700">
           ${t('home.pb.connected', { n: totalPb }).replace('<strong>', '<span class="text-ink-900 font-medium">').replace('</strong>', '</span>')}
         </div>
-        <a href="${escapeHtml(PB_URL)}/_/" target="_blank" class="c-link text-sm inline-flex items-center gap-1.5">${escapeHtml(t('home.pb.admin_ui'))} ${icon('externalLink', { size: 12 })}</a>
+        ${isSuperAdmin ? `<a href="${escapeHtml(PB_URL)}/_/" target="_blank" class="c-link text-sm inline-flex items-center gap-1.5">${escapeHtml(t('home.pb.admin_ui'))} ${icon('externalLink', { size: 12 })}</a>` : ''}
       </div>
     `;
     return;
@@ -230,7 +244,7 @@ async function renderPbCard(host) {
         <button id="pb-discard-btn" class="c-btn c-btn--ghost" style="color:#525252">
           <span>${escapeHtml(t('home.pb.legacy.discard'))}</span>
         </button>
-        <a href="${escapeHtml(PB_URL)}/_/" target="_blank" class="c-link text-sm ml-auto inline-flex items-center gap-1.5">${escapeHtml(t('home.pb.legacy.open_admin'))} ${icon('externalLink', { size: 12 })}</a>
+        ${isSuperAdmin ? `<a href="${escapeHtml(PB_URL)}/_/" target="_blank" class="c-link text-sm ml-auto inline-flex items-center gap-1.5">${escapeHtml(t('home.pb.legacy.open_admin'))} ${icon('externalLink', { size: 12 })}</a>` : ''}
       </div>
       <div id="pb-progress" class="mt-4 hidden">
         <div class="text-xs text-ink-700 font-mono uppercase tracking-[0.06em]" id="pb-progress-text">…</div>

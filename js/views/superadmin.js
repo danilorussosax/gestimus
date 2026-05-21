@@ -157,8 +157,24 @@ function enteCardHtml(ente, healthy = null, hasAdmin = null) {
     sospeso: icon('warning', { size: 12 }),
     archiviato: icon('package', { size: 12 }),
   };
-  const adminUrl = `http://${ente.dominio || 'localhost:8000'}/?pb=http://127.0.0.1:${ente.porta_pb}`;
-  const adminUiUrl = `http://127.0.0.1:${ente.porta_pb}/_/`;
+  // Costruisco l'URL dell'app del tenant inferendo proto/porta dal SUO stesso
+  // ambiente (la piattaforma corrente): in dev locale `platform.test:8000` →
+  // tenant gira a `<dominio>:8000`. In produzione `platform.gestimus.it` →
+  // tenant gira a `https://<dominio>` (porta 443 default, no parametro `?pb=`).
+  // Il reverse-proxy (Caddy locale o nginx prod) si occupa di mappare /api/* al PB.
+  const proto = window.location.protocol;            // 'http:' | 'https:'
+  const platformHost = window.location.host;          // 'platform.test:8000' o 'platform.gestimus.it'
+  const platformPort = platformHost.split(':')[1] || '';
+  const portSuffix = platformPort && platformPort !== '80' && platformPort !== '443'
+    ? `:${platformPort}` : '';
+  const adminUrl = ente.dominio
+    ? `${proto}//${ente.dominio}${portSuffix}/`
+    : `http://127.0.0.1:${ente.porta_pb}/`;
+  // L'admin UI di PB resta sempre sulla porta interna (utile in dev; in prod
+  // passa per nginx come /_/ via subdomain → meglio usare anche qui il dominio).
+  const adminUiUrl = ente.dominio
+    ? `${proto}//${ente.dominio}${portSuffix}/_/`
+    : `http://127.0.0.1:${ente.porta_pb}/_/`;
   const hasStats = ente.num_concorsi != null;
   const lastRefresh = ente.ultimo_refresh
     ? new Date(ente.ultimo_refresh).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })
