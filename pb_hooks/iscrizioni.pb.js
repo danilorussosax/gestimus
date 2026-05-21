@@ -7,6 +7,133 @@
 // inline come fatto qui per semplicità.
 
 // ============================================================================
+// 0) PRIMA di create: hardening server-side del payload.
+//    - rate-limit per IP (anti-spam form pubblico)
+//    - honeypot anti-bot + min-time-on-page
+//    - forza stato='pending' (no auto-approve via client malevolo)
+//    - rigenera token_verifica server-side (no token client-controlled)
+//    - azzera campi gestiti solo da admin (approved_*, candidato, verified_at, ecc.)
+//    - verifica consensi obbligatori === true
+//    - verifica concorso ATTIVO + iscrizioni_aperte + entro scadenza
+//    - se minore (< 16 anni: soglia GDPR Art. 8 IT/EU), esige tutore_*
+// ============================================================================
+
+// Map<ip, number[]> con timestamp delle iscrizioni recenti per IP.
+// Persistente nel runtime Goja del file (PB esegue un singolo runtime per hook file).
+// Reset al riavvio del processo — accettabile per anti-spam basico.
+const __isc_rate = {};
+function __isc_rateCheck(ip) {
+  const now = Date.now();
+  const HOUR = 60 * 60 * 1000;
+  const DAY  = 24 * HOUR;
+  const arr = (__isc_rate[ip] || []).filter(t => now - t < DAY);
+  const lastHour = arr.filter(t => now - t < HOUR).length;
+  if (lastHour >= 3) return { ok: false, retry: HOUR };
+  if (arr.length >= 10) return { ok: false, retry: DAY };
+  arr.push(now);
+  __isc_rate[ip] = arr;
+  // Cleanup periodico per evitare memory leak (max ~2000 IP).
+  const keys = Object.keys(__isc_rate);
+  if (keys.length > 2000) {
+    for (const k of keys) {
+      if (!__isc_rate[k].some(t => now - t < DAY)) delete __isc_rate[k];
+    }
+  }
+  return { ok: true };
+}
+
+onRecordBeforeCreateRequest((e) => {
+  const rec = e.record;
+
+  // 0a) Rate-limit per IP + honeypot + min-time-on-page.
+  let ip = 'unknown';
+  let raw = {};
+  try { ip = e.httpContext.realIP() || 'unknown'; } catch (err) {}
+  try { raw = $apis.requestInfo(e.httpContext).data || {}; } catch (err) {}
+
+  // Honeypot: campo `website` deve essere vuoto. Se valorizzato, è un bot.
+  if (raw.website) {
+    throw new BadRequestError('Richiesta rifiutata (validazione anti-spam).');
+  }
+  // Min time-on-page: 5 secondi tra apertura form e submit.
+  const startedAt = Number(raw._form_started_at) || 0;
+  if (startedAt > 0 && (Date.now() - startedAt) < 5000) {
+    throw new BadRequestError('Form compilato troppo velocemente. Riprova.');
+  }
+  // Quota IP.
+  const rl = __isc_rateCheck(ip);
+  if (!rl.ok) {
+    throw new BadRequestError('Troppe iscrizioni da questo IP. Riprova più tardi.');
+  }
+
+  // 1) Campi controllati solo dal server: ignorare qualunque valore inviato.
+  rec.set('stato', 'pending');
+  rec.set('approved_at', null);
+  rec.set('approved_by', null);
+  rec.set('candidato', null);
+  rec.set('verified_at', null);
+  rec.set('rejected_reason', '');
+  rec.set('note_admin', '');
+  // Token sempre rigenerato server-side con entropia crittografica.
+  rec.set('token_verifica', $security.randomString(40));
+
+  // 2) Consensi obbligatori GDPR — devono essere true booleano.
+  if (rec.get('consenso_privacy') !== true) {
+    throw new BadRequestError('Consenso privacy obbligatorio.');
+  }
+  if (rec.get('consenso_regolamento') !== true) {
+    throw new BadRequestError('Accettazione del regolamento obbligatoria.');
+  }
+
+  // 3) Concorso esiste, ATTIVO e iscrizioni aperte e non scadute.
+  const concorsoId = rec.get('concorso');
+  if (!concorsoId) throw new BadRequestError('Concorso mancante.');
+  let conc;
+  try {
+    conc = $app.dao().findRecordById('concorsi', concorsoId);
+  } catch (err) {
+    throw new BadRequestError('Concorso non trovato.');
+  }
+  if (conc.get('stato') !== 'ATTIVO') {
+    throw new BadRequestError('Il concorso non accetta iscrizioni.');
+  }
+  if (conc.get('iscrizioni_aperte') !== true) {
+    throw new BadRequestError('Le iscrizioni a questo concorso sono chiuse.');
+  }
+  const chiusura = conc.get('iscrizioni_chiusura');
+  if (chiusura) {
+    const dt = new Date(String(chiusura));
+    if (!isNaN(dt.getTime()) && dt.getTime() < Date.now()) {
+      throw new BadRequestError('Le iscrizioni sono scadute.');
+    }
+  }
+
+  // 4) Minorenne (< 16 anni alla data corrente, soglia GDPR Art. 8 IT 14a/EU 16a):
+  //    richiede dati tutore obbligatori. Usiamo 16 come prudenza.
+  try {
+    const dn = rec.get('data_nascita');
+    if (dn) {
+      const nato = new Date(String(dn));
+      if (!isNaN(nato.getTime())) {
+        const ageMs = Date.now() - nato.getTime();
+        const ageYears = ageMs / (1000 * 60 * 60 * 24 * 365.25);
+        if (ageYears < 16) {
+          const tNome = String(rec.get('tutore_nome') || '').trim();
+          const tCog  = String(rec.get('tutore_cognome') || '').trim();
+          const tMail = String(rec.get('tutore_email') || '').trim();
+          if (!tNome || !tCog || !tMail || tMail.indexOf('@') === -1) {
+            throw new BadRequestError('Per candidati minorenni i dati del tutore (nome, cognome, email) sono obbligatori.');
+          }
+        }
+      }
+    }
+  } catch (err) {
+    if (err && err.message && err.message.indexOf('tutore') !== -1) throw err;
+    // altri errori di parsing data: lasciar passare allo schema validator
+  }
+}, 'iscrizioni');
+
+// ============================================================================
 // 1) Dopo create: invia email "iscrizione ricevuta" al partecipante.
 // ============================================================================
 onModelAfterCreate((e) => {

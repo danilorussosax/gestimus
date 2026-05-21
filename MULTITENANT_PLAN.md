@@ -533,6 +533,8 @@ File: aggiornare `js/views/commissario.js`
 
 ## FASE 4 — Hardening produzione (2-3 giorni)
 
+> **Stato**: l'hardening descritto sotto è **già applicato** dalle migration `1700000022` (lockdown_v1), `1700000025` (security_lockdown_v2), `1700000036` (accounts createRule chiusa), `1700000037` (audit_log append-only) e `1700000038` (valutazioni unique + own-commissario rule). Hook server-side correlati: `pb_hooks/accounts.pb.js`, `pb_hooks/valutazioni.pb.js`, `pb_hooks/iscrizioni.pb.js`, `pb_hooks/tenants.pb.js`. Questo capitolo va letto come **mappa di cosa c'è**, non come TODO.
+
 ### 4.1 Restringere le regole di accesso PB
 
 Le collection attuali hanno regole aperte (`""`). Per produzione multitenant, servono regole più strette:
@@ -602,12 +604,39 @@ done
 echo "✓ All tenants restarted"
 ```
 
-**Deliverable Fase 4**:
-- [ ] Migration che restringe le regole di accesso
-- [ ] Login obbligato nel frontend
-- [ ] Health check script
-- [ ] Rolling restart script
-- [ ] CORS rimossa / configurata per same-origin
+**Deliverable Fase 4** (✅ = fatto in repo):
+- [x] Migration che restringe le regole di accesso (`1700000022`, `1700000025`)
+- [x] Login obbligato nel frontend
+- [x] Health check + rolling restart script (`scripts/rolling-restart.sh`)
+- [x] CORS rimossa / same-origin via nginx
+- [x] **Anti privilege-escalation**: `accounts.createRule=null` (`1700000036`) + hook `accounts.pb.js` blocca self-promote `role/attivo/email`
+- [x] **audit_log append-only**: `1700000037` (delete=null, create solo auth)
+- [x] **valutazioni hardening**: `1700000038` (unique `(candidato_fase,commissario,criterio)` + own-commissario rule) + hook `valutazioni.pb.js` (clamp voto + freeze su CONCLUSA)
+- [x] **iscrizioni anti-spam**: hook con rate-limit IP (3/h, 10/giorno) + honeypot + min-time-on-page + validazione consensi GDPR + minore→tutore + scadenza concorso
+- [x] **SMTP password cifrate**: hook `tenants.pb.js` con `$security.encrypt(val, GESTIMUS_SECRET_KEY)` + endpoint `POST /api/admin/tenants/:id/smtp-decrypt`
+- [x] **CSV anti formula-injection**: `js/views/admin.js` (`csvField` prefissa `'` per `=+-@\t\r`)
+- [x] **Admin UI `/_/` ristretta**: solo localhost di default (`deploy/Caddyfile`, `deploy/nginx-tenant.conf.template`)
+- [x] **Rate-limit nginx**: zone `iscrizioni_rl`/`auth_rl` in `deploy/nginx-snippet-rl.conf`
+
+### 4.6 Sicurezza dell'admin UI PocketBase (`/_/`)
+
+Di default, `/_/` di ogni tenant è raggiungibile solo da `127.0.0.1`. Reverse-proxy config:
+- **nginx**: `deploy/nginx-tenant.conf.template` ha due `location` separate per `/_/` e `/api/`. La prima ha `allow 127.0.0.1; deny all;` + placeholder `__ADMIN_ALLOW__` che `provision-tenant.sh` sostituisce con `allow ...;` se viene passato `ADMIN_ALLOW_IPS=...`.
+- **Caddy**: snippet `(pb_routes)` in `deploy/Caddyfile` con matcher `remote_ip`.
+
+Per accedere all'admin UI in produzione:
+1. **SSH tunnel** (raccomandato): `ssh -L 8091:127.0.0.1:8091 user@server` → `http://localhost:8091/_/`.
+2. **Allowlist IP statico**: `ADMIN_ALLOW_IPS="1.2.3.4" sudo -E ./scripts/provision-tenant.sh <slug>`.
+
+### 4.7 Cifratura SMTP password
+
+L'hook `pb_hooks/tenants.pb.js`:
+- Su `beforeCreateRequest`/`beforeUpdateRequest` cifra `smtp_password` se non già cifrata (prefisso `enc:v1:`).
+- Usa `$security.encrypt(plain, $os.getenv('GESTIMUS_SECRET_KEY'))` (AES-256-GCM).
+- Espone `POST /api/admin/tenants/:id/smtp-decrypt` (solo superadmin) — `scripts/apply-ente-smtp.sh` lo chiama prima di propagare al PB del tenant.
+- Se la chiave manca, **non blocca** il save ma logga warning (compat con tenant esistenti). Per migrare le password legacy: `node scripts/encrypt-existing-smtp.mjs`.
+
+La UI super-admin (`js/views/superadmin.js`) mostra `••••••••` se esiste già una password e invia il campo solo se l'utente lo modifica (`autocomplete=new-password`).
 
 ---
 

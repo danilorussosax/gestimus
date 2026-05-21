@@ -22,12 +22,35 @@
     }
 }
 
+# Snippet per gestire /_/ (admin UI di PocketBase): permesso solo da localhost.
+# Per autorizzare uno o più IP esterni, sostituire il matcher con i propri IP/range
+# (es. `remote_ip 1.2.3.4 192.168.1.0/24 127.0.0.1`) o usare una VPN.
+(pb_routes) {
+    @admin_ui path /_/*
+    @admin_ui_allowed {
+        path /_/*
+        remote_ip 127.0.0.1 ::1
+    }
+    @api path /api/*
+
+    # /_/  → reverse_proxy solo per IP autorizzati, altrimenti 403.
+    handle @admin_ui {
+        handle @admin_ui_allowed {
+            reverse_proxy {args[0]}
+        }
+        respond "Admin UI disabled on this host" 403
+    }
+    # /api/ → proxy pubblico (richiesto per il client + form pubblico iscrizioni).
+    handle @api {
+        reverse_proxy {args[0]}
+    }
+}
+
 # --- Tenant: conservatorio-milano ---
 conservatorio-milano.concorso.app {
     tls { on_demand }
     root * /var/www/gestionale
-    @api path /api/* /_/*
-    reverse_proxy @api localhost:8091
+    import pb_routes localhost:8091
     file_server
 }
 
@@ -35,15 +58,13 @@ conservatorio-milano.concorso.app {
 # associazione-berchielli.concorso.app {
 #     tls { on_demand }
 #     root * /var/www/gestionale
-#     @api path /api/* /_/*
-#     reverse_proxy @api localhost:8092
+#     import pb_routes localhost:8092
 #     file_server
 # }
 
 # --- Sviluppo locale (opzionale) ---
 # localhost:8000 {
 #     root * /var/www/gestionale
-#     @api path /api/* /_/*
-#     reverse_proxy @api localhost:8090
+#     import pb_routes localhost:8090
 #     file_server
 # }

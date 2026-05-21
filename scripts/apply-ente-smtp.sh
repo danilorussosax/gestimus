@@ -73,7 +73,22 @@ for i in $(seq 0 $((COUNT - 1))); do
     HOST=$(echo "$ENTI_RESP" | jq -r ".items[$i].smtp_host // \"\"")
     PORT=$(echo "$ENTI_RESP" | jq -r ".items[$i].smtp_port // 587")
     USERNAME=$(echo "$ENTI_RESP" | jq -r ".items[$i].smtp_username // \"\"")
-    PASSWORD=$(echo "$ENTI_RESP" | jq -r ".items[$i].smtp_password // \"\"")
+    # Password cifrata at-rest in DB; chiama endpoint decrypt (richiede superadmin auth).
+    RAW_PASSWORD=$(echo "$ENTI_RESP" | jq -r ".items[$i].smtp_password // \"\"")
+    if [[ "$RAW_PASSWORD" == enc:v1:* ]]; then
+        DEC_RESP=$(curl -fsS -X POST "${PLATFORM_URL}/api/admin/tenants/$ID/smtp-decrypt" \
+            -H "Authorization: Bearer $SA_TOKEN" \
+            -H "Content-Type: application/json" \
+            -d '{}' 2>/dev/null || true)
+        PASSWORD=$(echo "$DEC_RESP" | jq -r '.smtp_password // ""')
+        if [ -z "$PASSWORD" ]; then
+            echo "    ✗ Decrypt SMTP password fallito per $SLUG (chiave GESTIMUS_SECRET_KEY mancante sul PB platform?)"
+            KO=$((KO + 1))
+            continue
+        fi
+    else
+        PASSWORD="$RAW_PASSWORD"
+    fi
     TLS=$(echo "$ENTI_RESP" | jq -r ".items[$i].smtp_tls // \"starttls\"")
     SENDER_ADDR=$(echo "$ENTI_RESP" | jq -r ".items[$i].sender_address // \"\"")
     SENDER_NAME=$(echo "$ENTI_RESP" | jq -r ".items[$i].sender_name // \"\"")

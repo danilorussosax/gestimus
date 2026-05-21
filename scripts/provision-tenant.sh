@@ -129,6 +129,11 @@ else
 fi
 
 # 6. Reverse-proxy: preferisci nginx (se installato), altrimenti fallback Caddy
+#
+# Sicurezza: la admin UI di PocketBase (/_/*) viene esposta SOLO a localhost di default.
+# Per consentire l'accesso da remoto, esportare ADMIN_ALLOW_IPS prima dello script:
+#   ADMIN_ALLOW_IPS="1.2.3.4,5.6.7.0/24" ./scripts/provision-tenant.sh <slug>
+# (Caddy: usare un blocco con `remote_ip` o VPN. Per nginx il template viene patchato qui sotto.)
 NGINX_TEMPLATE="$(dirname "$(readlink -f "$0")")/../deploy/nginx-tenant.conf.template"
 if command -v nginx >/dev/null 2>&1 && [ -f "$NGINX_TEMPLATE" ]; then
     echo ""
@@ -138,15 +143,39 @@ if command -v nginx >/dev/null 2>&1 && [ -f "$NGINX_TEMPLATE" ]; then
     DOMAIN_ROOT=$(echo "$DOMAIN" | awk -F. '{ if (NF > 2) print $(NF-1)"."$NF; else print $0 }')
     NGINX_CONF="/etc/nginx/sites-available/${SLUG}.conf"
     NGINX_LINK="/etc/nginx/sites-enabled/${SLUG}.conf"
+
+    # Costruisci le righe `allow` per la admin UI partendo da ADMIN_ALLOW_IPS (CSV).
+    ADMIN_ALLOW_BLOCK=""
+    if [ -n "${ADMIN_ALLOW_IPS:-}" ]; then
+        IFS=',' read -ra IPS <<< "${ADMIN_ALLOW_IPS}"
+        for ip in "${IPS[@]}"; do
+            ip_trim=$(echo "$ip" | xargs)
+            [ -n "$ip_trim" ] && ADMIN_ALLOW_BLOCK="${ADMIN_ALLOW_BLOCK}        allow ${ip_trim};"$'\n'
+        done
+    fi
+
     sed -e "s|__DOMAIN__|${DOMAIN}|g" \
         -e "s|__DOMAIN_ROOT__|${DOMAIN_ROOT}|g" \
         -e "s|__PORT__|${PORT}|g" \
         -e "s|__WWWDIR__|${WWW_DIR}|g" \
         "$NGINX_TEMPLATE" > "$NGINX_CONF"
+    # Sostituisci il placeholder __ADMIN_ALLOW__ (può essere multiline).
+    if [ -n "$ADMIN_ALLOW_BLOCK" ]; then
+        # Awk gestisce meglio multiline rispetto a sed
+        awk -v repl="$ADMIN_ALLOW_BLOCK" '{gsub(/__ADMIN_ALLOW__/, repl); print}' "$NGINX_CONF" > "${NGINX_CONF}.tmp" && mv "${NGINX_CONF}.tmp" "$NGINX_CONF"
+    else
+        sed -i 's|__ADMIN_ALLOW__||g' "$NGINX_CONF"
+    fi
+
     ln -sf "$NGINX_CONF" "$NGINX_LINK"
     if nginx -t 2>/dev/null; then
         systemctl reload nginx
         echo "  ✓ nginx ricaricato"
+        if [ -n "${ADMIN_ALLOW_IPS:-}" ]; then
+            echo "  ℹ admin UI /_/ accessibile da: localhost + ${ADMIN_ALLOW_IPS}"
+        else
+            echo "  ℹ admin UI /_/ accessibile SOLO da localhost (usa ssh tunnel o ADMIN_ALLOW_IPS)"
+        fi
     else
         echo "  ⚠ Configurazione nginx non valida. Controlla con: nginx -t"
     fi
@@ -154,12 +183,13 @@ elif command -v caddy >/dev/null 2>&1; then
     echo ""
     echo "→ Aggiungo blocco Caddy per ${DOMAIN}..."
     mkdir -p "${CADDY_DIR}"
+    # Default: /_/ accessibile solo da localhost. Per allowlist remota, modificare
+    # il matcher @admin_ui_allowed nel snippet (pb_routes) del Caddyfile globale.
     cat > "${CADDY_DIR}/${SLUG}.conf" <<EOF
 ${DOMAIN} {
     tls { on_demand }
     root * ${WWW_DIR}
-    @api path /api/* /_/*
-    reverse_proxy @api localhost:${PORT}
+    import pb_routes localhost:${PORT}
     file_server
 }
 EOF

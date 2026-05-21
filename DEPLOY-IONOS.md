@@ -86,6 +86,8 @@ Lo script (~3-5 min):
 - Scarica PocketBase v0.22.27 in `/srv/pb/`
 - Installa systemd template `pb@.service`
 - Prepara `/srv/pb/{data,pb_migrations,pb_hooks,archive}` + `/etc/pb`
+- Genera **`GESTIMUS_SECRET_KEY`** (32 byte hex via `openssl rand -hex 32`) in `/etc/pb/platform.env` — usata da `pb_hooks/tenants.pb.js` per cifrare le SMTP password dei tenant. **Salvala in un password manager**: cambiarla rende illeggibili le password cifrate precedentemente.
+- Installa lo snippet rate-limit nginx (`deploy/nginx-snippet-rl.conf` → `/etc/nginx/conf.d/gestimus-rl.conf`): zone `iscrizioni_rl` (5r/min) e `auth_rl` (10r/min).
 
 ## Step 4 — Credenziali IONOS
 
@@ -157,7 +159,22 @@ Per ogni cliente assegna uno **slug univoco** (ASCII minuscolo, no spazi):
 sudo /opt/gestimus/scripts/provision-tenant.sh liceo-musicale-milano
 ```
 
-Risultato: `https://liceo-musicale-milano.gestimus.it`. La porta è auto-assegnata (prima libera dal 8091).
+Risultato: `https://liceo-musicale-milano.gestimus.it`. La porta è auto-assegnata (prima libera dal 8091). Per default la **admin UI** (`/_/`) del PocketBase del tenant è raggiungibile solo da `127.0.0.1`.
+
+### Aprire `/_/` a IP specifici (ufficio, VPN)
+
+```bash
+ADMIN_ALLOW_IPS="1.2.3.4,5.6.7.0/24" \
+  sudo -E /opt/gestimus/scripts/provision-tenant.sh liceo-musicale-milano
+```
+
+### Accesso temporaneo via SSH tunnel (consigliato)
+
+```bash
+# Sul tuo laptop (porta locale 8091 → porta remota 8091 del PB del tenant):
+ssh -L 8091:127.0.0.1:8091 gestimus@<IP-VPS>
+# Apri: http://localhost:8091/_/
+```
 
 > **Tip**: l'admin dell'ente può anche essere creato DOPO via super admin → "Gestione Enti" → icona chiave 🔓 sulla card. È più rapido se hai molti enti da provisionare in serie senza interagire con il prompt password.
 
@@ -168,7 +185,7 @@ Risultato: `https://liceo-musicale-milano.gestimus.it`. La porta è auto-assegna
 | `https://platform.gestimus.it` | Login super admin → Gestione Enti |
 | `https://liceo-musicale-milano.gestimus.it` | Login admin dell'ente |
 | `https://liceo-musicale-milano.gestimus.it/#/iscrizione` | Form iscrizione pubblico (se il concorso è aperto) |
-| `https://liceo-musicale-milano.gestimus.it/_/` | UI admin PocketBase (per debug) |
+| `https://liceo-musicale-milano.gestimus.it/_/` | UI admin PocketBase — **403** se non sei in allowlist (atteso: usa SSH tunnel) |
 
 ## Comandi quotidiani
 
@@ -202,7 +219,19 @@ ENTE_ADMIN_PWD="<password admin di quell'ente>" \
 sudo -E -u gestimus /opt/gestimus/scripts/apply-ente-smtp.sh liceo-musicale-milano
 ```
 
-(Le variabili `PLATFORM_URL`, `SUPERADMIN_EMAIL` arrivano da `gestimus.env`.)
+(Le variabili `PLATFORM_URL`, `SUPERADMIN_EMAIL` arrivano da `gestimus.env`. Lo script ora rileva automaticamente le password cifrate con prefisso `enc:v1:` e chiama `POST /api/admin/tenants/:id/smtp-decrypt` per ottenerle in chiaro prima di propagarle al PB del tenant — richiede che il PB platform abbia `GESTIMUS_SECRET_KEY` impostata.)
+
+### Migrare le SMTP password legacy (in chiaro → cifrate)
+
+Se l'aggiornamento è stato fatto su un'istanza con SMTP password già configurate in chiaro, lanciale una volta per cifrarle retroattivamente:
+
+```bash
+source /opt/gestimus/deploy/gestimus.env
+SUPERADMIN_PWD="<password>" \
+sudo -E -u gestimus node /opt/gestimus/scripts/encrypt-existing-smtp.mjs
+```
+
+Lo script è idempotente: rilegge ogni tenant, riscrive il campo `smtp_password` e l'hook `pb_hooks/tenants.pb.js` lo cifra at-rest (`enc:v1:...`). I record già cifrati vengono saltati. Se `GESTIMUS_SECRET_KEY` non è impostata sul PB platform, lo script segnala "NON cifrata" e esce con codice 2.
 
 ### Rimuovere un ente
 ```bash
@@ -246,6 +275,12 @@ sudo /opt/gestimus/scripts/backup-all-tenants.sh
    sudo dpkg-reconfigure -plow unattended-upgrades
    ```
 4. **Backup off-site**: pianifica `backup-all-tenants.sh` con `restic` puntato a S3/B2
+5. **Admin UI PocketBase**: di default `/_/` è raggiungibile solo da `localhost`. Non aprirla a `0.0.0.0` — usa `ADMIN_ALLOW_IPS` o SSH tunnel (vedi Step 8).
+6. **Chiave cifratura SMTP**: `/etc/pb/platform.env` contiene `GESTIMUS_SECRET_KEY`. Backup-la in password manager. Se la cambi, le SMTP password salvate prima del cambio diventano illeggibili — re-inseriscile dal pannello super admin e propagale.
+7. **Rate-limit pubblico**: le iscrizioni hanno doppio livello:
+   - **Applicativo** (`pb_hooks/iscrizioni.pb.js`): 3/IP/ora, 10/IP/giorno + honeypot + min-time-on-page.
+   - **nginx** (`/etc/nginx/conf.d/gestimus-rl.conf`): zone `iscrizioni_rl` (5r/min) — per attivare, decommenta `limit_req zone=iscrizioni_rl burst=5 nodelay;` in `nginx-tenant.conf.template` e rigenera la conf del tenant.
+8. **Audit log immutabile**: dalla migration `1700000037`, nessun admin (compresi quelli del tenant) può cancellare record da `audit_log`. Retention via job esterno.
 
 ## Costo annuo per `gestimus.it`
 
@@ -280,13 +315,16 @@ Con 20 enti sul VPS L+ a regime: **€5,40/ente/anno (lordo)** — confronta con
 
 ## File di riferimento del repo
 
-- `deploy/gestimus.env` — configurazione dominio (sourceabile)
+- `deploy/gestimus.env` — configurazione dominio + hint `GESTIMUS_SECRET_KEY`
 - `deploy/pb@.service` — systemd unit
-- `deploy/nginx-tenant.conf.template` — template config nginx
-- `scripts/setup-server.sh` — provisioning VPS
-- `scripts/provision-tenant.sh` — provisioning ente
+- `deploy/nginx-tenant.conf.template` — template config nginx (con `__ADMIN_ALLOW__` placeholder)
+- `deploy/nginx-snippet-rl.conf` — zone rate-limit nginx (installato in `/etc/nginx/conf.d/`)
+- `deploy/Caddyfile` — snippet `(pb_routes)` con `/_/` IP-restricted
+- `scripts/setup-server.sh` — provisioning VPS (genera `GESTIMUS_SECRET_KEY`, installa snippet rate-limit)
+- `scripts/provision-tenant.sh` — provisioning ente (opt `ADMIN_ALLOW_IPS`)
 - `scripts/remove-tenant.sh` — rimozione ente
-- `scripts/apply-ente-smtp.sh` — propagazione SMTP
+- `scripts/apply-ente-smtp.sh` — propagazione SMTP (con decrypt automatico)
+- `scripts/encrypt-existing-smtp.mjs` — migra SMTP password legacy → cifrate
 - `scripts/rolling-restart.sh` — restart sequenziale post-update
 - `scripts/backup-all-tenants.sh` — backup restic
 

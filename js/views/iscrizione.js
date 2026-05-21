@@ -134,7 +134,16 @@ function renderForm(root, state) {
         <p class="text-xs text-emerald-900 leading-snug flex-1">I tuoi dati sono trattati nel rispetto del GDPR. <a href="#/privacy" class="font-bold underline">Leggi l'informativa →</a></p>
       </div>
 
-      <form id="frm-iscrizione" class="space-y-6">
+      <form id="frm-iscrizione" class="space-y-6" autocomplete="off">
+
+        <!-- Anti-bot: honeypot invisibile per utenti reali (non per bot che riempiono tutti i campi).
+             aria-hidden + tabindex=-1 + posizionamento off-screen via inline style. -->
+        <div aria-hidden="true" style="position:absolute;left:-10000px;top:auto;width:1px;height:1px;overflow:hidden;">
+          <label>Lascia vuoto questo campo
+            <input type="text" name="website" tabindex="-1" autocomplete="off" />
+          </label>
+        </div>
+        <input type="hidden" name="_form_started_at" value="${Date.now()}" />
 
         ${sectionHeader('1', 'Dati anagrafici', 'I tuoi dati personali per certificati e diplomi.')}
         <div class="bg-white border border-slate-200 rounded-3xl shadow-soft p-6" data-sec="anagrafica">
@@ -567,12 +576,17 @@ async function submit(root, state) {
   if (btn) { btn.disabled = true; btn.querySelector('span').textContent = 'Invio in corso…'; }
 
   try {
+    const form = root.querySelector('#frm-iscrizione');
+    const honeypot = form?.querySelector('[name="website"]')?.value || '';
+    const formStartedAt = Number(form?.querySelector('[name="_form_started_at"]')?.value) || 0;
     const payload = {
       concorso: state.concorso.id,
       ...d,
       programma: (d.programma || []).filter(p => p.titolo),
       durata_totale_min: (d.programma || []).reduce((s, p) => s + (Number(p.durata_min) || 0), 0),
       gruppo_membri: d.tipo === 'gruppo' ? (d.gruppo_membri || []).filter(m => m.nome) : null,
+      website: honeypot,
+      _form_started_at: formStartedAt,
     };
     const { id } = await db.createIscrizione(payload);
     clearDraft();

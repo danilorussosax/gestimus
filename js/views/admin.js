@@ -2498,6 +2498,79 @@ function renderSezioni(root, concorso) {
       }
     });
   }));
+  root.querySelectorAll('[data-copy-cats-from]').forEach(b => b.addEventListener('click', () => {
+    openCopyCategorieModal(concorso, b.dataset.copyCatsFrom, () => renderSezioni(root, concorso));
+  }));
+}
+
+// Modale: copia le categorie di una sezione sorgente in una o più sezioni destinazione.
+function openCopyCategorieModal(concorso, fromSezioneId, onSaved) {
+  const fromSez = db.state.sezioni.find(s => s.id === fromSezioneId);
+  if (!fromSez) return;
+  const fromCats = db.categorieBySezione(fromSezioneId);
+  const otherSezioni = db.sezioniByConcorso(concorso.id).filter(s => s.id !== fromSezioneId);
+
+  if (otherSezioni.length === 0) {
+    toast('Non ci sono altre sezioni in cui copiare le categorie.', 'warn');
+    return;
+  }
+
+  modal({
+    title: `Copia categorie da “${fromSez.nome}”`,
+    contentHtml: `
+      <div class="space-y-4">
+        <div class="bg-slate-50 border border-slate-200 rounded-xl p-3">
+          <p class="text-xs font-semibold text-slate-600 mb-1.5">Categorie che verranno copiate (${fromCats.length}):</p>
+          <ul class="text-sm text-slate-800 space-y-0.5">
+            ${fromCats.map(c => `<li>· ${escapeHtml(c.nome)}${c.descrizione ? ` <span class="text-xs text-slate-500">(${escapeHtml(c.descrizione)})</span>` : ''}</li>`).join('')}
+          </ul>
+        </div>
+        <fieldset>
+          <legend class="text-sm font-semibold text-slate-800 mb-2">Sezioni destinazione</legend>
+          <div class="space-y-1.5 max-h-64 overflow-y-auto pr-1">
+            ${otherSezioni.map(s => {
+              const existingCats = db.categorieBySezione(s.id).length;
+              return `
+                <label class="flex items-start gap-2 p-2 rounded-lg hover:bg-slate-50 cursor-pointer">
+                  <input type="checkbox" name="dest" value="${s.id}" class="mt-0.5" />
+                  <span class="min-w-0 flex-1">
+                    <span class="font-medium text-slate-800">${escapeHtml(s.nome)}</span>
+                    <span class="text-[11px] text-slate-500 ml-1">(${existingCats} categori${existingCats === 1 ? 'a' : 'e'})</span>
+                  </span>
+                </label>
+              `;
+            }).join('')}
+          </div>
+        </fieldset>
+        <label class="flex items-center gap-2 text-sm text-slate-700">
+          <input type="checkbox" name="skipDup" checked />
+          <span>Salta categorie con nome già presente nella destinazione</span>
+        </label>
+      </div>
+    `,
+    primaryLabel: 'Copia categorie',
+    onPrimary: async (body) => {
+      const destIds = Array.from(body.querySelectorAll('[name="dest"]:checked')).map(el => el.value);
+      if (destIds.length === 0) {
+        toast('Seleziona almeno una sezione destinazione.', 'error');
+        return false;
+      }
+      const skipDup = body.querySelector('[name="skipDup"]').checked;
+      try {
+        const r = await db.copyCategorieToSezioni({
+          from_sezione_id: fromSezioneId,
+          to_sezioni_ids: destIds,
+          skipDuplicates: skipDup,
+        });
+        const msg = `${r.created} categori${r.created === 1 ? 'a copiata' : 'e copiate'}` + (r.skipped > 0 ? `, ${r.skipped} saltat${r.skipped === 1 ? 'a' : 'e'} (duplicate)` : '');
+        toast(msg, 'success');
+        if (typeof onSaved === 'function') onSaved();
+      } catch (e) {
+        toast(e.message || 'Errore copia categorie', 'error');
+        return false;
+      }
+    },
+  });
 }
 
 function sezioneCardHtml(s) {
@@ -2536,7 +2609,10 @@ function sezioneCardHtml(s) {
             `).join('')}
           </ul>
         `}
-        <button data-add-cat="${s.id}" class="text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1.5">${icon('plus', { size: 14 })}<span>${escapeHtml(t('admin.sezioni.add_cat'))}</span></button>
+        <div class="flex flex-wrap items-center gap-2">
+          <button data-add-cat="${s.id}" class="text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1.5">${icon('plus', { size: 14 })}<span>${escapeHtml(t('admin.sezioni.add_cat'))}</span></button>
+          ${cats.length > 0 ? `<button data-copy-cats-from="${s.id}" class="text-xs font-semibold text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1.5" title="Copia queste categorie in altre sezioni">${icon('copy', { size: 14 })}<span>Copia in…</span></button>` : ''}
+        </div>
       </div>
     </li>
   `;
@@ -3047,8 +3123,14 @@ function openIscrizioneDetail(isc, concorso, onChanged) {
 }
 
 // Export CSV — file RFC 4180 con BOM UTF-8 per Excel.
+// Anti formula-injection: i valori che iniziano con =, +, -, @, TAB, CR vengono
+// prefissati con apostrofo perché Excel/LibreOffice li interpreterebbe come formule.
 function exportIscrizioniCsv(items, concorso) {
-  const csvField = (v) => `"${String(v ?? '').replaceAll('"', '""')}"`;
+  const csvField = (v) => {
+    let s = String(v ?? '');
+    if (s.length && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
+    return `"${s.replaceAll('"', '""')}"`;
+  };
   const header = ['Data', 'Stato', 'Nome', 'Cognome', 'Email', 'Telefono', 'Data nascita', 'Luogo nascita', 'Nazionalità', 'Sesso', 'Strumento', 'Tipo', 'Gruppo', 'Anni studio', 'Scuola', 'Brani', 'Durata tot', 'Indirizzo', 'Città', 'CAP', 'Provincia'];
   const lines = [header.map(csvField).join(',')];
   for (const i of items) {
@@ -3501,8 +3583,12 @@ function buildPodio(fase, concorso) {
 }
 
 function exportCsv(concorso) {
-  // Helper: quota qualsiasi valore CSV-safe (RFC 4180).
-  const csvField = (v) => `"${String(v ?? '').replaceAll('"', '""')}"`;
+  // Helper: quota qualsiasi valore CSV-safe (RFC 4180) + protezione formula injection.
+  const csvField = (v) => {
+    let s = String(v ?? '');
+    if (s.length && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
+    return `"${s.replaceAll('"', '""')}"`;
+  };
   const fasi = db.fasiByConcorso(concorso.id);
   const lines = ['Fase,Posizione,Numero,Nome,Cognome,Strumento,Nazionalita,Eta,Media,Esito'];
   fasi.forEach(fase => {

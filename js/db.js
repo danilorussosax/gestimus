@@ -4,6 +4,7 @@
 // External shape mirrors the legacy localStorage layer so views stay simple.
 
 import { pb, pbHealthy, dataURLToBlob, fileURL, PB_URL } from './pb.js';
+import { mulberry32 } from './rng.js';
 
 const META_KEY = 'gestionale_meta_v2';
 
@@ -30,18 +31,6 @@ let initialized = false;
 const subscribers = new Set();
 export function subscribe(fn) { subscribers.add(fn); return () => subscribers.delete(fn); }
 function notify() { subscribers.forEach(fn => fn(state)); }
-
-// Seedable PRNG (mulberry32) — usato dal sorteggio ordine candidati per riproducibilità.
-function mulberry32(seed) {
-  let a = seed >>> 0;
-  return function () {
-    a = (a + 0x6D2B79F5) >>> 0;
-    let t = a;
-    t = Math.imul(t ^ (t >>> 15), t | 1);
-    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 function loadMeta() {
   try { return JSON.parse(localStorage.getItem(META_KEY) || '{}'); } catch { return {}; }
@@ -1052,6 +1041,43 @@ async riordinaCandidatiFase(faseId, idsInOrder) {
     await pb.collection('categorie').delete(id);
     await loadAll();
   },
+  // Copia le categorie di una sezione sorgente in una o più sezioni destinazione.
+  //   - skipDuplicates: true (default) → non duplica categorie con nome già presente
+  //     nella sezione destinazione (case-insensitive).
+  //   - Le categorie vengono create con ordine incrementale dopo quelle esistenti.
+  // Ritorna { created: N, skipped: N } aggregato su tutte le destinazioni.
+  async copyCategorieToSezioni({ from_sezione_id, to_sezioni_ids = [], skipDuplicates = true }) {
+    if (!from_sezione_id) throw new Error('Sezione sorgente mancante.');
+    const srcCats = state.categorie.filter(c => c.sezione_id === from_sezione_id);
+    if (srcCats.length === 0) throw new Error('La sezione sorgente non ha categorie.');
+    let created = 0, skipped = 0;
+    for (const destId of to_sezioni_ids) {
+      if (!destId || destId === from_sezione_id) continue;
+      const existingNames = new Set(
+        state.categorie.filter(c => c.sezione_id === destId).map(c => (c.nome || '').toLowerCase().trim())
+      );
+      let nextOrdine = state.categorie.filter(c => c.sezione_id === destId).length + 1;
+      for (const cat of srcCats) {
+        const key = (cat.nome || '').toLowerCase().trim();
+        if (skipDuplicates && existingNames.has(key)) { skipped++; continue; }
+        const rec = await pb.collection('categorie').create({
+          sezione: destId,
+          nome: cat.nome,
+          descrizione: cat.descrizione || '',
+          ordine: nextOrdine++,
+        });
+        state.categorie.push(mapCategoria(rec));
+        existingNames.add(key);
+        created++;
+      }
+    }
+    notify();
+    this.audit('categorie.copy', {
+      targetType: 'sezione', targetId: from_sezione_id, targetLabel: (state.sezioni.find(s => s.id === from_sezione_id)?.nome || ''),
+      payload: { from: from_sezione_id, to: to_sezioni_ids, created, skipped },
+    });
+    return { created, skipped };
+  },
 
   // ---------- Commissioni ----------
   commissioniByConcorso(concorso_id) {
@@ -1460,16 +1486,17 @@ async riordinaCandidatiFase(faseId, idsInOrder) {
     fd.append('consenso_immagini', payload.consenso_immagini ? 'true' : 'false');
     fd.append('consenso_regolamento', payload.consenso_regolamento ? 'true' : 'false');
     fd.append('stato', 'pending');
-    // Token di verifica email — usato dal link che riceverà il partecipante.
-    const token = crypto.getRandomValues(new Uint32Array(4)).join('-');
-    fd.append('token_verifica', token);
+    // Anti-bot: il backend usa questi campi per honeypot + min-time-on-page.
+    // Il token di verifica viene rigenerato server-side (vedi pb_hooks/iscrizioni.pb.js).
+    if (payload.website !== undefined) fd.append('website', String(payload.website || ''));
+    if (payload._form_started_at) fd.append('_form_started_at', String(payload._form_started_at));
 
     for (const fk of ['foto', 'documento_identita', 'ricevuta_pagamento', 'autorizzazione_minore']) {
       appendFileField(fd, fk, payload[fk], `${fk}.bin`);
     }
 
     const rec = await pb.collection('iscrizioni').create(fd);
-    return { id: rec.id, token };
+    return { id: rec.id };
   },
 
   // Lista iscrizioni del concorso attivo (admin only — la rule lato server impedisce ad altri).

@@ -138,9 +138,16 @@ systemctl daemon-reload
 
 # 10. Cartelle frontend + nginx
 mkdir -p "$WWWDIR"
-mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled
+mkdir -p /etc/nginx/sites-available /etc/nginx/sites-enabled /etc/nginx/conf.d
 # Disabilita default site
 rm -f /etc/nginx/sites-enabled/default
+# Installa snippet rate-limit (zone iscrizioni_rl, auth_rl) se non già presente.
+RL_SNIPPET_SRC="${PROJECT_SCRIPT_DIR}/../deploy/nginx-snippet-rl.conf"
+RL_SNIPPET_DST="/etc/nginx/conf.d/gestimus-rl.conf"
+if [ -f "$RL_SNIPPET_SRC" ] && [ ! -f "$RL_SNIPPET_DST" ]; then
+    echo "→ Installo snippet rate-limit nginx in $RL_SNIPPET_DST"
+    cp "$RL_SNIPPET_SRC" "$RL_SNIPPET_DST"
+fi
 systemctl enable nginx
 
 # 11. Certbot DNS-IONOS plugin: prepara directory credenziali (riempire poi a mano)
@@ -155,6 +162,20 @@ dns_ionos_secret = REPLACE_ME_SECRET
 dns_ionos_endpoint = https://api.hosting.ionos.com
 EOF
     chmod 600 /etc/letsencrypt/ionos.ini
+fi
+
+# 12. Chiave applicativa per cifratura SMTP password (pb_hooks/tenants.pb.js).
+#     Generata UNA VOLTA; cambiarla rende illeggibili le SMTP password salvate prima.
+SECRET_KEY_FILE="/etc/pb/platform.env"
+if [ ! -f "$SECRET_KEY_FILE" ] || ! grep -q '^GESTIMUS_SECRET_KEY=' "$SECRET_KEY_FILE" 2>/dev/null; then
+    SECRET_KEY=$(openssl rand -hex 32)
+    echo "→ Genero GESTIMUS_SECRET_KEY e la scrivo in $SECRET_KEY_FILE"
+    mkdir -p "$(dirname "$SECRET_KEY_FILE")"
+    echo "GESTIMUS_SECRET_KEY=${SECRET_KEY}" >> "$SECRET_KEY_FILE"
+    chmod 600 "$SECRET_KEY_FILE"
+    chown pb:pb "$SECRET_KEY_FILE"
+    echo "  ⚠ Backup la chiave in un password manager! Cambiarla rende"
+    echo "    illeggibili le SMTP password cifrate at-rest."
 fi
 
 echo ""

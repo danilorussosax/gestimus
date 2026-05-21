@@ -520,8 +520,8 @@ function showEnteSmtpModal(ente, root) {
               <input name="smtp_username" class="c-input" value="${escapeHtml(ente.smtp_username || '')}" placeholder="apikey · user · email" />
             </label>
             <label class="c-field">
-              <span class="c-field__label">Password / API key</span>
-              <input name="smtp_password" type="password" class="c-input" value="${escapeHtml(ente.smtp_password || '')}" placeholder="••••••••" />
+              <span class="c-field__label">Password / API key${ente.smtp_password ? ' <span class="text-[10px] font-normal text-emerald-700">(cifrata · lascia vuoto per non modificare)</span>' : ''}</span>
+              <input name="smtp_password" type="password" class="c-input" value="" placeholder="${ente.smtp_password ? '••••••••' : 'inserisci password / API key'}" autocomplete="new-password" />
             </label>
             <label class="c-field">
               <span class="c-field__label">Cifratura</span>
@@ -554,16 +554,19 @@ function showEnteSmtpModal(ente, root) {
     `,
     primaryLabel: 'Salva configurazione SMTP',
     onPrimary: async (body) => {
+      const newPwd = body.querySelector('[name="smtp_password"]').value;
       const data = {
         smtp_enabled:   body.querySelector('[name="smtp_enabled"]').checked,
         smtp_host:      body.querySelector('[name="smtp_host"]').value.trim(),
         smtp_port:      Number(body.querySelector('[name="smtp_port"]').value) || 587,
         smtp_username:  body.querySelector('[name="smtp_username"]').value.trim(),
-        smtp_password:  body.querySelector('[name="smtp_password"]').value,
         smtp_tls:       body.querySelector('[name="smtp_tls"]').value,
         sender_address: body.querySelector('[name="sender_address"]').value.trim(),
         sender_name:    body.querySelector('[name="sender_name"]').value.trim(),
       };
+      // Includi smtp_password solo se l'utente ha digitato qualcosa,
+      // altrimenti il valore cifrato esistente viene preservato lato server.
+      if (newPwd) data.smtp_password = newPwd;
       // Validazione minima se abilitato
       if (data.smtp_enabled) {
         if (!data.smtp_host || !data.sender_address) {

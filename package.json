@@ -11,6 +11,7 @@
     "create:admin": "node scripts/create-admin.js",
     "backup": "node scripts/backup-pb.mjs",
     "cleanup:e2e": "node scripts/cleanup-e2e.mjs",
+    "test:unit": "node --test 'tests/unit/**/*.test.mjs'",
     "test:e2e": "playwright test"
   },
   "engines": {

@@ -927,6 +927,13 @@ function updateStarUI(root, fase) {
 }
 
 async function doSave(root, cf, com, fase, ammesso) {
+  // Anti doppio-click / race: disabilita il bottone fino a fine save.
+  const btn = root.querySelector('[data-action="conferma-salva"]');
+  if (btn) {
+    if (btn.dataset.saving === '1') return; // già in corso
+    btn.dataset.saving = '1';
+    btn.disabled = true;
+  }
   try {
     await db.saveValutazione({
       candidato_fase_id: cf.id,
@@ -942,6 +949,11 @@ async function doSave(root, cf, com, fase, ammesso) {
   } catch (e) {
     console.error(e);
     toast(t('com.save.error', { msg: e.message }), 'error');
+  } finally {
+    if (btn) {
+      btn.dataset.saving = '0';
+      btn.disabled = false;
+    }
   }
 }
 

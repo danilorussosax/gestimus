@@ -1,6 +1,8 @@
 # PocketBase setup
 
-Il gestionale può migrare i dati su [PocketBase](https://pocketbase.io) — un backend leggero (single binary Go + SQLite) con admin UI integrata, API REST, file uploads e realtime.
+Il gestionale usa [PocketBase](https://pocketbase.io) come **backend di runtime** — un single binary Go + SQLite con admin UI integrata, API REST, file uploads, realtime SSE e hook JS server-side (Goja).
+
+> Schema versionato in `pb_migrations/` (38 migration al momento). Hook custom in `pb_hooks/`. Niente più localStorage runtime: tutto su PB.
 
 ## Avvio rapido con npm
 
@@ -44,44 +46,53 @@ In alternativa, ogni componente si può avviare a mano come descritto sotto.
    Il server ascolta su `http://127.0.0.1:8090`.
    - L'admin UI è su `http://127.0.0.1:8090/_/`. Al primo avvio chiede di creare l'account amministratore.
 
-## 2. Crea le collezioni
-
-Hai due opzioni.
-
-### A) Auto-migration (consigliata)
-Il file `pb_migrations/1700000001_init.js` viene eseguito automaticamente all'avvio di PocketBase, se la cartella si trova accanto al binario o nella working directory. Per essere certi:
+## 2. Migrations e hook
 
 ```bash
-./pocketbase/pocketbase serve --migrationsDir ./pb_migrations
+./pocketbase/pocketbase serve --migrationsDir ./pb_migrations --hooksDir ./pb_hooks
 ```
 
-Le 6 collezioni (`concorsi`, `commissari`, `candidati`, `fasi`, `candidati_fase`, `valutazioni`) vengono create al primo run.
+Al primo avvio applica tutte le migration in `pb_migrations/` in ordine numerico.
 
-### B) Setup manuale via API admin
-Se preferisci uno script Node:
+### Collezioni principali
 
-```bash
-node scripts/setup-pb.js admin@example.com TUA_PASSWORD
-```
+| Collezione | Note |
+|---|---|
+| `accounts` | Auth collection, `createRule=null` (mig 1700000036) — no privilege escalation pubblica |
+| `concorsi` | Esposta pubblicamente solo se `stato=ATTIVO && iscrizioni_aperte` |
+| `commissari`, `candidati`, `fasi`, `candidati_fase` | Struttura concorso |
+| `valutazioni` | Unique `(candidato_fase, commissario, criterio)` (mig 1700000038), update solo proprio commissario |
+| `sezioni`, `categorie`, `commissioni` | Tassonomia + assegnazione |
+| `iscrizioni` | Form pubblico — `createRule` pubblica + hook server-side per validazione |
+| `audit_log` | **Append-only** — `updateRule=null`, `deleteRule=null` (mig 1700000037) |
+| `tenants` | Solo sul PB platform (super admin) — SMTP password cifrate at-rest |
+| `enti`, `enti_public` | Dati ente + branding pubblico (logo/nome) |
+| `fase_runtime` | Stato timer fase per SSE realtime |
 
-Lo script si autentica come admin e crea le collezioni se non esistono già. Richiede Node.js ≥ 18 (usa `fetch` nativo).
+## 3. Hook server-side (`pb_hooks/`)
 
-## 3. Migra i dati esistenti
+| File | Cosa fa |
+|---|---|
+| `iscrizioni.pb.js` | Validazione iscrizione (stato concorso, consensi, minore→tutore), rate-limit IP (3/h, 10/giorno), honeypot, min-time-on-page. Email su create/update di stato. |
+| `accounts.pb.js` | Blocca `role/attivo/email/verified/commissario` per non-admin (anti self-promote). |
+| `valutazioni.pb.js` | Clamp voto in `[0, fase.scala]` + rifiuto se fase=CONCLUSA (freeze medie). |
+| `tenants.pb.js` | Cifra `smtp_password` con `$security.encrypt(val, GESTIMUS_SECRET_KEY)`, formato `enc:v1:<cipher>`. Endpoint `POST /api/admin/tenants/:id/smtp-decrypt` (solo superadmin) per consumo da `apply-ente-smtp.sh`. |
+| `privacy.pb.js` | Endpoint GDPR export/erase. |
+| `setup.pb.js` | `GET /api/setup/has-admin` (probe primo avvio) + `POST /api/setup/create-admin` (idempotente). |
 
-Una volta che PocketBase è raggiungibile e le collezioni sono create:
+### Variabili d'ambiente
 
-1. Apri l'app (`npm start` oppure `python3 -m http.server 8000` nella root del progetto, poi http://localhost:8000).
-2. Sulla home apparirà un riquadro **"Migra a PocketBase"** quando: PB è raggiungibile, contiene 0 record, e in `localStorage` ci sono dati locali.
-3. Clicca **"Migra ora"** — l'app spinge concorsi, fasi, commissari, candidati, candidati_fase e valutazioni nelle relative collezioni PB. Foto/CV (base64) vengono caricati come file binari.
-4. Al termine vedi il conteggio per ogni tabella e un link all'admin UI per verificare.
+| Var | Default | Dove |
+|---|---|---|
+| `GESTIMUS_SECRET_KEY` | (non impostata) | `/etc/pb/platform.env` su prod. Senza, le SMTP password restano in chiaro con warning. |
 
 ## 4. Verifica
 
-- Apri http://127.0.0.1:8090/_/, scheda **Collections** → vedi le 6 tabelle popolate.
-- Le foto/CV sono accessibili via URL `http://127.0.0.1:8090/api/files/COLLECTION_ID/RECORD_ID/FILENAME`.
+- Admin UI: `http://127.0.0.1:8090/_/` — in produzione raggiungibile **solo da localhost** (vedi DEPLOY-IONOS.md).
+- File upload: `http://<pb-url>/api/files/<collection>/<record_id>/<filename>`.
 
 ## Note
 
-- **Runtime attuale**: l'app continua a leggere/scrivere su `localStorage`. PocketBase contiene una **copia migrata**. Se vuoi che PocketBase diventi il backend a runtime (CRUD diretti sull'API PB), chiedi la Fase B.
-- **Reset dati**: per ripulire PB, elimina la cartella `pb_data/` (creata accanto al binario) e riavvia.
-- **Backup**: copia la cartella `pb_data/` per backup completo.
+- **Backup**: copia `pb_data/` per backup completo. In produzione usa `scripts/backup-all-tenants.sh` (restic).
+- **Reset locale**: elimina `pb_data/` e riavvia.
+- **Test unit** (no PB): `npm run test:unit` esegue `node --test` su `tests/unit/`.

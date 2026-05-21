@@ -46,8 +46,34 @@ server {
     root __WWWDIR__;
     index index.html;
 
-    # ---- API + admin UI di PocketBase (proxy) ----
-    location ~ ^/(api|_)/ {
+    # ---- Admin UI di PocketBase: solo da localhost / IP autorizzati ----
+    # Per accedere da remoto: aggiungere `allow <IP>;` qui sotto oppure usare una VPN.
+    # __ADMIN_ALLOW__ è un placeholder che il provisioning script può sostituire
+    # con righe `allow ...;` aggiuntive.
+    location ~ ^/_/ {
+        allow 127.0.0.1;
+        allow ::1;
+        __ADMIN_ALLOW__
+        deny all;
+
+        proxy_pass http://127.0.0.1:__PORT__;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto https;
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 24h;
+    }
+
+    # ---- API PocketBase: pubblico (richiesto dal client + form pubblico) ----
+    location ~ ^/api/ {
+        # Rate-limit base su /api/collections/iscrizioni/records (anti-spam form pubblico).
+        # La zone `iscrizioni_rl` è definita a livello http (vedi nginx-snippet-rl.conf).
+        # Se la zone non esiste, la direttiva viene ignorata e nginx logga warning.
+        # limit_req zone=iscrizioni_rl burst=5 nodelay;
+
         proxy_pass http://127.0.0.1:__PORT__;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
