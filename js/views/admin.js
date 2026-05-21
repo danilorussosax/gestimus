@@ -2729,6 +2729,7 @@ async function renderIscrizioni(root, concorso) {
       <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
         <p class="text-sm text-slate-600">${filtered.length} iscrizioni${flt ? ` (filtrate per "${escapeHtml(flt)}")` : ''}</p>
         <div class="flex items-center gap-1.5">
+          <a href="#/iscrizione" target="_blank" class="c-btn c-btn--outline c-btn--sm !gap-1 text-emerald-700 border-emerald-300 hover:bg-emerald-50" title="Apri il form pubblico di iscrizione in una nuova scheda">${icon('externalLink', { size: 14 })} <span>Form pubblico</span></a>
           <button data-isc-refresh class="c-btn c-btn--ghost c-btn--sm !gap-1">${icon('refresh', { size: 14 })} <span>Aggiorna</span></button>
           <button data-isc-export class="c-btn c-btn--ghost c-btn--sm !gap-1">${icon('download', { size: 14 })} <span>Esporta CSV</span></button>
         </div>
@@ -2750,7 +2751,12 @@ async function renderIscrizioni(root, concorso) {
       ` : filtered.length === 0 ? `
         <div class="bg-white border-2 border-dashed border-slate-200 rounded-2xl py-12 text-center">
           <div class="text-4xl mb-2">📭</div>
-          <p class="text-sm text-slate-500 italic">Nessuna iscrizione${flt ? ' con questo stato' : ''}. Le iscrizioni inviate dal form pubblico /#/iscrizione compariranno qui.</p>
+          <p class="text-sm text-slate-500 italic">Nessuna iscrizione${flt ? ' con questo stato' : ''}.</p>
+          <p class="text-sm text-slate-500 italic mt-1">Le iscrizioni inviate dal form pubblico compariranno qui.</p>
+          <a href="#/iscrizione" target="_blank" class="c-btn c-btn--primary c-btn--sm mt-5 inline-flex items-center gap-1.5">
+            ${icon('externalLink', { size: 14 })}
+            <span>Apri form di iscrizione pubblico</span>
+          </a>
         </div>
       ` : `
         <div class="bg-white border border-slate-200 rounded-2xl overflow-hidden">

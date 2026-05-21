@@ -269,7 +269,6 @@ function showLoading() {
         ${icon('refresh', { size: 32, stroke: 1.25 })}
       </div>
       <p class="text-ink-900 font-medium">${escapeHtml(t('app.loading.connect'))}</p>
-      <p class="text-xs text-ink-500 font-mono mt-1">${escapeHtml(PB_URL)}</p>
       <style>@keyframes spin { to { transform: rotate(360deg); } }</style>
     </div>
   `;
@@ -280,14 +279,11 @@ function showConnectionError(err) {
     <header class="c-page-header" style="border-left: 3px solid #da1e28">
       <p class="c-page-header__eyebrow" style="color:#750e13">${escapeHtml(t('app.error.connect.eyebrow'))}</p>
       <h1 class="c-page-header__title">${escapeHtml(t('app.error.connect.title'))}</h1>
-      <p class="c-page-header__sub">${escapeHtml(err.message)}</p>
+      <p class="c-page-header__sub">${escapeHtml(t('app.error.connect.resolution'))}</p>
     </header>
     <div class="c-page">
-      <div class="c-tile c-tile--padded">
-        <p class="c-tile__eyebrow">${escapeHtml(t('common.details'))}</p>
-        <h3 class="c-tile__title">${escapeHtml(t('app.error.connect.resolution'))}</h3>
-        <pre class="mt-3 bg-ink-900 text-brand-200 p-3 rounded-2xl overflow-x-auto text-[12px] font-mono">./pocketbase serve --migrationsDir ./pb_migrations</pre>
-        <button id="retry-btn" class="c-btn c-btn--primary mt-4">
+      <div class="c-tile c-tile--padded text-center">
+        <button id="retry-btn" class="c-btn c-btn--primary">
           <span>${escapeHtml(t('app.error.connect.retry'))}</span><span class="c-btn__icon" aria-hidden="true">${icon('refresh', { size: 16 })}</span>
         </button>
       </div>

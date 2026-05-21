@@ -118,7 +118,7 @@ Full guide: [**DEPLOY-IONOS.md**](DEPLOY-IONOS.md) (in Italian).
 
 In short (~30 minutes from a blank VPS):
 
-1. **Ubuntu 24.04 VPS** (recommended IONOS VPS L: 4 vCPU, 8 GB RAM, 160 GB NVMe — **~€8/month**)
+1. **Ubuntu 24.04 VPS** (recommended IONOS **VPS L+**: 6 vCPU, 8 GB RAM, 240 GB NVMe — **€5/month promo · €8 on renewal**, VAT excluded)
 2. **Wildcard DNS** for the domain (`*.gestimus.it` + root)
 3. **IONOS API key** for certbot DNS-01
 4. `sudo bash scripts/setup-server.sh` → installs everything
@@ -126,7 +126,7 @@ In short (~30 minutes from a blank VPS):
 6. `sudo ./scripts/provision-tenant.sh platform` → super admin live
 7. `sudo ./scripts/provision-tenant.sh tenant-slug` → first client
 
-**Yearly cost for unlimited tenants: ~€106** (VPS €96 + domain €10).
+**Yearly cost (year 1 promo, VAT excl.)**: ~€80 (VPS €60 + setup €10 + domain €10). From year 3: ~€108 net of VAT. Hosts **20-50 tenants** on the same server.
 
 ## Project structure
 

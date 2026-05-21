@@ -28,11 +28,26 @@ Guida pratica per pubblicare **Gestimus** su un VPS IONOS, con il dominio **`ges
 
 ### Taglia VPS consigliata per gestimus.it
 
-| Piano | vCPU | RAM | NVMe | €/mese | Enti supportati |
-|-------|-----:|----:|----:|------:|------------------|
-| VPS M | 2 | 4 GB | 80 GB | ~€4 | 1-3 (prove) |
-| **VPS L** ⭐ | **4** | **8 GB** | **160 GB** | **~€8** | **5-15** |
-| VPS XL | 6 | 16 GB | 320 GB | ~€15 | 15-30 |
+Listino IONOS Italia (aggiornato — promo 24 mesi · poi rinnovo automatico al prezzo pieno · IVA 22% esclusa · attivazione una tantum **€10**):
+
+| Piano | vCPU | RAM | NVMe | €/mese (promo) | €/mese (rinnovo) | Enti supportati |
+|-------|----:|----:|----:|----:|----:|------|
+| VPS XS+ | 1 | 1 GB | 10 GB | €1,00 | – (mensile) | demo / single tenant |
+| VPS S+ | 2 | 2 GB | 80 GB | €2,00 | €2,50 | 3–8 enti leggeri |
+| VPS M+ | 4 | 4 GB | 120 GB | €3,00 | €4,50 | 8–20 enti standard |
+| **VPS L+** ⭐ *(più venduto)* | **6** | **8 GB** | **240 GB** | **€5,00** | **€8,00** | **20–50 enti completi** |
+| VPS XL+ | 8 | 16 GB | 480 GB | €9,00 | €15,00 | 40–100 enti |
+| VPS XXL+ | 12 | 24 GB | 720 GB | €15,00 | €29,50 | 60–150 enti |
+
+**Consiglio**: per Gestimus parti con **VPS L+** (€5/mese promo, €8 a rinnovo) — è il piano "best seller", offre 240 GB NVMe (sufficienti per anni anche con upload foto+CV degli iscritti) e 8 GB RAM (margine per N processi PocketBase + nginx + buffer SSE realtime). Il datacenter più vicino fisicamente è la **Germania (Francoforte)** → conforme GDPR, latenza ~25-40 ms dall'Italia.
+
+**Cosa è incluso in tutti i piani**:
+- 1× IPv4 dedicato + 1× IPv6 con rete /80
+- Traffico illimitato fino a **1 Gbps**
+- SLA 99,99%
+- Datacenter UE (Germania, Spagna) o extra-UE (UK, USA) — per GDPR scegli **DE o ES**
+
+**Backup**: Cloud Backup IONOS è opzionale a **€0,06/GB/mese**. In alternativa lo script `scripts/backup-all-tenants.sh` (restic verso S3/B2 esterno) → tipicamente più economico per dataset >50 GB.
 
 ## Step 1 — DNS
 
@@ -234,14 +249,22 @@ sudo /opt/gestimus/scripts/backup-all-tenants.sh
 
 ## Costo annuo per `gestimus.it`
 
-| Voce | €/anno |
-|------|------:|
-| Dominio `gestimus.it` (IONOS, .it) | ~€10 |
-| VPS IONOS L | ~€96 |
-| Certificati Let's Encrypt | 0 |
-| **Totale annuo** | **~€106** |
+Costi reali IVA esclusa (aggiungi 22% per il totale lordo):
 
-Per **enti illimitati** (limitati solo dalla taglia VPS).
+| Voce | Anno 1 (promo) | Anno 2 (promo) | Anno 3+ (rinnovo) |
+|------|---------------:|---------------:|-------------------:|
+| Dominio `gestimus.it` (IONOS, .it) | ~€10 | ~€12 | ~€12 |
+| **VPS L+** (6 vCPU, 8 GB, 240 GB NVMe) | €60 (€5×12) | €60 (€5×12) | €96 (€8×12) |
+| Attivazione VPS (una tantum) | €10 | – | – |
+| Certificati Let's Encrypt wildcard | 0 | 0 | 0 |
+| **Totale netto** | **~€80** | **~€72** | **~€108** |
+| **Totale lordo (IVA 22%)** | **~€98** | **~€88** | **~€132** |
+
+Per **enti illimitati** (~20-50 sul VPS L+, vedi tabella sopra). Se servono più enti, scala a VPS XL+ (€132/anno promo).
+
+### Costo "per ente" (ammortizzato)
+
+Con 20 enti sul VPS L+ a regime: **€5,40/ente/anno (lordo)** — confronta con piattaforme SaaS dedicate che partono da €30/mese per istanza.
 
 ## Troubleshooting
 
