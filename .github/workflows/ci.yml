@@ -14,7 +14,7 @@ jobs:
     name: Lint JavaScript (syntax)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
           node-version: '20'
@@ -42,7 +42,7 @@ jobs:
     name: Lint Bash (syntax + shellcheck)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: bash -n su tutti gli script
         run: |
@@ -70,7 +70,7 @@ jobs:
     name: Validate PocketBase migrations
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
           node-version: '20'
@@ -104,7 +104,7 @@ jobs:
     name: Validate PocketBase hooks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
           node-version: '20'
@@ -127,7 +127,7 @@ jobs:
     name: i18n coverage (chiavi usate vs definite in IT)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
@@ -171,7 +171,7 @@ jobs:
     name: Audit dimensioni file
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: Verifica nessun file > 5 MB
         run: |
           set -e
