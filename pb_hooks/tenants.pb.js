@@ -59,6 +59,34 @@ onRecordBeforeUpdateRequest((e) => {
 }, 'tenants');
 
 // ============================================================================
+// Endpoint privato: ritorna la config piano da applicare al PB del tenant.
+// Richiede auth con role=superadmin. Usato da `scripts/apply-ente-plan.sh`.
+// ============================================================================
+routerAdd('POST', '/api/admin/tenants/:id/plan-for-apply', (c) => {
+  const auth = c.get('authRecord');
+  if (!auth || auth.get('role') !== 'superadmin') {
+    return c.json(403, { error: 'forbidden' });
+  }
+  const id = c.pathParam('id');
+  let rec;
+  try {
+    rec = $app.dao().findRecordById('tenants', id);
+  } catch (err) {
+    return c.json(404, { error: 'tenant_not_found' });
+  }
+  return c.json(200, {
+    piano: rec.get('piano') || 'trial',
+    piano_inizio: rec.get('piano_inizio') || '',
+    piano_scadenza: rec.get('piano_scadenza') || '',
+    limit_concorsi: Number(rec.get('limit_concorsi')) || 0,
+    limit_iscritti_annui: Number(rec.get('limit_iscritti_annui')) || 0,
+    ppe_setup_per_concorso: Number(rec.get('ppe_setup_per_concorso')) || 0,
+    ppe_per_iscritto: Number(rec.get('ppe_per_iscritto')) || 0,
+    grace_giorni: 0,
+  });
+}, $apis.requireAdminOrRecordAuth('accounts'));
+
+// ============================================================================
 // Endpoint privato: ritorna la SMTP password in chiaro per un tenant.
 // Richiede auth con role=superadmin. Usato da `scripts/apply-ente-smtp.sh`.
 // ============================================================================

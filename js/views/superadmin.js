@@ -14,6 +14,7 @@ import { pb, PB_URL } from '../pb.js';
 import { t } from '../i18n.js';
 import { icon } from '../icons.js';
 import { escapeHtml, toast, modal, confirmDialog } from '../utils.js';
+import { PIANI, PIANO_KEYS, getPianoOrDefault, pianoDefaults, pianoStatus, pianoPriceLabel } from '../piani.js';
 
 const _state = { enti: [], settings: null, loading: false };
 
@@ -192,6 +193,24 @@ function enteCardHtml(ente, healthy = null, hasAdmin = null) {
             ${healthy !== null ? `<span class="inline-flex items-center gap-1 text-[10px] ${healthy ? 'text-emerald-700' : 'text-rose-700'}"><span class="w-1.5 h-1.5 rounded-full ${healthy ? 'bg-emerald-500' : 'bg-rose-500'}"></span>${healthy ? 'Online' : 'Offline'}</span>` : ''}
             ${ente.smtp_enabled ? `<span class="inline-flex items-center gap-1 text-[10px] text-brand-700" title="${escapeHtml((ente.smtp_host || '') + (ente.smtp_last_propagated_at ? ' · propagato ' + new Date(ente.smtp_last_propagated_at).toLocaleString('it-IT') : ''))}">${icon('mail', { size: 12 })} SMTP</span>` : ''}
             ${hasAdmin === false ? `<span class="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full" title="L'ente non ha ancora un account admin. Cliccare il pulsante con la chiave per crearne uno.">⚠ Admin mancante</span>` : ''}
+            ${(() => {
+              if (!ente.piano) return '';
+              const p = getPianoOrDefault(ente.piano);
+              const s = pianoStatus(ente);
+              const colorMap = {
+                trial: 'bg-sky-50 text-sky-700 border-sky-200',
+                starter: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+                pro: 'bg-brand-50 text-brand-700 border-brand-200',
+                ultra: 'bg-amber-50 text-amber-700 border-amber-200',
+                ppe: 'bg-slate-100 text-slate-700 border-slate-200',
+              };
+              const stateMap = {
+                expired:  'bg-rose-50 text-rose-700 border-rose-200',
+                expiring: 'bg-amber-50 text-amber-800 border-amber-300',
+                active:   colorMap[ente.piano] || 'bg-slate-100 text-slate-700 border-slate-200',
+              };
+              return `<span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${stateMap[s.state]}" title="${escapeHtml(p.nome + ' · ' + s.label)}">${escapeHtml(p.nome)}${s.state !== 'active' ? ` · ${escapeHtml(s.label)}` : ''}</span>`;
+            })()}
           </div>
           <div class="text-xs text-ink-700 mt-1">
             ${ente.dominio ? `${escapeHtml(ente.dominio)} · ` : ''}PB porta ${ente.porta_pb}
@@ -226,6 +245,40 @@ function enteCardHtml(ente, healthy = null, hasAdmin = null) {
           <p class="text-xs text-ink-700 flex items-center gap-1.5">${icon('info', { size: 12 })} Statistiche non ancora rilevate. Clicca "Aggiorna statistiche".</p>
         </div>
       `}
+      ${(() => {
+        if (!ente.piano) return '';
+        const p = getPianoOrDefault(ente.piano);
+        if (p.is_ppe) {
+          const concorsi = ente.num_concorsi ?? 0;
+          const cand = ente.num_candidati ?? 0;
+          const stima = concorsi * (ente.ppe_setup_per_concorso || 0) + cand * (ente.ppe_per_iscritto || 0);
+          return `<div class="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 mb-3 text-[11px] text-slate-700">
+            <span class="font-semibold">PPE</span> · ${concorsi} concorsi × €${ente.ppe_setup_per_concorso || 0} + ${cand} iscritti × €${(ente.ppe_per_iscritto || 0).toFixed(2)} = <span class="font-bold">€${stima.toFixed(2)}</span> stimati
+          </div>`;
+        }
+        if (!hasStats) return '';
+        const lc = ente.limit_concorsi || 0;
+        const li = ente.limit_iscritti_annui || 0;
+        const concorsiPct = lc > 0 ? Math.min(100, Math.round((ente.num_concorsi / lc) * 100)) : 0;
+        const candPct = li > 0 ? Math.min(100, Math.round((ente.num_candidati / li) * 100)) : 0;
+        const barColor = (pct) => pct >= 100 ? 'bg-rose-500' : pct >= 80 ? 'bg-amber-500' : 'bg-emerald-500';
+        return `<div class="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 mb-3 space-y-1.5">
+          <div>
+            <div class="flex items-center justify-between text-[11px] text-slate-700 mb-0.5">
+              <span>Concorsi</span>
+              <span class="font-mono">${ente.num_concorsi}${lc > 0 ? ` / ${lc}` : ' / ∞'}</span>
+            </div>
+            ${lc > 0 ? `<div class="h-1.5 bg-slate-200 rounded-full overflow-hidden"><div class="h-full ${barColor(concorsiPct)}" style="width:${concorsiPct}%"></div></div>` : ''}
+          </div>
+          <div>
+            <div class="flex items-center justify-between text-[11px] text-slate-700 mb-0.5">
+              <span>Iscritti/anno</span>
+              <span class="font-mono">${ente.num_candidati}${li > 0 ? ` / ${li}` : ' / ∞'}</span>
+            </div>
+            ${li > 0 ? `<div class="h-1.5 bg-slate-200 rounded-full overflow-hidden"><div class="h-full ${barColor(candPct)}" style="width:${candPct}%"></div></div>` : ''}
+          </div>
+        </div>`;
+      })()}
       <div class="flex items-center gap-3 text-[11px] text-ink-700">
         <span class="inline-flex items-center gap-1">
           <span class="w-1.5 h-1.5 rounded-full ${lastRefresh ? 'bg-emerald-500' : 'bg-slate-400'}"></span>
@@ -392,12 +445,85 @@ function showEnteModal(existing = null) {
         <span class="c-field__label">Note</span>
         <textarea name="note" rows="2" class="c-input">${escapeHtml(existing?.note || '')}</textarea>
       </label>
+
+      <!-- Sezione piano commerciale -->
+      <div class="border-t border-slate-200 pt-4 mt-2">
+        <h4 class="text-sm font-bold text-slate-800 uppercase tracking-wider mb-3">Piano commerciale</h4>
+        <div class="grid grid-cols-2 gap-4">
+          <label class="c-field">
+            <span class="c-field__label">Piano *</span>
+            <select name="piano" class="c-input">
+              ${PIANO_KEYS.map(k => {
+                const p = PIANI[k];
+                const sel = (existing?.piano || 'trial') === k ? 'selected' : '';
+                return `<option value="${k}" ${sel}>${escapeHtml(p.nome)} — ${escapeHtml(pianoPriceLabel(k))}</option>`;
+              }).join('')}
+            </select>
+            <p class="text-[11px] text-slate-500 mt-1" data-piano-hint></p>
+          </label>
+          <label class="c-field">
+            <span class="c-field__label">Scadenza</span>
+            <input name="piano_scadenza" type="date" class="c-input" value="${existing?.piano_scadenza ? new Date(existing.piano_scadenza).toISOString().slice(0,10) : ''}" />
+            <p class="text-[11px] text-slate-500 mt-1">Per i piani annuali è auto-calcolata (+365g). Per PPE resta vuota.</p>
+          </label>
+        </div>
+        <div class="grid grid-cols-2 gap-4 mt-3">
+          <label class="c-field">
+            <span class="c-field__label">Limite concorsi</span>
+            <input name="limit_concorsi" type="number" min="0" class="c-input" value="${existing?.limit_concorsi ?? ''}" placeholder="auto dal piano" />
+            <p class="text-[11px] text-slate-500 mt-1">Lascia vuoto per usare il default del piano. 0 = illimitato.</p>
+          </label>
+          <label class="c-field">
+            <span class="c-field__label">Limite iscritti/anno</span>
+            <input name="limit_iscritti_annui" type="number" min="0" class="c-input" value="${existing?.limit_iscritti_annui ?? ''}" placeholder="auto dal piano" />
+            <p class="text-[11px] text-slate-500 mt-1">Override opzionale. 0 = illimitato.</p>
+          </label>
+        </div>
+        <label class="c-field mt-3">
+          <span class="c-field__label">Note piano (interno)</span>
+          <textarea name="piano_note" rows="2" class="c-input" placeholder="es. sconto 10% concordato per il primo anno">${escapeHtml(existing?.piano_note || '')}</textarea>
+        </label>
+        <section class="bg-amber-50 border border-amber-200 rounded-xl p-3 mt-3 text-xs text-amber-900">
+          <p class="font-semibold mb-1">⚠ Propagazione manuale al PB dell'ente</p>
+          <p>Dopo aver salvato qui, applica i limiti al PocketBase del singolo ente con:</p>
+          <pre class="mt-2 bg-white border border-amber-200 rounded p-2 font-mono text-[11px]">./scripts/apply-ente-plan.sh ${escapeHtml(existing?.slug || '<slug>')}</pre>
+          <p class="mt-1">Senza propagazione, la UI super-admin mostra i limiti ma il PB del tenant non li applica. (Il gating server-side legge da <code>tenant_config</code> locale.)</p>
+        </section>
+      </div>
     </div>
   `;
   modal({
     title,
     contentHtml,
     primaryLabel: isEdit ? 'Salva' : 'Crea',
+    onMount: (body) => {
+      // Aggiorna l'hint del piano e auto-calcola scadenza quando l'utente cambia piano.
+      const selPiano = body.querySelector('[name="piano"]');
+      const inputScad = body.querySelector('[name="piano_scadenza"]');
+      const hint = body.querySelector('[data-piano-hint]');
+      const inputLC = body.querySelector('[name="limit_concorsi"]');
+      const inputLI = body.querySelector('[name="limit_iscritti_annui"]');
+      const refreshHint = (resetLimits) => {
+        const p = getPianoOrDefault(selPiano.value);
+        hint.textContent = p.descrizione + (p.is_ppe ? '' : ` · ${p.limit_concorsi} concorsi · ${p.limit_iscritti_annui} iscritti/anno`);
+        // Auto scadenza
+        if (p.durata_giorni) {
+          const d = new Date();
+          d.setDate(d.getDate() + p.durata_giorni);
+          inputScad.value = d.toISOString().slice(0, 10);
+        } else {
+          inputScad.value = '';
+        }
+        if (resetLimits) {
+          inputLC.placeholder = `default piano: ${p.limit_concorsi ?? '∞'}`;
+          inputLI.placeholder = `default piano: ${p.limit_iscritti_annui ?? '∞'}`;
+          inputLC.value = '';
+          inputLI.value = '';
+        }
+      };
+      selPiano.addEventListener('change', () => refreshHint(true));
+      refreshHint(false);
+    },
     onPrimary: async (body) => {
       const slug = body.querySelector('[name="slug"]').value.trim();
       const nome = body.querySelector('[name="nome"]').value.trim();
@@ -407,7 +533,25 @@ function showEnteModal(existing = null) {
       const note = body.querySelector('[name="note"]').value.trim();
       const email_admin = body.querySelector('[name="email_admin"]').value.trim();
       if (!slug || !nome || !porta_pb) { toast('Slug, nome e porta sono obbligatori', 'error'); return false; }
-      const data = { slug, nome, dominio, porta_pb: Number(porta_pb), stato, note, email_admin };
+      // Piano
+      const piano = body.querySelector('[name="piano"]').value;
+      const pianoScadRaw = body.querySelector('[name="piano_scadenza"]').value;
+      const pianoLcRaw = body.querySelector('[name="limit_concorsi"]').value;
+      const pianoLiRaw = body.querySelector('[name="limit_iscritti_annui"]').value;
+      const pianoNote = body.querySelector('[name="piano_note"]').value.trim();
+      const pianoCfg = getPianoOrDefault(piano);
+      const defaults = pianoDefaults(piano);
+      const data = {
+        slug, nome, dominio, porta_pb: Number(porta_pb), stato, note, email_admin,
+        piano,
+        piano_inizio: existing?.piano === piano && existing?.piano_inizio ? existing.piano_inizio : defaults.piano_inizio,
+        piano_scadenza: pianoScadRaw ? new Date(pianoScadRaw + 'T23:59:59').toISOString() : '',
+        limit_concorsi: pianoLcRaw === '' ? (pianoCfg.limit_concorsi ?? 0) : Number(pianoLcRaw),
+        limit_iscritti_annui: pianoLiRaw === '' ? (pianoCfg.limit_iscritti_annui ?? 0) : Number(pianoLiRaw),
+        ppe_setup_per_concorso: pianoCfg.ppe_setup_per_concorso ?? 0,
+        ppe_per_iscritto: pianoCfg.ppe_per_iscritto ?? 0,
+        piano_note: pianoNote,
+      };
       try {
         const token = pb.authStore.token;
         const headers = { 'Content-Type': 'application/json' };
