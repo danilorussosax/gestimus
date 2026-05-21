@@ -164,7 +164,8 @@ EOF
     chmod 600 /etc/letsencrypt/ionos.ini
 fi
 
-# 12. Chiave applicativa per cifratura SMTP password (pb_hooks/tenants.pb.js).
+# 12. Chiave applicativa per cifratura SMTP password (pb_hooks/tenants.pb.js)
+#     E shared-secret per auto-propagazione piano (pb_hooks/tenant_config.pb.js).
 #     Generata UNA VOLTA; cambiarla rende illeggibili le SMTP password salvate prima.
 SECRET_KEY_FILE="/etc/pb/platform.env"
 if [ ! -f "$SECRET_KEY_FILE" ] || ! grep -q '^GESTIMUS_SECRET_KEY=' "$SECRET_KEY_FILE" 2>/dev/null; then
@@ -176,6 +177,26 @@ if [ ! -f "$SECRET_KEY_FILE" ] || ! grep -q '^GESTIMUS_SECRET_KEY=' "$SECRET_KEY
     chown pb:pb "$SECRET_KEY_FILE"
     echo "  ⚠ Backup la chiave in un password manager! Cambiarla rende"
     echo "    illeggibili le SMTP password cifrate at-rest."
+fi
+
+# 13. Replica la GESTIMUS_SECRET_KEY su tutti i tenant esistenti (idempotente).
+#     Necessaria per l'auto-propagazione del piano dal platform via $http.send.
+if [ -f "$SECRET_KEY_FILE" ]; then
+    KEY_LINE=$(grep '^GESTIMUS_SECRET_KEY=' "$SECRET_KEY_FILE" || true)
+    if [ -n "$KEY_LINE" ]; then
+        for ENV in /etc/pb/*.env; do
+            [ -f "$ENV" ] || continue
+            [ "$(basename "$ENV")" = "platform.env" ] && continue
+            if ! grep -q '^GESTIMUS_SECRET_KEY=' "$ENV"; then
+                echo "$KEY_LINE" >> "$ENV"
+                chmod 600 "$ENV"
+                echo "  ✓ chiave replicata in $ENV"
+                # Riavvia il tenant se attivo per far rileggere l'env
+                SLUG=$(basename "$ENV" .env)
+                systemctl restart "pb@${SLUG}" 2>/dev/null || true
+            fi
+        done
+    fi
 fi
 
 echo ""

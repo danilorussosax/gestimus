@@ -91,6 +91,20 @@ cat > "${ENV_FILE}" <<EOF
 PORT=${PORT}
 EOF
 
+# 2b. Replica la GESTIMUS_SECRET_KEY dal PB platform per consentire
+#     l'auto-propagazione del piano (vedi pb_hooks/tenant_config.pb.js endpoint
+#     /api/admin/apply-plan). Skip se è il tenant "platform" stesso (la sua env
+#     contiene già la chiave) o se la chiave non è configurata sul platform.
+PLATFORM_ENV_FILE="${ENV_DIR:-/etc/pb}/platform.env"
+if [ "$SLUG" != "platform" ] && [ -f "$PLATFORM_ENV_FILE" ]; then
+    KEY_LINE=$(grep '^GESTIMUS_SECRET_KEY=' "$PLATFORM_ENV_FILE" 2>/dev/null || true)
+    if [ -n "$KEY_LINE" ] && ! grep -q '^GESTIMUS_SECRET_KEY=' "${ENV_FILE}"; then
+        echo "$KEY_LINE" >> "${ENV_FILE}"
+        chmod 600 "${ENV_FILE}"
+        echo "  ✓ GESTIMUS_SECRET_KEY replicata in ${ENV_FILE} (auto-propagazione piano)"
+    fi
+fi
+
 # 3. Abilita e avvia il servizio
 echo "→ Abilito e avvio pb@${SLUG}..."
 systemctl enable "pb@${SLUG}"

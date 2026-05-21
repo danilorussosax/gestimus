@@ -617,6 +617,8 @@ echo "✓ All tenants restarted"
 - [x] **CSV anti formula-injection**: `js/views/admin.js` (`csvField` prefissa `'` per `=+-@\t\r`)
 - [x] **Admin UI `/_/` ristretta**: solo localhost di default (`deploy/Caddyfile`, `deploy/nginx-tenant.conf.template`)
 - [x] **Rate-limit nginx**: zone `iscrizioni_rl`/`auth_rl` in `deploy/nginx-snippet-rl.conf`
+- [x] **Piani SaaS + gating server-side**: `pb_migrations/1700000039`+`1700000040` + `pb_hooks/tenant_config.pb.js`, ciclo annuale da `piano_inizio`
+- [x] **Auto-propagazione piano**: `onRecordAfterUpdate('tenants')` chiama `$http.send` su `/api/admin/apply-plan` del tenant, autenticato via `X-Gestimus-Key`
 
 ### 4.6 Sicurezza dell'admin UI PocketBase (`/_/`)
 
@@ -637,6 +639,25 @@ L'hook `pb_hooks/tenants.pb.js`:
 - Se la chiave manca, **non blocca** il save ma logga warning (compat con tenant esistenti). Per migrare le password legacy: `node scripts/encrypt-existing-smtp.mjs`.
 
 La UI super-admin (`js/views/superadmin.js`) mostra `••••••••` se esiste già una password e invia il campo solo se l'utente lo modifica (`autocomplete=new-password`).
+
+### 4.8 Piani SaaS + gating server-side + auto-propagazione
+
+Workflow:
+1. Super admin assegna piano (trial/starter/pro/ultra/ppe) nel form ente del PB platform → record `tenants` ha piano, scadenza, limiti.
+2. `pb_hooks/tenants.pb.js` (sul platform) ha `onRecordAfterUpdate/Create` che chiama `POST http://127.0.0.1:<porta_pb>/api/admin/apply-plan` (vedi `pb_hooks/tenant_config.pb.js` sul tenant) via `$http.send`.
+3. L'endpoint valida `X-Gestimus-Key` contro la `GESTIMUS_SECRET_KEY` dell'env del tenant (replicata dal provisioning) e fa upsert sul singleton `tenant_config`.
+4. `onRecordBeforeCreateRequest('concorsi'|'iscrizioni')` legge `tenant_config` (cache 60s) e blocca con `BadRequestError` se il limite è raggiunto o il piano è scaduto.
+5. Cache invalidata istantaneamente all'upsert (`afterCreate/afterUpdate('tenant_config')`).
+
+Componenti:
+- `js/piani.js` — catalogo piani condiviso (single source of truth).
+- `pb_migrations/1700000039_tenants_piano.js` — campi piano su `tenants` (PB platform).
+- `pb_migrations/1700000040_tenant_config.js` — collection singleton sul PB del tenant.
+- `pb_hooks/tenant_config.pb.js` — gating + endpoint apply-plan.
+- `pb_hooks/tenants.pb.js` — auto-propagazione + endpoint plan-for-apply (fallback script).
+- `scripts/apply-ente-plan.sh` — propagazione manuale (fallback se PB tenant offline).
+
+Counter iscritti: per anno **dall'anniversario di `piano_inizio`** (es. attivato il 15 marzo → ciclo 15 mar - 14 mar). I concorsi `stato=CONCLUSO` non contano nel limite. Fail-open se `tenant_config` vuota (utile in dev).
 
 ---
 

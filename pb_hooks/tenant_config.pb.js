@@ -126,3 +126,60 @@ onRecordAfterCreateRequest((e) => {
   __tc_cache = null;
   __tc_cache_at = 0;
 }, 'tenant_config');
+
+// ============================================================================
+// Endpoint inter-server: POST /api/admin/apply-plan
+//
+// Riceve il piano dal PB platform via $http.send (vedi pb_hooks/tenants.pb.js
+// sul platform). Autenticazione via header X-Gestimus-Key, validato contro
+// GESTIMUS_SECRET_KEY presente nell'env del PB tenant (replicata dal platform
+// al provisioning, vedi scripts/provision-tenant.sh).
+//
+// Non serve auth utente — la chiave fa da shared secret.
+// Body atteso (JSON):
+//   { piano, piano_inizio, piano_scadenza, limit_concorsi,
+//     limit_iscritti_annui, ppe_setup_per_concorso, ppe_per_iscritto, grace_giorni }
+// ============================================================================
+routerAdd('POST', '/api/admin/apply-plan', (c) => {
+  const expected = $os.getenv('GESTIMUS_SECRET_KEY') || '';
+  if (!expected) return c.json(500, { error: 'tenant_key_missing', message: 'GESTIMUS_SECRET_KEY non impostata sul tenant' });
+  const provided = c.request().header.get('X-Gestimus-Key') || '';
+  if (!provided || provided !== expected) {
+    return c.json(403, { error: 'forbidden' });
+  }
+
+  let body = {};
+  try { body = $apis.requestInfo(c).data || {}; } catch (err) {
+    return c.json(400, { error: 'invalid_body' });
+  }
+
+  try {
+    const items = $app.dao().findRecordsByFilter('tenant_config', '', '-created', 1, 0);
+    const col = $app.dao().findCollectionByNameOrId('tenant_config');
+    let rec;
+    if (items && items.length > 0) {
+      rec = items[0];
+    } else {
+      rec = new Record(col);
+    }
+    rec.set('piano',                  body.piano || 'trial');
+    rec.set('piano_inizio',           body.piano_inizio || '');
+    rec.set('piano_scadenza',         body.piano_scadenza || '');
+    rec.set('limit_concorsi',         Number(body.limit_concorsi) || 0);
+    rec.set('limit_iscritti_annui',   Number(body.limit_iscritti_annui) || 0);
+    rec.set('ppe_setup_per_concorso', Number(body.ppe_setup_per_concorso) || 0);
+    rec.set('ppe_per_iscritto',       Number(body.ppe_per_iscritto) || 0);
+    rec.set('grace_giorni',           Number(body.grace_giorni) || 0);
+    rec.set('applied_at',             new Date().toISOString());
+    $app.dao().saveRecord(rec);
+
+    // Forza l'invalidazione cache anche se l'after-hook non scatta in tempo.
+    __tc_cache = null;
+    __tc_cache_at = 0;
+
+    return c.json(200, { ok: true, id: rec.id, piano: rec.get('piano') });
+  } catch (err) {
+    console.error('apply-plan upsert failed:', err && err.message || err);
+    return c.json(500, { error: 'apply_failed', message: String(err && err.message || err) });
+  }
+});

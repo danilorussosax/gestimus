@@ -483,11 +483,14 @@ function showEnteModal(existing = null) {
           <span class="c-field__label">Note piano (interno)</span>
           <textarea name="piano_note" rows="2" class="c-input" placeholder="es. sconto 10% concordato per il primo anno">${escapeHtml(existing?.piano_note || '')}</textarea>
         </label>
-        <section class="bg-amber-50 border border-amber-200 rounded-xl p-3 mt-3 text-xs text-amber-900">
-          <p class="font-semibold mb-1">⚠ Propagazione manuale al PB dell'ente</p>
-          <p>Dopo aver salvato qui, applica i limiti al PocketBase del singolo ente con:</p>
-          <pre class="mt-2 bg-white border border-amber-200 rounded p-2 font-mono text-[11px]">./scripts/apply-ente-plan.sh ${escapeHtml(existing?.slug || '<slug>')}</pre>
-          <p class="mt-1">Senza propagazione, la UI super-admin mostra i limiti ma il PB del tenant non li applica. (Il gating server-side legge da <code>tenant_config</code> locale.)</p>
+        <section class="bg-emerald-50 border border-emerald-200 rounded-xl p-3 mt-3 text-xs text-emerald-900">
+          <p class="font-semibold mb-1">✓ Auto-propagazione al PB dell'ente</p>
+          <p>Salvando qui, i limiti vengono applicati <strong>automaticamente</strong> al PocketBase del singolo ente (via shared-secret <code>GESTIMUS_SECRET_KEY</code>).</p>
+          <details class="mt-1 text-[11px]">
+            <summary class="cursor-pointer text-emerald-800 hover:text-emerald-900">Fallback manuale (se l'auto-propagazione fallisce)</summary>
+            <pre class="mt-2 bg-white border border-emerald-200 rounded p-2 font-mono">./scripts/apply-ente-plan.sh ${escapeHtml(existing?.slug || '<slug>')}</pre>
+            <p class="mt-1 text-emerald-800">Usato solo se il PB del tenant era offline al momento del save (i log del platform mostrano il warning).</p>
+          </details>
         </section>
       </div>
     </div>

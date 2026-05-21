@@ -233,6 +233,30 @@ sudo -E -u gestimus node /opt/gestimus/scripts/encrypt-existing-smtp.mjs
 
 Lo script è idempotente: rilegge ogni tenant, riscrive il campo `smtp_password` e l'hook `pb_hooks/tenants.pb.js` lo cifra at-rest (`enc:v1:...`). I record già cifrati vengono saltati. Se `GESTIMUS_SECRET_KEY` non è impostata sul PB platform, lo script segnala "NON cifrata" e esce con codice 2.
 
+### Piani SaaS — auto-propagazione
+
+I limiti del piano (trial/starter/pro/ultra/ppe) vengono **propagati automaticamente** dal PB platform al PB di ciascun tenant quando il super admin salva il record `tenants` dalla UI.
+
+Come funziona:
+- `pb_hooks/tenants.pb.js` ha `onRecordAfterUpdate` che chiama `POST http://127.0.0.1:<porta_tenant>/api/admin/apply-plan` (vedi `pb_hooks/tenant_config.pb.js`).
+- Autenticazione via header `X-Gestimus-Key` validato contro la `GESTIMUS_SECRET_KEY` presente nell'env del PB tenant.
+- La chiave viene **replicata automaticamente** dal `provision-tenant.sh` (per nuovi enti) e da `setup-server.sh` per gli enti esistenti.
+
+Fallback manuale (solo se il PB tenant era offline al momento del save):
+```bash
+source /opt/gestimus/deploy/gestimus.env
+SUPERADMIN_PWD="<password>" \
+ENTE_ADMIN_PWD="<password admin tenant>" \
+sudo -E -u gestimus /opt/gestimus/scripts/apply-ente-plan.sh <slug>      # singolo
+sudo -E -u gestimus /opt/gestimus/scripts/apply-ente-plan.sh --all       # tutti
+```
+
+Verifica auto-propagazione:
+```bash
+sudo journalctl -u pb@platform --since "5 min ago" | grep "plan propagated"
+# Cerca riga: "plan propagated to tenant <slug> ( pro )"
+```
+
 ### Rimuovere un ente
 ```bash
 sudo /opt/gestimus/scripts/remove-tenant.sh ente-vecchio              # archivia dati

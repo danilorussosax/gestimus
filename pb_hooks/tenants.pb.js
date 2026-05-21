@@ -59,6 +59,57 @@ onRecordBeforeUpdateRequest((e) => {
 }, 'tenants');
 
 // ============================================================================
+// Auto-propagazione del piano: dopo che il super admin salva tenants, chiama
+// l'endpoint /api/admin/apply-plan del PB del singolo tenant per applicare i
+// nuovi limiti in tenant_config. Lo shared secret è GESTIMUS_SECRET_KEY (la
+// stessa chiave usata per cifrare SMTP), replicata sull'env del tenant dal
+// provision-tenant.sh.
+//
+// Fallback manuale resta `scripts/apply-ente-plan.sh` per i tenant offline al
+// momento del save.
+// ============================================================================
+function propagatePlan(rec) {
+  try {
+    if (!rec) return;
+    const slug = rec.get('slug') || '';
+    const porta = Number(rec.get('porta_pb'));
+    if (!porta) return;
+    const key = getKey();
+    if (!key) {
+      console.warn('plan auto-propagation skipped: GESTIMUS_SECRET_KEY non impostata');
+      return;
+    }
+    const payload = {
+      piano:                  rec.get('piano') || 'trial',
+      piano_inizio:           rec.get('piano_inizio') || '',
+      piano_scadenza:         rec.get('piano_scadenza') || '',
+      limit_concorsi:         Number(rec.get('limit_concorsi')) || 0,
+      limit_iscritti_annui:   Number(rec.get('limit_iscritti_annui')) || 0,
+      ppe_setup_per_concorso: Number(rec.get('ppe_setup_per_concorso')) || 0,
+      ppe_per_iscritto:       Number(rec.get('ppe_per_iscritto')) || 0,
+      grace_giorni:           0,
+    };
+    const res = $http.send({
+      url: 'http://127.0.0.1:' + porta + '/api/admin/apply-plan',
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Gestimus-Key': key },
+      body: JSON.stringify(payload),
+      timeout: 5,
+    });
+    if (res.statusCode >= 200 && res.statusCode < 300) {
+      console.log('plan propagated to tenant', slug, '(', payload.piano, ')');
+    } else {
+      console.warn('plan propagation FAILED for', slug, '→ HTTP', res.statusCode, res.raw);
+    }
+  } catch (err) {
+    console.warn('plan propagation hook error:', err && err.message || err);
+  }
+}
+
+onRecordAfterCreateRequest((e) => { propagatePlan(e.record); }, 'tenants');
+onRecordAfterUpdateRequest((e) => { propagatePlan(e.record); }, 'tenants');
+
+// ============================================================================
 // Endpoint privato: ritorna la config piano da applicare al PB del tenant.
 // Richiede auth con role=superadmin. Usato da `scripts/apply-ente-plan.sh`.
 // ============================================================================
