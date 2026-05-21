@@ -51,7 +51,7 @@ function buildIndex() {
     out.push({
       kind: 'commissario', id: c.id, concorso_id: c.concorso_id,
       label: displayName(c),
-      isPresidente: !!c.is_presidente,
+      isPresidente: db.isPresidenteDiQualcheCommissione(c.id),
       sub: t('palette.sub.commissario', { specialita: c.specialita || '—', concorso: concorsoNome(c.concorso_id) }),
       hay: normalize(`${displayName(c)} ${c.specialita} commissario ${concorsoNome(c.concorso_id)}`),
     });

@@ -142,6 +142,7 @@ function mapCommissione(r) {
     sezioni_ids: Array.isArray(r.sezioni) ? r.sezioni : [],
     categorie_ids: Array.isArray(r.categorie) ? r.categorie : [],
     include_tutte_categorie: !!r.include_tutte_categorie,
+    presidente_id: r.presidente || null,
   };
 }
 function mapAccount(r) {
@@ -666,8 +667,46 @@ export const db = {
     notify();
     return c;
   },
+  // Presidente di una specifica commissione (relation in `commissioni.presidente`).
+  // Ritorna il record commissario, oppure null se la commissione non ha presidente.
+  getPresidenteForCommissione(commissione_or_id) {
+    const com = typeof commissione_or_id === 'string'
+      ? state.commissioni.find(c => c.id === commissione_or_id)
+      : commissione_or_id;
+    if (!com || !com.presidente_id) return null;
+    return state.commissari.find(c => c.id === com.presidente_id) || null;
+  },
+
+  // Presidente che pilota una specifica fase: viene letto dalla commissione
+  // assegnata alla fase. Se la fase non ha commissione assegnata o la commissione
+  // non ha presidente, ritorna null (il pannello presidente non viene mostrato).
+  getPresidenteForFase(fase) {
+    if (!fase || !fase.commissione_id) return null;
+    return this.getPresidenteForCommissione(fase.commissione_id);
+  },
+
+  // Controlla se un commissario è presidente di ALMENO una commissione
+  // (di qualunque concorso). Usato dai badge UI (palette, home, card admin).
+  isPresidenteDiQualcheCommissione(commissario_id) {
+    if (!commissario_id) return false;
+    return state.commissioni.some(c => c.presidente_id === commissario_id);
+  },
+
+  // Backward-compat: ritorna il PRIMO presidente di una qualsiasi commissione
+  // del concorso (usato dall'header admin per mostrare "Presidente: X" quando
+  // l'admin sta configurando il concorso senza ancora aver scelto una fase
+  // specifica). Da deprecare in futuro.
   getPresidenteFor(concorso_id) {
-    return state.commissari.find(c => c.concorso_id === concorso_id && c.is_presidente) || null;
+    const presidentIds = new Set(
+      state.commissioni
+        .filter(c => c.concorso_id === concorso_id && c.presidente_id)
+        .map(c => c.presidente_id)
+    );
+    for (const id of presidentIds) {
+      const com = state.commissari.find(c => c.id === id);
+      if (com) return com;
+    }
+    return null;
   },
   // Build a deduplicated archive view across all concorsi.
   // Two commissari with the same email (or same nome+cognome+specialita) are
@@ -1031,7 +1070,7 @@ async riordinaCandidatiFase(faseId, idsInOrder) {
     }
     return Array.from(direct);
   },
-  async createCommissione({ concorso_id, nome, descrizione = '', commissari_ids = [], sezioni_ids = [], categorie_ids = [], include_tutte_categorie = false }) {
+  async createCommissione({ concorso_id, nome, descrizione = '', commissari_ids = [], sezioni_ids = [], categorie_ids = [], include_tutte_categorie = false, presidente_id = null }) {
     const data = {
       concorso: concorso_id,
       nome, descrizione,
@@ -1039,6 +1078,7 @@ async riordinaCandidatiFase(faseId, idsInOrder) {
       sezioni: sezioni_ids,
       categorie: categorie_ids,
       include_tutte_categorie: !!include_tutte_categorie,
+      presidente: presidente_id || '',
     };
     const rec = await pb.collection('commissioni').create(data);
     const c = mapCommissione(rec);
@@ -1051,6 +1091,7 @@ async riordinaCandidatiFase(faseId, idsInOrder) {
     if ('commissari_ids' in data) { data.commissari = data.commissari_ids; delete data.commissari_ids; }
     if ('sezioni_ids' in data) { data.sezioni = data.sezioni_ids; delete data.sezioni_ids; }
     if ('categorie_ids' in data) { data.categorie = data.categorie_ids; delete data.categorie_ids; }
+    if ('presidente_id' in data) { data.presidente = data.presidente_id || ''; delete data.presidente_id; }
     const rec = await pb.collection('commissioni').update(id, data);
     const c = mapCommissione(rec);
     const idx = state.commissioni.findIndex(x => x.id === id);

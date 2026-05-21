@@ -88,8 +88,9 @@ export function renderHome(root) {
                     <option value="">${escapeHtml(t('home.role.com.placeholder'))}</option>
                     ${commissari.map(c => {
                       const concorso = db.state.concorsi.find(x => x.id === c.concorso_id);
-                      const star = c.is_presidente ? '🎯 ' : '';
-                      const ruolo = c.is_presidente ? ' ' + t('home.role.com.presidente_tag') : '';
+                      const isPres = db.isPresidenteDiQualcheCommissione(c.id);
+                      const star = isPres ? '🎯 ' : '';
+                      const ruolo = isPres ? ' ' + t('home.role.com.presidente_tag') : '';
                       return `<option value="${c.id}">${star}${escapeHtml(displayName(c))} · ${escapeHtml(c.specialita || '—')} (${escapeHtml(concorso?.nome || t('home.role.com.option_default_concorso'))})${escapeHtml(ruolo)}</option>`;
                     }).join('')}
                   </select>
@@ -315,8 +316,9 @@ function renderCommissarioHome(root) {
     const fasiInCorso = fasi.filter(f => f.stato === 'IN_CORSO').length;
     const fasiConcluse = fasi.filter(f => f.stato === 'CONCLUSA').length;
     const candidati = db.candidatiByConcorso(concorso.id);
-    const role = rec.is_presidente ? t('com_home.role_presidente') : t('com_home.role_commissario');
-    const roleIcon = rec.is_presidente ? icon('star', { size: 14 }) : icon('music', { size: 14 });
+    const recIsPres = db.isPresidenteDiQualcheCommissione(rec.id);
+    const role = recIsPres ? t('com_home.role_presidente') : t('com_home.role_commissario');
+    const roleIcon = recIsPres ? icon('star', { size: 14 }) : icon('music', { size: 14 });
     const statusClass = concorso.stato === 'ATTIVO' ? 'c-tag--green' : 'c-tag--gray c-tag--no-dot';
 
     // Progresso valutazioni per questo commissario nelle fasi attive
@@ -386,7 +388,7 @@ function renderCommissarioHome(root) {
   }).join('');
 
   const total = myRecords.length;
-  const presCount = myRecords.filter(r => r.is_presidente).length;
+  const presCount = myRecords.filter(r => db.isPresidenteDiQualcheCommissione(r.id)).length;
   const greeting = t('com_home.greeting', { name: displayName(currentCom) });
 
   root.innerHTML = `

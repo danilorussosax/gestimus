@@ -58,11 +58,19 @@ export function renderCommissario(root) {
   const fasi = db.fasiByConcorso(concorso.id);
   const faseAttiva = fasi.find(f => f.stato === 'IN_CORSO');
 
+  // Il commissario è "presidente" SOLO se è presidente della commissione
+  // assegnata alla fase corrente (o, in assenza di fase attiva, di una
+  // qualsiasi commissione del concorso → cosi vede comunque il pannello
+  // di controllo per gestire l'avvio di una fase pianificata).
+  const isPresidenteFase = faseAttiva
+    ? db.getPresidenteForFase(faseAttiva)?.id === com.id
+    : db.state.commissioni.some(c => c.concorso_id === concorso.id && c.presidente_id === com.id);
+
   if (!faseAttiva) {
     unmountFloatingTimer();
     root.innerHTML = `
       <section class="view-fade c-page max-w-5xl mx-auto">
-        ${com.is_presidente ? presidentePanelHtml(concorso, fasi) : `
+        ${isPresidenteFase ? presidentePanelHtml(concorso, fasi) : `
           <div class="bg-card border border-border rounded-lg shadow-soft p-10 text-center">
             <div class="text-6xl mb-4">⏸️</div>
             <h2 class="text-2xl font-bold">${escapeHtml(t('com.no_phase.title'))}</h2>
@@ -75,7 +83,7 @@ export function renderCommissario(root) {
         </div>
       </section>
     `;
-    if (com.is_presidente) bindPresidentePanel(root, concorso);
+    if (isPresidenteFase) bindPresidentePanel(root, concorso);
     return;
   }
 
@@ -147,12 +155,12 @@ export function renderCommissario(root) {
 
   root.innerHTML = `
     <section class="view-fade c-page">
-      ${com.is_presidente ? presidentePanelHtml(concorso, fasi) : ''}
+      ${isPresidenteFase ? presidentePanelHtml(concorso, fasi) : ''}
       <header class="flex flex-wrap items-start justify-between gap-3 mb-5">
         <div>
           <div class="text-xs font-semibold text-amber-700 uppercase tracking-wider">${escapeHtml(faseAttiva.nome)} <span class="text-slate-400">· ${escapeHtml(t('com.scale_suffix', { scala }))}</span> ${modo === 'sincrona' ? `<span class="inline-flex items-center gap-1 ml-1 text-[10px] font-medium px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded normal-case">${escapeHtml(t('com.sincrona_tag'))}</span>` : ''}</div>
           <h2 class="text-xl sm:text-2xl font-bold text-slate-900 mt-1">${escapeHtml(concorso.nome)}</h2>
-          <p class="text-sm text-slate-600 mt-0.5">${com.is_presidente ? `<span class="text-amber-700 font-semibold">${escapeHtml(t('com.presidente_label'))}</span> · ` : `${escapeHtml(t('com.commissario_label'))}: `}<span class="font-medium">${escapeHtml(displayName(com))}</span> · ${escapeHtml(com.specialita || '')}</p>
+          <p class="text-sm text-slate-600 mt-0.5">${isPresidenteFase ? `<span class="text-amber-700 font-semibold">${escapeHtml(t('com.presidente_label'))}</span> · ` : `${escapeHtml(t('com.commissario_label'))}: `}<span class="font-medium">${escapeHtml(displayName(com))}</span> · ${escapeHtml(com.specialita || '')}</p>
         </div>
         <div class="text-right">
           <div class="text-xs text-slate-500">${escapeHtml(t('com.progress_phase'))}</div>
@@ -266,12 +274,12 @@ export function renderCommissario(root) {
     });
   });
 
-  if (com.is_presidente) bindPresidentePanel(root, concorso);
+  if (isPresidenteFase) bindPresidentePanel(root, concorso);
 
   // Floating timer (sincronizzato): visibile a tutti i commissari quando la fase
-  // ha tempo_minuti > 0. Solo il presidente ha i controlli.
+  // ha tempo_minuti > 0. Solo il presidente della commissione ha i controlli.
   if ((Number(faseAttiva.tempo_minuti) || 0) > 0) {
-    mountFloatingTimer(faseAttiva, current.id, !!com.is_presidente);
+    mountFloatingTimer(faseAttiva, current.id, isPresidenteFase);
   } else {
     unmountFloatingTimer();
   }

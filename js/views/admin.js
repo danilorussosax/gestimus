@@ -1697,7 +1697,11 @@ function openCandidatoForm(concorso, candidato, onSaved) {
 // ---------- Commissari ----------
 function renderCommissari(root, concorso) {
   const list = db.commissariByConcorso(concorso.id);
-  const presidente = list.find(c => c.is_presidente);
+  // "Presidente" qui = commissario che è presidente di ALMENO UNA commissione
+  // del concorso (concetto refactorizzato: il presidente è di commissione, non
+  // di concorso). Mostriamo un riferimento per l'header — i veri presidenti
+  // sono visualizzati per ciascuna commissione nel tab Commissioni.
+  const presidente = list.find(c => db.isPresidenteDiQualcheCommissione(c.id));
   root.innerHTML = `
     <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
       <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider">${escapeHtml(t('admin.commissari.heading'))}</h3>
@@ -1762,8 +1766,12 @@ function renderCommissari(root, concorso) {
 
 function commissarioCardHtml(c) {
   const eta = ageFromDate(c.data_nascita);
-  const ringCls = c.is_presidente ? 'ring-2 ring-amber-400' : 'ring-2 ring-white';
-  const cardCls = c.is_presidente ? 'border-amber-300 bg-amber-50/40' : 'border-slate-200';
+  // Il commissario è "presidente" se lo è in almeno una commissione (del concorso).
+  // Il refactor 1700000035 ha spostato il concetto da commissari.is_presidente
+  // a commissioni.presidente — vedi db.isPresidenteDiQualcheCommissione.
+  const isPres = db.isPresidenteDiQualcheCommissione(c.id);
+  const ringCls = isPres ? 'ring-2 ring-amber-400' : 'ring-2 ring-white';
+  const cardCls = isPres ? 'border-amber-300 bg-amber-50/40' : 'border-slate-200';
   return `
     <div class="bg-white border ${cardCls} rounded-2xl p-4 flex items-start gap-3 hover:border-slate-300 transition">
       <div class="w-14 h-14 rounded-full bg-gradient-to-br from-amber-100 to-orange-100 overflow-hidden flex items-center justify-center text-2xl text-amber-700 shrink-0 ${ringCls} shadow-soft">
@@ -1772,7 +1780,7 @@ function commissarioCardHtml(c) {
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2 flex-wrap">
           <h4 class="font-semibold text-slate-900 truncate">${escapeHtml(displayName(c))}</h4>
-          ${c.is_presidente ? `<span class="text-[10px] font-bold px-1.5 py-0.5 bg-amber-500 text-white rounded-full">${escapeHtml(t('admin.commissari.presidente_tag'))}</span>` : ''}
+          ${isPres ? `<span class="text-[10px] font-bold px-1.5 py-0.5 bg-amber-500 text-white rounded-full">${escapeHtml(t('admin.commissari.presidente_tag'))}</span>` : ''}
           ${c.nazionalita ? `<span class="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded-full font-medium">${escapeHtml(c.nazionalita)}</span>` : ''}
         </div>
         <p class="text-xs text-slate-600 truncate">${escapeHtml(c.specialita || '—')}${eta ? ` · ${escapeHtml(t('admin.candidati.years', { n: eta }))}` : ''}</p>
@@ -1888,14 +1896,13 @@ function openCommissarioForm(concorso, com, onSaved) {
           </label>
         </div>
 
+        <!-- Il ruolo di presidente è ora gestito per ogni singola commissione
+             (vedi tab Commissioni → "Presidente della commissione"). -->
         <div class="pt-4 border-t border-slate-200">
-          <label class="flex items-start gap-3 cursor-pointer">
-            <input type="checkbox" name="is_presidente" ${com?.is_presidente ? 'checked' : ''} class="mt-1 w-4 h-4 rounded border-slate-300 text-amber-600 focus:ring-amber-500" />
-            <div>
-              <span class="text-sm font-semibold text-slate-800">${escapeHtml(t('admin.commissario.field_is_pres_label'))}</span>
-              <span class="block text-xs text-slate-500 mt-0.5">${t('admin.commissario.field_is_pres_help')}</span>
-            </div>
-          </label>
+          <div class="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 text-xs text-amber-900 flex items-start gap-2">
+            <span class="text-base shrink-0">🎯</span>
+            <p>Per nominare un commissario <strong>presidente</strong>, vai al tab <em>Commissioni</em>, apri (o crea) la commissione e seleziona il presidente dal menù "Presidente della commissione". Un commissario può essere presidente di commissioni diverse.</p>
+          </div>
         </div>
 
         <div class="pt-4 border-t border-slate-200">
@@ -2054,7 +2061,9 @@ function openCommissarioForm(concorso, com, onSaved) {
       const form = body.querySelector('#frm');
       if (!form.reportValidity()) return false;
       const data = Object.fromEntries(new FormData(form));
-      const isPresidenteVal = !!data.is_presidente;
+      // is_presidente NON è più gestito qui: il ruolo presidente è attributo
+      // della commissione (vedi openCommissioneForm). Lasciamo il campo DB
+      // a false per nuovi record per non confondere logica legacy.
       const baseFields = {
         nome: (data.nome || '').trim(),
         cognome: (data.cognome || '').trim(),
@@ -2064,7 +2073,6 @@ function openCommissarioForm(concorso, com, onSaved) {
         data_nascita: data.data_nascita || null,
         nazionalita: (data.nazionalita || '').trim(),
         bio: (data.bio || '').trim(),
-        is_presidente: isPresidenteVal,
       };
       if (!baseFields.nome || !baseFields.cognome || !baseFields.specialita) {
         toast(t('admin.commissario.required_missing'), 'error');
@@ -2677,7 +2685,7 @@ function commissioneCardHtml(c) {
             ${members.length === 0 ? `<span class="text-xs text-slate-400 italic">${escapeHtml(t('admin.commissioni.no_one'))}</span>` : members.map(m => `
               <span class="inline-flex items-center gap-1 text-[11px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full">
                 <span class="w-4 h-4 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-[9px] overflow-hidden">${m.foto ? `<img src="${m.foto}" class="w-full h-full object-cover" alt="" />` : '🧑‍⚖️'}</span>
-                ${escapeHtml(displayName(m))}${m.is_presidente ? ' 🎯' : ''}
+                ${escapeHtml(displayName(m))}${db.isPresidenteDiQualcheCommissione(m.id) ? ' 🎯' : ''}
               </span>
             `).join('')}
           </div>
@@ -3054,12 +3062,13 @@ function openCommissioneForm(concorso, existing, onSaved) {
   let selSezioni = new Set(existing?.sezioni_ids || []);
   let selCategorie = new Set(existing?.categorie_ids || []);
   let includeTutte = !!existing?.include_tutte_categorie;
+  let selPresidente = existing?.presidente_id || '';
 
   const renderCommList = () => allCom.map(c => `
     <label class="flex items-center gap-2 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 cursor-pointer">
       <input type="checkbox" data-comm="${c.id}" ${selCommissari.has(c.id) ? 'checked' : ''} class="w-4 h-4 rounded border-slate-300 text-brand-600" />
       <div class="w-6 h-6 rounded-full bg-amber-100 text-amber-700 overflow-hidden flex items-center justify-center text-xs shrink-0">${c.foto ? `<img src="${c.foto}" alt="" class="w-full h-full object-cover" />` : '🧑‍⚖️'}</div>
-      <span class="text-sm text-slate-800 truncate">${escapeHtml(displayName(c))}${c.is_presidente ? ' 🎯' : ''}</span>
+      <span class="text-sm text-slate-800 truncate">${escapeHtml(displayName(c))}${db.isPresidenteDiQualcheCommissione(c.id) ? ' 🎯' : ''}</span>
       <span class="text-[10px] text-slate-500 ml-auto truncate">${escapeHtml(c.specialita || '')}</span>
     </label>
   `).join('');
@@ -3118,6 +3127,19 @@ function openCommissioneForm(concorso, existing, onSaved) {
             ${allCom.length === 0 ? `<span class="text-xs text-slate-400 italic">${escapeHtml(t('admin.commissione.no_com_avail'))}</span>` : renderCommList()}
           </div>
           <div class="mt-2 text-[11px] text-slate-500">${t('admin.commissione.selected')}</div>
+
+          <!-- Selezione presidente DI QUESTA COMMISSIONE -->
+          <div class="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3">
+            <label class="block">
+              <span class="text-sm font-semibold text-amber-900 flex items-center gap-1.5">🎯 Presidente della commissione</span>
+              <p class="text-[11px] text-amber-800 mt-0.5 mb-2">Il presidente pilota le fasi a cui questa commissione è assegnata: avvia/conclude, gestisce il timer, conferma le valutazioni.</p>
+              <select id="presidente-select" class="${inputCls} mt-0">
+                <option value="">— Nessun presidente (l'admin gestirà le fasi) —</option>
+                ${allCom.map(c => `<option value="${escapeHtml(c.id)}" ${selPresidente === c.id ? 'selected' : ''} data-com-id="${escapeHtml(c.id)}">${escapeHtml(displayName(c))}${c.specialita ? ' · ' + escapeHtml(c.specialita) : ''}</option>`).join('')}
+              </select>
+              <p class="text-[10px] text-amber-700 mt-1 italic">Il presidente deve essere uno dei membri sopra selezionati.</p>
+            </label>
+          </div>
         </section>
 
         <section class="pt-4 border-t border-slate-200">
@@ -3157,6 +3179,12 @@ function openCommissioneForm(concorso, existing, onSaved) {
         const t = e.target;
         if (t.dataset.comm) {
           if (t.checked) selCommissari.add(t.dataset.comm); else selCommissari.delete(t.dataset.comm);
+          // Se de-seleziono un commissario che era presidente, azzero
+          if (!t.checked && t.dataset.comm === selPresidente) {
+            selPresidente = '';
+            const sel = body.querySelector('#presidente-select');
+            if (sel) sel.value = '';
+          }
           updateCount();
         } else if (t.dataset.sez) {
           if (t.checked) selSezioni.add(t.dataset.sez); else selSezioni.delete(t.dataset.sez);
@@ -3164,6 +3192,8 @@ function openCommissioneForm(concorso, existing, onSaved) {
           if (t.checked) selCategorie.add(t.dataset.cat); else selCategorie.delete(t.dataset.cat);
         } else if (t.id === 'incl-tutte') {
           includeTutte = t.checked;
+        } else if (t.id === 'presidente-select') {
+          selPresidente = t.value;
         }
       });
       updateCount();
@@ -3171,6 +3201,9 @@ function openCommissioneForm(concorso, existing, onSaved) {
     onPrimary: async (body) => {
       const data = Object.fromEntries(new FormData(body.querySelector('#frm')));
       if (!data.nome) return false;
+      // Verifica che il presidente sia tra i membri selezionati. Se non lo è
+      // (l'admin ha cambiato i membri dopo aver scelto il presidente), lo azzero.
+      const presidenteValido = selPresidente && selCommissari.has(selPresidente) ? selPresidente : '';
       const payload = {
         nome: data.nome.trim(),
         descrizione: (data.descrizione || '').trim(),
@@ -3178,6 +3211,7 @@ function openCommissioneForm(concorso, existing, onSaved) {
         sezioni_ids: Array.from(selSezioni),
         categorie_ids: Array.from(selCategorie),
         include_tutte_categorie: includeTutte,
+        presidente_id: presidenteValido,
       };
       try {
         if (isEdit) await db.updateCommissione(existing.id, payload);

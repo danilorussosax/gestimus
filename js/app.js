@@ -173,7 +173,7 @@ function updateHeader() {
   } else if (meta.role === 'commissario') {
     const com = db.state.commissari.find(x => x.id === meta.currentCommissarioId);
     sub.textContent = com ? `${displayName(com)} · ${com.specialita || t('app.role.commissario')}` : t('app.role.commissario');
-    if (com?.is_presidente) {
+    if (com && db.isPresidenteDiQualcheCommissione(com.id)) {
       badge.innerHTML = `${icon('star', { size: 14 })} <span>${escapeHtml(t('app.role.presidente'))}</span>`;
       badge.className = `${baseBadge} bg-sun-50 text-sun-600 border border-sun-400/40`;
       badge.style.background = '';
