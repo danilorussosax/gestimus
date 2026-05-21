@@ -323,7 +323,79 @@ Per **enti illimitati** (~20-50 sul VPS L+, vedi tabella sopra). Se servono più
 
 ### Costo "per ente" (ammortizzato)
 
-Con 20 enti sul VPS L+ a regime: **€5,40/ente/anno (lordo)** — confronta con piattaforme SaaS dedicate che partono da €30/mese per istanza.
+| Enti sul VPS L+ | Costo infra/ente/anno (lordo) |
+|---:|---:|
+| 5 enti | €26,40 |
+| 10 enti | €13,20 |
+| 20 enti | **€6,60** |
+| 50 enti (capacità max VPS L+) | **€2,64** |
+
+Confronto: piattaforme SaaS dedicate equivalenti partono da €30/mese per istanza.
+
+---
+
+## Ricavi e margini con i piani SaaS Gestimus
+
+Listino vendita (definito in `js/piani.js`, prezzi **IVA inclusa 22%**):
+
+| Piano | Prezzo IVA incl. | Imponibile (al netto IVA 22%) | Stripe fee (~1,5% + €0,25) | **Margine netto incassato** |
+|---|---:|---:|---:|---:|
+| Trial | gratis · 30 gg | – | – | €0 (acquisizione) |
+| **Starter** | €150 | €122,95 | €2,50 | **€120,45** |
+| **Pro** ⭐ | €230 | €188,52 | €3,70 | **€184,82** |
+| **Ultra** | €350 | €286,89 | €5,50 | **€281,39** |
+| **PPE** (per concorso) | €50 setup + €0,50/iscr. | variabile | ~1,8% | margine medio ~95% |
+
+Esempio PPE concorso medio (100 iscritti): €50 + €0,50×100 = **€100 IVA incl.** → €81,97 imponibile − €1,75 Stripe ≈ **€80 margine netto**.
+
+### Scenario realistico — 20 enti sul VPS L+ (regime, anno 3+)
+
+Mix tipico in un MVP che sta crescendo:
+
+| Piano | Clienti | Ricavo annuo netto |
+|---|---:|---:|
+| Starter | 4 | €482 |
+| Pro | 12 | €2.218 |
+| Ultra | 3 | €844 |
+| PPE (~5 concorsi/anno) | 1 | €400 |
+| **Totale ricavi netti** | **20** | **~€3.944** |
+| **− Costi infra (VPS + dominio)** | | −€108 |
+| **= Margine annuo** | | **~€3.836** |
+
+Cliente che entra in Starter e nell'anno 2 passa a Pro → +€64 di MRR aggiuntivo gratis.
+
+### Scenario "VPS pieno" — 50 enti sul VPS L+
+
+Mix possibile a regime con marketing attivo:
+
+| Piano | Clienti | Ricavo annuo netto |
+|---|---:|---:|
+| Starter | 15 | €1.807 |
+| Pro | 30 | €5.545 |
+| Ultra | 5 | €1.407 |
+| **Totale ricavi netti** | **50** | **~€8.759** |
+| − Costi infra | | −€108 |
+| **= Margine annuo** | | **~€8.651** |
+
+Quando il VPS L+ è saturo, scala a **VPS XL+** (€132/anno promo, €180 rinnovo) — supporta 40-100 enti, infra resta marginale (€1,80-€3,30/ente/anno).
+
+### Break-even
+
+Costo infra fisso (anno 3+): **€108/anno netto**.
+
+| Quanti clienti per coprirlo? |  |
+|---|---|
+| Solo Pro | **1 cliente** Pro paga 1,7× i costi |
+| Solo Starter | 1 cliente Starter copre il 112% dei costi |
+| Solo PPE | ~2 concorsi PPE attivati nell'anno (100 iscr/concorso) |
+
+**ROI Anno 1**: con setup VPS €10 una tantum + €60 VPS promo + €10 dominio = €80 netti di investimento, basta 1 cliente Pro per andare in attivo dal primo anno.
+
+### Note fiscali
+
+- **IVA**: i prezzi listino sono IVA inclusa (22%). Se sei in regime forfettario, non addebiti IVA → marginalità reale = prezzo intero meno costi (es. Starter forfettario = €150 − €2,50 Stripe − €5,40 infra = €142 margine).
+- **Costi deducibili**: VPS, dominio, Stripe fee, eventuali abbonamenti SMTP/backup sono interamente deducibili come costi di produzione.
+- **Fattura elettronica**: per clienti italiani serve emettere fattura elettronica via SDI (gratuita su `fatture in cloud`, `Aruba`, etc.); per i piani annuali una fattura/anno, per PPE una fattura/concorso.
 
 ## Troubleshooting
 
