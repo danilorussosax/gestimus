@@ -797,12 +797,12 @@ function faseCardHtml(f, concorso) {
             <span>Candidati: ${cfs}</span>
           </div>
         </div>
-        <div class="flex items-center gap-1 shrink-0">
-          <button data-fase-action="move-up"   data-id="${f.id}" class="p-1.5 rounded-md text-slate-600 hover:bg-slate-100" title="Sposta su"   ${f.ordine === 1 ? 'disabled' : ''}>${icon('arrowUp', { size: 14 })}</button>
-          <button data-fase-action="move-down" data-id="${f.id}" class="p-1.5 rounded-md text-slate-600 hover:bg-slate-100" title="Sposta giù">${icon('arrowDown', { size: 14 })}</button>
-          <button data-fase-action="detail"    data-id="${f.id}" class="p-1.5 rounded-md text-slate-600 hover:bg-slate-100" title="${escapeHtml(t('common.detail') || 'Dettaglio')}">${icon('list', { size: 14 })}</button>
-          <button data-fase-action="edit"      data-id="${f.id}" class="p-1.5 rounded-md text-brand-600 hover:bg-brand-50" title="${escapeHtml(t('common.edit'))}">${icon('edit', { size: 14 })}</button>
-          <button data-fase-action="delete"    data-id="${f.id}" class="p-1.5 rounded-md text-rose-600 hover:bg-rose-50" title="${escapeHtml(t('common.delete'))}" ${stato === 'IN_CORSO' ? 'disabled' : ''}>${icon('trash', { size: 14 })}</button>
+        <div class="flex items-center gap-2 shrink-0">
+          <button data-fase-action="move-up"   data-id="${f.id}" class="w-9 h-9 inline-flex items-center justify-center rounded-lg text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 transition-colors disabled:opacity-40 disabled:cursor-not-allowed" title="Sposta su"   ${f.ordine === 1 ? 'disabled' : ''}>${icon('arrowUp', { size: 18 })}</button>
+          <button data-fase-action="move-down" data-id="${f.id}" class="w-9 h-9 inline-flex items-center justify-center rounded-lg text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 transition-colors" title="Sposta giù">${icon('arrowDown', { size: 18 })}</button>
+          <button data-fase-action="detail"    data-id="${f.id}" class="w-9 h-9 inline-flex items-center justify-center rounded-lg text-slate-600 bg-slate-50 hover:bg-slate-100 border border-slate-200 transition-colors" title="${escapeHtml(t('common.detail') || 'Dettaglio')}">${icon('list', { size: 18 })}</button>
+          <button data-fase-action="edit"      data-id="${f.id}" class="w-9 h-9 inline-flex items-center justify-center rounded-lg text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-100 transition-colors" title="${escapeHtml(t('common.edit'))}">${icon('edit', { size: 18 })}</button>
+          <button data-fase-action="delete"    data-id="${f.id}" class="w-9 h-9 inline-flex items-center justify-center rounded-lg text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-100 transition-colors disabled:opacity-40 disabled:cursor-not-allowed" title="${escapeHtml(t('common.delete'))}" ${stato === 'IN_CORSO' ? 'disabled' : ''}>${icon('trash', { size: 18 })}</button>
         </div>
       </div>
       <div class="mt-3 flex flex-wrap gap-2">
@@ -2514,29 +2514,29 @@ function sezioneCardHtml(s) {
             <p class="text-[11px] text-slate-500 mt-1">${escapeHtml(cats.length === 1 ? t('admin.sezioni.cats_one', { n: cats.length }) : t('admin.sezioni.cats_other', { n: cats.length }))} · ${escapeHtml(t('admin.sezioni.cands_count', { n: candCount }))}</p>
           </div>
         </div>
-        <div class="flex items-center gap-1.5 shrink-0">
-          <button data-edit-sez="${s.id}" class="text-xs font-medium text-brand-700 bg-brand-50 hover:bg-brand-100 px-2.5 py-1.5 rounded-lg" title="${escapeHtml(t('admin.sezioni.btn_edit_title'))}">${escapeHtml(t('admin.sezioni.btn_edit'))}</button>
-          <button data-del-sez="${s.id}" class="text-xs font-medium text-rose-600 hover:bg-rose-50 px-2 py-1.5 rounded-lg" title="${escapeHtml(t('admin.sezioni.btn_delete_title'))}">🗑</button>
+        <div class="flex items-center gap-2 shrink-0">
+          <button data-edit-sez="${s.id}" class="w-9 h-9 inline-flex items-center justify-center rounded-lg text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-100 transition-colors" title="${escapeHtml(t('admin.sezioni.btn_edit_title'))}">${icon('edit', { size: 18 })}</button>
+          <button data-del-sez="${s.id}" class="w-9 h-9 inline-flex items-center justify-center rounded-lg text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-100 transition-colors" title="${escapeHtml(t('admin.sezioni.btn_delete_title'))}">${icon('trash', { size: 18 })}</button>
         </div>
       </div>
       <div class="mt-3 ml-13 sm:ml-13 pl-3 border-l-2 border-slate-100">
         ${cats.length === 0 ? `<p class="text-xs text-slate-400 italic mb-2">${escapeHtml(t('admin.sezioni.no_cats'))}</p>` : `
           <ul class="space-y-1.5 mb-2">
             ${cats.map(c => `
-              <li class="flex items-center justify-between gap-2 bg-slate-50 rounded-lg px-3 py-1.5">
+              <li class="flex items-center justify-between gap-2 bg-slate-50 rounded-lg px-3 py-2">
                 <div class="min-w-0">
                   <span class="text-sm font-medium text-slate-800">${escapeHtml(c.nome)}</span>
                   ${c.descrizione ? `<span class="text-[11px] text-slate-500 ml-2">${escapeHtml(c.descrizione)}</span>` : ''}
                 </div>
-                <div class="flex items-center gap-1">
-                  <button data-edit-cat="${c.id}" class="text-[11px] text-brand-700 hover:bg-brand-100 px-2 py-0.5 rounded" title="${escapeHtml(t('admin.sezioni.btn_edit_title'))}">⚙</button>
-                  <button data-del-cat="${c.id}" class="text-[11px] text-rose-600 hover:bg-rose-50 px-2 py-0.5 rounded" title="${escapeHtml(t('admin.sezioni.btn_delete_title'))}">🗑</button>
+                <div class="flex items-center gap-2 shrink-0">
+                  <button data-edit-cat="${c.id}" class="w-9 h-9 inline-flex items-center justify-center rounded-lg text-brand-700 bg-white hover:bg-brand-50 border border-brand-100 transition-colors" title="${escapeHtml(t('admin.sezioni.btn_edit_title'))}">${icon('edit', { size: 18 })}</button>
+                  <button data-del-cat="${c.id}" class="w-9 h-9 inline-flex items-center justify-center rounded-lg text-rose-600 bg-white hover:bg-rose-50 border border-rose-100 transition-colors" title="${escapeHtml(t('admin.sezioni.btn_delete_title'))}">${icon('trash', { size: 18 })}</button>
                 </div>
               </li>
             `).join('')}
           </ul>
         `}
-        <button data-add-cat="${s.id}" class="text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 px-2.5 py-1 rounded-lg">${escapeHtml(t('admin.sezioni.add_cat'))}</button>
+        <button data-add-cat="${s.id}" class="text-xs font-semibold text-brand-700 bg-brand-50 hover:bg-brand-100 px-2.5 py-1.5 rounded-lg inline-flex items-center gap-1.5">${icon('plus', { size: 14 })}<span>${escapeHtml(t('admin.sezioni.add_cat'))}</span></button>
       </div>
     </li>
   `;
@@ -2666,6 +2666,8 @@ function commissioneCardHtml(c) {
   const effectiveCatIds = db.effectiveCategorieForCommissione(c);
   const allCats = effectiveCatIds.map(id => db.state.categorie.find(x => x.id === id)).filter(Boolean);
   const autoCats = allCats.filter(cat => !c.categorie_ids.includes(cat.id));
+  // Presidente di QUESTA commissione (non di altre)
+  const pres = c.presidente_id ? db.state.commissari.find(x => x.id === c.presidente_id) : null;
   return `
     <div class="bg-white border border-slate-200 rounded-2xl p-4">
       <div class="flex items-start justify-between gap-3">
@@ -2673,21 +2675,39 @@ function commissioneCardHtml(c) {
           <h4 class="font-bold text-slate-900 truncate">${escapeHtml(c.nome)}</h4>
           ${c.descrizione ? `<p class="text-xs text-slate-500 mt-0.5">${escapeHtml(c.descrizione)}</p>` : ''}
         </div>
-        <div class="flex items-center gap-1.5 shrink-0">
-          <button data-edit-comm="${c.id}" class="text-xs font-medium text-brand-700 bg-brand-50 hover:bg-brand-100 px-2.5 py-1.5 rounded-lg" title="${escapeHtml(t('admin.sezioni.btn_edit_title'))}">⚙</button>
-          <button data-del-comm="${c.id}" class="text-xs font-medium text-rose-600 hover:bg-rose-50 px-2 py-1.5 rounded-lg" title="${escapeHtml(t('admin.sezioni.btn_delete_title'))}">🗑</button>
+        <div class="flex items-center gap-2 shrink-0">
+          <button data-edit-comm="${c.id}" class="w-9 h-9 inline-flex items-center justify-center rounded-lg text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-100 transition-colors" title="${escapeHtml(t('admin.sezioni.btn_edit_title'))}">${icon('edit', { size: 18 })}</button>
+          <button data-del-comm="${c.id}" class="w-9 h-9 inline-flex items-center justify-center rounded-lg text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-100 transition-colors" title="${escapeHtml(t('admin.sezioni.btn_delete_title'))}">${icon('trash', { size: 18 })}</button>
         </div>
       </div>
+      ${pres ? `
+        <div class="mt-3 inline-flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-2.5 py-1.5">
+          <span class="text-base">🎯</span>
+          <div class="text-[11px] leading-tight">
+            <div class="font-bold uppercase tracking-wider text-[9px] text-amber-700">Presidente</div>
+            <div class="font-semibold">${escapeHtml(displayName(pres))}</div>
+          </div>
+        </div>
+      ` : `
+        <div class="mt-3 inline-flex items-center gap-1.5 text-[11px] text-amber-700 bg-amber-50/50 border border-dashed border-amber-300 rounded-lg px-2.5 py-1">
+          <span>⚠</span><span class="italic">Nessun presidente — modifica per assegnarne uno</span>
+        </div>
+      `}
       <div class="mt-3 grid grid-cols-1 gap-2">
         <div>
           <div class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-1">${escapeHtml(t('admin.commissioni.col_members', { n: members.length }))}</div>
           <div class="flex flex-wrap gap-1">
-            ${members.length === 0 ? `<span class="text-xs text-slate-400 italic">${escapeHtml(t('admin.commissioni.no_one'))}</span>` : members.map(m => `
-              <span class="inline-flex items-center gap-1 text-[11px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full">
+            ${members.length === 0 ? `<span class="text-xs text-slate-400 italic">${escapeHtml(t('admin.commissioni.no_one'))}</span>` : members.map(m => {
+              // 🎯 visibile SOLO se questo commissario è presidente di QUESTA
+              // commissione (non se lo è di un'altra). Membri presidenti
+              // altrove appaiono come membri normali in questa card.
+              const isPresQui = c.presidente_id === m.id;
+              return `
+              <span class="inline-flex items-center gap-1 text-[11px] ${isPresQui ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-300' : 'bg-slate-100 text-slate-700'} px-2 py-0.5 rounded-full">
                 <span class="w-4 h-4 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-[9px] overflow-hidden">${m.foto ? `<img src="${m.foto}" class="w-full h-full object-cover" alt="" />` : '🧑‍⚖️'}</span>
-                ${escapeHtml(displayName(m))}${db.isPresidenteDiQualcheCommissione(m.id) ? ' 🎯' : ''}
-              </span>
-            `).join('')}
+                ${escapeHtml(displayName(m))}${isPresQui ? ' 🎯' : ''}
+              </span>`;
+            }).join('')}
           </div>
         </div>
         <div>
