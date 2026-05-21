@@ -1,0 +1,50 @@
+name: ✨ Richiesta feature
+description: Proponi una nuova funzionalità
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problema
+    attributes:
+      label: Problema o esigenza
+      description: Quale problema risolve questa feature? Per chi?
+      placeholder: Es. "Gli admin devono poter esportare i risultati in Excel oltre che CSV per…"
+    validations:
+      required: true
+
+  - type: textarea
+    id: soluzione
+    attributes:
+      label: Soluzione proposta
+      description: Come immagini il funzionamento
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternative
+    attributes:
+      label: Alternative considerate
+      description: Hai pensato ad altre opzioni? Perché questa è la migliore?
+
+  - type: dropdown
+    id: priorita
+    attributes:
+      label: Priorità percepita
+      options:
+        - Bassa (nice to have)
+        - Media (utile)
+        - Alta (impedisce un caso d'uso)
+        - Critica (blocca produzione)
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: aree
+    attributes:
+      label: Aree dell'app coinvolte
+      options:
+        - label: Super admin (gestione enti)
+        - label: Admin ente (concorsi, fasi, candidati, commissari, sezioni)
+        - label: Commissario (valutazione)
+        - label: Iscrizione pubblica
+        - label: Deploy / infrastruttura
+        - label: Documentazione

@@ -1,0 +1,74 @@
+name: 🐛 Segnalazione bug
+description: Qualcosa non funziona come atteso
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Grazie per la segnalazione. Più dettagli fornisci più velocemente possiamo risolvere.
+
+  - type: input
+    id: ambiente
+    attributes:
+      label: Ambiente
+      description: Locale (`./scripts/start-local-multitenant.sh`) oppure produzione (es. ente1.gestimus.it)
+      placeholder: es. produzione · ente1.gestimus.it
+    validations:
+      required: true
+
+  - type: input
+    id: ruolo
+    attributes:
+      label: Ruolo utente
+      placeholder: super admin / admin / commissario / utente che si iscrive
+    validations:
+      required: true
+
+  - type: textarea
+    id: cosa-succede
+    attributes:
+      label: Cosa succede
+      description: Descrivi il problema osservato
+    validations:
+      required: true
+
+  - type: textarea
+    id: passi
+    attributes:
+      label: Passi per riprodurre
+      placeholder: |
+        1. Vai su...
+        2. Clicca...
+        3. Vedi...
+    validations:
+      required: true
+
+  - type: textarea
+    id: atteso
+    attributes:
+      label: Comportamento atteso
+    validations:
+      required: true
+
+  - type: textarea
+    id: log
+    attributes:
+      label: Log / Console / Network errors
+      description: Output di `journalctl -u pb@<slug>` o errori della console del browser
+      render: shell
+
+  - type: input
+    id: browser
+    attributes:
+      label: Browser / Sistema operativo
+      placeholder: es. Chrome 138 / macOS 15
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Verifiche
+      options:
+        - label: Ho controllato che non esista già una issue simile
+          required: true
+        - label: Ho fatto F5 / hard refresh per scartare cache del service worker
+          required: false

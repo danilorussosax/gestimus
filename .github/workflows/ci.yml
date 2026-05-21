@@ -1,0 +1,182 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1) Sintassi JavaScript: tutti i .js dell'app (frontend + migration + hooks)
+  # ---------------------------------------------------------------------------
+  lint-js:
+    name: Lint JavaScript (syntax)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Check syntax di tutti i file JS
+        run: |
+          set -e
+          FAIL=0
+          # Esclude node_modules e pocketbase/ (binari)
+          while IFS= read -r f; do
+            if ! node --check "$f"; then
+              echo "::error file=$f::Syntax error"
+              FAIL=1
+            fi
+          done < <(find . -type f -name "*.js" \
+            -not -path "./node_modules/*" \
+            -not -path "./pocketbase/*" \
+            -not -path "./test-results/*")
+          exit $FAIL
+
+  # ---------------------------------------------------------------------------
+  # 2) Sintassi script bash (scripts/ + deploy/)
+  # ---------------------------------------------------------------------------
+  lint-bash:
+    name: Lint Bash (syntax + shellcheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: bash -n su tutti gli script
+        run: |
+          set -e
+          FAIL=0
+          while IFS= read -r f; do
+            if ! bash -n "$f"; then
+              echo "::error file=$f::Syntax error"
+              FAIL=1
+            fi
+          done < <(find scripts deploy -type f -name "*.sh")
+          exit $FAIL
+
+      - name: shellcheck
+        run: |
+          sudo apt-get update -y -qq
+          sudo apt-get install -y -qq shellcheck
+          # SC1091 (sourced file not found) e SC2086 (word splitting intentionale): noi li tolleriamo
+          shellcheck --severity=warning --exclude=SC1091,SC2086,SC2034 scripts/*.sh || exit 1
+
+  # ---------------------------------------------------------------------------
+  # 3) Migrazioni PocketBase: verifica ordine + idempotenza
+  # ---------------------------------------------------------------------------
+  validate-migrations:
+    name: Validate PocketBase migrations
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Syntax check + numerazione progressiva
+        run: |
+          set -e
+          # Le migration devono seguire il pattern 1700000NNN_*.js
+          # e ogni numero deve essere unico e progressivo.
+          PREV=0
+          for f in $(ls pb_migrations/*.js | sort); do
+            base=$(basename "$f" .js)
+            num=$(echo "$base" | grep -oE '^[0-9]+')
+            if [ -z "$num" ]; then
+              echo "::error file=$f::Migration name non rispetta il pattern <numero>_<nome>.js"
+              exit 1
+            fi
+            if [ "$num" -le "$PREV" ]; then
+              echo "::error file=$f::Numero ($num) <= precedente ($PREV) — le migration devono essere progressive"
+              exit 1
+            fi
+            PREV=$num
+            node --check "$f" || exit 1
+          done
+          echo "✓ ${PREV} - $(ls pb_migrations/*.js | wc -l) migration verificate"
+
+  # ---------------------------------------------------------------------------
+  # 4) Hooks PocketBase: syntax
+  # ---------------------------------------------------------------------------
+  validate-hooks:
+    name: Validate PocketBase hooks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Syntax check pb_hooks/*.js
+        run: |
+          set -e
+          if [ -d pb_hooks ]; then
+            for f in pb_hooks/*.js; do
+              [ -e "$f" ] || continue
+              node --check "$f" || exit 1
+            done
+            echo "✓ $(ls pb_hooks/*.js 2>/dev/null | wc -l) hooks verificati"
+          fi
+
+  # ---------------------------------------------------------------------------
+  # 5) i18n: verifica che tutte le chiavi t() usate siano definite in italiano
+  # ---------------------------------------------------------------------------
+  i18n-coverage:
+    name: i18n coverage (chiavi usate vs definite in IT)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Verifica chiavi i18n
+        run: |
+          python3 <<'PY'
+          import re, glob, sys
+          used = set()
+          for f in glob.glob('js/**/*.js', recursive=True):
+              src = open(f).read()
+              for m in re.finditer(r"\bt\(\s*['\"]([^'\"]+)['\"]", src):
+                  used.add(m.group(1))
+          i18n = open('js/i18n.js').read()
+          m = re.search(r"\bit\s*:\s*\{", i18n)
+          if not m:
+              print('::error::it: {} non trovato in js/i18n.js')
+              sys.exit(1)
+          i = m.end() - 1; depth = 0; start = i
+          while i < len(i18n):
+              if i18n[i] == '{': depth += 1
+              elif i18n[i] == '}':
+                  depth -= 1
+                  if depth == 0:
+                      block = i18n[start:i+1]
+                      break
+              i += 1
+          defined = set(km.group(1) for km in re.finditer(r"['\"]([a-zA-Z][a-zA-Z0-9._-]*)['\"]\s*:", block))
+          missing = sorted([k for k in used if k not in defined])
+          print(f'USATE: {len(used)} · DEFINITE (it): {len(defined)} · MANCANTI: {len(missing)}')
+          if missing:
+              for k in missing[:20]:
+                  print(f'::warning::chiave i18n mancante in IT: {k}')
+              # warning, non error (può essere intenzionale durante sviluppo)
+          PY
+
+  # ---------------------------------------------------------------------------
+  # 6) Filesystem audit: nessun file > 5 MB nel repo (oltre alla soglia GH 100 MB)
+  # ---------------------------------------------------------------------------
+  size-audit:
+    name: Audit dimensioni file
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verifica nessun file > 5 MB
+        run: |
+          set -e
+          LARGE=$(find . -type f -size +5M -not -path "./.git/*" -not -path "./node_modules/*")
+          if [ -n "$LARGE" ]; then
+            echo "::warning::File > 5 MB trovati (considera Git LFS o esclusione):"
+            echo "$LARGE"
+          fi

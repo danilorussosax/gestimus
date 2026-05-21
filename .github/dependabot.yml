@@ -1,0 +1,37 @@
+version: 2
+updates:
+  # GitHub Actions: aggiorna versione delle azioni usate nei workflow (checkout, setup-node, ecc.)
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Europe/Rome
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - github-actions
+    commit-message:
+      prefix: 'ci'
+
+  # npm: poche dipendenze (playwright per i test), ma comunque tenute aggiornate
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Europe/Rome
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - npm
+    commit-message:
+      prefix: 'deps'
+    # Raggruppa minor/patch in un'unica PR per ridurre il rumore
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
