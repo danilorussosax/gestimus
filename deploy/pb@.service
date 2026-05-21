@@ -1,0 +1,26 @@
+[Unit]
+Description=PocketBase tenant %i
+After=network.target
+
+[Service]
+Type=simple
+User=pb
+WorkingDirectory=/srv/pb
+EnvironmentFile=/etc/pb/%i.env
+ExecStart=/srv/pb/pocketbase serve \
+    --http=127.0.0.1:${PORT} \
+    --dir=/srv/pb/data/%i \
+    --migrationsDir=/srv/pb/pb_migrations \
+    --hooksDir=/srv/pb/pb_hooks
+Restart=on-failure
+RestartSec=3
+
+# Sicurezza di base
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/srv/pb/data/%i
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
