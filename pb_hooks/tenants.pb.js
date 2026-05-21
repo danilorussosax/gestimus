@@ -3,83 +3,82 @@
 // Cifra/decifra la SMTP password della collection `tenants` (piattaforma).
 //
 // Modello: la password viene salvata cifrata con AES-256-GCM via $security.encrypt
-// utilizzando la chiave letta da env `GESTIMUS_SECRET_KEY` (32+ char raccomandati).
+// usando la chiave letta da env `GESTIMUS_SECRET_KEY` (esattamente 32 byte).
 // Formato a riposo: stringa prefissata `enc:v1:<cipher>`. Se la chiave non è
-// configurata o la cifratura fallisce, lasciamo passare il valore in chiaro con
-// un warning a log — preferibile a impedire il save su istanze già esistenti.
+// configurata, il save passa con warning (compat con istanze già esistenti).
 //
 // Lettura in chiaro avviene tramite l'endpoint admin
 // `POST /api/admin/tenants/:id/smtp-decrypt` consumato da `scripts/apply-ente-smtp.sh`.
-
-const PREFIX = 'enc:v1:';
-
-function getKey() {
-  try {
-    const k = $os.getenv('GESTIMUS_SECRET_KEY') || '';
-    if (k.length >= 16) return k;
-  } catch (e) {}
-  return '';
-}
-
-function encryptIfPlain(val) {
-  if (!val) return val;
-  const s = String(val);
-  if (s.indexOf(PREFIX) === 0) return s; // già cifrata
-  const key = getKey();
-  if (!key) {
-    console.warn('GESTIMUS_SECRET_KEY non impostata: smtp_password salvata in chiaro');
-    return s;
-  }
-  try {
-    return PREFIX + $security.encrypt(s, key);
-  } catch (err) {
-    console.warn('smtp_password encrypt failed:', err && err.message || err);
-    return s;
-  }
-}
-
-function decryptIfNeeded(val) {
-  if (!val) return '';
-  const s = String(val);
-  if (s.indexOf(PREFIX) !== 0) return s; // legacy plain
-  const key = getKey();
-  if (!key) throw new Error('GESTIMUS_SECRET_KEY non impostata: impossibile decifrare smtp_password');
-  return $security.decrypt(s.slice(PREFIX.length), key);
-}
-
+//
+// IMPORTANTE: in PocketBase Goja le funzioni top-level NON sono nello scope di
+// callback hook e route handler — tutta la logica DEVE essere inline.
 onRecordBeforeCreateRequest((e) => {
-  const p = e.record.get('smtp_password');
-  if (p) e.record.set('smtp_password', encryptIfPlain(p));
+  try {
+    const p = e.record.get('smtp_password');
+    if (!p) return;
+    const s = String(p);
+    if (s.indexOf('enc:v1:') === 0) return; // già cifrato
+    const key = ($os.getenv('GESTIMUS_SECRET_KEY') || '').toString();
+    if (!key || key.length < 16) {
+      console.warn('GESTIMUS_SECRET_KEY non impostata: smtp_password salvata in chiaro');
+      return;
+    }
+    try {
+      e.record.set('smtp_password', 'enc:v1:' + $security.encrypt(s, key));
+    } catch (encErr) {
+      console.warn('smtp_password encrypt failed:', encErr && encErr.message || encErr);
+    }
+  } catch (err) {
+    console.warn('smtp encrypt beforeCreate hook error:', err && err.message || err);
+  }
 }, 'tenants');
 
 onRecordBeforeUpdateRequest((e) => {
-  // Solo se il campo è stato esplicitamente toccato e non è già cifrato.
-  const p = e.record.get('smtp_password');
-  if (p) e.record.set('smtp_password', encryptIfPlain(p));
+  try {
+    const p = e.record.get('smtp_password');
+    if (!p) return;
+    const s = String(p);
+    if (s.indexOf('enc:v1:') === 0) return;
+    const key = ($os.getenv('GESTIMUS_SECRET_KEY') || '').toString();
+    if (!key || key.length < 16) {
+      console.warn('GESTIMUS_SECRET_KEY non impostata: smtp_password salvata in chiaro');
+      return;
+    }
+    try {
+      e.record.set('smtp_password', 'enc:v1:' + $security.encrypt(s, key));
+    } catch (encErr) {
+      console.warn('smtp_password encrypt failed:', encErr && encErr.message || encErr);
+    }
+  } catch (err) {
+    console.warn('smtp encrypt beforeUpdate hook error:', err && err.message || err);
+  }
 }, 'tenants');
 
 // ============================================================================
 // Auto-propagazione del piano: dopo che il super admin salva tenants, chiama
 // l'endpoint /api/admin/apply-plan del PB del singolo tenant per applicare i
-// nuovi limiti in tenant_config. Lo shared secret è GESTIMUS_SECRET_KEY (la
-// stessa chiave usata per cifrare SMTP), replicata sull'env del tenant dal
-// provision-tenant.sh.
+// nuovi limiti in tenant_config. Lo shared secret è GESTIMUS_SECRET_KEY,
+// replicata sull'env del tenant dal provision-tenant.sh.
 //
-// Fallback manuale resta `scripts/apply-ente-plan.sh` per i tenant offline al
-// momento del save.
+// IMPORTANTE: nei callback `onRecord*AfterRequest` di PocketBase Goja le
+// funzioni top-level del file NON sono nel parent scope dell'eval interno →
+// la logica DEVE essere inline dentro la callback stessa. Per evitare drift
+// tra create/update teniamo entrambe identiche, copia-incollo. Fallback
+// manuale resta `scripts/apply-ente-plan.sh` per i tenant offline.
 // ============================================================================
-function propagatePlan(rec) {
+onRecordAfterCreateRequest((e) => {
   try {
+    const rec = e.record;
     if (!rec) return;
     const slug = rec.get('slug') || '';
     const porta = Number(rec.get('porta_pb'));
     if (!porta) return;
-    const key = getKey();
-    if (!key) {
-      console.warn('plan auto-propagation skipped: GESTIMUS_SECRET_KEY non impostata');
+    const key = ($os.getenv('GESTIMUS_SECRET_KEY') || '').toString();
+    if (!key || key.length < 16) {
+      console.warn('plan auto-propagation skipped: GESTIMUS_SECRET_KEY non impostata o troppo corta');
       return;
     }
-    const payload = {
+    const payload = JSON.stringify({
       piano:                  rec.get('piano') || 'trial',
       piano_inizio:           rec.get('piano_inizio') || '',
       piano_scadenza:         rec.get('piano_scadenza') || '',
@@ -88,26 +87,70 @@ function propagatePlan(rec) {
       ppe_setup_per_concorso: Number(rec.get('ppe_setup_per_concorso')) || 0,
       ppe_per_iscritto:       Number(rec.get('ppe_per_iscritto')) || 0,
       grace_giorni:           0,
-    };
-    const res = $http.send({
-      url: 'http://127.0.0.1:' + porta + '/api/admin/apply-plan',
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-Gestimus-Key': key },
-      body: JSON.stringify(payload),
-      timeout: 5,
     });
-    if (res.statusCode >= 200 && res.statusCode < 300) {
-      console.log('plan propagated to tenant', slug, '(', payload.piano, ')');
-    } else {
-      console.warn('plan propagation FAILED for', slug, '→ HTTP', res.statusCode, res.raw);
+    try {
+      const res = $http.send({
+        url: 'http://127.0.0.1:' + porta + '/api/admin/apply-plan',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Gestimus-Key': key },
+        body: payload,
+        timeout: 5,
+      });
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        console.log('plan propagated to tenant', slug, '→', rec.get('piano'));
+      } else {
+        console.warn('plan propagation FAILED for', slug, '→ HTTP', res.statusCode, res.raw);
+      }
+    } catch (httpErr) {
+      console.warn('plan propagation http error for', slug, ':', httpErr && httpErr.message || httpErr);
     }
   } catch (err) {
-    console.warn('plan propagation hook error:', err && err.message || err);
+    console.warn('plan auto-propagate outer error:', err && err.message || err);
   }
-}
+}, 'tenants');
 
-onRecordAfterCreateRequest((e) => { propagatePlan(e.record); }, 'tenants');
-onRecordAfterUpdateRequest((e) => { propagatePlan(e.record); }, 'tenants');
+onRecordAfterUpdateRequest((e) => {
+  try {
+    const rec = e.record;
+    if (!rec) return;
+    const slug = rec.get('slug') || '';
+    const porta = Number(rec.get('porta_pb'));
+    if (!porta) return;
+    const key = ($os.getenv('GESTIMUS_SECRET_KEY') || '').toString();
+    if (!key || key.length < 16) {
+      console.warn('plan auto-propagation skipped: GESTIMUS_SECRET_KEY non impostata o troppo corta');
+      return;
+    }
+    const payload = JSON.stringify({
+      piano:                  rec.get('piano') || 'trial',
+      piano_inizio:           rec.get('piano_inizio') || '',
+      piano_scadenza:         rec.get('piano_scadenza') || '',
+      limit_concorsi:         Number(rec.get('limit_concorsi')) || 0,
+      limit_iscritti_annui:   Number(rec.get('limit_iscritti_annui')) || 0,
+      ppe_setup_per_concorso: Number(rec.get('ppe_setup_per_concorso')) || 0,
+      ppe_per_iscritto:       Number(rec.get('ppe_per_iscritto')) || 0,
+      grace_giorni:           0,
+    });
+    try {
+      const res = $http.send({
+        url: 'http://127.0.0.1:' + porta + '/api/admin/apply-plan',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Gestimus-Key': key },
+        body: payload,
+        timeout: 5,
+      });
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        console.log('plan propagated to tenant', slug, '→', rec.get('piano'));
+      } else {
+        console.warn('plan propagation FAILED for', slug, '→ HTTP', res.statusCode, res.raw);
+      }
+    } catch (httpErr) {
+      console.warn('plan propagation http error for', slug, ':', httpErr && httpErr.message || httpErr);
+    }
+  } catch (err) {
+    console.warn('plan auto-propagate outer error:', err && err.message || err);
+  }
+}, 'tenants');
 
 // ============================================================================
 // Endpoint privato: ritorna la config piano da applicare al PB del tenant.
@@ -154,8 +197,21 @@ routerAdd('POST', '/api/admin/tenants/:id/smtp-decrypt', (c) => {
   } catch (err) {
     return c.json(404, { error: 'tenant_not_found' });
   }
+  // Inline decryptIfNeeded (le funzioni top-level non sono nello scope del
+  // routerAdd handler in PocketBase Goja).
   try {
-    const plain = decryptIfNeeded(rec.get('smtp_password'));
+    const val = rec.get('smtp_password');
+    if (!val) return c.json(200, { smtp_password: '' });
+    const s = String(val);
+    if (s.indexOf('enc:v1:') !== 0) {
+      // Legacy: già in chiaro
+      return c.json(200, { smtp_password: s });
+    }
+    const key = ($os.getenv('GESTIMUS_SECRET_KEY') || '').toString();
+    if (!key || key.length < 16) {
+      return c.json(500, { error: 'decrypt_failed', message: 'GESTIMUS_SECRET_KEY non impostata: impossibile decifrare smtp_password' });
+    }
+    const plain = $security.decrypt(s.slice('enc:v1:'.length), key);
     return c.json(200, { smtp_password: plain });
   } catch (err) {
     return c.json(500, { error: 'decrypt_failed', message: String(err && err.message || err) });

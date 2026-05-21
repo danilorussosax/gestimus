@@ -68,8 +68,11 @@ export function renderCommissario(root) {
 
   if (!faseAttiva) {
     unmountFloatingTimer();
+    // Quando non c'è una fase in corso, la "card del controllo sessione" è il
+    // contenuto principale della pagina → la espandiamo a max-w-7xl per
+    // sfruttare lo schermo (su laptop/desktop la griglia 2 colonne respira).
     root.innerHTML = `
-      <section class="view-fade c-page max-w-5xl mx-auto">
+      <section class="view-fade c-page max-w-7xl mx-auto" data-pres-fullpage="1">
         ${isPresidenteFase ? presidentePanelHtml(concorso, fasi) : `
           <div class="bg-card border border-border rounded-lg shadow-soft p-10 text-center">
             <div class="text-6xl mb-4">⏸️</div>
@@ -351,32 +354,36 @@ function presidentePanelHtml(concorso, fasi) {
   const totConc = fasi.filter(f => f.stato === 'CONCLUSA').length;
   const totPian = fasi.filter(f => f.stato === 'PIANIFICATA').length;
   const totCorso = fasi.filter(f => f.stato === 'IN_CORSO').length;
+  // Card "controllo sessione": dimensioni più grandi (padding + titolo + spaziature)
+  // così riempie meglio la pagina quando è l'elemento principale. La griglia
+  // interna delle fasi passa a 3 colonne su XL se ci sono ≥ 3 fasi.
+  const phaseGridCols = fasi.length >= 3 ? 'md:grid-cols-2 xl:grid-cols-3' : 'md:grid-cols-2';
   return `
-    <section class="bg-gradient-to-br from-amber-50 via-white to-orange-50 border border-amber-200/80 rounded-2xl p-5 mb-5 shadow-soft">
-      <header class="flex items-start justify-between gap-4 flex-wrap pb-4 border-b border-amber-200/60">
-        <div class="flex items-start gap-3 min-w-0">
-          <div class="w-11 h-11 rounded-xl bg-gradient-to-br from-amber-400 to-orange-500 text-white flex items-center justify-center shadow-md shrink-0 text-xl">🎯</div>
+    <section class="bg-gradient-to-br from-amber-50 via-white to-orange-50 border border-amber-200/80 rounded-3xl p-6 sm:p-8 lg:p-10 mb-6 shadow-soft">
+      <header class="flex items-start justify-between gap-4 flex-wrap pb-5 sm:pb-6 border-b border-amber-200/60">
+        <div class="flex items-start gap-4 min-w-0">
+          <div class="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 text-white flex items-center justify-center shadow-md shrink-0 text-2xl sm:text-3xl">🎯</div>
           <div class="min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
-              <h3 class="font-bold text-slate-900">${escapeHtml(t('com.pres.session_title'))}</h3>
+              <h3 class="font-bold text-slate-900 text-xl sm:text-2xl leading-tight">${escapeHtml(t('com.pres.session_title'))}</h3>
               <span class="text-[10px] font-bold px-2 py-0.5 bg-amber-500 text-white rounded-full uppercase tracking-wider">${escapeHtml(t('com.pres.tag'))}</span>
             </div>
-            <p class="text-xs text-slate-600 mt-1 leading-relaxed">${escapeHtml(t('com.pres.session_desc'))}</p>
+            <p class="text-sm text-slate-600 mt-1.5 leading-relaxed max-w-2xl">${escapeHtml(t('com.pres.session_desc'))}</p>
           </div>
         </div>
-        <div class="flex items-center gap-2 text-xs">
-          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white border border-slate-200 text-slate-700 font-medium">
-            <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>${totPian} ${escapeHtml(t('com.pres.kpi_pianificate'))}
+        <div class="flex items-center gap-2 text-xs sm:text-sm">
+          <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-slate-200 text-slate-700 font-medium">
+            <span class="w-2 h-2 rounded-full bg-slate-400"></span>${totPian} ${escapeHtml(t('com.pres.kpi_pianificate'))}
           </span>
-          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 font-medium">
-            <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>${totCorso} ${escapeHtml(t('com.pres.kpi_in_corso'))}
+          <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 font-medium">
+            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>${totCorso} ${escapeHtml(t('com.pres.kpi_in_corso'))}
           </span>
-          <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-slate-100 border border-slate-200 text-slate-600 font-medium">
-            <span class="w-1.5 h-1.5 rounded-full bg-slate-400"></span>${totConc} ${escapeHtml(t('com.pres.kpi_concluse'))}
+          <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 border border-slate-200 text-slate-600 font-medium">
+            <span class="w-2 h-2 rounded-full bg-slate-400"></span>${totConc} ${escapeHtml(t('com.pres.kpi_concluse'))}
           </span>
         </div>
       </header>
-      <div class="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-3">
+      <div class="mt-6 grid grid-cols-1 ${phaseGridCols} gap-4 sm:gap-5">
         ${fasi.map(f => fasePresCardHtml(f, concorso)).join('')}
       </div>
     </section>
@@ -490,20 +497,20 @@ function fasePresCardHtml(fase, concorso) {
   }
 
   return `
-    <article class="${palette.bg} rounded-xl border border-slate-200 ${palette.ring} ring-1 p-4 transition hover:shadow-sm">
+    <article class="${palette.bg} rounded-2xl border border-slate-200 ${palette.ring} ring-1 p-5 sm:p-6 transition hover:shadow-md flex flex-col">
       <header class="flex items-start justify-between gap-3">
         <div class="min-w-0 flex-1">
           <div class="text-[10px] font-mono uppercase tracking-wider text-slate-500">${escapeHtml(t('com.pres.phase_label', { ordine: fase.ordine }))}</div>
-          <h4 class="font-bold text-slate-900 text-base leading-tight truncate">${escapeHtml(fase.nome)}</h4>
+          <h4 class="font-bold text-slate-900 text-lg sm:text-xl leading-tight">${escapeHtml(fase.nome)}</h4>
         </div>
-        <span class="shrink-0 inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${palette.tag}">${escapeHtml(palette.label)}</span>
+        <span class="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider border ${palette.tag}">${escapeHtml(palette.label)}</span>
       </header>
-      <dl class="mt-3 grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px]">
-        <div class="flex items-center gap-1.5 text-slate-600 min-w-0"><span aria-hidden="true">📅</span><span class="truncate">${escapeHtml(dataPrev)}</span></div>
-        <div class="flex items-center gap-1.5 text-slate-600 min-w-0"><span aria-hidden="true">⏱</span><span class="truncate">${tempo > 0 ? escapeHtml(t('com.pres.tempo_value', { min: tempo })) : escapeHtml(t('com.pres.tempo_off'))}</span></div>
-        <div class="flex items-center gap-1.5 text-slate-600 min-w-0 col-span-2"><span aria-hidden="true">🎻</span><span class="truncate" title="${escapeHtml(sezioniNames)}">${escapeHtml(sezioniNames)}</span></div>
-        <div class="flex items-center gap-1.5 text-slate-600 min-w-0"><span aria-hidden="true">⚖️</span><span class="truncate">${modo === 'sincrona' ? escapeHtml(t('com.pres.modo_sync')) : escapeHtml(t('com.pres.modo_async'))} · ${escapeHtml(t('com.pres.scala', { scala }))}</span></div>
-        <div class="flex items-center gap-1.5 text-slate-600 min-w-0"><span aria-hidden="true">📋</span><span class="truncate">${escapeHtml(t('com.pres.criteri_count', { n: numCriteri }))}</span></div>
+      <dl class="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:text-sm">
+        <div class="flex items-center gap-2 text-slate-600 min-w-0"><span aria-hidden="true">📅</span><span class="truncate">${escapeHtml(dataPrev)}</span></div>
+        <div class="flex items-center gap-2 text-slate-600 min-w-0"><span aria-hidden="true">⏱</span><span class="truncate">${tempo > 0 ? escapeHtml(t('com.pres.tempo_value', { min: tempo })) : escapeHtml(t('com.pres.tempo_off'))}</span></div>
+        <div class="flex items-center gap-2 text-slate-600 min-w-0 col-span-2"><span aria-hidden="true">🎻</span><span class="truncate" title="${escapeHtml(sezioniNames)}">${escapeHtml(sezioniNames)}</span></div>
+        <div class="flex items-center gap-2 text-slate-600 min-w-0"><span aria-hidden="true">⚖️</span><span class="truncate">${modo === 'sincrona' ? escapeHtml(t('com.pres.modo_sync')) : escapeHtml(t('com.pres.modo_async'))} · ${escapeHtml(t('com.pres.scala', { scala }))}</span></div>
+        <div class="flex items-center gap-2 text-slate-600 min-w-0"><span aria-hidden="true">📋</span><span class="truncate">${escapeHtml(t('com.pres.criteri_count', { n: numCriteri }))}</span></div>
       </dl>
       ${bodyExtraHtml}
       ${actionAreaHtml}

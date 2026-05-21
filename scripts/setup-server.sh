@@ -169,7 +169,9 @@ fi
 #     Generata UNA VOLTA; cambiarla rende illeggibili le SMTP password salvate prima.
 SECRET_KEY_FILE="/etc/pb/platform.env"
 if [ ! -f "$SECRET_KEY_FILE" ] || ! grep -q '^GESTIMUS_SECRET_KEY=' "$SECRET_KEY_FILE" 2>/dev/null; then
-    SECRET_KEY=$(openssl rand -hex 32)
+    # $security.encrypt di PocketBase richiede chiavi di ESATTAMENTE 32 byte (AES-256).
+    # `rand -hex 16` produce 32 caratteri esadecimali = 32 byte ASCII.
+    SECRET_KEY=$(openssl rand -hex 16)
     echo "→ Genero GESTIMUS_SECRET_KEY e la scrivo in $SECRET_KEY_FILE"
     mkdir -p "$(dirname "$SECRET_KEY_FILE")"
     echo "GESTIMUS_SECRET_KEY=${SECRET_KEY}" >> "$SECRET_KEY_FILE"

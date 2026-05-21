@@ -21,6 +21,9 @@
 #                     se uniformata, o esportala per singolo ente)
 #   PLATFORM_URL      (default da deploy/gestimus.env)
 #   SUPERADMIN_EMAIL  (default da deploy/gestimus.env)
+#
+# Default dev locale (se le env sopra non sono settate):
+#   SUPERADMIN_PWD=admin123  ENTE_ADMIN_PWD=admin123  ./apply-ente-plan.sh <slug>
 
 set -euo pipefail
 

@@ -43,21 +43,28 @@ add_host_entry() {
 
 stop_all() {
   echo "→ Fermando tutti i processi..."
-  if [ -f "${PID_DIR}/pb-ente1.pid" ]; then
-    kill "$(cat "${PID_DIR}/pb-ente1.pid")" 2>/dev/null || true
-    rm -f "${PID_DIR}/pb-ente1.pid"
+  # 1. Stop via file PID (path "happy")
+  for NAME in pb-ente1 pb-ente2 pb-platform caddy; do
+    if [ -f "${PID_DIR}/${NAME}.pid" ]; then
+      kill "$(cat "${PID_DIR}/${NAME}.pid")" 2>/dev/null || true
+      rm -f "${PID_DIR}/${NAME}.pid"
+    fi
+  done
+  # 2. Fallback: trova eventuali PB orfani lanciati da questo progetto (file PID
+  #    persi/cancellati). Match sul flag --dir che contiene il path locale.
+  ORPHANS=$(pgrep -f "${PROJECT_DIR}/pocketbase/pocketbase serve" 2>/dev/null || true)
+  if [ -n "$ORPHANS" ]; then
+    echo "  ⚠ Trovati PB orfani: $ORPHANS — termino..."
+    echo "$ORPHANS" | xargs kill 2>/dev/null || true
+    sleep 1
+    # Se restano, SIGKILL come ultima risorsa
+    STILL=$(pgrep -f "${PROJECT_DIR}/pocketbase/pocketbase serve" 2>/dev/null || true)
+    [ -n "$STILL" ] && echo "$STILL" | xargs kill -9 2>/dev/null || true
   fi
-  if [ -f "${PID_DIR}/pb-ente2.pid" ]; then
-    kill "$(cat "${PID_DIR}/pb-ente2.pid")" 2>/dev/null || true
-    rm -f "${PID_DIR}/pb-ente2.pid"
-  fi
-  if [ -f "${PID_DIR}/pb-platform.pid" ]; then
-    kill "$(cat "${PID_DIR}/pb-platform.pid")" 2>/dev/null || true
-    rm -f "${PID_DIR}/pb-platform.pid"
-  fi
-  if [ -f "${PID_DIR}/caddy.pid" ]; then
-    kill "$(cat "${PID_DIR}/caddy.pid")" 2>/dev/null || true
-    rm -f "${PID_DIR}/caddy.pid"
+  # 3. Caddy orfano (matcha il Caddyfile generato in PID_DIR)
+  CADDY_ORPHANS=$(pgrep -f "caddy run --config ${PID_DIR}/Caddyfile" 2>/dev/null || true)
+  if [ -n "$CADDY_ORPHANS" ]; then
+    echo "$CADDY_ORPHANS" | xargs kill 2>/dev/null || true
   fi
   echo "✓ Tutti i processi fermati."
   exit 0
@@ -71,6 +78,14 @@ mkdir -p "${PID_DIR}" \
   "${PROJECT_DIR}/pocketbase/pb_data_ente1" \
   "${PROJECT_DIR}/pocketbase/pb_data_ente2" \
   "${PROJECT_DIR}/pocketbase/pb_data_platform"
+
+# Shared secret di SVILUPPO (non usare in produzione). Esportata a tutti i PB locali:
+#   - cifratura SMTP password (pb_hooks/tenants.pb.js)
+#   - auto-propagazione piano via $http.send (pb_hooks/tenants.pb.js → tenant_config.pb.js)
+#   - validazione endpoint /api/admin/apply-plan (pb_hooks/tenant_config.pb.js)
+# In produzione la chiave viene generata da setup-server.sh e scritta in /etc/pb/platform.env
+# e replicata su /etc/pb/<slug>.env dai provision-tenant.sh.
+export GESTIMUS_SECRET_KEY="${GESTIMUS_SECRET_KEY:-dev-multitenant-shared-key-32!!1}"
 
 echo "========================================="
 echo "  Gestionale Concorso — Multitenant Locale"

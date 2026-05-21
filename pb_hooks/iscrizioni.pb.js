@@ -8,47 +8,28 @@
 
 // ============================================================================
 // 0) PRIMA di create: hardening server-side del payload.
-//    - rate-limit per IP (anti-spam form pubblico)
-//    - honeypot anti-bot + min-time-on-page
+//    - honeypot anti-bot + min-time-on-page (validazione per-request, stateless)
 //    - forza stato='pending' (no auto-approve via client malevolo)
 //    - rigenera token_verifica server-side (no token client-controlled)
 //    - azzera campi gestiti solo da admin (approved_*, candidato, verified_at, ecc.)
 //    - verifica consensi obbligatori === true
 //    - verifica concorso ATTIVO + iscrizioni_aperte + entro scadenza
 //    - se minore (< 16 anni: soglia GDPR Art. 8 IT/EU), esige tutore_*
+//
+// NOTA su rate-limit: in PocketBase Goja le var top-level NON sono visibili nelle
+// callback (scope isolato del VM). Una mappa in-memory per IP NON è quindi
+// implementabile in hook JS. Il rate-limit reale è delegato a nginx:
+//   deploy/nginx-snippet-rl.conf  →  zone `iscrizioni_rl` (5r/min/IP, burst 5)
+//   deploy/nginx-tenant.conf.template  →  decommenta `limit_req zone=iscrizioni_rl ...`
+// In dev locale (senza nginx) honeypot + min-time-on-page restano attivi e
+// bloccano i bot più sciatti, che è la maggior parte degli spammer di form.
 // ============================================================================
-
-// Map<ip, number[]> con timestamp delle iscrizioni recenti per IP.
-// Persistente nel runtime Goja del file (PB esegue un singolo runtime per hook file).
-// Reset al riavvio del processo — accettabile per anti-spam basico.
-const __isc_rate = {};
-function __isc_rateCheck(ip) {
-  const now = Date.now();
-  const HOUR = 60 * 60 * 1000;
-  const DAY  = 24 * HOUR;
-  const arr = (__isc_rate[ip] || []).filter(t => now - t < DAY);
-  const lastHour = arr.filter(t => now - t < HOUR).length;
-  if (lastHour >= 3) return { ok: false, retry: HOUR };
-  if (arr.length >= 10) return { ok: false, retry: DAY };
-  arr.push(now);
-  __isc_rate[ip] = arr;
-  // Cleanup periodico per evitare memory leak (max ~2000 IP).
-  const keys = Object.keys(__isc_rate);
-  if (keys.length > 2000) {
-    for (const k of keys) {
-      if (!__isc_rate[k].some(t => now - t < DAY)) delete __isc_rate[k];
-    }
-  }
-  return { ok: true };
-}
 
 onRecordBeforeCreateRequest((e) => {
   const rec = e.record;
 
-  // 0a) Rate-limit per IP + honeypot + min-time-on-page.
-  let ip = 'unknown';
+  // 0a) Anti-bot stateless: honeypot + min-time-on-page.
   let raw = {};
-  try { ip = e.httpContext.realIP() || 'unknown'; } catch (err) {}
   try { raw = $apis.requestInfo(e.httpContext).data || {}; } catch (err) {}
 
   // Honeypot: campo `website` deve essere vuoto. Se valorizzato, è un bot.
@@ -59,11 +40,6 @@ onRecordBeforeCreateRequest((e) => {
   const startedAt = Number(raw._form_started_at) || 0;
   if (startedAt > 0 && (Date.now() - startedAt) < 5000) {
     throw new BadRequestError('Form compilato troppo velocemente. Riprova.');
-  }
-  // Quota IP.
-  const rl = __isc_rateCheck(ip);
-  if (!rl.ok) {
-    throw new BadRequestError('Troppe iscrizioni da questo IP. Riprova più tardi.');
   }
 
   // 1) Campi controllati solo dal server: ignorare qualunque valore inviato.
