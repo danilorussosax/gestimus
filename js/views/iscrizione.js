@@ -7,6 +7,7 @@ import { db } from '../db.js';
 import { pb } from '../pb.js';
 import { escapeHtml, toast, readImageResized, readFileAsDataURL, NATIONALITIES } from '../utils.js';
 import { icon } from '../icons.js';
+import { gdprBadgeFull } from './privacy.js';
 
 const DRAFT_KEY = 'iscrizione_draft_v2';
 
@@ -122,7 +123,16 @@ function renderForm(root, state) {
           <p class="text-sm text-slate-600 mt-1">Edizione ${escapeHtml(String(concorso.anno))}${concorso.data_inizio ? ` · inizio ${escapeHtml(concorso.data_inizio)}` : ''}</p>
           ${concorso.iscrizioni_chiusura ? `<p class="text-xs text-amber-700 mt-1">⏳ Iscrizioni aperte fino al ${escapeHtml(new Date(concorso.iscrizioni_chiusura).toLocaleString('it-IT'))}</p>` : ''}
         </div>
+        <a href="#/privacy" target="_blank" class="hidden sm:block shrink-0" title="Informativa privacy (Regolamento UE 2016/679)">
+          ${gdprBadgeFull()}
+        </a>
       </header>
+
+      <!-- Notice GDPR + link informativa (visibile anche su mobile) -->
+      <div class="sm:hidden bg-emerald-50 border border-emerald-200 rounded-2xl p-3 mb-4 flex items-center gap-3">
+        ${gdprBadgeFull()}
+        <p class="text-xs text-emerald-900 leading-snug flex-1">I tuoi dati sono trattati nel rispetto del GDPR. <a href="#/privacy" class="font-bold underline">Leggi l'informativa →</a></p>
+      </div>
 
       <form id="frm-iscrizione" class="space-y-6">
 
@@ -366,7 +376,7 @@ function consensiFields(d) {
     <div class="space-y-3">
       <label class="flex items-start gap-3 text-sm text-ink-800">
         <input name="consenso_privacy" type="checkbox" class="mt-1 rounded border-slate-300" ${d.consenso_privacy ? 'checked' : ''} required />
-        <span><strong>Privacy *</strong> — Acconsento al trattamento dei dati personali secondo l'informativa GDPR per le finalità di gestione del concorso.</span>
+        <span><strong>Privacy *</strong> — Acconsento al trattamento dei dati personali secondo l'<a href="#/privacy" target="_blank" class="text-brand-700 underline">informativa GDPR</a> per le finalità di gestione del concorso.</span>
       </label>
       <label class="flex items-start gap-3 text-sm text-ink-800">
         <input name="consenso_immagini" type="checkbox" class="mt-1 rounded border-slate-300" ${d.consenso_immagini ? 'checked' : ''} />

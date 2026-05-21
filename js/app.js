@@ -7,6 +7,7 @@ import { renderAdmin } from './views/admin.js';
 import { renderCommissario, unmountFloatingTimer } from './views/commissario.js';
 import { renderLogin } from './views/login.js';
 import { renderIscrizione } from './views/iscrizione.js';
+import { renderPrivacy } from './views/privacy.js';
 import { renderDashboard } from './views/admin-dashboard.js';
 import { renderImpostazioni } from './views/admin-impostazioni.js';
 import { renderUsers } from './views/admin-users.js';
@@ -20,6 +21,7 @@ const root = $('#app-root');
 
 function currentRoute() {
   const h = location.hash || '#/';
+  if (h.startsWith('#/privacy')) return 'privacy';
   if (h.startsWith('#/iscrizione')) return 'iscrizione';
   if (h.startsWith('#/superadmin')) return 'superadmin';
   if (h.startsWith('#/admin')) {
@@ -42,11 +44,9 @@ function render() {
   if (!pb.authStore.isValid) {
     unmountFloatingTimer();
     updateHeader();
-    // Il form pubblico di iscrizione è accessibile senza login.
-    if (currentRoute() === 'iscrizione') {
-      renderIscrizione(root);
-      return;
-    }
+    // Pagine pubbliche (no login richiesto): form iscrizione + informativa privacy.
+    if (currentRoute() === 'iscrizione') { renderIscrizione(root); return; }
+    if (currentRoute() === 'privacy')    { renderPrivacy(root); return; }
     renderLogin(root, () => render());
     return;
   }
@@ -76,7 +76,8 @@ function render() {
   const effectiveRoute = (location.hash === '#/' || location.hash === '') ? 'home' : route;
   let renderErr = null;
   try {
-    if (effectiveRoute === 'iscrizione') { unmountFloatingTimer(); renderIscrizione(root); }
+    if (effectiveRoute === 'privacy') { unmountFloatingTimer(); renderPrivacy(root); }
+    else if (effectiveRoute === 'iscrizione') { unmountFloatingTimer(); renderIscrizione(root); }
     else if (effectiveRoute === 'home') { unmountFloatingTimer(); renderHome(root); }
     else if (effectiveRoute === 'superadmin') { unmountFloatingTimer(); renderSuperadmin(root); }
     else if (effectiveRoute === 'admin-dashboard') { unmountFloatingTimer(); renderDashboard(root); }
