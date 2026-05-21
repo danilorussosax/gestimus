@@ -73,7 +73,17 @@ function render() {
   // (es. early-return interno), mostriamo un fallback diagnostico al posto del vuoto.
   const before = root.innerHTML;
 
-  const effectiveRoute = (location.hash === '#/' || location.hash === '') ? 'home' : route;
+  let effectiveRoute = (location.hash === '#/' || location.hash === '') ? 'home' : route;
+  // Per il super admin la "home" è sempre la dashboard Gestione Enti.
+  // Questo guard è indipendente dalla hash → resiste a service worker cached
+  // o session restore in cui `history.replaceState` non si propaga in tempo.
+  // Allineiamo anche la hash così i futuri reload sono consistenti.
+  if (effectiveRoute === 'home' && meta.role === 'superadmin') {
+    effectiveRoute = 'superadmin';
+    if (!location.hash.startsWith('#/superadmin')) {
+      try { history.replaceState(null, '', '#/superadmin'); } catch {}
+    }
+  }
   let renderErr = null;
   try {
     if (effectiveRoute === 'privacy') { unmountFloatingTimer(); renderPrivacy(root); }

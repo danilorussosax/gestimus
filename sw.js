@@ -3,7 +3,7 @@
 // - API PocketBase (qualunque cosa con :8090 o /api/): network-only (mai cache — i dati sono live).
 // - Navigation fallback: serve index.html dalla cache se offline.
 
-const VERSION = 'gc-v9';
+const VERSION = 'gc-v10';
 const STATIC_CACHE = `static-${VERSION}`;
 const PRECACHE = [
   './',
