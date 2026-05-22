@@ -12,8 +12,9 @@ import { renderRisultati } from './admin/risultati.js';
 import { renderFasi } from './admin/fasi.js';
 import { renderAudit } from './admin/audit.js';
 import { renderConcorsoSelector, openCreateConcorso, openEditConcorso } from './admin/concorso-selector.js';
+import { renderDashboard } from './admin/dashboard.js';
 
-let activeTab = 'fasi';
+let activeTab = 'dashboard';
 
 export function setAdminTab(tab) { activeTab = tab; }
 
@@ -44,7 +45,7 @@ export function renderAdmin(root) {
   const commCount = db.commissioniByConcorso(concorso.id).length;
   const presidente = db.getPresidenteFor(concorso.id);
   // Reset stale activeTab (e.g., from a previous session)
-  if (!['fasi','candidati','commissari','sezioni','commissioni','iscrizioni','risultati','audit'].includes(activeTab)) activeTab = 'fasi';
+  if (!['dashboard','fasi','candidati','commissari','sezioni','commissioni','iscrizioni','risultati','audit'].includes(activeTab)) activeTab = 'dashboard';
 
   root.innerHTML = `
     <section class="view-fade c-page">
@@ -62,6 +63,7 @@ export function renderAdmin(root) {
 
             <p class="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-700 px-4 pt-4 pb-2">${escapeHtml(t('admin.nav.sections'))}</p>
             <nav class="flex flex-col">
+              ${navItem('dashboard', 'dashboard', t('admin.nav.dashboard'), null)}
               ${navItem('sezioni', 'folder', t('admin.nav.sezioni'), sezCount)}
               ${navItem('commissari', 'judge', t('admin.nav.commissari'), comCount)}
               ${navItem('commissioni', 'scale', t('admin.nav.commissioni'), commCount)}
@@ -133,6 +135,7 @@ export function renderAdmin(root) {
             </div>
             <!-- Mobile-only: tab nav -->
             <nav class="md:hidden flex bg-white border border-brand-100 w-full overflow-x-auto no-scrollbar">
+              ${mobileTab('dashboard', t('admin.nav.dashboard'),'dashboard')}
               ${mobileTab('sezioni', t('admin.nav.sezioni'),'folder')}
               ${mobileTab('commissari', t('admin.nav.commissari'),'judge')}
               ${mobileTab('commissioni', t('admin.nav.commissioni'),'scale')}
@@ -167,7 +170,8 @@ export function renderAdmin(root) {
   });
 
   const content = root.querySelector('#tab-content');
-  if (activeTab === 'fasi') renderFasi(content, concorso);
+  if (activeTab === 'dashboard') renderDashboard(content, concorso);
+  else if (activeTab === 'fasi') renderFasi(content, concorso);
   else if (activeTab === 'sezioni') renderSezioni(content, concorso);
   else if (activeTab === 'candidati') renderCandidati(content, concorso);
   else if (activeTab === 'commissari') renderCommissari(content, concorso);
@@ -176,20 +180,6 @@ export function renderAdmin(root) {
   else if (activeTab === 'risultati') renderRisultati(content, concorso);
   else if (activeTab === 'audit') renderAudit(content, concorso);
 }
-
-// ---------- Audit log ----------
-const AUDIT_LABEL_KEYS = {
-  'concorso.create':  ['🆕', 'admin.audit.label.concorso_create'],
-  'concorso.delete':  ['🗑', 'admin.audit.label.concorso_delete'],
-  'fase.start':       ['▶',  'admin.audit.label.fase_start'],
-  'fase.complete':    ['🏁', 'admin.audit.label.fase_complete'],
-  'fase.sorteggio':   ['🎲', 'admin.audit.label.fase_sorteggio'],
-  'account.create':   ['🔑', 'admin.audit.label.account_create'],
-  'account.delete':   ['🗑', 'admin.audit.label.account_delete'],
-  'auth.login':       ['🔓', 'admin.audit.label.auth_login'],
-  'auth.logout':      ['🔒', 'admin.audit.label.auth_logout'],
-};
-
 
 function navItem(id, iconName, label, count) {
   const active = activeTab === id;

@@ -91,7 +91,8 @@ const dict = {
     'admin.nav.commissioni': 'Commissioni',
     'admin.nav.risultati': 'Risultati',
     'admin.nav.audit': 'Audit log',
-    'admin.nav.dashboard': 'Panoramica',
+    'admin.nav.dashboard': 'Dashboard',
+    'admin.nav.iscrizioni': 'Iscrizioni',
     'admin.nav.eyebrow': 'Admin / Pannello',
     'admin.nav.sections': 'Concorso',
     'admin.nav.admin_section': 'Amministrazione',
@@ -949,7 +950,7 @@ Il Presidente
 
     // Admin Dashboard
     'admin.dashboard.eyebrow': 'Amministrazione',
-    'admin.dashboard.title': 'Panoramica',
+    'admin.dashboard.title': 'Dashboard',
     'admin.dashboard.concorsi': 'Concorsi',
     'admin.dashboard.fasi': 'Fasi attive',
     'admin.dashboard.candidati': 'Candidati',
@@ -960,6 +961,23 @@ Il Presidente
     'admin.dashboard.no_ente': 'Nessun ente configurato',
     'admin.dashboard.no_ente_desc': 'Configura le informazioni del tuo ente organizzatore nelle Impostazioni.',
     'admin.dashboard.go_settings': 'Vai alle Impostazioni',
+    // Dashboard del concorso (tab in cima alla sidebar) — cards riassuntive
+    'admin.dashboard.sections_title': 'Sezioni del concorso',
+    'admin.dashboard.sections_help': 'Accesso rapido alle voci della sidebar.',
+    'admin.dashboard.open': 'Apri',
+    'admin.dashboard.no_president_help': 'Apri il tab Commissari per assegnare un presidente al concorso.',
+    'admin.dashboard.card.sezioni_desc': 'Sezioni del concorso e categorie associate.',
+    'admin.dashboard.card.commissari_desc': 'Anagrafica e archivio commissari del concorso.',
+    'admin.dashboard.card.commissioni_desc': 'Commissioni con membri, sezioni e categorie.',
+    'admin.dashboard.card.fasi_desc': 'Fasi del concorso, criteri di valutazione e tiebreak.',
+    'admin.dashboard.card.iscrizioni_desc': 'Iscrizioni pubbliche pendenti di approvazione.',
+    'admin.dashboard.card.candidati_desc': 'Anagrafica candidati e gestione gruppi.',
+    'admin.dashboard.card.risultati_desc': 'Classifiche, podio, esportazione PDF e verbale.',
+    'admin.dashboard.card.audit_desc': 'Cronologia delle operazioni amministrative.',
+    'admin.dashboard.card.candidati_label': 'Candidati',
+    'admin.dashboard.card.commissari_label': 'Commissari',
+    'admin.dashboard.card.fasi_label': 'Fasi concluse',
+    'admin.dashboard.card.presidente_label': 'Presidente',
 
     // Statistiche
     'stats.eyebrow': 'Amministrazione',

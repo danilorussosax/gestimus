@@ -6,6 +6,7 @@ import { db } from '../../db.js';
 import { escapeHtml, modal, confirmDialog, toast } from '../../utils.js';
 import { icon } from '../../icons.js';
 import { t } from '../../i18n.js';
+import { iconaPerSezione } from './common.js';
 
 export function renderSezioni(root, concorso) {
   const sezioni = db.sezioniByConcorso(concorso.id);

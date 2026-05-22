@@ -7,6 +7,7 @@ import {
   ageFromDate, readImageResized, NATIONALITIES,
 } from '../../utils.js';
 import { t } from '../../i18n.js';
+import { iconaPerSezione } from './common.js';
 import { openImportModal } from './import.js';
 
 export function openStoricoCandidato(cand) {
