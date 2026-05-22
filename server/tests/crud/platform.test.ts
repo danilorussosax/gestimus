@@ -96,7 +96,7 @@ describe('Platform super-admin (Fase 6)', () => {
   // Lista e dettaglio
   // ────────────────────────────────────────────────────────────────────────────
 
-  test('GET /api/platform/tenants → lista tenants seedati', async () => {
+  test('GET /api/platform/tenants → esclude tenant platform di default', async () => {
     const res = await app.inject({
       method: 'GET',
       url: '/api/platform/tenants',
@@ -105,8 +105,20 @@ describe('Platform super-admin (Fase 6)', () => {
     assert.equal(res.statusCode, 200);
     const list = res.json() as Array<{ slug: string; stato: string }>;
     const slugs = list.map((t) => t.slug);
-    assert.ok(slugs.includes('platform'), 'tenant platform presente');
+    assert.ok(!slugs.includes('platform'), "tenant 'platform' non deve apparire di default (è tecnico)");
     assert.ok(slugs.includes('ente1'), 'tenant ente1 presente');
+  });
+
+  test('GET /api/platform/tenants?includePlatform=true → include il tenant platform', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/platform/tenants?includePlatform=true',
+      headers: platformHdrs(),
+    });
+    assert.equal(res.statusCode, 200);
+    const list = res.json() as Array<{ slug: string }>;
+    const slugs = list.map((t) => t.slug);
+    assert.ok(slugs.includes('platform'), "con includePlatform=true il tenant platform appare");
   });
 
   test('GET /api/platform/tenants?stato=archiviato → solo archiviati', async () => {

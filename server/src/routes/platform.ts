@@ -191,22 +191,32 @@ async function auditChange(
 
 export const platformRoutes: FastifyPluginAsync = async (app) => {
   /**
-   * GET /tenants?stato=attivo|sospeso|archiviato|all (default: all)
+   * GET /tenants?stato=attivo|sospeso|archiviato|all&includePlatform=true (default: all)
+   *
+   * Il tenant tecnico 'platform' (contenitore dell'account super-admin) viene
+   * escluso di default — non è un cliente. Per includerlo (debug/diagnostica)
+   * passare ?includePlatform=true.
    */
   app.get('/tenants', { preHandler: platformGuards }, async (req) => {
     const query = z
       .object({
         stato: z.enum([...TENANT_STATES, 'all']).default('all'),
+        includePlatform: z
+          .union([z.boolean(), z.literal('true'), z.literal('false')])
+          .default(false)
+          .transform((v) => v === true || v === 'true'),
       })
       .parse(req.query);
-    const rows =
-      query.stato === 'all'
-        ? await dbSuper.select().from(tenants).orderBy(asc(tenants.slug))
-        : await dbSuper
-            .select()
-            .from(tenants)
-            .where(eq(tenants.stato, query.stato))
-            .orderBy(asc(tenants.slug));
+
+    const conditions: ReturnType<typeof eq>[] = [];
+    if (query.stato !== 'all') conditions.push(eq(tenants.stato, query.stato));
+    if (!query.includePlatform) {
+      conditions.push(sql`${tenants.slug} <> ${PLATFORM_SLUG}` as unknown as ReturnType<typeof eq>);
+    }
+
+    const rows = conditions.length
+      ? await dbSuper.select().from(tenants).where(and(...conditions)).orderBy(asc(tenants.slug))
+      : await dbSuper.select().from(tenants).orderBy(asc(tenants.slug));
     return rows.map(publicTenant);
   });
 

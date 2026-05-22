@@ -162,16 +162,22 @@ describe('RLS isolamento tenant (22 tabelle)', () => {
   });
 
   test('INSERT cross-tenant rifiutato (WITH CHECK su valutazioni)', async (t) => {
-    const cf = await dbSuper.query.candidatiFase.findFirst({
-      where: eq(candidatiFase.tenantId, ente1Id),
-    });
-    const com = await dbSuper.query.commissari.findFirst({
-      where: eq(commissari.tenantId, ente1Id),
-    });
-    if (!cf || !com) {
-      // Il seed minimo (2 tenant + concorso + commissari + candidati) non crea
-      // candidatiFase. Saltiamo: la WITH CHECK è già coperta dal test su concorsi.
-      t.skip('candidatiFase non presente nel seed minimo, skip — la WITH CHECK è già coperta su concorsi');
+    // Serve un candidatoFase di una fase NON CONCLUSA, altrimenti scatta prima
+    // il trigger freeze_valutazione (errore diverso). Faccio JOIN per filtrare.
+    const rows = await dbSuper.execute<{ cf_id: string; com_id: string }>(sql`
+      SELECT cf.id AS cf_id, com.id AS com_id
+        FROM candidati_fase cf
+        JOIN fasi f ON f.id = cf.fase_id
+        JOIN commissari com ON com.tenant_id = cf.tenant_id
+       WHERE cf.tenant_id = ${ente1Id}::uuid
+         AND f.stato <> 'CONCLUSA'
+       LIMIT 1
+    `);
+    const r = rows.rows[0] as { cf_id: string; com_id: string } | undefined;
+    if (!r) {
+      // Seed minimo non ha candidatiFase, oppure tutte le fasi sono CONCLUSA.
+      // La WITH CHECK è comunque coperta dal test su concorsi.
+      t.skip('nessun candidatoFase su fase non-CONCLUSA disponibile — skip (WITH CHECK già coperta su concorsi)');
       return;
     }
     await assert.rejects(
@@ -180,8 +186,8 @@ describe('RLS isolamento tenant (22 tabelle)', () => {
           await tx.execute(sql`SELECT app_set_tenant(${ente1Id}::uuid)`);
           await tx.insert(valutazioni).values({
             tenantId: ente2Id,
-            candidatoFaseId: cf.id,
-            commissarioId: com.id,
+            candidatoFaseId: r.cf_id,
+            commissarioId: r.com_id,
             criterio: 'Tecnica',
             voto: 50,
           });
