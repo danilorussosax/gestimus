@@ -1,24 +1,28 @@
 import 'dotenv/config';
-import { and, eq } from 'drizzle-orm';
+import { sql } from 'drizzle-orm';
 import { dbSuper, shutdownPools } from '../src/db/client.js';
 import {
   accounts,
   candidati,
-  candidatiFase,
-  categorie,
   commissari,
-  commissioni,
-  commissioniCommissari,
-  commissioniSezioni,
   concorsi,
-  criteri,
-  fasi,
+  platformAuditLog,
   platformConfig,
-  sezioni,
   tenants,
-  valutazioni,
 } from '../src/db/schema.js';
 import { hashPassword } from '../src/services/password.js';
+
+/**
+ * Seed di sviluppo: 2 tenant (ente1, ente2) + super-admin platform.
+ * Ogni tenant ha 1 concorso, 5 commissari e 5 candidati.
+ *
+ * Modalità:
+ *  - default                  : se i dati esistono già, è idempotente (non duplica)
+ *  - SEED_RESET=1 npm run db:seed   : prima cancella TUTTI i tenant esistenti + audit
+ *                                     platform, poi seeda. Usalo per ripartire pulito.
+ */
+
+const RESET = process.env.SEED_RESET === '1' || process.argv.includes('--reset');
 
 const DEMO_PASSWORDS = {
   admin: 'Admin123!',
@@ -29,14 +33,23 @@ const DEMO_PASSWORDS = {
 async function main() {
   console.log('🌱 Seeding dev data...');
 
+  if (RESET) {
+    console.log('  ⚠ SEED_RESET attivo — cancello tutti i tenant esistenti...');
+    // DELETE su tenants cascade su tutte le tabelle di dominio (RLS + FK ON DELETE CASCADE).
+    await dbSuper.execute(sql`DELETE FROM tenants`);
+    // platform_audit_log non ha FK su tenants → vada cancellato esplicitamente.
+    await dbSuper.execute(sql`DELETE FROM platform_audit_log`);
+    console.log('  ✓ tutti i tenant + platform_audit_log cancellati');
+  }
+
   // platform_config singleton
   const existingConfig = await dbSuper.select().from(platformConfig);
   if (existingConfig.length === 0) {
     await dbSuper.insert(platformConfig).values({ id: 1 });
-    console.log('  ✓ platform_config initialized');
+    console.log('  ✓ platform_config inizializzato');
   }
 
-  // Tenant platform (per il super-admin)
+  // Tenant platform (super-admin)
   const platform = await upsertTenant({
     slug: 'platform',
     nome: 'Gestimus Platform',
@@ -44,7 +57,7 @@ async function main() {
     stato: 'attivo',
   });
 
-  // Tenant demo
+  // 2 tenant demo
   const ente1 = await upsertTenant({
     slug: 'ente1',
     nome: 'Conservatorio Demo Milano',
@@ -57,34 +70,26 @@ async function main() {
     piano: 'starter',
     stato: 'attivo',
   });
-  const archived = await upsertTenant({
-    slug: 'ente-archiviato',
-    nome: 'Ente Demo Archiviato',
-    piano: 'trial',
-    stato: 'archiviato',
-    archiviatoAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
-    cleanupAfterDays: 30,
-  });
 
-  // Account con password hashate Argon2
+  // Account (Argon2id)
   console.log('  · hashing passwords (Argon2id, può richiedere qualche secondo)...');
   const adminHash = await hashPassword(DEMO_PASSWORDS.admin);
   const commissarioHash = await hashPassword(DEMO_PASSWORDS.commissario);
   const superHash = await hashPassword(DEMO_PASSWORDS.superadmin);
 
-  await upsertAccount({
+  const ente1Admin = await upsertAccount({
     tenantId: ente1.id,
     email: 'admin@ente1.test',
     passwordHash: adminHash,
     role: 'admin',
   });
-  await upsertAccount({
+  const ente1Comm = await upsertAccount({
     tenantId: ente1.id,
     email: 'commissario@ente1.test',
     passwordHash: commissarioHash,
     role: 'commissario',
   });
-  await upsertAccount({
+  const ente2Admin = await upsertAccount({
     tenantId: ente2.id,
     email: 'admin@ente2.test',
     passwordHash: adminHash,
@@ -96,22 +101,44 @@ async function main() {
     passwordHash: superHash,
     role: 'superadmin',
   });
+  void ente1Admin;
+  void ente2Admin;
 
-  // Concorsi demo
-  const solisti = await upsertConcorso(ente1.id, 'Concorso Solisti 2026', 2026);
-  await upsertConcorso(ente1.id, 'Premio Camera 2026', 2026);
-  await upsertConcorso(ente2.id, 'Rassegna Giovani 2026', 2026);
-  await upsertConcorso(archived.id, 'Concorso Storico (archiviato)', 2024);
+  // Dataset per ente1 (1 concorso + 5 commissari + 5 candidati)
+  const concorsoE1 = await upsertConcorso(ente1.id, 'Concorso Solisti 2026', 2026);
+  await seedFiveCommissari(ente1.id, concorsoE1.id, ente1Comm.id, [
+    ['Maria', 'Rossi', 'Violino'],
+    ['Giuseppe', 'Verdi', 'Pianoforte'],
+    ['Anna', 'Bianchi', 'Direzione'],
+    ['Luigi', 'Conti', 'Violoncello'],
+    ['Francesca', 'Greco', 'Flauto'],
+  ]);
+  await seedFiveCandidati(ente1.id, concorsoE1.id, [
+    [1, 'Luca', 'Ferri', 'Violino', '2005-03-12'],
+    [2, 'Sara', 'Mori', 'Violoncello', '2003-08-22'],
+    [3, 'Davide', 'Conti', 'Pianoforte', '2002-01-30'],
+    [4, 'Elena', 'Russo', 'Flauto', '2008-06-15'],
+    [5, 'Matteo', 'Galli', 'Violino', '2004-11-04'],
+  ]);
 
-  // Dataset completo per "Concorso Solisti 2026" (ente1):
-  // sezioni → categorie → commissari → commissione → fasi → criteri → candidati →
-  // candidati_fase → valutazioni di esempio.
-  const commissarioAccount = await dbSuper.query.accounts.findFirst({
-    where: eq(accounts.email, 'commissario@ente1.test'),
-  });
-  await seedConcorsoData(ente1.id, solisti.id, commissarioAccount?.id ?? null);
+  // Dataset per ente2 (1 concorso + 5 commissari + 5 candidati)
+  const concorsoE2 = await upsertConcorso(ente2.id, 'Rassegna Giovani 2026', 2026);
+  await seedFiveCommissari(ente2.id, concorsoE2.id, null, [
+    ['Carlo', 'Marini', 'Pianoforte'],
+    ['Silvia', 'Costa', 'Violino'],
+    ['Roberto', 'Esposito', 'Direzione'],
+    ['Giulia', 'Bruno', 'Canto'],
+    ['Marco', 'De Luca', 'Chitarra'],
+  ]);
+  await seedFiveCandidati(ente2.id, concorsoE2.id, [
+    [1, 'Alice', 'Romano', 'Pianoforte', '2007-05-10'],
+    [2, 'Tommaso', 'Lombardi', 'Violino', '2006-09-18'],
+    [3, 'Chiara', 'Marini', 'Canto', '2005-02-25'],
+    [4, 'Federico', 'Sanna', 'Chitarra', '2003-12-01'],
+    [5, 'Beatrice', 'Vitale', 'Pianoforte', '2008-07-14'],
+  ]);
 
-  console.log('🌱 Seed completed.\n');
+  console.log('\n🌱 Seed completato.\n');
   console.log('Account demo (subdomain → email → password):');
   console.log(`  ente1.gestimus.local    → admin@ente1.test         → ${DEMO_PASSWORDS.admin}`);
   console.log(`  ente1.gestimus.local    → commissario@ente1.test   → ${DEMO_PASSWORDS.commissario}`);
@@ -121,19 +148,21 @@ async function main() {
   await shutdownPools();
 }
 
+// ============================================================================
+// Helpers
+// ============================================================================
+
 async function upsertTenant(data: {
   slug: string;
   nome: string;
   piano: string;
   stato: string;
-  archiviatoAt?: Date;
-  cleanupAfterDays?: number;
 }) {
   const existing = await dbSuper.query.tenants.findFirst({
-    where: eq(tenants.slug, data.slug),
+    where: (t, { eq }) => eq(t.slug, data.slug),
   });
   if (existing) {
-    console.log(`  · tenant '${data.slug}' già esistente (${existing.id})`);
+    console.log(`  · tenant '${data.slug}' già esistente`);
     return existing;
   }
   const [created] = await dbSuper
@@ -143,15 +172,10 @@ async function upsertTenant(data: {
       nome: data.nome,
       piano: data.piano,
       stato: data.stato,
-      archiviatoAt: data.archiviatoAt ?? null,
-      cleanupAfterDays: data.cleanupAfterDays ?? 30,
-      cleanupScheduledAt:
-        data.archiviatoAt && data.cleanupAfterDays
-          ? new Date(data.archiviatoAt.getTime() + data.cleanupAfterDays * 24 * 60 * 60 * 1000)
-          : null,
+      cleanupAfterDays: 30,
     })
     .returning();
-  console.log(`  ✓ tenant '${data.slug}' creato (${created!.id})`);
+  console.log(`  ✓ tenant '${data.slug}' creato`);
   return created!;
 }
 
@@ -162,7 +186,7 @@ async function upsertAccount(data: {
   role: 'admin' | 'commissario' | 'superadmin';
 }) {
   const existing = await dbSuper.query.accounts.findFirst({
-    where: eq(accounts.email, data.email),
+    where: (a, { eq }) => eq(a.email, data.email),
   });
   if (existing) {
     console.log(`  · account '${data.email}' già esistente`);
@@ -178,20 +202,17 @@ async function upsertAccount(data: {
       emailVerified: true,
     })
     .returning();
-  console.log(`  ✓ account '${data.email}' (role=${data.role})`);
+  console.log(`  ✓ account '${data.email}' (${data.role})`);
   return created!;
 }
 
 async function upsertConcorso(tenantId: string, nome: string, anno: number) {
-  // Controlla per evitare duplicati al ri-seed
-  const existing = await dbSuper
-    .select()
-    .from(concorsi)
-    .where(eq(concorsi.nome, nome))
-    .limit(1);
-  if (existing.length > 0) {
+  const existing = await dbSuper.query.concorsi.findFirst({
+    where: (c, { and, eq }) => and(eq(c.tenantId, tenantId), eq(c.nome, nome)),
+  });
+  if (existing) {
     console.log(`  · concorso '${nome}' già esistente`);
-    return existing[0]!;
+    return existing;
   }
   const [created] = await dbSuper
     .insert(concorsi)
@@ -201,187 +222,68 @@ async function upsertConcorso(tenantId: string, nome: string, anno: number) {
   return created!;
 }
 
-/**
- * Mini-dataset realistico per un concorso: sezioni, categorie, commissari,
- * commissione, fasi con criteri, candidati con candidati_fase, valutazioni.
- * Idempotente: skippa se rileva già la sezione "Archi" sul concorso.
- */
-async function seedConcorsoData(
+async function seedFiveCommissari(
   tenantId: string,
   concorsoId: string,
-  commissarioAccountId: string | null,
+  bindAccountId: string | null,
+  list: Array<[string, string, string]>,
 ) {
-  const existing = await dbSuper
-    .select()
-    .from(sezioni)
-    .where(and(eq(sezioni.concorsoId, concorsoId), eq(sezioni.nome, 'Archi')))
-    .limit(1);
-  if (existing.length > 0) {
-    console.log('  · dataset concorso solisti già presente');
-    return;
+  // Skip se già presenti almeno 5 commissari nel concorso
+  const existing = await dbSuper.query.commissari.findMany({
+    where: (c, { eq }) => eq(c.concorsoId, concorsoId),
+  });
+  if (existing.length >= 5) {
+    console.log(`  · 5 commissari per concorso già presenti (${existing.length})`);
+    return existing;
   }
-
-  // Sezioni
-  const [sezArchi] = await dbSuper
-    .insert(sezioni)
-    .values({ tenantId, concorsoId, nome: 'Archi', ordine: 1 })
-    .returning();
-  const [sezPiano] = await dbSuper
-    .insert(sezioni)
-    .values({ tenantId, concorsoId, nome: 'Pianoforte', ordine: 2 })
-    .returning();
-  console.log('  ✓ 2 sezioni (Archi, Pianoforte)');
-
-  // Categorie
-  await dbSuper.insert(categorie).values([
-    { tenantId, sezioneId: sezArchi!.id, nome: 'Junior', etaMin: 8, etaMax: 14, ordine: 1 },
-    { tenantId, sezioneId: sezArchi!.id, nome: 'Senior', etaMin: 15, etaMax: 35, ordine: 2 },
-    { tenantId, sezioneId: sezPiano!.id, nome: 'Junior', etaMin: 8, etaMax: 14, ordine: 1 },
-    { tenantId, sezioneId: sezPiano!.id, nome: 'Senior', etaMin: 15, etaMax: 35, ordine: 2 },
-  ]);
-  console.log('  ✓ 4 categorie');
-
-  // Commissari (3 persone)
-  const commRows = await dbSuper
+  const inserted = await dbSuper
     .insert(commissari)
-    .values([
-      { tenantId, concorsoId, nome: 'Maria', cognome: 'Rossi', specialita: 'Violino' },
-      { tenantId, concorsoId, nome: 'Giuseppe', cognome: 'Verdi', specialita: 'Pianoforte' },
-      { tenantId, concorsoId, nome: 'Anna', cognome: 'Bianchi', specialita: 'Direzione' },
-    ])
-    .returning();
-  // Lega il commissario@ente1.test al primo commissario (utile per la view commissario)
-  if (commissarioAccountId) {
-    await dbSuper
-      .update(accounts)
-      .set({ commissarioId: commRows[0]!.id })
-      .where(eq(accounts.id, commissarioAccountId));
-  }
-  console.log('  ✓ 3 commissari + binding account commissario@ente1.test');
-
-  // Commissione
-  const [commissione] = await dbSuper
-    .insert(commissioni)
-    .values({
+    .values(list.map(([nome, cognome, specialita]) => ({
       tenantId,
       concorsoId,
-      nome: 'Commissione principale',
-      presidenteCommissarioId: commRows[2]!.id,
-    })
+      nome,
+      cognome,
+      specialita,
+    })))
     .returning();
-  await dbSuper.insert(commissioniCommissari).values(
-    commRows.map((c) => ({ tenantId, commissioneId: commissione!.id, commissarioId: c.id })),
-  );
-  await dbSuper
-    .insert(commissioniSezioni)
-    .values([
-      { tenantId, commissioneId: commissione!.id, sezioneId: sezArchi!.id },
-      { tenantId, commissioneId: commissione!.id, sezioneId: sezPiano!.id },
-    ]);
-  console.log('  ✓ commissione con 3 membri (presidente Anna Bianchi)');
+  console.log(`  ✓ 5 commissari per concorso ${concorsoId}`);
+  // Bind opzionale dell'account commissario al primo commissario inserito
+  if (bindAccountId) {
+    await dbSuper
+      .update(accounts)
+      .set({ commissarioId: inserted[0]!.id })
+      .where(sql`${accounts.id} = ${bindAccountId}`);
+    console.log(`    · account commissario bindato a ${inserted[0]!.nome} ${inserted[0]!.cognome}`);
+  }
+  return inserted;
+}
 
-  // Fasi + criteri
-  const fasiInsert = await dbSuper
-    .insert(fasi)
-    .values([
-      {
-        tenantId,
-        concorsoId,
-        ordine: 1,
-        nome: 'Eliminatorie',
-        scala: 100,
-        modoValutazione: 'autonoma',
-        metodoMedia: 'aritmetica',
-        commissioneId: commissione!.id,
-      },
-      {
-        tenantId,
-        concorsoId,
-        ordine: 2,
-        nome: 'Finale',
-        scala: 100,
-        modoValutazione: 'sincrona',
-        metodoMedia: 'olimpica',
-        commissioneId: commissione!.id,
-      },
-    ])
-    .returning();
-  await dbSuper.insert(criteri).values([
-    { tenantId, faseId: fasiInsert[0]!.id, nome: 'Tecnica', peso: 40, ordine: 1 },
-    { tenantId, faseId: fasiInsert[0]!.id, nome: 'Musicalità', peso: 35, ordine: 2 },
-    { tenantId, faseId: fasiInsert[0]!.id, nome: 'Interpretazione', peso: 25, ordine: 3 },
-    { tenantId, faseId: fasiInsert[1]!.id, nome: 'Tecnica', peso: 40, ordine: 1 },
-    { tenantId, faseId: fasiInsert[1]!.id, nome: 'Musicalità', peso: 60, ordine: 2 },
-  ]);
-  console.log('  ✓ 2 fasi (Eliminatorie/Finale) con criteri pesati');
-
-  // Candidati (4 nella sezione Archi/Senior)
-  const candInsert = await dbSuper
+async function seedFiveCandidati(
+  tenantId: string,
+  concorsoId: string,
+  list: Array<[number, string, string, string, string]>,
+) {
+  const existing = await dbSuper.query.candidati.findMany({
+    where: (c, { eq }) => eq(c.concorsoId, concorsoId),
+  });
+  if (existing.length >= 5) {
+    console.log(`  · 5 candidati per concorso già presenti (${existing.length})`);
+    return existing;
+  }
+  const inserted = await dbSuper
     .insert(candidati)
-    .values([
-      {
-        tenantId, concorsoId, numeroCandidato: 1, nome: 'Luca', cognome: 'Ferri',
-        strumento: 'Violino', sezioneId: sezArchi!.id,
-        categoriaId: null, dataNascita: '2005-03-12',
-      },
-      {
-        tenantId, concorsoId, numeroCandidato: 2, nome: 'Sara', cognome: 'Mori',
-        strumento: 'Violoncello', sezioneId: sezArchi!.id,
-        categoriaId: null, dataNascita: '2003-08-22',
-      },
-      {
-        tenantId, concorsoId, numeroCandidato: 3, nome: 'Davide', cognome: 'Conti',
-        strumento: 'Pianoforte', sezioneId: sezPiano!.id,
-        categoriaId: null, dataNascita: '2002-01-30',
-      },
-      {
-        tenantId, concorsoId, numeroCandidato: 4, nome: 'Elena', cognome: 'Russo',
-        strumento: 'Pianoforte', sezioneId: sezPiano!.id,
-        categoriaId: null, dataNascita: '2008-06-15',
-      },
-    ])
+    .values(list.map(([n, nome, cognome, strumento, dataNascita]) => ({
+      tenantId,
+      concorsoId,
+      numeroCandidato: n,
+      nome,
+      cognome,
+      strumento,
+      dataNascita,
+    })))
     .returning();
-  console.log('  ✓ 4 candidati');
-
-  // Candidati nella fase Eliminatorie
-  const cfRows = await dbSuper
-    .insert(candidatiFase)
-    .values(
-      candInsert.map((c, i) => ({
-        tenantId,
-        faseId: fasiInsert[0]!.id,
-        candidatoId: c.id,
-        posizione: i + 1,
-        stato: 'IN_ATTESA' as const,
-      })),
-    )
-    .returning();
-
-  // Qualche valutazione parziale (commissario Maria Rossi sui primi 2 candidati)
-  await dbSuper.insert(valutazioni).values([
-    {
-      tenantId,
-      candidatoFaseId: cfRows[0]!.id,
-      commissarioId: commRows[0]!.id,
-      criterio: 'Tecnica',
-      voto: 85,
-    },
-    {
-      tenantId,
-      candidatoFaseId: cfRows[0]!.id,
-      commissarioId: commRows[0]!.id,
-      criterio: 'Musicalità',
-      voto: 78,
-    },
-    {
-      tenantId,
-      candidatoFaseId: cfRows[1]!.id,
-      commissarioId: commRows[0]!.id,
-      criterio: 'Tecnica',
-      voto: 92,
-    },
-  ]);
-  console.log('  ✓ candidati assegnati a Eliminatorie + 3 valutazioni demo');
+  console.log(`  ✓ 5 candidati per concorso ${concorsoId}`);
+  return inserted;
 }
 
 main().catch((err) => {

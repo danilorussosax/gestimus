@@ -340,8 +340,13 @@ export const db = {
       notify();
       return;
     }
-    await loadAll();
+    // Super-admin opera su /api/platform/* (subdomain platform, req.tenant=null).
+    // Saltiamo loadAll() perché gli endpoint per-tenant non sono accessibili senza tenant.
+    if (me.role !== 'superadmin') {
+      await loadAll();
+    }
     initialized = true;
+    notify();
   },
 
   reload: async () => { await loadAll(); },
@@ -373,7 +378,10 @@ export const db = {
   async login(email, password) {
     await api.post('/auth/login', { email, password });
     const me = await refreshAuth();
-    await loadAll();
+    // Super-admin non carica i dati per-tenant (endpoint richiedono tenant context).
+    if (me && me.role !== 'superadmin') {
+      await loadAll();
+    }
     if (!me) return null;
     // Shape compat con la view legacy: campo `commissario` (id), `attivo` boolean.
     return {

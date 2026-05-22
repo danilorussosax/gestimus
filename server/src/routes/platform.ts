@@ -10,6 +10,7 @@ import {
   iscrizioni,
   platformAuditLog,
   platformConfig,
+  tenantConfig,
   tenants,
 } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
@@ -19,6 +20,9 @@ import { listBackups } from '../services/backup.js';
 import { runTenantCleanup } from '../services/cleanup.js';
 import { encryptSmtp, isEncryptedSmtp } from '../services/crypto-smtp.js';
 import { invalidateTransporter } from '../services/email.js';
+import { readdir, stat as fsStat } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { env } from '../env.js';
 
 const TENANT_STATES = ['attivo', 'sospeso', 'archiviato'] as const;
 const TENANT_PLANS = ['trial', 'starter', 'pro', 'ultra', 'ppe'] as const;
@@ -87,6 +91,23 @@ const smtpBody = z.object({
   from: z.string().min(1).max(255),
 });
 
+/**
+ * Body per il cambio piano dedicato. Permette anche di settare la scadenza e
+ * gli override per-tenant dei limiti applicativi (tenant_config). I limiti
+ * `null` significano "usa quello di default del piano (vedi piani.js lato FE)".
+ */
+const changePlanBody = z.object({
+  piano: z.enum(TENANT_PLANS),
+  pianoScadenza: z.string().date().nullable().optional(),
+  overrides: z
+    .object({
+      maxConcorsi: z.number().int().nonnegative().nullable().optional(),
+      maxCommissari: z.number().int().nonnegative().nullable().optional(),
+      maxCandidatiPerConcorso: z.number().int().nonnegative().nullable().optional(),
+    })
+    .optional(),
+});
+
 const auditQuery = z.object({
   limit: z.coerce.number().int().min(1).max(500).default(100),
   before: z.string().datetime().optional(),
@@ -118,6 +139,33 @@ function publicTenant(t: TenantRow) {
 async function findTenant(id: string): Promise<TenantRow | undefined> {
   const rows = await dbSuper.select().from(tenants).where(eq(tenants.id, id)).limit(1);
   return rows[0];
+}
+
+/**
+ * Calcolo ricorsivo della dimensione di una directory in bytes.
+ * Best-effort: se la dir non esiste o non è leggibile, ritorna 0.
+ */
+async function dirSizeBytes(path: string): Promise<number> {
+  let total = 0;
+  let entries;
+  try {
+    entries = await readdir(path, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  for (const e of entries) {
+    const full = join(path, e.name);
+    if (e.isDirectory()) {
+      total += await dirSizeBytes(full);
+    } else if (e.isFile()) {
+      try {
+        total += (await fsStat(full)).size;
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return total;
 }
 
 function guardPlatformTenant(t: TenantRow, reply: FastifyReply): boolean {
@@ -204,6 +252,8 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
           .where(eq(accounts.tenantId, id)),
       ]);
 
+    const diskUsageBytes = await dirSizeBytes(resolve(env.UPLOADS_DIR, t.slug));
+
     return {
       tenantId: id,
       concorsi: concorsiCount[0]?.n ?? 0,
@@ -211,6 +261,7 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
       candidati: candidatiCount[0]?.n ?? 0,
       iscrizioni: iscrizioniCount[0]?.n ?? 0,
       accounts: accountsCount[0]?.n ?? 0,
+      diskUsageBytes,
     };
   });
 
@@ -450,6 +501,83 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
       .orderBy(desc(platformAuditLog.createdAt))
       .limit(limit);
     return rows;
+  });
+
+  /**
+   * GET /tenants/:id/config → override per-tenant in tenant_config
+   */
+  app.get('/tenants/:id/config', { preHandler: platformGuards }, async (req, reply) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const t = await findTenant(id);
+    if (!t) return reply.notFound();
+    const rows = await dbSuper
+      .select()
+      .from(tenantConfig)
+      .where(eq(tenantConfig.tenantId, id))
+      .limit(1);
+    return rows[0] ?? null;
+  });
+
+  /**
+   * POST /tenants/:id/change-plan → cambia piano + scadenza + override limiti
+   * (combina UPDATE tenants + UPSERT tenant_config in una transazione + audit)
+   */
+  app.post('/tenants/:id/change-plan', { preHandler: platformGuards }, async (req, reply) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const parsed = changePlanBody.safeParse(req.body);
+    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    const body = parsed.data;
+
+    const current = await findTenant(id);
+    if (!current) return reply.notFound();
+
+    const updated = await dbSuper.transaction(async (tx) => {
+      const [t] = await tx
+        .update(tenants)
+        .set({
+          piano: body.piano,
+          pianoScadenza: body.pianoScadenza ?? null,
+          updatedAt: new Date(),
+        })
+        .where(eq(tenants.id, id))
+        .returning();
+
+      if (body.overrides) {
+        const o = body.overrides;
+        const existing = await tx
+          .select()
+          .from(tenantConfig)
+          .where(eq(tenantConfig.tenantId, id))
+          .limit(1);
+        if (existing[0]) {
+          await tx
+            .update(tenantConfig)
+            .set({
+              maxConcorsi: o.maxConcorsi ?? null,
+              maxCommissari: o.maxCommissari ?? null,
+              maxCandidatiPerConcorso: o.maxCandidatiPerConcorso ?? null,
+              updatedAt: new Date(),
+            })
+            .where(eq(tenantConfig.tenantId, id));
+        } else {
+          await tx.insert(tenantConfig).values({
+            tenantId: id,
+            maxConcorsi: o.maxConcorsi ?? null,
+            maxCommissari: o.maxCommissari ?? null,
+            maxCandidatiPerConcorso: o.maxCandidatiPerConcorso ?? null,
+          });
+        }
+      }
+      return t!;
+    });
+
+    await auditChange(req, 'platform.tenant.change_plan', updated, {
+      from: { piano: current.piano, pianoScadenza: current.pianoScadenza },
+      to: { piano: body.piano, pianoScadenza: body.pianoScadenza ?? null },
+      overrides: body.overrides ?? null,
+    });
+
+    return publicTenant(updated);
   });
 
   /**

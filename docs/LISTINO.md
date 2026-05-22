@@ -39,7 +39,7 @@ Tutto in **italiano**, accessibile da PC, tablet e smartphone, senza installazio
 |---|:---:|:---:|:---:|:---:|:---:|
 | **Prezzo** | gratis | **€150** /anno | **€230** /anno | **€350** /anno | €50 /concorso + €1/iscritto |
 | **Durata** | 30 giorni | 12 mesi | 12 mesi | 12 mesi | nessun impegno |
-| **Concorsi attivabili** | 1 | 2 | 3 | 10 | illimitati |
+| **Concorsi attivabili** | 1 | 2 | 5 | 10 | illimitati |
 | **Iscritti / anno** | 5 | 100 | 500 | 2.000 | illimitati |
 | **Commissari** | illimitati | illimitati | illimitati | illimitati | illimitati |
 | **Allegati** (foto, documento, ricevuta) | ✓ | ✓ | ✓ | ✓ | ✓ |
@@ -90,11 +90,11 @@ Tutto in **italiano**, accessibile da PC, tablet e smartphone, senza installazio
 
 **Il piano consigliato a chi si è strutturato.**
 
-- 3 concorsi attivi contemporaneamente
+- 5 concorsi attivi contemporaneamente
 - 500 iscritti totali nell'arco dell'anno
 - Tutto Starter + maggiori volumi
 
-✅ Ideale per: **conservatori**, **scuole musicali medie**, **associazioni con 3-5 concorsi/anno** o **un singolo concorso grande**.
+✅ Ideale per: **conservatori**, **scuole musicali medie**, **associazioni che organizzano fino a 5 concorsi/anno** o **un singolo concorso grande**.
 
 💰 **€0,46 per iscritto** se riempi il piano (la metà di Starter!) · **€0,63/giorno**.
 
@@ -143,8 +143,8 @@ Tutto in **italiano**, accessibile da PC, tablet e smartphone, senza installazio
 
 📌 Quando passare da PPE a un piano flat?
 - 1 concorso con **180+ iscritti**: passa a **Pro** (€230 vs €230)
-- 3 concorsi con **80+ iscritti totali**: passa a **Pro** (€230 vs €230)
-- 5+ concorsi all'anno: vai direttamente su **Ultra**
+- 3-5 concorsi con **50+ iscritti totali ciascuno**: passa a **Pro** (€230 vs €250-500)
+- Oltre 5 concorsi all'anno: vai direttamente su **Ultra**
 
 ---
 

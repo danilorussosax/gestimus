@@ -35,7 +35,7 @@ export const PIANI = {
     descrizione: 'Il piano consigliato — miglior rapporto qualità/prezzo per scuole e conservatori medi.',
     prezzo_eur: 230,
     durata_giorni: 365,
-    limit_concorsi: 3,
+    limit_concorsi: 5,
     limit_iscritti_annui: 500,
     is_ppe: false,
     badge_color: 'brand',
