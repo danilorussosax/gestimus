@@ -1,11 +1,11 @@
 import 'dotenv/config';
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { eq } from 'drizzle-orm';
+import { eq, like } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { createApp } from '../../src/app.js';
 import { dbSuper } from '../../src/db/client.js';
-import { commissari } from '../../src/db/schema.js';
+import { commissari, concorsi } from '../../src/db/schema.js';
 
 describe('GDPR privacy endpoints', () => {
   let app: FastifyInstance;
@@ -29,6 +29,8 @@ describe('GDPR privacy endpoints', () => {
   });
 
   after(async () => {
+    // Pulisce i concorsi creati dal test (cascade sui figli).
+    await dbSuper.delete(concorsi).where(like(concorsi.nome, 'Erase Test%'));
     await app.close();
   });
 

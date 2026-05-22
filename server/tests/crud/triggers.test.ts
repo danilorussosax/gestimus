@@ -1,11 +1,11 @@
 import 'dotenv/config';
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { sql } from 'drizzle-orm';
+import { like, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { createApp } from '../../src/app.js';
 import { dbApp, dbSuper } from '../../src/db/client.js';
-import { auditLog } from '../../src/db/schema.js';
+import { auditLog, concorsi } from '../../src/db/schema.js';
 
 describe('DB triggers (clamp + freeze + audit append-only)', () => {
   let app: FastifyInstance;
@@ -29,6 +29,8 @@ describe('DB triggers (clamp + freeze + audit append-only)', () => {
   });
 
   after(async () => {
+    // Pulisce i concorsi creati dal test (cascade sui figli).
+    await dbSuper.delete(concorsi).where(like(concorsi.nome, 'Trig %'));
     await app.close();
   });
 

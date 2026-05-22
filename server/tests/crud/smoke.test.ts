@@ -2,10 +2,10 @@ import 'dotenv/config';
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import type { FastifyInstance } from 'fastify';
-import { eq } from 'drizzle-orm';
+import { eq, like } from 'drizzle-orm';
 import { createApp } from '../../src/app.js';
 import { dbSuper } from '../../src/db/client.js';
-import { auditLog } from '../../src/db/schema.js';
+import { auditLog, concorsi } from '../../src/db/schema.js';
 
 /**
  * Smoke test E2E del flow admin: login → CRUD su entità dominio → audit.
@@ -29,6 +29,8 @@ describe('CRUD smoke (ente1)', () => {
   });
 
   after(async () => {
+    // Pulisce i concorsi creati dal test (cascade su sezioni/categorie/commissari/...).
+    await dbSuper.delete(concorsi).where(like(concorsi.nome, 'Smoke Test%'));
     await app.close();
   });
 
