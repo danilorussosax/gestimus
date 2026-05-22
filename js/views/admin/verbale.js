@@ -158,7 +158,17 @@ function buildFaseClassifica(fase, mode = 'all') {
 
 function buildVerbaleContext(concorso, fase = null) {
   const today = new Date().toLocaleDateString('it-IT', { day: '2-digit', month: 'long', year: 'numeric' });
-  const presidente = db.getPresidenteFor(concorso.id);
+  // <presidente> nel verbale generale = lista di tutti i presidenti (uno per
+  // commissione) deduplicata. Se c'è un presidente unico ritorna solo il suo
+  // nome; altrimenti i nomi separati da virgola. In contesto fase il tag
+  // <presidente> resta interpretato come quello della commissione della fase.
+  const presidentiInfo = db.presidentiFor(concorso.id);
+  const presidente = presidentiInfo.length === 1
+    ? presidentiInfo[0].presidente
+    : null;
+  const presidentiInline = presidentiInfo
+    .map((p) => displayName(p.presidente))
+    .join(', ');
   const commissari = db.commissariByConcorso(concorso.id);
   const candidati = db.candidatiByConcorso(concorso.id);
   const fasi = db.fasiByConcorso(concorso.id);
@@ -197,7 +207,12 @@ function buildVerbaleContext(concorso, fase = null) {
     concorso: concorso.nome || '',
     anno: String(concorso.anno || ''),
     data: today,
-    presidente: presidente ? displayName(presidente) : t('admin.risultati.verbale.no_president'),
+    // <presidente>: nel contesto generale è il presidente UNICO se c'è (tutte
+    // le commissioni del concorso convergono), altrimenti la lista. Nel
+    // contesto fase viene sovrascritto sotto con quello della commissione fase.
+    presidente: presidente
+      ? displayName(presidente)
+      : (presidentiInline || t('admin.risultati.verbale.no_president')),
     commissione: commissariList || '—',
     commissari: commissariInline || '—',
     num_commissari: String(commissari.length),
@@ -210,6 +225,10 @@ function buildVerbaleContext(concorso, fase = null) {
   };
 
   if (fase) {
+    // Quando il verbale è di una fase, <presidente> = presidente della
+    // commissione di QUELLA fase (non il presidente "del concorso").
+    const faseProvidence = db.getPresidenteForFase(fase);
+    if (faseProvidence) ctx.presidente = displayName(faseProvidence);
     const faseCommIds = db.getFaseCommissariIds(fase) || [];
     const faseCommissari = faseCommIds.map(id => db.state.commissari.find(c => c.id === id)).filter(Boolean);
     const faseCommissariNoPres = faseCommissari.filter(c => !c.is_presidente);
@@ -448,10 +467,22 @@ async function exportVerbalePdf(concorso, fase, template) {
     }
   }
 
-  // ----- Griglia firme di tutti i commissari della fase -----
-  const faseCommIds = fase ? (db.getFaseCommissariIds(fase) || []) : [];
-  let firmatari = faseCommIds.map(id => db.state.commissari.find(c => c.id === id)).filter(Boolean);
-  if (firmatari.length === 0) firmatari = db.commissariByConcorso(concorso.id);
+  // ----- Griglia firme dei commissari della fase -----
+  // Stampiamo le firme SOLO se:
+  //   1. il template del verbale richiama esplicitamente almeno uno dei tag
+  //      <commissari> / <commissione> / <fase_commissari> / <fase_commissione>
+  //      (l'admin può quindi decidere di omettere la firma rimuovendo i tag);
+  //   2. la fase ha una commissione assegnata (commissioneId non null) e
+  //      quella commissione ha effettivamente almeno un commissario.
+  // Nessun fallback ai commissari del concorso: era una sorgente di firme
+  // fantasma su fasi non assegnate.
+  const SIGN_TAGS = /<(commissari|commissione|fase_commissari|fase_commissione)>/i;
+  const templateHasSignTag = SIGN_TAGS.test(String(template || ''));
+  const faseHasCommissione = !!(fase && fase.commissione_id);
+  const faseCommIds = faseHasCommissione ? (db.getFaseCommissariIds(fase) || []) : [];
+  const firmatari = templateHasSignTag && faseHasCommissione
+    ? faseCommIds.map(id => db.state.commissari.find(c => c.id === id)).filter(Boolean)
+    : [];
   // Presidente in cima
   firmatari.sort((a, b) => (b.is_presidente ? 1 : 0) - (a.is_presidente ? 1 : 0));
 

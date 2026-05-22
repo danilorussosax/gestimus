@@ -451,6 +451,24 @@ function openCandidatoForm(concorso, candidato, onSaved) {
       });
       fotoClear.addEventListener('click', () => { fotoData = null; setFotoUI(); });
 
+      // Required dinamici in base al tipo: per i gruppi, cognome/data_nascita
+      // sono opzionali (l'ensemble non ha un proprio cognome o data di nascita
+      // unitari — i membri vengono gestiti via "Membri del gruppo"). Senza
+      // questa logica, form.reportValidity() bloccherebbe il submit di un
+      // gruppo con il messaggio HTML5 standard.
+      const tipoSel = body.querySelector('select[name="tipo"]');
+      const cognomeInput = body.querySelector('input[name="cognome"]');
+      const dataInput = body.querySelector('input[name="data_nascita"]');
+      const nazInput = body.querySelector('input[name="nazionalita"]');
+      const syncRequiredByTipo = () => {
+        const isGruppo = tipoSel.value === 'gruppo';
+        cognomeInput.required = !isGruppo;
+        dataInput.required = !isGruppo;
+        nazInput.required = !isGruppo;
+      };
+      tipoSel.addEventListener('change', syncRequiredByTipo);
+      syncRequiredByTipo();
+
       // Show/hide del blocco categorie in base alla sezione selezionata: la
       // categoria scelta è quella del radio group `categoria_id_<sezId>` della
       // sezione attiva. Cambio di sezione → nascondi le categorie delle altre.

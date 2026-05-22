@@ -192,30 +192,74 @@ function mapValutazione(r) {
 }
 
 function mapIscrizione(r) {
+  // Traduzione stato backend (IT uppercase) → token legacy lowercase usati
+  // dalla view admin iscrizioni (filter pills, colors, label). Manteniamo
+  // entrambi (`stato` legacy, `stato_raw` originale) per compat.
+  const STATO_MAP = {
+    INVIATA: 'pending',
+    EMAIL_VERIFICATA: 'email_verified',
+    APPROVATA: 'approved',
+    RIFIUTATA: 'rejected',
+  };
+  const statoRaw = r.stato || 'INVIATA';
+  const stato = STATO_MAP[statoRaw] || statoRaw.toLowerCase();
+  // Il tutore è JSONB lato backend; per la view lo "spalmiamo" in campi
+  // top-level (tutore_nome, tutore_email, …) così non deve navigare l'oggetto.
+  const tut = (r.tutore && typeof r.tutore === 'object') ? r.tutore : {};
   return {
     id: r.id,
     concorso_id: r.concorsoId,
-    stato: r.stato || 'BOZZA',
+    stato,
+    stato_raw: statoRaw,
     nome: r.nome || '',
     cognome: r.cognome || '',
     email: r.email || '',
     telefono: r.telefono || '',
     data_nascita: dateStr(r.dataNascita),
     nazionalita: r.nazionalita || '',
+    // Anagrafica estesa
+    luogo_nascita: r.luogoNascita || '',
+    sesso: r.sesso || '',
+    codice_fiscale: r.codiceFiscale || '',
+    // Residenza
+    indirizzo: r.indirizzo || '',
+    citta: r.citta || '',
+    cap: r.cap || '',
+    provincia: r.provincia || '',
+    paese: r.paese || '',
+    // Dati artistici extra
     strumento: r.strumento || '',
+    anni_studio: r.anniStudio ?? null,
+    scuola_provenienza: r.scuolaProvenienza || '',
     programma: r.programma || null,
     docenti_preparatori: Array.isArray(r.docentiPreparatori) ? r.docentiPreparatori : [],
     sezione_id: r.sezioneId || null,
     categoria_id: r.categoriaId || null,
     is_gruppo: !!r.isGruppo,
+    // Alias per la view admin che usa nomi legacy
+    tipo: r.isGruppo ? 'gruppo' : 'individuale',
     membri: Array.isArray(r.membri) ? r.membri : null,
+    gruppo_membri: Array.isArray(r.membri) ? r.membri : [],
+    gruppo_nome: r.gruppoNome || '',
     tutore: r.tutore || null,
+    tutore_nome: tut.nome || '',
+    tutore_cognome: tut.cognome || '',
+    tutore_email: tut.email || '',
+    tutore_telefono: tut.telefono || '',
     consensi_gdpr: r.consensiGdpr || null,
+    consenso_privacy: !!(r.consensiGdpr && r.consensiGdpr.privacy),
+    consenso_immagini: !!(r.consensiGdpr && r.consensiGdpr.immagini),
+    consenso_regolamento: !!(r.consensiGdpr && r.consensiGdpr.regolamento),
+    note_libere: r.noteLibere || '',
     email_verified_at: r.emailVerifiedAt || null,
     approvata_at: r.approvataAt || null,
     candidato_id: r.candidatoId || null,
     note: r.note || '',
+    note_admin: r.note || '',
+    rejected_reason: statoRaw === 'RIFIUTATA' ? (r.note || '') : '',
     created_at: r.createdAt || null,
+    // La view legge `i.created` (alias storico) — manteniamo entrambi.
+    created: r.createdAt || null,
     updated_at: r.updatedAt || null,
   };
 }
@@ -657,15 +701,21 @@ export const db = {
     });
     const c = mapCommissione(r);
     state.commissioni.push(c);
-    // Aggiunte separate per le relazioni N-N
+    // Aggiunte separate per le relazioni N-N. Loggiamo eventuali fallimenti
+    // (rete, RLS, FK mancante) invece di silenziarli: una commissione che
+    // resta vuota perché gli attach sono falliti è una sorgente di confusione
+    // ("ho assegnato la commissione alla fase ma non vedo i commissari").
     for (const cid of commissari_ids) {
-      try { await api.post(`/api/commissioni/${c.id}/commissari/${cid}`, {}); c.commissari_ids.push(cid); } catch {}
+      try { await api.post(`/api/commissioni/${c.id}/commissari/${cid}`, {}); c.commissari_ids.push(cid); }
+      catch (e) { console.warn(`createCommissione: attach commissario ${cid} failed:`, e?.message || e); }
     }
     for (const sid of sezioni_ids) {
-      try { await api.post(`/api/commissioni/${c.id}/sezioni/${sid}`, {}); c.sezioni_ids.push(sid); } catch {}
+      try { await api.post(`/api/commissioni/${c.id}/sezioni/${sid}`, {}); c.sezioni_ids.push(sid); }
+      catch (e) { console.warn(`createCommissione: attach sezione ${sid} failed:`, e?.message || e); }
     }
     for (const cat of categorie_ids) {
-      try { await api.post(`/api/commissioni/${c.id}/categorie/${cat}`, {}); c.categorie_ids.push(cat); } catch {}
+      try { await api.post(`/api/commissioni/${c.id}/categorie/${cat}`, {}); c.categorie_ids.push(cat); }
+      catch (e) { console.warn(`createCommissione: attach categoria ${cat} failed:`, e?.message || e); }
     }
     notify();
     return c;
@@ -819,9 +869,53 @@ export const db = {
   isPresidenteDiQualcheCommissione(commissario_id) {
     return state.commissioni.some((c) => c.presidente_id === commissario_id);
   },
+  /**
+   * @deprecated il modello attuale ha un presidente per-commissione (potenzialmente
+   * diverso per ogni commissione del concorso). Usa `getPresidenteForCommissione`,
+   * `getPresidenteForFase`, `presidentiFor`, o `getPresidenteForFinale` (firma PDF
+   * protocollo). Mantenuto solo per backward-compat: ritorna il presidente SOLO
+   * se tutte le commissioni del concorso convergono sullo stesso commissario
+   * (cioè è davvero "il" presidente di quel concorso). Altrimenti `null`.
+   */
   getPresidenteFor(concorso_id) {
-    const com = state.commissioni.find((c) => c.concorso_id === concorso_id && c.presidente_id);
-    return com ? state.commissari.find((x) => x.id === com.presidente_id) || null : null;
+    const ids = new Set(
+      state.commissioni
+        .filter((c) => c.concorso_id === concorso_id && c.presidente_id)
+        .map((c) => c.presidente_id),
+    );
+    if (ids.size !== 1) return null;
+    const [only] = ids;
+    return state.commissari.find((x) => x.id === only) || null;
+  },
+  /**
+   * Tutti i presidenti distinti del concorso, ognuno con la lista di commissioni
+   * di cui è presidente. Utile per header/dashboard che vogliono mostrare
+   * "N presidenti" o l'elenco completo.
+   */
+  presidentiFor(concorso_id) {
+    const byPres = new Map();
+    for (const c of state.commissioni) {
+      if (c.concorso_id !== concorso_id || !c.presidente_id) continue;
+      const arr = byPres.get(c.presidente_id) ?? [];
+      arr.push(c);
+      byPres.set(c.presidente_id, arr);
+    }
+    return Array.from(byPres.entries()).map(([pid, commissioni]) => ({
+      presidente: state.commissari.find((x) => x.id === pid) || null,
+      commissioni,
+    })).filter((x) => x.presidente);
+  },
+  /**
+   * Presidente della commissione che gestisce la fase finale del concorso.
+   * Usato nel PDF protocollo per la firma in calce. null se la fase finale
+   * non esiste, non è ancora CONCLUSA, o non ha commissione assegnata.
+   */
+  getPresidenteForFinale(concorso_id) {
+    const fasi = state.fasi.filter((f) => f.concorso_id === concorso_id);
+    if (fasi.length === 0) return null;
+    const finale = fasi.find((f) => f.ordine === fasi.length);
+    if (!finale) return null;
+    return this.getPresidenteForFase(finale);
   },
 
   // ---------- Candidati ----------
@@ -964,7 +1058,14 @@ export const db = {
     // Nel nuovo modello: i commissari di una fase sono quelli della commissione associata
     if (!fase || !fase.commissione_id) return [];
     const com = state.commissioni.find((c) => c.id === fase.commissione_id);
-    return com ? (com.commissari_ids || []) : [];
+    if (!com) {
+      // FK orfana: la fase punta a una commissione che non è in state.
+      // Cause tipiche: la commissione è stata cancellata (set null sul DB ma
+      // qui c'è cache stale), oppure GET /commissioni non l'ha restituita.
+      console.warn(`getFaseCommissariIds: fase ${fase.id} referenzia commissione ${fase.commissione_id} non presente in state.commissioni`);
+      return [];
+    }
+    return com.commissari_ids || [];
   },
 
   // ---------- Criteri (raw, esposti come metodo helper) ----------
@@ -1358,6 +1459,29 @@ export const db = {
     // Tolleriamo sia gli alias snake_case dei mapper interni sia i name dei
     // <input>/<select> usati dal form pubblico (iscrizione.js draft → d.sezione,
     // d.categoria, d.concorso, ecc.). Il backend vuole camelCase puro.
+    const num = (v) => {
+      if (v === '' || v == null) return undefined;
+      const n = Number(v);
+      return Number.isFinite(n) ? n : undefined;
+    };
+    // I consensi possono arrivare come booleani sparsi (consenso_privacy,
+    // consenso_immagini, consenso_regolamento) o già aggregati (consensi_gdpr).
+    const consensi = payload.consensi_gdpr || {
+      privacy: !!payload.consenso_privacy,
+      immagini: !!payload.consenso_immagini,
+      regolamento: !!payload.consenso_regolamento,
+    };
+    // Tutore: aggregato in oggetto se i campi sono sparsi nel form.
+    const tutore = payload.tutore || (
+      payload.tutore_nome || payload.tutore_email
+        ? {
+            nome: payload.tutore_nome || '',
+            cognome: payload.tutore_cognome || '',
+            email: payload.tutore_email || '',
+            telefono: payload.tutore_telefono || '',
+          }
+        : undefined
+    );
     const body = {
       concorsoId: payload.concorso_id || payload.concorso || payload.concorsoId,
       honeypot: payload.honeypot || payload.website || undefined,
@@ -1368,15 +1492,27 @@ export const db = {
       telefono: payload.telefono,
       dataNascita: payload.data_nascita || undefined,
       nazionalita: payload.nazionalita,
+      luogoNascita: payload.luogo_nascita || undefined,
+      sesso: payload.sesso || undefined,
+      codiceFiscale: payload.codice_fiscale || undefined,
+      indirizzo: payload.indirizzo || undefined,
+      citta: payload.citta || undefined,
+      cap: payload.cap || undefined,
+      provincia: payload.provincia || undefined,
+      paese: payload.paese || undefined,
       strumento: payload.strumento,
+      anniStudio: num(payload.anni_studio),
+      scuolaProvenienza: payload.scuola_provenienza || undefined,
       programma: payload.programma,
       docentiPreparatori: payload.docenti_preparatori,
       sezioneId: payload.sezione_id || payload.sezione || undefined,
       categoriaId: payload.categoria_id || payload.categoria || undefined,
       isGruppo: payload.is_gruppo != null ? !!payload.is_gruppo : payload.tipo === 'gruppo',
+      gruppoNome: payload.gruppo_nome || undefined,
       membri: payload.membri || payload.gruppo_membri,
-      tutore: payload.tutore,
-      consensiGdpr: payload.consensi_gdpr,
+      tutore,
+      consensiGdpr: consensi,
+      noteLibere: payload.note_libere || undefined,
     };
     return api.post('/api/public/iscrizioni', body);
   },

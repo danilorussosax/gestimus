@@ -1,10 +1,56 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { candidati, candidatiFase, fasi, fasiSezioni } from '../db/schema.js';
+import { candidati, candidatiFase, commissioni, fasi, fasiSezioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { faseChannel } from '../realtime/hub.js';
+
+// Permission per start/conclude/sorteggio/timer di una fase:
+//   - admin/superadmin sempre OK
+//   - commissario OK SE è presidente della commissione assegnata alla fase
+// Ritorna null se permesso, altrimenti un payload da inviare con reply.code(403).
+async function assertCanManageFase(req: FastifyRequest, reply: FastifyReply, faseId: string): Promise<{ ok: false } | { ok: true }> {
+  const role = req.account?.role;
+  if (role === 'admin' || role === 'superadmin') return { ok: true };
+  if (role !== 'commissario') {
+    reply.code(403).send({ error: 'ruolo richiesto: admin o presidente della commissione' });
+    return { ok: false };
+  }
+  const commissarioId = req.account?.commissarioId;
+  if (!commissarioId) {
+    reply.code(403).send({ error: 'commissario senza profilo' });
+    return { ok: false };
+  }
+  const rows = await req.dbTx(async (tx) =>
+    tx
+      .select({ commissioneId: fasi.commissioneId })
+      .from(fasi)
+      .where(eq(fasi.id, faseId))
+      .limit(1),
+  );
+  if (rows.length === 0) {
+    reply.notFound();
+    return { ok: false };
+  }
+  const commissioneId = rows[0]!.commissioneId;
+  if (!commissioneId) {
+    reply.code(403).send({ error: 'fase senza commissione assegnata: gestione admin-only' });
+    return { ok: false };
+  }
+  const comRows = await req.dbTx(async (tx) =>
+    tx
+      .select({ presidenteId: commissioni.presidenteCommissarioId })
+      .from(commissioni)
+      .where(eq(commissioni.id, commissioneId))
+      .limit(1),
+  );
+  if (comRows.length === 0 || comRows[0]!.presidenteId !== commissarioId) {
+    reply.code(403).send({ error: 'solo il presidente della commissione può gestire questa fase' });
+    return { ok: false };
+  }
+  return { ok: true };
+}
 
 // Estrae le sezioni_ids per un array di fasi via singola query batched.
 // Restituisce una mappa { faseId → [sezioneId, ...] }.
@@ -236,8 +282,10 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
   // --------- Transizioni stato ---------
   // PIANIFICATA → IN_CORSO → CONCLUSA
 
-  app.post('/:id/start', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+  app.post('/:id/start', { preHandler: [requireAuth] }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
+    const perm = await assertCanManageFase(req, reply, id);
+    if (!perm.ok) return reply;
     return req.dbTx(async (tx) => {
       const startedAt = new Date();
       const [updated] = await tx
@@ -301,8 +349,10 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
-  app.post('/:id/conclude', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+  app.post('/:id/conclude', { preHandler: [requireAuth] }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
+    const perm = await assertCanManageFase(req, reply, id);
+    if (!perm.ok) return reply;
     return req.dbTx(async (tx) => {
       const [updated] = await tx
         .update(fasi)
@@ -344,9 +394,11 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
 
   app.post(
     '/:id/timer/start',
-    { preHandler: [requireRole('admin')] },
+    { preHandler: [requireAuth] },
     async (req, reply) => {
       const { id } = z.object({ id: uuid }).parse(req.params);
+      const perm = await assertCanManageFase(req, reply, id);
+      if (!perm.ok) return reply;
       const body = z.object({ candidatoFaseId: uuid.optional() }).safeParse(req.body ?? {});
       if (!body.success) return reply.badRequest(body.error.message);
       return req.dbTx(async (tx) => {
@@ -377,7 +429,10 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     },
   );
 
-  app.post('/:id/timer/pause', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+  app.post('/:id/timer/pause', { preHandler: [requireAuth] }, async (req, reply) => {
+    const _id = (req.params as { id: string }).id;
+    const perm = await assertCanManageFase(req, reply, _id);
+    if (!perm.ok) return reply;
     const { id } = z.object({ id: uuid }).parse(req.params);
     return req.dbTx(async (tx) => {
       const [updated] = await tx
@@ -394,7 +449,10 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
-  app.post('/:id/timer/resume', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+  app.post('/:id/timer/resume', { preHandler: [requireAuth] }, async (req, reply) => {
+    const _id = (req.params as { id: string }).id;
+    const perm = await assertCanManageFase(req, reply, _id);
+    if (!perm.ok) return reply;
     const { id } = z.object({ id: uuid }).parse(req.params);
     return req.dbTx(async (tx) => {
       // Calcola lo shift della startedAt in base alla durata della pausa
@@ -419,7 +477,10 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
-  app.post('/:id/timer/reset', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+  app.post('/:id/timer/reset', { preHandler: [requireAuth] }, async (req, reply) => {
+    const _id = (req.params as { id: string }).id;
+    const perm = await assertCanManageFase(req, reply, _id);
+    if (!perm.ok) return reply;
     const { id } = z.object({ id: uuid }).parse(req.params);
     return req.dbTx(async (tx) => {
       const [updated] = await tx
@@ -444,7 +505,10 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
 
   // --------- Sorteggio ordine candidati ---------
 
-  app.post('/:id/sorteggio', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+  app.post('/:id/sorteggio', { preHandler: [requireAuth] }, async (req, reply) => {
+    const _id = (req.params as { id: string }).id;
+    const perm = await assertCanManageFase(req, reply, _id);
+    if (!perm.ok) return reply;
     const { id } = z.object({ id: uuid }).parse(req.params);
     const body = z.object({ seed: z.number().int() }).safeParse(req.body);
     if (!body.success) return reply.badRequest(body.error.message);
@@ -477,7 +541,10 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
-  app.post('/:id/timer/bonus', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+  app.post('/:id/timer/bonus', { preHandler: [requireAuth] }, async (req, reply) => {
+    const _id = (req.params as { id: string }).id;
+    const perm = await assertCanManageFase(req, reply, _id);
+    if (!perm.ok) return reply;
     const { id } = z.object({ id: uuid }).parse(req.params);
     const body = z.object({ seconds: z.number().int() }).safeParse(req.body);
     if (!body.success) return reply.badRequest(body.error.message);

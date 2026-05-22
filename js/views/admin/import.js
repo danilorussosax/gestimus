@@ -15,8 +15,13 @@ const IMPORT_FIELD_ALIASES = {
     data_nascita: ['datanascita', 'data', 'datadinascita', 'birth', 'birthdate', 'nascita'],
     nazionalita:  ['nazionalita', 'nationality', 'paese'],
     docenti:      ['docenti', 'docentipreparatori', 'docente', 'maestri', 'maestro', 'preparatore', 'preparatori'],
-    sezioni:      ['sezione', 'sezioni', 'section', 'sections'],
-    categorie:    ['categoria', 'categorie', 'category', 'categories'],
+    // Modello N:1: il candidato appartiene a una sola sezione + una sola
+    // categoria. Manteniamo gli alias plurali per retro-compatibilità con
+    // template csv vecchi, ma usiamo solo il primo valore.
+    sezione:      ['sezione', 'sezioni', 'section', 'sections'],
+    categoria:    ['categoria', 'categorie', 'category', 'categories'],
+    tipo:         ['tipo', 'type', 'gruppo', 'isgruppo', 'kind'],
+    gruppo_nome:  ['gruppo', 'gruppo_nome', 'grupponame', 'ensemble', 'nomegruppo'],
   },
   commissari: {
     nome:         ['nome', 'firstname', 'name'],
@@ -112,31 +117,51 @@ function buildImportRow(kind, headerMap, rawRow, concorso) {
     const dn = parseImportDate(get('data_nascita'));
     if (dn === null) errors.push(t('admin.import.err.bad_date', { value: get('data_nascita') }));
     out.data_nascita = dn || '';
-    const docenti = splitMulti(get('docenti'));
-    out.docenti_preparatori = docenti;
+    out.docenti_preparatori = splitMulti(get('docenti'));
 
-    // Resolve sezioni by name (case-insensitive)
+    // Tipo: 'gruppo' se il CSV ha `tipo=gruppo` o `is_gruppo=true/1/si` o
+    // se la colonna gruppo_nome è valorizzata. Per i gruppi il cognome non è
+    // obbligatorio (il "candidato" è l'ensemble nel suo complesso).
+    const rawTipo = get('tipo').toLowerCase();
+    const rawGruppoNome = get('gruppo_nome');
+    const isGruppo = ['gruppo', 'group', 'ensemble', 'true', '1', 'si', 'yes'].includes(rawTipo) || rawGruppoNome.length > 0;
+    out.tipo = isGruppo ? 'gruppo' : 'individuale';
+    if (isGruppo && rawGruppoNome) out.gruppo_nome = rawGruppoNome;
+
+    // Sezione N:1: prendiamo il primo nome valido. Manteniamo splitMulti per
+    // tolleranza al template legacy (separatore "|") ma usiamo solo il primo.
     const sezAll = db.sezioniByConcorso(concorso.id);
-    const sezNames = splitMulti(get('sezioni'));
-    const sezIds = [];
-    sezNames.forEach(n => {
-      const s = sezAll.find(x => normKey(x.nome) === normKey(n));
-      if (s) sezIds.push(s.id);
-      else errors.push(t('admin.import.err.sez_not_found', { name: n }));
-    });
-    out.sezioni_ids = sezIds;
+    const sezNames = splitMulti(get('sezione'));
+    let sezione_id = null;
+    if (sezNames.length > 0) {
+      const s = sezAll.find(x => normKey(x.nome) === normKey(sezNames[0]));
+      if (s) sezione_id = s.id;
+      else errors.push(t('admin.import.err.sez_not_found', { name: sezNames[0] }));
+    }
+    out.sezione_id = sezione_id;
 
-    // Categorie scoped to selected sezioni (or any of the concorso if no sezione given)
+    // Categoria N:1: scoped alla sezione scelta. Se la sezione manca ma la
+    // categoria è specificata, deriviamo la sezione dal record categoria
+    // (gerarchia categoria→sezione, identica al form e al backend).
     const catAll = db.categorieByConcorso(concorso.id);
-    const catNames = splitMulti(get('categorie'));
-    const catIds = [];
-    catNames.forEach(n => {
-      const candidates = catAll.filter(c => normKey(c.nome) === normKey(n) && (sezIds.length === 0 || sezIds.includes(c.sezione_id)));
-      if (candidates.length === 1) catIds.push(candidates[0].id);
-      else if (candidates.length === 0) errors.push(t('admin.import.err.cat_not_found', { name: n }));
-      else errors.push(t('admin.import.err.cat_ambiguous', { name: n }));
-    });
-    out.categorie_ids = catIds;
+    const catNames = splitMulti(get('categoria'));
+    let categoria_id = null;
+    if (catNames.length > 0) {
+      const candidates = catAll.filter(c =>
+        normKey(c.nome) === normKey(catNames[0]) &&
+        (sezione_id == null || c.sezione_id === sezione_id),
+      );
+      if (candidates.length === 1) {
+        categoria_id = candidates[0].id;
+        if (!sezione_id) sezione_id = candidates[0].sezione_id;
+      } else if (candidates.length === 0) {
+        errors.push(t('admin.import.err.cat_not_found', { name: catNames[0] }));
+      } else {
+        errors.push(t('admin.import.err.cat_ambiguous', { name: catNames[0] }));
+      }
+    }
+    out.categoria_id = categoria_id;
+    if (sezione_id && !out.sezione_id) out.sezione_id = sezione_id; // (no-op safeguard)
   } else {
     out.specialita = get('specialita');
     out.email = get('email');
@@ -152,7 +177,12 @@ function buildImportRow(kind, headerMap, rawRow, concorso) {
     }
   }
 
-  IMPORT_REQUIRED[kind].forEach(f => {
+  // Per i gruppi (kind=candidati, tipo=gruppo) il cognome e la data di nascita
+  // non sono richiesti — il "candidato" è l'ensemble nel suo complesso.
+  const requiredForRow = kind === 'candidati' && out.tipo === 'gruppo'
+    ? ['nome', 'strumento']
+    : IMPORT_REQUIRED[kind];
+  requiredForRow.forEach(f => {
     if (!out[f]) errors.push(t('admin.import.err.required_missing', { field: f }));
   });
   return { data: out, errors };
@@ -172,15 +202,19 @@ function buildHeaderMap(kind, headerCells) {
 function importTemplateText(kind) {
   if (kind === 'candidati') {
     return [
-      'nome,cognome,strumento,data_nascita,nazionalita,docenti,sezioni,categorie',
-      'Anna,Rossi,Pianoforte,2002-04-15,Italiana,Mario Bianchi|Lucia Verdi,Solisti,Junior',
-      'Marco,Bianchi,Violino,15/06/2003,Italiana,Anna Neri,,'
+      // Header: nome,cognome obbligatori; strumento/data/nazionalita per individuale;
+      // tipo + gruppo_nome per gruppi (in quel caso cognome e data_nascita possono
+      // restare vuoti). sezione/categoria opzionali (per nome, case-insensitive).
+      'nome,cognome,strumento,data_nascita,nazionalita,docenti,sezione,categoria,tipo,gruppo_nome',
+      'Anna,Rossi,Pianoforte,2002-04-15,Italiana,Mario Bianchi|Lucia Verdi,Pianoforte,Junior,individuale,',
+      'Marco,Bianchi,Violino,15/06/2003,Italiana,Anna Neri,Archi,Senior,individuale,',
+      'Quartetto Brillante,,Quartetto d\'archi,,,,Archi,Cameristica,gruppo,Quartetto Brillante',
     ].join('\n');
   }
   return [
     'nome,cognome,specialita,email,telefono,data_nascita,nazionalita,bio',
     'Giovanni,Verdi,Pianoforte,g.verdi@esempio.it,+39 333 1234567,1968-09-20,Italiana,Docente al conservatorio',
-    'Sara,Conti,Composizione,,,,Italiana,'
+    'Sara,Conti,Composizione,,,,Italiana,',
   ].join('\n');
 }
 

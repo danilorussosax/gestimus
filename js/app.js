@@ -229,8 +229,8 @@ function setupLanguageSwitcher() {
 
   const refreshTrigger = () => {
     const lang = getLang();
-    flagEl.textContent = LANG_FLAGS[lang] || '🌐';
-    codeEl.textContent = lang.toUpperCase();
+    if (flagEl) flagEl.textContent = LANG_FLAGS[lang] || '🌐';
+    if (codeEl) codeEl.textContent = lang.toUpperCase();
     btn.setAttribute('aria-label', `${t('app.lang.label')}: ${LANG_LABELS[lang]}`);
   };
 

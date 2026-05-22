@@ -44,7 +44,10 @@ async function exportProtocolloPdf(concorso) {
   }
   const pageW = doc.internal.pageSize.getWidth();
   const margin = 40;
-  const presidente = db.getPresidenteFor(concorso.id);
+  // Firma in calce al protocollo: il presidente della commissione assegnata
+  // alla fase finale (non un "presidente di concorso" globale che non esiste
+  // nel modello). Se la finale non ha commissione, niente firma.
+  const presidente = db.getPresidenteForFinale(concorso.id);
 
   // Header con logo (in alto-sx) + titolo — logo del concorso se presente, altrimenti logo applicativo
   try {

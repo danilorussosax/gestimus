@@ -251,11 +251,34 @@ function openCommissioneForm(concorso, existing, onSaved) {
       const updateCount = () => {
         body.querySelector('[data-comm-count]').textContent = selCommissari.size;
       };
+      // Quando "Includi tutte le categorie" è attivo, le categorie delle
+      // sezioni scelte vengono auto-popolate e le relative checkbox bloccate
+      // in stato checked: l'admin vede subito cosa verrà attaccato e non può
+      // de-selezionare manualmente (il flag domina). Cambia sezione o flag
+      // → ri-sincronizza.
+      const syncCategorieAuto = () => {
+        if (!includeTutte) {
+          // Riabilita le checkbox: lo stato delle categorie è quello che
+          // l'admin ha scelto manualmente (selCategorie).
+          body.querySelectorAll('input[data-cat]').forEach((cb) => { cb.disabled = false; });
+          return;
+        }
+        // Calcola unione delle categorie delle sezioni selezionate
+        const auto = new Set();
+        for (const sezId of selSezioni) {
+          db.categorieBySezione(sezId).forEach((c) => auto.add(c.id));
+        }
+        selCategorie = auto;
+        body.querySelectorAll('input[data-cat]').forEach((cb) => {
+          cb.checked = auto.has(cb.dataset.cat);
+          cb.disabled = true;
+        });
+      };
+
       body.addEventListener('change', (e) => {
         const t = e.target;
         if (t.dataset.comm) {
           if (t.checked) selCommissari.add(t.dataset.comm); else selCommissari.delete(t.dataset.comm);
-          // Se de-seleziono un commissario che era presidente, azzero
           if (!t.checked && t.dataset.comm === selPresidente) {
             selPresidente = '';
             const sel = body.querySelector('#presidente-select');
@@ -264,15 +287,23 @@ function openCommissioneForm(concorso, existing, onSaved) {
           updateCount();
         } else if (t.dataset.sez) {
           if (t.checked) selSezioni.add(t.dataset.sez); else selSezioni.delete(t.dataset.sez);
+          // Re-sync se la modalità "tutte" è attiva: il cambio sezione cambia
+          // l'insieme delle categorie auto-derivate.
+          if (includeTutte) syncCategorieAuto();
         } else if (t.dataset.cat) {
           if (t.checked) selCategorie.add(t.dataset.cat); else selCategorie.delete(t.dataset.cat);
         } else if (t.id === 'incl-tutte') {
           includeTutte = t.checked;
+          syncCategorieAuto();
         } else if (t.id === 'presidente-select') {
           selPresidente = t.value;
         }
       });
       updateCount();
+      // Sync iniziale: in edit-mode `existing.include_tutte_categorie` può
+      // venire da una sessione precedente; ripristiniamo coerenza con le
+      // sezioni selezionate.
+      if (includeTutte) syncCategorieAuto();
     },
     onPrimary: async (body) => {
       const data = Object.fromEntries(new FormData(body.querySelector('#frm')));
@@ -280,12 +311,23 @@ function openCommissioneForm(concorso, existing, onSaved) {
       // Verifica che il presidente sia tra i membri selezionati. Se non lo è
       // (l'admin ha cambiato i membri dopo aver scelto il presidente), lo azzero.
       const presidenteValido = selPresidente && selCommissari.has(selPresidente) ? selPresidente : '';
+      // Se "tutte le categorie" è attivo, espandi qui — il flag in-memory
+      // non viene persistito, quello che conta è l'array `categorie_ids`
+      // mandato al backend. Difesa contro race su syncCategorieAuto.
+      let finalCategorieIds = Array.from(selCategorie);
+      if (includeTutte) {
+        const auto = new Set();
+        for (const sezId of selSezioni) {
+          db.categorieBySezione(sezId).forEach((c) => auto.add(c.id));
+        }
+        finalCategorieIds = Array.from(auto);
+      }
       const payload = {
         nome: data.nome.trim(),
         descrizione: (data.descrizione || '').trim(),
         commissari_ids: Array.from(selCommissari),
         sezioni_ids: Array.from(selSezioni),
-        categorie_ids: Array.from(selCategorie),
+        categorie_ids: finalCategorieIds,
         include_tutte_categorie: includeTutte,
         presidente_id: presidenteValido,
       };

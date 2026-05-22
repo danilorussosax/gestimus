@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   commissioni,
@@ -18,15 +18,62 @@ const createBody = z.object({
 });
 const updateBody = createBody.partial().omit({ concorsoId: true });
 
+// Carica le join tables (commissari/sezioni/categorie) in batch per N
+// commissioni così l'endpoint list espone gli array senza N+1 query.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function loadCommissioniJoins(tx: any, ids: string[]) {
+  const cMap = new Map<string, string[]>();
+  const sMap = new Map<string, string[]>();
+  const catMap = new Map<string, string[]>();
+  if (ids.length === 0) return { cMap, sMap, catMap };
+  const [comms, sezs, cats] = await Promise.all([
+    tx
+      .select({ commissioneId: commissioniCommissari.commissioneId, commissarioId: commissioniCommissari.commissarioId })
+      .from(commissioniCommissari)
+      .where(inArray(commissioniCommissari.commissioneId, ids)),
+    tx
+      .select({ commissioneId: commissioniSezioni.commissioneId, sezioneId: commissioniSezioni.sezioneId })
+      .from(commissioniSezioni)
+      .where(inArray(commissioniSezioni.commissioneId, ids)),
+    tx
+      .select({ commissioneId: commissioniCategorie.commissioneId, categoriaId: commissioniCategorie.categoriaId })
+      .from(commissioniCategorie)
+      .where(inArray(commissioniCategorie.commissioneId, ids)),
+  ]);
+  for (const r of comms as Array<{ commissioneId: string; commissarioId: string }>) {
+    const arr = cMap.get(r.commissioneId) ?? [];
+    arr.push(r.commissarioId);
+    cMap.set(r.commissioneId, arr);
+  }
+  for (const r of sezs as Array<{ commissioneId: string; sezioneId: string }>) {
+    const arr = sMap.get(r.commissioneId) ?? [];
+    arr.push(r.sezioneId);
+    sMap.set(r.commissioneId, arr);
+  }
+  for (const r of cats as Array<{ commissioneId: string; categoriaId: string }>) {
+    const arr = catMap.get(r.commissioneId) ?? [];
+    arr.push(r.categoriaId);
+    catMap.set(r.commissioneId, arr);
+  }
+  return { cMap, sMap, catMap };
+}
+
 export const commissioniRoutes: FastifyPluginAsync = async (app) => {
   app.addHook('preHandler', requireAuth);
 
   app.get('/', async (req) => {
     const q = z.object({ concorsoId: uuid.optional() }).parse(req.query);
     return req.dbTx(async (tx) => {
-      return q.concorsoId
-        ? tx.select().from(commissioni).where(eq(commissioni.concorsoId, q.concorsoId))
-        : tx.select().from(commissioni);
+      const rows = q.concorsoId
+        ? await tx.select().from(commissioni).where(eq(commissioni.concorsoId, q.concorsoId))
+        : await tx.select().from(commissioni);
+      const { cMap, sMap, catMap } = await loadCommissioniJoins(tx, rows.map((r) => r.id));
+      return rows.map((r) => ({
+        ...r,
+        commissari: cMap.get(r.id) ?? [],
+        sezioni: sMap.get(r.id) ?? [],
+        categorie: catMap.get(r.id) ?? [],
+      }));
     });
   });
 
