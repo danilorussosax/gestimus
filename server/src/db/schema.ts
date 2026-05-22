@@ -448,7 +448,7 @@ export const fasi = pgTable(
     timerBonusSeconds: integer('timer_bonus_seconds').notNull().default(0),
     timerStartedForCfId: uuid('timer_started_for_cf_id'),
     stato: text('stato').notNull().default('PIANIFICATA'),
-    tiebreakStrategy: text('tiebreak_strategy'),
+    tiebreakStrategy: jsonb('tiebreak_strategy'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

@@ -15,6 +15,20 @@ ALTER TABLE fasi ADD COLUMN IF NOT EXISTS timer_paused_at timestamptz;
 ALTER TABLE fasi ADD COLUMN IF NOT EXISTS timer_bonus_seconds integer NOT NULL DEFAULT 0;
 ALTER TABLE fasi ADD COLUMN IF NOT EXISTS timer_started_for_cf_id uuid;
 
+-- fasi.tiebreak_strategy: era stata creata come TEXT, ma il frontend invia
+-- un array di oggetti {key, enabled}. Convertiamo a jsonb se serve.
+DO $$
+DECLARE
+  current_type text;
+BEGIN
+  SELECT data_type INTO current_type
+    FROM information_schema.columns
+   WHERE table_name = 'fasi' AND column_name = 'tiebreak_strategy';
+  IF current_type = 'text' THEN
+    EXECUTE 'ALTER TABLE fasi ALTER COLUMN tiebreak_strategy TYPE jsonb USING tiebreak_strategy::jsonb';
+  END IF;
+END $$;
+
 -- =====================================================================
 -- 1. Grant su schema e oggetti esistenti
 -- =====================================================================

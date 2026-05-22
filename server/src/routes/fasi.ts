@@ -41,7 +41,10 @@ const createBody = z.object({
     .optional(),
   tempoMinuti: z.number().int().positive().optional(),
   commissioneId: uuid.optional(),
-  tiebreakStrategy: z.string().optional(),
+  tiebreakStrategy: z
+    .array(z.object({ key: z.string().min(1).max(50), enabled: z.boolean() }))
+    .nullable()
+    .optional(),
 });
 const updateBody = createBody.partial().omit({ concorsoId: true });
 
