@@ -1,7 +1,8 @@
 import { db } from '../db.js';
 import { escapeHtml, displayName, toast } from '../utils.js';
 import { pb, PB_URL } from '../pb.js';
-import { runMigration, legacyTotal, clearLegacy } from '../migrate.js';
+// migrate.js (legacy localStorage → PocketBase) non è più necessario nel
+// nuovo stack Postgres: la home non offre più la migrazione.
 import { icon } from '../icons.js';
 import { t } from '../i18n.js';
 
@@ -119,8 +120,9 @@ export function renderHome(root) {
 
         </div>
 
-        <!-- PocketBase / migrazione -->
-        <div id="pb-card" class="mb-6"></div>
+        <!-- Stato sistema (Postgres) + impostazioni ente -->
+        <div id="pb-card" class="mb-4"></div>
+        <div id="ente-settings-card" class="mb-6"></div>
 
         ${concorsi.length > 0 ? `
           <h2 class="text-[11px] font-mono font-medium uppercase tracking-[0.16em] text-muted-foreground mb-3">${escapeHtml(t('home.concorsi.heading'))}</h2>
@@ -170,6 +172,7 @@ export function renderHome(root) {
   `;
 
   renderPbCard(root.querySelector('#pb-card'));
+  renderEnteSettingsCard(root.querySelector('#ente-settings-card'));
 
   // Card "Configurazione admin": porta DIRETTAMENTE al selettore concorso
   // (renderConcorsoSelector), da cui l'admin sceglie un concorso esistente o
@@ -237,96 +240,52 @@ function kpi(label, value, sub, accent = '', iconName = '') {
   `;
 }
 
-// ---------- PocketBase status / legacy migration card ----------
+// ---------- Stato sistema (Postgres) ----------
 
 async function renderPbCard(host) {
   if (!host) return;
-  const totalLegacy = legacyTotal();
   const s = db.state;
-  const totalPb = s.concorsi.length + s.commissari.length + s.candidati.length + s.fasi.length + s.candidati_fase.length + s.valutazioni.length;
-  // L'admin UI di PocketBase è una funzione di sistema riservata al super admin.
-  // Gli admin di tenant gestiscono i loro dati dalla UI dell'app.
-  const isSuperAdmin = db.state.meta.role === 'superadmin';
-
-  if (totalLegacy === 0) {
-    host.innerHTML = `
-      <div class="c-tile flex items-center gap-3" style="padding: 0.75rem 1rem;">
-        <span class="text-[#198038]" aria-hidden="true">${icon('database', { size: 18 })}</span>
-        <span class="c-tag c-tag--green">PocketBase</span>
-        <div class="flex-1 min-w-0 text-sm text-ink-700">
-          ${t('home.pb.connected', { n: totalPb }).replace('<strong>', '<span class="text-ink-900 font-medium">').replace('</strong>', '</span>')}
-        </div>
-        ${isSuperAdmin ? `<a href="${escapeHtml(PB_URL)}/_/" target="_blank" class="c-link text-sm inline-flex items-center gap-1.5">${escapeHtml(t('home.pb.admin_ui'))} ${icon('externalLink', { size: 12 })}</a>` : ''}
-      </div>
-    `;
-    return;
-  }
-
+  const totalRecords = s.concorsi.length + s.commissari.length + s.candidati.length + s.fasi.length + s.candidati_fase.length + s.valutazioni.length;
   host.innerHTML = `
-    <div class="c-tile c-tile--padded" style="border-left: 3px solid #f1c21b;">
-      <p class="c-tile__eyebrow" style="color:#684e00">${escapeHtml(t('home.pb.legacy.eyebrow'))}</p>
-      <h3 class="c-tile__title">${escapeHtml(t('home.pb.legacy.title'))}</h3>
-      <p class="text-sm text-ink-700 mt-2">
-        ${t('home.pb.legacy.desc', { n: totalLegacy })}
-      </p>
-      <div class="mt-4 flex flex-wrap items-center gap-2">
-        <button id="pb-migrate-btn" class="c-btn c-btn--primary">
-          <span>${escapeHtml(t('home.pb.legacy.migrate'))}</span><span class="c-btn__icon" aria-hidden="true">${icon('play', { size: 14 })}</span>
-        </button>
-        <button id="pb-discard-btn" class="c-btn c-btn--ghost" style="color:#525252">
-          <span>${escapeHtml(t('home.pb.legacy.discard'))}</span>
-        </button>
-        ${isSuperAdmin ? `<a href="${escapeHtml(PB_URL)}/_/" target="_blank" class="c-link text-sm ml-auto inline-flex items-center gap-1.5">${escapeHtml(t('home.pb.legacy.open_admin'))} ${icon('externalLink', { size: 12 })}</a>` : ''}
-      </div>
-      <div id="pb-progress" class="mt-4 hidden">
-        <div class="text-xs text-ink-700 font-mono uppercase tracking-[0.06em]" id="pb-progress-text">…</div>
-        <div class="h-1 bg-brand-100 mt-1.5 overflow-hidden">
-          <div id="pb-progress-bar" class="h-full bg-brand-500 transition-all" style="width:0%"></div>
-        </div>
+    <div class="c-tile flex items-center gap-3" style="padding: 0.75rem 1rem;">
+      <span class="text-[#198038]" aria-hidden="true">${icon('database', { size: 18 })}</span>
+      <span class="c-tag c-tag--green">PostgreSQL</span>
+      <div class="flex-1 min-w-0 text-sm text-ink-700">
+        ${t('home.system.connected', { n: totalRecords }) || `Connesso · <span class="text-ink-900 font-medium">${totalRecords}</span> record`}
       </div>
     </div>
   `;
+}
 
-  host.querySelector('#pb-discard-btn').addEventListener('click', () => {
-    if (!confirm(t('home.pb.legacy.discard_confirm'))) return;
-    clearLegacy();
-    renderPbCard(host);
-    toast(t('home.pb.legacy.discard_done'), 'info');
-  });
+// ---------- Impostazioni ente (sintetico, link a pagina dedicata) ----------
 
-  host.querySelector('#pb-migrate-btn').addEventListener('click', async (e) => {
-    const btn = e.currentTarget;
-    btn.disabled = true;
-    btn.firstElementChild.textContent = t('home.pb.legacy.migrating');
-    const progress = host.querySelector('#pb-progress');
-    const progText = host.querySelector('#pb-progress-text');
-    const progBar  = host.querySelector('#pb-progress-bar');
-    progress.classList.remove('hidden');
-    const stages = ['concorsi','commissari','candidati','fasi','candidati_fase','valutazioni','done'];
-    try {
-      const report = await runMigration({
-        onProgress: ({ stage, message }) => {
-          progText.textContent = message;
-          const i = stages.indexOf(stage);
-          if (i >= 0) progBar.style.width = `${Math.round((i+1)/stages.length*100)}%`;
-        }
-      });
-      progBar.style.width = '100%';
-      progText.textContent = t('home.pb.legacy.migrate_done');
-      const total = report.concorsi + report.commissari + report.candidati + report.fasi + report.candidati_fase + report.valutazioni;
-      toast(t('home.pb.legacy.migrate_count', { n: total }), 'success');
-      if (report.errors.length) console.warn('Errori durante migrazione:', report.errors);
-      await db.reload();
-      clearLegacy();
-      location.hash = '#/';
-      window.dispatchEvent(new HashChangeEvent('hashchange'));
-    } catch (err) {
-      console.error('Migration failed:', err);
-      toast(t('home.pb.legacy.migrate_failed', { msg: err.message }), 'error');
-      btn.disabled = false;
-      btn.firstElementChild.textContent = t('home.pb.legacy.retry');
-    }
-  });
+function renderEnteSettingsCard(host) {
+  if (!host) return;
+  const ente = db.getEnte();
+  const configured = !!(ente && (ente.nome || ente.email_contatto || ente.logo_url));
+  host.innerHTML = `
+    <div class="c-tile c-tile--padded">
+      <div class="flex items-start gap-4">
+        <div class="w-12 h-12 rounded-xl bg-brand-50 border border-brand-100 flex items-center justify-center overflow-hidden shrink-0">
+          ${ente?.logo_url
+            ? `<img src="${escapeHtml(ente.logo_url)}" alt="" class="w-full h-full object-contain" />`
+            : `<span class="text-brand-700">${icon('building', { size: 22 })}</span>`}
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="c-tile__eyebrow">${escapeHtml(t('home.ente.eyebrow') || 'Impostazioni ente')}</p>
+          <h3 class="c-tile__title">${escapeHtml(ente?.nome || t('home.ente.not_configured') || 'Configura il tuo ente')}</h3>
+          <p class="text-sm text-ink-700 mt-1">
+            ${configured
+              ? escapeHtml(t('home.ente.configured_desc') || 'Logo, contatti e branding sono usati nei verbali, PDF e form pubblico.')
+              : escapeHtml(t('home.ente.not_configured_desc') || 'Imposta nome, logo e contatti del tuo ente: appariranno nei verbali, PDF e form pubblico.')}
+          </p>
+        </div>
+        <a href="#/admin?tab=impostazioni" class="c-btn ${configured ? 'c-btn--ghost' : 'c-btn--primary'} c-btn--sm shrink-0">
+          ${icon('settings', { size: 14 })}<span>${escapeHtml(configured ? (t('home.ente.edit') || 'Modifica') : (t('home.ente.configure') || 'Configura'))}</span>
+        </a>
+      </div>
+    </div>
+  `;
 }
 
 // ---------- Commissario landing dashboard ----------

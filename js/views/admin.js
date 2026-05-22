@@ -13,6 +13,7 @@ import { renderFasi } from './admin/fasi.js';
 import { renderAudit } from './admin/audit.js';
 import { renderConcorsoSelector, openCreateConcorso, openEditConcorso } from './admin/concorso-selector.js';
 import { renderDashboard } from './admin/dashboard.js';
+import { renderImpostazioniConcorso } from './admin/impostazioni-concorso.js';
 
 let activeTab = 'dashboard';
 
@@ -45,7 +46,7 @@ export function renderAdmin(root) {
   const commCount = db.commissioniByConcorso(concorso.id).length;
   const presidente = db.getPresidenteFor(concorso.id);
   // Reset stale activeTab (e.g., from a previous session)
-  if (!['dashboard','fasi','candidati','commissari','sezioni','commissioni','iscrizioni','risultati','audit'].includes(activeTab)) activeTab = 'dashboard';
+  if (!['dashboard','fasi','candidati','commissari','sezioni','commissioni','iscrizioni','risultati','audit','impostazioni-concorso'].includes(activeTab)) activeTab = 'dashboard';
 
   root.innerHTML = `
     <section class="view-fade c-page">
@@ -72,14 +73,11 @@ export function renderAdmin(root) {
               ${navItem('candidati', 'graduation', t('admin.nav.candidati'), candCount)}
               ${navItem('risultati', 'trophy', t('admin.nav.risultati'), null)}
               ${navItem('audit', 'shield', t('admin.nav.audit'), null)}
+              ${navItem('impostazioni-concorso', 'settings', t('admin.nav.impostazioni_concorso') || 'Impostazioni', null)}
             </nav>
 
             <p class="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-700 px-4 pt-5 pb-2 border-t border-brand-100 mt-3">${escapeHtml(t('admin.nav.admin_section'))}</p>
             <nav class="flex flex-col">
-              <a href="#/admin?tab=dashboard" class="flex items-center gap-3 px-4 h-10 transition w-full text-left text-[13px] font-medium border-l-2 border-l-transparent text-ink-700 hover:bg-brand-50 hover:text-ink-900">
-                <span class="leading-none text-ink-700" aria-hidden="true">${icon('chart', { size: 16 })}</span>
-                <span class="flex-1">${escapeHtml(t('admin.nav.dashboard'))}</span>
-              </a>
               <a href="#/admin?tab=statistiche" class="flex items-center gap-3 px-4 h-10 transition w-full text-left text-[13px] font-medium border-l-2 border-l-transparent text-ink-700 hover:bg-brand-50 hover:text-ink-900">
                 <span class="leading-none text-ink-700" aria-hidden="true">${icon('grid', { size: 16 })}</span>
                 <span class="flex-1">${escapeHtml(t('admin.nav.statistiche'))}</span>
@@ -87,10 +85,6 @@ export function renderAdmin(root) {
               <a href="#/admin?tab=utenti" class="flex items-center gap-3 px-4 h-10 transition w-full text-left text-[13px] font-medium border-l-2 border-l-transparent text-ink-700 hover:bg-brand-50 hover:text-ink-900">
                 <span class="leading-none text-ink-700" aria-hidden="true">${icon('user', { size: 16 })}</span>
                 <span class="flex-1">${escapeHtml(t('admin.nav.utenti'))}</span>
-              </a>
-              <a href="#/admin?tab=impostazioni" class="flex items-center gap-3 px-4 h-10 transition w-full text-left text-[13px] font-medium border-l-2 border-l-transparent text-ink-700 hover:bg-brand-50 hover:text-ink-900">
-                <span class="leading-none text-ink-700" aria-hidden="true">${icon('settings', { size: 16 })}</span>
-                <span class="flex-1">${escapeHtml(t('admin.nav.impostazioni'))}</span>
               </a>
               <a href="#/admin?tab=manuale" class="flex items-center gap-3 px-4 h-10 transition w-full text-left text-[13px] font-medium border-l-2 border-l-transparent text-ink-700 hover:bg-brand-50 hover:text-ink-900">
                 <span class="leading-none text-ink-700" aria-hidden="true">${icon('book', { size: 16 })}</span>
@@ -120,6 +114,10 @@ export function renderAdmin(root) {
 
         <!-- Main content -->
         <div class="flex-1 min-w-0">
+          <!-- Breadcrumb / back link to concorsi list -->
+          <button data-action="back-to-concorsi" class="inline-flex items-center gap-1.5 text-sm text-ink-700 hover:text-ink-900 hover:bg-brand-50 px-2 py-1 rounded-md mb-4 -ml-2 transition-colors">
+            ${icon('arrowLeft', { size: 14 })}<span>${escapeHtml(t('admin.header.back_to_concorsi') || 'Gestione concorsi')}</span>
+          </button>
           <header class="flex flex-wrap items-center gap-3 mb-6">
             <div class="flex-1 min-w-0">
               <p class="font-mono text-[11px] uppercase tracking-[0.16em] text-ink-700">${escapeHtml(t('admin.header.year_label', { anno: concorso.anno }))}</p>
@@ -127,9 +125,6 @@ export function renderAdmin(root) {
                 <h2 class="text-2xl sm:text-[28px] font-light text-ink-900 tracking-tight truncate">${escapeHtml(concorso.nome)}</h2>
                 <span class="c-tag ${concorso.stato === 'ATTIVO' ? 'c-tag--green' : 'c-tag--gray c-tag--no-dot'}">${escapeHtml(concorso.stato)}</span>
                 ${concorso.anonimo ? `<span class="c-tag c-tag--purple c-tag--no-dot" title="${escapeHtml(t('admin.header.anonimo_title'))}">${icon('eyeOff', { size: 12 })}<span class="ml-1">${escapeHtml(t('admin.header.anonimo_tag'))}</span></span>` : ''}
-                <button data-action="edit-concorso" aria-label="${escapeHtml(t('admin.header.edit_concorso_aria'))}" class="text-xs text-ink-700 hover:text-ink-900 hover:bg-brand-50 px-2 py-1 font-medium transition inline-flex items-center gap-1.5">
-                  ${icon('edit', { size: 12 })} ${escapeHtml(t('admin.header.edit_concorso'))}
-                </button>
               </div>
               <p class="text-sm text-ink-700 mt-1.5">${escapeHtml(t('admin.header.summary', { coms: comCount, fasi: fasiCount }))}</p>
             </div>
@@ -144,6 +139,7 @@ export function renderAdmin(root) {
               ${mobileTab('candidati', t('admin.nav.candidati'),'graduation')}
               ${mobileTab('risultati', t('admin.nav.risultati'),'trophy')}
               ${mobileTab('audit', t('admin.nav.audit'),'shield')}
+              ${mobileTab('impostazioni-concorso', t('admin.nav.impostazioni_concorso') || 'Impostazioni','settings')}
             </nav>
           </header>
 
@@ -165,8 +161,9 @@ export function renderAdmin(root) {
     db.setActiveConcorso(null);
     renderAdmin(root);
   });
-  root.querySelector('[data-action="edit-concorso"]')?.addEventListener('click', () => {
-    openEditConcorso(concorso, () => renderAdmin(root));
+  root.querySelector('[data-action="back-to-concorsi"]')?.addEventListener('click', () => {
+    db.setActiveConcorso(null);
+    renderAdmin(root);
   });
 
   const content = root.querySelector('#tab-content');
@@ -179,6 +176,7 @@ export function renderAdmin(root) {
   else if (activeTab === 'iscrizioni') renderIscrizioni(content, concorso);
   else if (activeTab === 'risultati') renderRisultati(content, concorso);
   else if (activeTab === 'audit') renderAudit(content, concorso);
+  else if (activeTab === 'impostazioni-concorso') renderImpostazioniConcorso(content, concorso);
 }
 
 function navItem(id, iconName, label, count) {

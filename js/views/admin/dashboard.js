@@ -19,6 +19,7 @@ export const SIDEBAR_TABS = [
   { id: 'candidati',   iconName: 'graduation', labelKey: 'admin.nav.candidati',   descKey: 'admin.dashboard.card.candidati_desc',   count: (c) => db.candidatiByConcorso(c.id).length },
   { id: 'risultati',   iconName: 'trophy',     labelKey: 'admin.nav.risultati',   descKey: 'admin.dashboard.card.risultati_desc',   count: () => null },
   { id: 'audit',       iconName: 'shield',     labelKey: 'admin.nav.audit',       descKey: 'admin.dashboard.card.audit_desc',       count: () => null },
+  { id: 'impostazioni-concorso', iconName: 'settings', labelKey: 'admin.nav.impostazioni_concorso', descKey: 'admin.dashboard.card.impostazioni_concorso_desc', count: () => null },
 ];
 
 export function renderDashboard(root, concorso) {
