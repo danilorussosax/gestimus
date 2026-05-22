@@ -8,6 +8,42 @@ import { fmtVoto, getScala, getMetodoMedia, getModoValutazione, mediaCandidato, 
 import { icon } from '../../icons.js';
 import { t } from '../../i18n.js';
 
+// Tag dinamici disponibili nel template verbale: il blocco "general" si
+// applica all'intero concorso (header), il blocco "fase" è disponibile solo
+// quando si genera un verbale di singola fase.
+const VERBALE_TAGS_GENERAL = [
+  { tag: 'concorso',       descKey: 'admin.risultati.verbale.tag_concorso' },
+  { tag: 'anno',           descKey: 'admin.risultati.verbale.tag_anno' },
+  { tag: 'data',           descKey: 'admin.risultati.verbale.tag_data' },
+  { tag: 'presidente',     descKey: 'admin.risultati.verbale.tag_presidente' },
+  { tag: 'commissione',    descKey: 'admin.risultati.verbale.tag_commissione' },
+  { tag: 'commissari',     descKey: 'admin.risultati.verbale.tag_commissari' },
+  { tag: 'num_commissari', descKey: 'admin.risultati.verbale.tag_num_commissari' },
+  { tag: 'num_candidati',  descKey: 'admin.risultati.verbale.tag_num_candidati' },
+  { tag: 'fasi',           descKey: 'admin.risultati.verbale.tag_fasi' },
+  { tag: 'vincitore',      descKey: 'admin.risultati.verbale.tag_vincitore' },
+  { tag: 'podio',          descKey: 'admin.risultati.verbale.tag_podio' },
+  { tag: 'risultati',      descKey: 'admin.risultati.verbale.tag_risultati' },
+  { tag: 'spareggi',       descKey: 'admin.risultati.verbale.tag_spareggi' },
+];
+
+const VERBALE_TAGS_FASE = [
+  { tag: 'fase',                descKey: 'admin.risultati.verbale.tag_fase' },
+  { tag: 'fase_numero',         descKey: 'admin.risultati.verbale.tag_fase_numero' },
+  { tag: 'fase_data',           descKey: 'admin.risultati.verbale.tag_fase_data' },
+  { tag: 'fase_stato',          descKey: 'admin.risultati.verbale.tag_fase_stato' },
+  { tag: 'fase_scala',          descKey: 'admin.risultati.verbale.tag_fase_scala' },
+  { tag: 'fase_modo',           descKey: 'admin.risultati.verbale.tag_fase_modo' },
+  { tag: 'fase_metodo',         descKey: 'admin.risultati.verbale.tag_fase_metodo' },
+  { tag: 'fase_num_candidati',  descKey: 'admin.risultati.verbale.tag_fase_num_candidati' },
+  { tag: 'fase_commissione',    descKey: 'admin.risultati.verbale.tag_fase_commissione' },
+  { tag: 'fase_commissari',     descKey: 'admin.risultati.verbale.tag_fase_commissari' },
+  { tag: 'fase_classifica',     descKey: 'admin.risultati.verbale.tag_fase_classifica' },
+  { tag: 'fase_promossi',       descKey: 'admin.risultati.verbale.tag_fase_promossi' },
+  { tag: 'fase_eliminati',      descKey: 'admin.risultati.verbale.tag_fase_eliminati' },
+  { tag: 'fase_spareggi',       descKey: 'admin.risultati.verbale.tag_fase_spareggi' },
+];
+
 export function verbaleStorageKey(concorso, fase) {
   return fase ? `verbale_draft_${concorso.id}_${fase.id}` : `verbale_draft_${concorso.id}`;
 }

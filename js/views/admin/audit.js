@@ -6,6 +6,20 @@ import { escapeHtml } from '../../utils.js';
 import { icon } from '../../icons.js';
 import { t } from '../../i18n.js';
 
+// Mapping action → [emoji, i18n key]. Usato in renderAudit per arricchire la
+// timeline con icone + label localizzate.
+const AUDIT_LABEL_KEYS = {
+  'concorso.create':  ['🆕', 'admin.audit.label.concorso_create'],
+  'concorso.delete':  ['🗑', 'admin.audit.label.concorso_delete'],
+  'fase.start':       ['▶',  'admin.audit.label.fase_start'],
+  'fase.complete':    ['🏁', 'admin.audit.label.fase_complete'],
+  'fase.sorteggio':   ['🎲', 'admin.audit.label.fase_sorteggio'],
+  'account.create':   ['🔑', 'admin.audit.label.account_create'],
+  'account.delete':   ['🗑', 'admin.audit.label.account_delete'],
+  'auth.login':       ['🔓', 'admin.audit.label.auth_login'],
+  'auth.logout':      ['🔒', 'admin.audit.label.auth_logout'],
+};
+
 export async function renderAudit(root, concorso) {
   let scope = 'concorso'; // 'concorso' | 'all'
   let q = '';

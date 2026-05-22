@@ -6,6 +6,9 @@ import { escapeHtml, modal, toast } from '../../utils.js';
 import { icon } from '../../icons.js';
 import { t } from '../../i18n.js';
 
+// Stato locale del tab Iscrizioni — sopravvive ai re-render della tab.
+const _iscrizioniState = { items: [], filtro_stato: '', loading: false, error: null };
+
 export async function renderIscrizioni(root, concorso) {
   // Render con dati cached, poi reload in background.
   doRender();
@@ -155,8 +158,15 @@ function iscrizioneRowHtml(i) {
 function openIscrizioneDetail(isc, concorso, onChanged) {
   const eta = isc.data_nascita ? Math.floor((Date.now() - new Date(isc.data_nascita).getTime()) / (365.25 * 24 * 3600 * 1000)) : null;
   const isMinor = eta !== null && eta < 18;
-  // File URL via PB
-  const fileUrl = (field) => isc[field] ? `${pb.baseUrl}/api/files/${isc.collectionId}/${isc.id}/${isc[field]}` : null;
+  // File URL: nel nuovo stack PG+Fastify gli allegati vivono nella tabella
+  // iscrizioni_allegati e il path è già completo (es. /uploads/<tenant>/...).
+  // Per ora ritorniamo il valore se è già un URL/path, altrimenti null
+  // (TODO: caricare iscrizioniAllegati per id iscrizione).
+  const fileUrl = (field) => {
+    const v = isc[field];
+    if (typeof v === 'string' && (v.startsWith('/') || v.startsWith('http'))) return v;
+    return null;
+  };
   const fotoUrl = fileUrl('foto');
   const docUrl  = fileUrl('documento_identita');
   const recUrl  = fileUrl('ricevuta_pagamento');
