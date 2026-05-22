@@ -8,12 +8,15 @@
 
 [![CI](https://github.com/danilorussosax/gestimus/actions/workflows/ci.yml/badge.svg)](https://github.com/danilorussosax/gestimus/actions/workflows/ci.yml)
 ![PocketBase](https://img.shields.io/badge/PocketBase-0.22-4169E1)
+![Migrating to](https://img.shields.io/badge/migrating%20to-Postgres%20%2B%20Fastify%20%2B%20Drizzle-336791)
 ![Stack](https://img.shields.io/badge/stack-vanilla%20JS-yellow)
 ![License](https://img.shields.io/badge/license-private-lightgrey)
 
 </div>
 
 ---
+
+> ⚠️ **Migrazione stack in corso** — il backend sta passando da PocketBase a **PostgreSQL 16 + Node 22 + Fastify 5 + Drizzle ORM** con multitenancy logica via Row-Level Security. Il nuovo backend vive in [`server/`](server/) (Fasi 0-5c completate: schema, RLS, auth, CRUD, realtime SSE, storage, SMTP cifrato, 48 test passing). Il binario PocketBase resta lo stack di riferimento finché il porting non passa l'intera suite E2E. Piano dettagliato: [`docs/MIGRATION_POSTGRES.md`](docs/MIGRATION_POSTGRES.md).
 
 ## Cos'è Gestimus
 
@@ -59,7 +62,7 @@ L'architettura è **multitenant nativa**: un solo server ospita N enti indipende
 - Workflow di approvazione dall'admin → genera record candidato
 - Anti-spam server-side: honeypot, min-time-on-page, rate-limit per IP (3/h, 10/giorno)
 
-### 🔒 Hardening incluso (vedi `MULTITENANT_PLAN.md` § Sicurezza)
+### 🔒 Hardening incluso (vedi `docs/MULTITENANT_PLAN.md` § Sicurezza)
 - **Admin UI PocketBase** (`/_/`) accessibile solo da localhost o da una allowlist IP esplicita
 - **SMTP password** cifrate at-rest (AES-GCM, chiave da env `GESTIMUS_SECRET_KEY`)
 - **audit_log** append-only (no delete, neppure da admin del tenant)
@@ -88,10 +91,13 @@ Italiano (master), Inglese, Francese, Spagnolo. Le chiavi non tradotte ricadono 
 
 Ogni tenant è un **processo PocketBase isolato** con il proprio SQLite. nginx fa reverse-proxy via sottodominio. Un certificato wildcard copre tutti gli enti presenti e futuri.
 
+> Nel nuovo backend in `server/`, questa multitenancy fisica (un binario per ente) viene sostituita da **multitenancy logica**: un singolo processo Node/Fastify + un singolo database PostgreSQL, con isolamento garantito da Row-Level Security policy per `tenant_id` risolto dal sottodominio. Tutta l'amministrazione (crea ente, sospendi, archivia, configura SMTP) diventa azione di super-admin UI invece di script SSH.
+
 ## Stack
 
 - **Frontend**: HTML + JavaScript vanilla (no framework), Tailwind CSS (CDN), service worker per PWA
-- **Backend**: [PocketBase](https://pocketbase.io) 0.22 (binario Go, SQLite embedded, JS hooks via Goja)
+- **Backend attuale (in produzione)**: [PocketBase](https://pocketbase.io) 0.22 (binario Go, SQLite embedded, JS hooks via Goja)
+- **Backend target (in `server/`, sviluppo)**: PostgreSQL 16 + Node.js 22 LTS + Fastify 5 + Drizzle ORM + TypeScript strict, auth Argon2id + session cookie, realtime via Postgres `LISTEN/NOTIFY` + SSE, multitenancy logica via **Row-Level Security** invece di processi separati per ente
 - **Reverse proxy**: nginx (preferito) o Caddy (fallback)
 - **TLS**: Let's Encrypt wildcard via certbot DNS-01
 - **DNS**: IONOS (plugin certbot dedicato)
@@ -124,7 +130,7 @@ Per fermare tutto: `./scripts/start-local-multitenant.sh stop`.
 
 ## Deploy in produzione
 
-Guida completa: [**DEPLOY-IONOS.md**](DEPLOY-IONOS.md).
+Guida completa: [**docs/DEPLOY-IONOS.md**](docs/DEPLOY-IONOS.md).
 
 In sintesi (~30 minuti dalla VPS vuota):
 
@@ -155,47 +161,49 @@ In alternativa, aggiungi il tuo IP statico/range all'allowlist (vedi `provision-
 
 ```
 gestimus/
-├── js/                          # frontend
+├── js/                          # frontend (vanilla JS, condiviso fra entrambi i backend)
 │   ├── app.js                   # router + bootstrap
-│   ├── db.js                    # data layer PocketBase
-│   ├── pb.js                    # client PB
+│   ├── db.js                    # data layer — adapter REST (firme legacy preservate)
+│   ├── db.legacy.js             # snapshot data layer PocketBase pre-migrazione
+│   ├── pb.js                    # client (stub di compat verso nuovo backend)
+│   ├── pb.legacy.js             # client PocketBase pre-migrazione
+│   ├── api.js                   # client REST verso server/ (Postgres)
 │   ├── i18n.js                  # traduzioni IT/EN/FR/ES
 │   ├── scoring.js               # algoritmi calcolo media + suggerimenti
+│   ├── tiebreak.js              # logiche spareggio
 │   ├── icons.js                 # set icone Carbon SVG
 │   └── views/                   # view per ruolo
-│       ├── home.js              # landing
-│       ├── login.js             # auth
-│       ├── iscrizione.js        # form pubblico (mono-pagina)
-│       ├── admin.js             # tab admin
-│       ├── admin-*.js           # sezioni admin (dashboard, stats, ecc.)
-│       ├── commissario.js       # valutazione
-│       └── superadmin.js        # gestione enti
-├── pb_migrations/               # schema versionato (38 migration)
-├── pb_hooks/                    # endpoint custom server-side
+│       ├── home.js · login.js · iscrizione.js · admin*.js · commissario.js · superadmin.js
+├── server/                      # ⬅ NUOVO backend Postgres+Fastify+Drizzle (in sviluppo)
+│   ├── src/
+│   │   ├── db/                  # schema Drizzle + policies RLS
+│   │   ├── routes/              # endpoint REST (concorsi, fasi, valutazioni, …)
+│   │   ├── services/            # auth, session, storage, email, crypto SMTP
+│   │   ├── middleware/          # tenant resolver + auth guard
+│   │   └── realtime/            # hub SSE + LISTEN/NOTIFY
+│   ├── scripts/                 # bootstrap-db, apply-policies, seed-dev, reset-dev
+│   ├── tests/                   # rls/, auth/, crud/, realtime/ (48 test)
+│   └── drizzle.config.ts
+├── pb_migrations/               # schema PocketBase versionato (43 migration)
+├── pb_hooks/                    # endpoint custom server-side PocketBase
 │   ├── iscrizioni.pb.js         # workflow approvazione + email + anti-bot + rate-limit
 │   ├── accounts.pb.js           # blocca self-promote role/attivo/email
 │   ├── valutazioni.pb.js        # clamp voto + freeze su fase CONCLUSA
 │   ├── tenants.pb.js            # cifratura SMTP password + endpoint decrypt
+│   ├── tenant_config.pb.js      # config piano SaaS + gating server-side
+│   ├── fasi.pb.js               # logiche fasi (tiebreak)
 │   ├── privacy.pb.js            # export/erase GDPR
 │   └── setup.pb.js              # has-admin probe + create-admin
 ├── tests/
 │   ├── unit/                    # node --test (scoring.js, rng.js)
 │   └── e2e/                     # playwright
 ├── scripts/                     # automazione deploy/ops
-│   ├── setup-server.sh          # provisioning VPS (genera GESTIMUS_SECRET_KEY)
-│   ├── provision-tenant.sh      # nuovo ente (opt ADMIN_ALLOW_IPS)
-│   ├── remove-tenant.sh         # rimuovi ente
-│   ├── apply-ente-smtp.sh       # propaga SMTP (decifra via endpoint admin)
-│   ├── encrypt-existing-smtp.mjs # migra le SMTP password in chiaro → cifrate
+│   ├── setup-server.sh · provision-tenant.sh · remove-tenant.sh
+│   ├── apply-ente-smtp.sh · encrypt-existing-smtp.mjs
+│   ├── seed-demo-manual.js · take-screenshots*.mjs
 │   └── start-local-multitenant.sh
-├── deploy/                      # template config
-│   ├── gestimus.env             # dominio + path + GESTIMUS_SECRET_KEY hint
-│   ├── pb@.service              # systemd template
-│   ├── Caddyfile                # snippet pb_routes con /_/ IP-restricted
-│   ├── nginx-tenant.conf.template # split /api/ vs /_/, allow placeholder
-│   └── nginx-snippet-rl.conf    # zone rate-limit (iscrizioni_rl, auth_rl)
-├── DEPLOY-IONOS.md              # guida deploy
-└── .github/                     # CI + Dependabot + templates
+├── deploy/                      # template config nginx/systemd/Caddy
+└── docs/                        # documentazione (deploy, migrazione, manuali, screenshot)
 ```
 
 ## Script npm
@@ -211,12 +219,12 @@ npm run cleanup:e2e   # pulisce i record di test dal DB
 
 | File | Contenuto |
 |------|-----------|
-| [`LISTINO.md`](LISTINO.md) | **Listino piani commerciali** — documento per i clienti finali |
-| [`DEPLOY-IONOS.md`](DEPLOY-IONOS.md) | Guida completa per il deploy su VPS IONOS |
-| [`MULTITENANT_PLAN.md`](MULTITENANT_PLAN.md) | Design dell'architettura multitenant |
-| [`POCKETBASE.md`](POCKETBASE.md) | Note sul backend PocketBase |
+| [`docs/MIGRATION_POSTGRES.md`](docs/MIGRATION_POSTGRES.md) | **Piano di migrazione a Postgres+Fastify+Drizzle** — schema, RLS, mapping moduli PB → nuovo backend, soft-delete tenant, 2FA TOTP, milestone |
+| [`docs/LISTINO.md`](docs/LISTINO.md) | **Listino piani commerciali** — documento per i clienti finali |
+| [`docs/DEPLOY-IONOS.md`](docs/DEPLOY-IONOS.md) | Guida completa per il deploy su VPS IONOS |
+| [`docs/MULTITENANT_PLAN.md`](docs/MULTITENANT_PLAN.md) | Design dell'architettura multitenant (stack PocketBase, storico) |
+| [`docs/POCKETBASE.md`](docs/POCKETBASE.md) | Note sul backend PocketBase |
 | [`docs/manuale-admin.md`](docs/manuale-admin.md) | **Manuale operativo per l'admin di ente** — consultabile in-app da *Admin → Manuale* (con TOC sticky, stampa A4 / esportazione PDF). Le immagini referenziate vivono in `docs/screenshots/`. |
-| [`Schema_Gestionale_Concorso_Musicale.docx`](Schema_Gestionale_Concorso_Musicale.docx) | Schema dati originale (Word) |
 
 ## Contributi
 
