@@ -1,7 +1,23 @@
 import 'dotenv/config';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { dbSuper, shutdownPools } from '../src/db/client.js';
-import { tenants, accounts, concorsi, platformConfig } from '../src/db/schema.js';
+import {
+  accounts,
+  candidati,
+  candidatiFase,
+  categorie,
+  commissari,
+  commissioni,
+  commissioniCommissari,
+  commissioniSezioni,
+  concorsi,
+  criteri,
+  fasi,
+  platformConfig,
+  sezioni,
+  tenants,
+  valutazioni,
+} from '../src/db/schema.js';
 import { hashPassword } from '../src/services/password.js';
 
 const DEMO_PASSWORDS = {
@@ -82,10 +98,18 @@ async function main() {
   });
 
   // Concorsi demo
-  await upsertConcorso(ente1.id, 'Concorso Solisti 2026', 2026);
+  const solisti = await upsertConcorso(ente1.id, 'Concorso Solisti 2026', 2026);
   await upsertConcorso(ente1.id, 'Premio Camera 2026', 2026);
   await upsertConcorso(ente2.id, 'Rassegna Giovani 2026', 2026);
   await upsertConcorso(archived.id, 'Concorso Storico (archiviato)', 2024);
+
+  // Dataset completo per "Concorso Solisti 2026" (ente1):
+  // sezioni → categorie → commissari → commissione → fasi → criteri → candidati →
+  // candidati_fase → valutazioni di esempio.
+  const commissarioAccount = await dbSuper.query.accounts.findFirst({
+    where: eq(accounts.email, 'commissario@ente1.test'),
+  });
+  await seedConcorsoData(ente1.id, solisti.id, commissarioAccount?.id ?? null);
 
   console.log('🌱 Seed completed.\n');
   console.log('Account demo (subdomain → email → password):');
@@ -175,6 +199,189 @@ async function upsertConcorso(tenantId: string, nome: string, anno: number) {
     .returning();
   console.log(`  ✓ concorso '${nome}'`);
   return created!;
+}
+
+/**
+ * Mini-dataset realistico per un concorso: sezioni, categorie, commissari,
+ * commissione, fasi con criteri, candidati con candidati_fase, valutazioni.
+ * Idempotente: skippa se rileva già la sezione "Archi" sul concorso.
+ */
+async function seedConcorsoData(
+  tenantId: string,
+  concorsoId: string,
+  commissarioAccountId: string | null,
+) {
+  const existing = await dbSuper
+    .select()
+    .from(sezioni)
+    .where(and(eq(sezioni.concorsoId, concorsoId), eq(sezioni.nome, 'Archi')))
+    .limit(1);
+  if (existing.length > 0) {
+    console.log('  · dataset concorso solisti già presente');
+    return;
+  }
+
+  // Sezioni
+  const [sezArchi] = await dbSuper
+    .insert(sezioni)
+    .values({ tenantId, concorsoId, nome: 'Archi', ordine: 1 })
+    .returning();
+  const [sezPiano] = await dbSuper
+    .insert(sezioni)
+    .values({ tenantId, concorsoId, nome: 'Pianoforte', ordine: 2 })
+    .returning();
+  console.log('  ✓ 2 sezioni (Archi, Pianoforte)');
+
+  // Categorie
+  await dbSuper.insert(categorie).values([
+    { tenantId, sezioneId: sezArchi!.id, nome: 'Junior', etaMin: 8, etaMax: 14, ordine: 1 },
+    { tenantId, sezioneId: sezArchi!.id, nome: 'Senior', etaMin: 15, etaMax: 35, ordine: 2 },
+    { tenantId, sezioneId: sezPiano!.id, nome: 'Junior', etaMin: 8, etaMax: 14, ordine: 1 },
+    { tenantId, sezioneId: sezPiano!.id, nome: 'Senior', etaMin: 15, etaMax: 35, ordine: 2 },
+  ]);
+  console.log('  ✓ 4 categorie');
+
+  // Commissari (3 persone)
+  const commRows = await dbSuper
+    .insert(commissari)
+    .values([
+      { tenantId, concorsoId, nome: 'Maria', cognome: 'Rossi', specialita: 'Violino' },
+      { tenantId, concorsoId, nome: 'Giuseppe', cognome: 'Verdi', specialita: 'Pianoforte' },
+      { tenantId, concorsoId, nome: 'Anna', cognome: 'Bianchi', specialita: 'Direzione' },
+    ])
+    .returning();
+  // Lega il commissario@ente1.test al primo commissario (utile per la view commissario)
+  if (commissarioAccountId) {
+    await dbSuper
+      .update(accounts)
+      .set({ commissarioId: commRows[0]!.id })
+      .where(eq(accounts.id, commissarioAccountId));
+  }
+  console.log('  ✓ 3 commissari + binding account commissario@ente1.test');
+
+  // Commissione
+  const [commissione] = await dbSuper
+    .insert(commissioni)
+    .values({
+      tenantId,
+      concorsoId,
+      nome: 'Commissione principale',
+      presidenteCommissarioId: commRows[2]!.id,
+    })
+    .returning();
+  await dbSuper.insert(commissioniCommissari).values(
+    commRows.map((c) => ({ tenantId, commissioneId: commissione!.id, commissarioId: c.id })),
+  );
+  await dbSuper
+    .insert(commissioniSezioni)
+    .values([
+      { tenantId, commissioneId: commissione!.id, sezioneId: sezArchi!.id },
+      { tenantId, commissioneId: commissione!.id, sezioneId: sezPiano!.id },
+    ]);
+  console.log('  ✓ commissione con 3 membri (presidente Anna Bianchi)');
+
+  // Fasi + criteri
+  const fasiInsert = await dbSuper
+    .insert(fasi)
+    .values([
+      {
+        tenantId,
+        concorsoId,
+        ordine: 1,
+        nome: 'Eliminatorie',
+        scala: 100,
+        modoValutazione: 'autonoma',
+        metodoMedia: 'aritmetica',
+        commissioneId: commissione!.id,
+      },
+      {
+        tenantId,
+        concorsoId,
+        ordine: 2,
+        nome: 'Finale',
+        scala: 100,
+        modoValutazione: 'sincrona',
+        metodoMedia: 'olimpica',
+        commissioneId: commissione!.id,
+      },
+    ])
+    .returning();
+  await dbSuper.insert(criteri).values([
+    { tenantId, faseId: fasiInsert[0]!.id, nome: 'Tecnica', peso: 40, ordine: 1 },
+    { tenantId, faseId: fasiInsert[0]!.id, nome: 'Musicalità', peso: 35, ordine: 2 },
+    { tenantId, faseId: fasiInsert[0]!.id, nome: 'Interpretazione', peso: 25, ordine: 3 },
+    { tenantId, faseId: fasiInsert[1]!.id, nome: 'Tecnica', peso: 40, ordine: 1 },
+    { tenantId, faseId: fasiInsert[1]!.id, nome: 'Musicalità', peso: 60, ordine: 2 },
+  ]);
+  console.log('  ✓ 2 fasi (Eliminatorie/Finale) con criteri pesati');
+
+  // Candidati (4 nella sezione Archi/Senior)
+  const candInsert = await dbSuper
+    .insert(candidati)
+    .values([
+      {
+        tenantId, concorsoId, numeroCandidato: 1, nome: 'Luca', cognome: 'Ferri',
+        strumento: 'Violino', sezioneId: sezArchi!.id,
+        categoriaId: null, dataNascita: '2005-03-12',
+      },
+      {
+        tenantId, concorsoId, numeroCandidato: 2, nome: 'Sara', cognome: 'Mori',
+        strumento: 'Violoncello', sezioneId: sezArchi!.id,
+        categoriaId: null, dataNascita: '2003-08-22',
+      },
+      {
+        tenantId, concorsoId, numeroCandidato: 3, nome: 'Davide', cognome: 'Conti',
+        strumento: 'Pianoforte', sezioneId: sezPiano!.id,
+        categoriaId: null, dataNascita: '2002-01-30',
+      },
+      {
+        tenantId, concorsoId, numeroCandidato: 4, nome: 'Elena', cognome: 'Russo',
+        strumento: 'Pianoforte', sezioneId: sezPiano!.id,
+        categoriaId: null, dataNascita: '2008-06-15',
+      },
+    ])
+    .returning();
+  console.log('  ✓ 4 candidati');
+
+  // Candidati nella fase Eliminatorie
+  const cfRows = await dbSuper
+    .insert(candidatiFase)
+    .values(
+      candInsert.map((c, i) => ({
+        tenantId,
+        faseId: fasiInsert[0]!.id,
+        candidatoId: c.id,
+        posizione: i + 1,
+        stato: 'IN_ATTESA' as const,
+      })),
+    )
+    .returning();
+
+  // Qualche valutazione parziale (commissario Maria Rossi sui primi 2 candidati)
+  await dbSuper.insert(valutazioni).values([
+    {
+      tenantId,
+      candidatoFaseId: cfRows[0]!.id,
+      commissarioId: commRows[0]!.id,
+      criterio: 'Tecnica',
+      voto: 85,
+    },
+    {
+      tenantId,
+      candidatoFaseId: cfRows[0]!.id,
+      commissarioId: commRows[0]!.id,
+      criterio: 'Musicalità',
+      voto: 78,
+    },
+    {
+      tenantId,
+      candidatoFaseId: cfRows[1]!.id,
+      commissarioId: commRows[0]!.id,
+      criterio: 'Tecnica',
+      voto: 92,
+    },
+  ]);
+  console.log('  ✓ candidati assegnati a Eliminatorie + 3 valutazioni demo');
 }
 
 main().catch((err) => {

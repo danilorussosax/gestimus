@@ -1,7 +1,7 @@
 // @ts-check
 import { test, expect } from '@playwright/test';
 
-test.describe('Smoke test — gestionale', () => {
+test.describe('Smoke test — frontend + backend Fastify', () => {
   test('login screen renders with email + password fields', async ({ page }) => {
     await page.goto('/');
     await expect(page.getByRole('heading', { name: /Accedi al gestionale/i })).toBeVisible();
@@ -10,14 +10,14 @@ test.describe('Smoke test — gestionale', () => {
     await expect(page.getByRole('button', { name: /Accedi/i })).toBeVisible();
   });
 
-  test('skip-link è presente e linka al main', async ({ page }) => {
+  test('skip-link punta al main', async ({ page }) => {
     await page.goto('/');
     const skip = page.locator('.skip-link');
     await expect(skip).toHaveAttribute('href', '#app-root');
     await expect(skip).toContainText(/Salta al contenuto/i);
   });
 
-  test('manifest e service worker rispondono', async ({ page }) => {
+  test('manifest + service worker rispondono', async ({ page }) => {
     const m = await page.request.get('/manifest.webmanifest');
     expect(m.status()).toBe(200);
     const body = await m.json();
@@ -26,19 +26,18 @@ test.describe('Smoke test — gestionale', () => {
     expect(sw.status()).toBe(200);
   });
 
-  test('PocketBase API health = 200', async ({ request }) => {
-    const r = await request.get('http://127.0.0.1:8090/api/health');
+  test('backend healthz', async ({ request }) => {
+    const r = await request.get('http://127.0.0.1:4000/healthz');
     expect(r.status()).toBe(200);
+    const body = await r.json();
+    expect(body.ok).toBe(true);
   });
 
-  test('Cmd+K apre la palette quando autenticati', async ({ page }) => {
-    // Senza login il listener è comunque registrato ma db non ha dati.
-    // Verifichiamo solo che la combinazione non sollevi errori.
+  test('Cmd+K non causa errori prima del login', async ({ page }) => {
     await page.goto('/');
-    await page.keyboard.press('Meta+K');
-    // Non assertiamo che si apra (richiede login): solo che non ci siano errori JS.
     const errors = [];
-    page.on('pageerror', e => errors.push(e.message));
+    page.on('pageerror', (e) => errors.push(e.message));
+    await page.keyboard.press('Meta+K');
     await page.waitForTimeout(200);
     expect(errors).toEqual([]);
   });

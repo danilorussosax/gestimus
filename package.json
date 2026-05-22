@@ -1,25 +1,17 @@
 {
-  "name": "gestionale-concorso",
-  "version": "1.0.0",
+  "name": "gestimus",
+  "version": "2.0.0",
   "private": true,
-  "description": "Gestionale concorso musicale — frontend statico + backend PocketBase.",
+  "description": "Gestionale concorso musicale — frontend statico + backend Postgres/Fastify/Drizzle (server/).",
   "scripts": {
-    "start": "concurrently -k -n PB,WEB -c blue,green \"npm:start:pb\" \"npm:start:web\"",
-    "start:pb": "./pocketbase/pocketbase serve --migrationsDir ./pb_migrations",
-    "start:web": "http-server -p 8000 -c-1 -s .",
-    "setup:pb": "node scripts/setup-pb.js",
-    "create:admin": "node scripts/create-admin.js",
-    "backup": "node scripts/backup-pb.mjs",
-    "cleanup:e2e": "node scripts/cleanup-e2e.mjs",
+    "start": "cd server && npm run dev",
     "test:unit": "node --test 'tests/unit/**/*.test.mjs'",
     "test:e2e": "playwright test"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=22"
   },
   "devDependencies": {
-    "@playwright/test": "^1.60.0",
-    "concurrently": "^9.0.0",
-    "http-server": "^14.1.1"
+    "@playwright/test": "^1.60.0"
   }
 }
