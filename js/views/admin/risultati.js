@@ -5,6 +5,7 @@ import { db } from '../../db.js';
 import { escapeHtml, toast, displayName, ageFromDate } from '../../utils.js';
 import { mediaCandidato, getScala, fmtVoto } from '../../scoring.js';
 import { t } from '../../i18n.js';
+import { buildVerbaleBlock, bindVerbaleBlock } from './verbale.js';
 
 export function renderRisultati(root, concorso) {
   const fasi = db.fasiByConcorso(concorso.id);

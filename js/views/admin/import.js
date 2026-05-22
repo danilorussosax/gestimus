@@ -5,6 +5,36 @@ import { db } from '../../db.js';
 import { escapeHtml, modal, toast } from '../../utils.js';
 import { t } from '../../i18n.js';
 
+// ---------- Mapping intestazioni CSV → campi DB ----------
+
+const IMPORT_FIELD_ALIASES = {
+  candidati: {
+    nome:         ['nome', 'firstname', 'name'],
+    cognome:      ['cognome', 'lastname', 'surname'],
+    strumento:    ['strumento', 'instrument', 'specialita', 'disciplina'],
+    data_nascita: ['datanascita', 'data', 'datadinascita', 'birth', 'birthdate', 'nascita'],
+    nazionalita:  ['nazionalita', 'nationality', 'paese'],
+    docenti:      ['docenti', 'docentipreparatori', 'docente', 'maestri', 'maestro', 'preparatore', 'preparatori'],
+    sezioni:      ['sezione', 'sezioni', 'section', 'sections'],
+    categorie:    ['categoria', 'categorie', 'category', 'categories'],
+  },
+  commissari: {
+    nome:         ['nome', 'firstname', 'name'],
+    cognome:      ['cognome', 'lastname', 'surname'],
+    specialita:   ['specialita', 'strumento', 'discipline', 'disciplina'],
+    email:        ['email', 'mail', 'email'],
+    telefono:     ['telefono', 'tel', 'phone', 'cell', 'cellulare'],
+    data_nascita: ['datanascita', 'data', 'datadinascita', 'birth', 'birthdate', 'nascita'],
+    nazionalita:  ['nazionalita', 'nationality', 'paese'],
+    bio:          ['bio', 'biografia', 'note', 'notes'],
+  },
+};
+
+const IMPORT_REQUIRED = {
+  candidati:  ['nome', 'cognome', 'strumento', 'data_nascita', 'nazionalita'],
+  commissari: ['nome', 'cognome', 'specialita'],
+};
+
 function normKey(s) {
   return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
 }
