@@ -5,6 +5,8 @@ import { db } from '../../db.js';
 import { escapeHtml, modal, toast, confirmDialog, readImageResized } from '../../utils.js';
 import { icon } from '../../icons.js';
 import { t } from '../../i18n.js';
+import { tiebreakStrategyHtml } from './common.js';
+import { setAdminTab } from '../admin.js';
 
 export function renderConcorsoSelector(root) {
   const concorsi = db.state.concorsi;
@@ -58,7 +60,11 @@ export function renderConcorsoSelector(root) {
   `;
   root.querySelectorAll('[data-pick]').forEach(b => {
     b.addEventListener('click', () => {
+      // Scegliendo un concorso, l'utente atterra sempre sulla Dashboard (non
+      // sull'ultima tab attiva — che potrebbe essere stale dalla sessione
+      // precedente, es. "Impostazioni concorso").
       db.setActiveConcorso(b.dataset.pick);
+      setAdminTab('dashboard');
       renderAdmin(root);
     });
   });

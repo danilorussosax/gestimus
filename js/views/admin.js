@@ -57,7 +57,7 @@ export function renderAdmin(root) {
             <a href="#/" class="block px-4 py-4 border-b border-brand-100 hover:bg-accent transition-colors group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-[-2px]">
               <p class="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-700">${escapeHtml(t('admin.nav.eyebrow'))}</p>
               <h3 class="font-medium text-[15px] leading-tight mt-1 text-ink-900 inline-flex items-center gap-1.5">
-                ${escapeHtml(t('admin.nav.dashboard'))}
+                ${escapeHtml(t('admin.nav.eyebrow_title') || 'Generale')}
                 <span class="text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" aria-hidden="true">${icon('arrowRight', { size: 14 })}</span>
               </h3>
             </a>
@@ -78,10 +78,6 @@ export function renderAdmin(root) {
 
             <p class="font-mono text-[10px] uppercase tracking-[0.16em] text-ink-700 px-4 pt-5 pb-2 border-t border-brand-100 mt-3">${escapeHtml(t('admin.nav.admin_section'))}</p>
             <nav class="flex flex-col">
-              <a href="#/admin?tab=statistiche" class="flex items-center gap-3 px-4 h-10 transition w-full text-left text-[13px] font-medium border-l-2 border-l-transparent text-ink-700 hover:bg-brand-50 hover:text-ink-900">
-                <span class="leading-none text-ink-700" aria-hidden="true">${icon('grid', { size: 16 })}</span>
-                <span class="flex-1">${escapeHtml(t('admin.nav.statistiche'))}</span>
-              </a>
               <a href="#/admin?tab=utenti" class="flex items-center gap-3 px-4 h-10 transition w-full text-left text-[13px] font-medium border-l-2 border-l-transparent text-ink-700 hover:bg-brand-50 hover:text-ink-900">
                 <span class="leading-none text-ink-700" aria-hidden="true">${icon('user', { size: 16 })}</span>
                 <span class="flex-1">${escapeHtml(t('admin.nav.utenti'))}</span>

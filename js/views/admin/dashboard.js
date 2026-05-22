@@ -29,6 +29,37 @@ export function renderDashboard(root, concorso) {
   const fasiInCorso = fasi.filter((f) => f.stato === 'IN_CORSO').length;
   const candidati = db.candidatiByConcorso(concorso.id);
   const commissari = db.commissariByConcorso(concorso.id);
+  const s = db.state;
+
+  // Distribuzione strumenti (top 8)
+  const strumentiMap = {};
+  candidati.forEach((c) => {
+    const k = c.strumento || 'Altro';
+    strumentiMap[k] = (strumentiMap[k] || 0) + 1;
+  });
+  const strumentiSorted = Object.entries(strumentiMap).sort((a, b) => b[1] - a[1]).slice(0, 8);
+  const maxStrumenti = Math.max(1, ...strumentiSorted.map(([, n]) => n));
+
+  // Distribuzione nazionalità
+  const nazMap = {};
+  candidati.forEach((c) => {
+    const n = c.nazionalita || '—';
+    nazMap[n] = (nazMap[n] || 0) + 1;
+  });
+  const nazSorted = Object.entries(nazMap).sort((a, b) => b[1] - a[1]);
+  const maxNaz = Math.max(1, ...nazSorted.map(([, n]) => n));
+
+  // Riepilogo per fase
+  const valutazioniConcorso = s.valutazioni.filter((v) => {
+    const cf = s.candidati_fase.find((x) => x.id === v.candidato_fase_id);
+    return cf && fasi.some((f) => f.id === cf.fase_id);
+  });
+  const fasiStats = fasi.map((f) => {
+    const cfs = s.candidati_fase.filter((cf) => cf.fase_id === f.id);
+    const valCount = valutazioniConcorso.filter((v) => cfs.some((cf) => cf.id === v.candidato_fase_id)).length;
+    const passed = cfs.filter((cf) => cf.ammesso_prossima_fase).length;
+    return { nome: f.nome, ordine: f.ordine, totale: cfs.length, valutazioni: valCount, ammessi: passed };
+  });
 
   root.innerHTML = `
     <div class="space-y-6">
@@ -60,6 +91,73 @@ export function renderDashboard(root, concorso) {
             ${escapeHtml(t('admin.dashboard.no_president_help') || 'Apri il tab Commissari per assegnare un presidente al concorso.')}
           </div>
         </div>` : ''}
+
+      <!-- Statistiche del concorso -->
+      ${candidati.length === 0 && fasi.length === 0 ? '' : `
+        <section>
+          <header class="mb-3">
+            <h3 class="text-sm font-semibold text-ink-900">${escapeHtml(t('admin.dashboard.stats_title') || 'Statistiche del concorso')}</h3>
+            <p class="text-xs text-ink-700">${escapeHtml(t('admin.dashboard.stats_help') || 'Distribuzione candidati e riepilogo per fase.')}</p>
+          </header>
+          <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            ${strumentiSorted.length > 0 ? `
+              <div class="bg-white border border-slate-200 rounded-xl p-5">
+                <h4 class="font-semibold text-ink-900 mb-4 text-sm">${escapeHtml(t('stats.instruments') || 'Candidati per strumento')}</h4>
+                <div class="space-y-2">
+                  ${strumentiSorted.map(([strum, count]) => `
+                    <div class="flex items-center gap-3">
+                      <span class="w-24 text-xs text-ink-700 truncate">${escapeHtml(strum)}</span>
+                      <div class="flex-1 h-5 bg-brand-50 rounded-full overflow-hidden">
+                        <div class="h-full bg-brand-500 rounded-full transition-all" style="width:${(count / maxStrumenti * 100).toFixed(0)}%"></div>
+                      </div>
+                      <span class="text-xs font-mono font-medium text-ink-900 w-8 text-right">${count}</span>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>` : ''}
+            ${nazSorted.length > 0 ? `
+              <div class="bg-white border border-slate-200 rounded-xl p-5">
+                <h4 class="font-semibold text-ink-900 mb-4 text-sm">${escapeHtml(t('stats.nationalities') || 'Candidati per nazionalità')}</h4>
+                <div class="space-y-2">
+                  ${nazSorted.map(([naz, count]) => `
+                    <div class="flex items-center gap-3">
+                      <span class="w-24 text-xs text-ink-700 truncate">${escapeHtml(naz)}</span>
+                      <div class="flex-1 h-5 bg-amber-50 rounded-full overflow-hidden">
+                        <div class="h-full bg-amber-500 rounded-full transition-all" style="width:${(count / maxNaz * 100).toFixed(0)}%"></div>
+                      </div>
+                      <span class="text-xs font-mono font-medium text-ink-900 w-8 text-right">${count}</span>
+                    </div>
+                  `).join('')}
+                </div>
+              </div>` : ''}
+            ${fasiStats.length > 0 ? `
+              <div class="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-5">
+                <h4 class="font-semibold text-ink-900 mb-4 text-sm">${escapeHtml(t('stats.phases') || 'Riepilogo fasi')}</h4>
+                <table class="w-full text-sm">
+                  <thead>
+                    <tr class="border-b border-slate-100">
+                      <th class="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-ink-700">${escapeHtml(t('stats.phases_col') || 'Fase')}</th>
+                      <th class="text-center px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-ink-700">${escapeHtml(t('stats.candidates_col') || 'Candidati')}</th>
+                      <th class="text-center px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-ink-700">${escapeHtml(t('stats.evaluations_col') || 'Valutazioni')}</th>
+                      <th class="text-center px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-ink-700">${escapeHtml(t('stats.passed_col') || 'Ammessi')}</th>
+                      <th class="text-center px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-ink-700">${escapeHtml(t('stats.rate_col') || '% ammessi')}</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${fasiStats.map((fs) => `
+                      <tr class="border-b border-slate-50 hover:bg-slate-50 transition-colors">
+                        <td class="px-3 py-2.5 font-medium text-ink-900">#${fs.ordine} ${escapeHtml(fs.nome)}</td>
+                        <td class="px-3 py-2.5 text-center font-mono text-ink-700">${fs.totale}</td>
+                        <td class="px-3 py-2.5 text-center font-mono text-ink-700">${fs.valutazioni}</td>
+                        <td class="px-3 py-2.5 text-center font-mono ${fs.ammessi > 0 ? 'text-emerald-700 font-medium' : 'text-ink-700'}">${fs.ammessi}</td>
+                        <td class="px-3 py-2.5 text-center font-mono text-ink-700">${fs.totale > 0 ? (fs.ammessi / fs.totale * 100).toFixed(0) + '%' : '—'}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>` : ''}
+          </div>
+        </section>`}
     </div>
   `;
 
