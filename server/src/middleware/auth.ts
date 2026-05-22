@@ -1,0 +1,75 @@
+import type { FastifyInstance, FastifyReply, FastifyRequest, preHandlerAsyncHookHandler } from 'fastify';
+import { env } from '../env.js';
+import { validateSessionToken, type AccountRecord, type SessionRecord } from '../services/session.js';
+
+export type AuthRole = 'admin' | 'commissario' | 'superadmin';
+
+declare module 'fastify' {
+  interface FastifyRequest {
+    account: AccountRecord | null;
+    session: SessionRecord | null;
+  }
+}
+
+export const SESSION_COOKIE_OPTIONS = {
+  path: '/',
+  httpOnly: true,
+  secure: env.NODE_ENV === 'production',
+  sameSite: 'lax' as const,
+  signed: false,
+};
+
+/**
+ * Hook globale: legge il cookie di sessione (se presente), valida il token,
+ * e popola req.account / req.session. Non blocca nulla — sono le route
+ * a decidere se richiedere auth tramite preHandler requireAuth/requireRole.
+ */
+export async function registerAuthMiddleware(app: FastifyInstance): Promise<void> {
+  app.decorateRequest('account', null);
+  app.decorateRequest('session', null);
+
+  app.addHook('onRequest', async (req) => {
+    const token = req.cookies[env.SESSION_COOKIE_NAME];
+    if (!token) return;
+    const result = await validateSessionToken(token);
+    req.account = result.account;
+    req.session = result.session;
+  });
+}
+
+/** Richiede sessione valida. Verifica anche che il tenant del cookie matchi il subdomain. */
+export const requireAuth: preHandlerAsyncHookHandler = async (req, reply) => {
+  if (!req.account || !req.session) {
+    return reply.code(401).send({ error: 'autenticazione richiesta' });
+  }
+  if (req.tenant && req.session.tenantId !== req.tenant.id) {
+    // Sessione di un altro tenant → invalida la richiesta (non l'auth in sé)
+    return reply.code(403).send({ error: 'sessione di altro tenant' });
+  }
+  if (req.isSuperadmin && req.account.role !== 'superadmin') {
+    return reply.code(403).send({ error: 'solo super-admin' });
+  }
+};
+
+/** Richiede uno specifico ruolo. Va combinato con requireAuth. */
+export function requireRole(...roles: AuthRole[]): preHandlerAsyncHookHandler {
+  return async (req, reply) => {
+    if (!req.account) {
+      return reply.code(401).send({ error: 'autenticazione richiesta' });
+    }
+    if (!roles.includes(req.account.role as AuthRole)) {
+      return reply.code(403).send({ error: `ruolo richiesto: ${roles.join(' | ')}` });
+    }
+  };
+}
+
+export function clearSessionCookie(reply: FastifyReply): void {
+  reply.clearCookie(env.SESSION_COOKIE_NAME, { path: '/' });
+}
+
+export function setSessionCookie(reply: FastifyReply, token: string, expiresAt: Date): void {
+  reply.setCookie(env.SESSION_COOKIE_NAME, token, {
+    ...SESSION_COOKIE_OPTIONS,
+    expires: expiresAt,
+  });
+}

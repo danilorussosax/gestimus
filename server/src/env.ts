@@ -1,0 +1,33 @@
+import 'dotenv/config';
+import { z } from 'zod';
+
+const schema = z.object({
+  DATABASE_URL_APP: z.string().url(),
+  DATABASE_URL_SUPER: z.string().url(),
+  PORT: z.coerce.number().int().positive().default(4000),
+  HOST: z.string().default('127.0.0.1'),
+  NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+  SUPERADMIN_SUBDOMAIN: z.string().default('platform'),
+  SESSION_COOKIE_NAME: z.string().default('gestimus_session'),
+  SESSION_COOKIE_SECRET: z.string().min(32),
+  GESTIMUS_SECRET_KEY: z.string().min(32),
+  UPLOADS_DIR: z.string().default('./uploads'),
+  UPLOADS_MAX_FILE_SIZE_MB: z.coerce.number().int().positive().default(5),
+  PLATFORM_SMTP_HOST: z.string().optional(),
+  PLATFORM_SMTP_PORT: z.coerce.number().int().positive().optional(),
+  PLATFORM_SMTP_USER: z.string().optional(),
+  PLATFORM_SMTP_PASSWORD: z.string().optional(),
+  PLATFORM_SMTP_FROM: z.string().optional(),
+});
+
+const parsed = schema.safeParse(process.env);
+
+if (!parsed.success) {
+  console.error('Invalid environment configuration:');
+  console.error(parsed.error.flatten().fieldErrors);
+  process.exit(1);
+}
+
+export const env = parsed.data;
+export type Env = z.infer<typeof schema>;

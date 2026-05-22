@@ -48,12 +48,22 @@ function buildIndex() {
     });
   });
   s.commissari.forEach(c => {
+    // I commissari sono anagrafica per-tenant: possono essere assegnati a più
+    // concorsi. Per la palette mostriamo l'elenco dei concorsi (o "Archivio" se
+    // non assegnati). Il `concorso_id` per la navigazione è il primo della lista
+    // (se esiste) — apre quel concorso nel pannello admin.
+    const concorsiNomi = (c.concorsi_ids || [])
+      .map(id => concorsoNome(id))
+      .filter(Boolean);
+    const concorsiLabel = concorsiNomi.length === 0
+      ? t('palette.archive') || 'archivio'
+      : concorsiNomi.join(', ');
     out.push({
-      kind: 'commissario', id: c.id, concorso_id: c.concorso_id,
+      kind: 'commissario', id: c.id, concorso_id: (c.concorsi_ids || [])[0] || null,
       label: displayName(c),
       isPresidente: db.isPresidenteDiQualcheCommissione(c.id),
-      sub: t('palette.sub.commissario', { specialita: c.specialita || '—', concorso: concorsoNome(c.concorso_id) }),
-      hay: normalize(`${displayName(c)} ${c.specialita} commissario ${concorsoNome(c.concorso_id)}`),
+      sub: t('palette.sub.commissario', { specialita: c.specialita || '—', concorso: concorsiLabel }),
+      hay: normalize(`${displayName(c)} ${c.specialita} commissario ${concorsiLabel}`),
     });
   });
   return out;

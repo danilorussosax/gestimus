@@ -1,0 +1,58 @@
+{
+  "name": "gestimus-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Backend Postgres + Fastify + Drizzle per Gestimus (in sviluppo, sostituirà PocketBase)",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p .",
+    "start": "node dist/index.js",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "db:bootstrap": "tsx scripts/bootstrap-db.ts",
+    "db:push": "drizzle-kit push",
+    "db:policies": "tsx scripts/apply-policies.ts",
+    "db:setup": "npm run db:push && npm run db:policies",
+    "db:studio": "drizzle-kit studio",
+    "db:seed": "tsx scripts/seed-dev.ts",
+    "db:reset": "tsx scripts/reset-dev.ts",
+    "test": "node --test --test-force-exit --import tsx tests/rls/*.test.ts tests/auth/*.test.ts tests/crud/*.test.ts tests/realtime/*.test.ts",
+    "test:realtime": "node --test --test-force-exit --import tsx tests/realtime/*.test.ts",
+    "test:triggers": "node --test --test-force-exit --import tsx tests/crud/triggers.test.ts",
+    "test:privacy": "node --test --test-force-exit --import tsx tests/crud/privacy.test.ts",
+    "test:rls": "node --test --test-force-exit --import tsx tests/rls/*.test.ts",
+    "test:auth": "node --test --test-force-exit --import tsx tests/auth/*.test.ts",
+    "test:crud": "node --test --test-force-exit --import tsx tests/crud/*.test.ts",
+    "lint": "tsc -p . --noEmit"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.0",
+    "@fastify/multipart": "^9.0.0",
+    "@fastify/rate-limit": "^10.2.0",
+    "@fastify/sensible": "^6.0.0",
+    "@fastify/static": "^8.0.0",
+    "@node-rs/argon2": "^2.0.0",
+    "@oslojs/crypto": "^1.0.1",
+    "@oslojs/encoding": "^1.1.0",
+    "dotenv": "^16.4.0",
+    "drizzle-orm": "^0.36.0",
+    "fastify": "^5.0.0",
+    "nodemailer": "^6.9.16",
+    "pg": "^8.13.0",
+    "pino": "^9.5.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "@types/nodemailer": "^6.4.16",
+    "@types/pg": "^8.11.10",
+    "drizzle-kit": "^0.28.0",
+    "pino-pretty": "^11.3.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}

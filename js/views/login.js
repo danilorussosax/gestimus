@@ -150,7 +150,10 @@ export function renderLogin(root, onSuccess) {
         if (!account.commissario) throw new Error(t('login.error.no_com'));
         const com = db.state.commissari.find(c => c.id === account.commissario);
         if (!com) throw new Error(t('login.error.no_com_record'));
-        db.setActiveConcorso(com.concorso_id);
+        // Anagrafica multi-concorso: attiva il primo concorso assegnato (la home
+        // commissario gli permetterà di sceglierne altri).
+        const firstId = Array.isArray(com.concorsi_ids) ? com.concorsi_ids[0] : null;
+        if (firstId) db.setActiveConcorso(firstId);
         db.setRole('commissario', com.id);
         goto('#/');
       } else {

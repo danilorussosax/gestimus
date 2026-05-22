@@ -55,12 +55,9 @@ export async function renderIscrizione(root) {
 
   if (!state.concorso) return renderClosed(root);
 
-  // Carica sezioni e categorie (best-effort; richiedono auth → potrebbero essere []).
-  state.sezioni = await pb.collection('sezioni').getFullList({
-    filter: pb.filter('concorso = {:c}', { c: state.concorso.id }),
-    sort: 'ordine,created',
-  }).catch(() => []);
-  state.categorie = await pb.collection('categorie').getFullList({ sort: 'ordine,created' }).catch(() => []);
+  // Sezioni e categorie sono incluse nel payload pubblico del concorso aperto.
+  state.sezioni = state.concorso.sezioni || [];
+  state.categorie = state.concorso.categorie || [];
 
   renderForm(root, state);
 }
@@ -71,12 +68,11 @@ async function renderConferma(root) {
   root.innerHTML = `<section class="view-fade min-h-[40vh] flex items-center justify-center c-page"><p class="text-slate-600">Verifica in corso…</p></section>`;
   let data = null, error = null;
   try {
-    const res = await fetch(`${pb.baseUrl}/api/iscrizione/conferma?t=${encodeURIComponent(token)}`);
-    if (!res.ok) {
-      const j = await res.json().catch(() => ({}));
-      error = j.error || `HTTP ${res.status}`;
-    } else data = await res.json();
-  } catch (e) { error = e?.message || 'rete'; }
+    const res = await db.verifyIscrizioneEmail(token);
+    data = res?.iscrizione || res;
+  } catch (e) {
+    error = e?.message || 'rete';
+  }
   root.innerHTML = `
     <section class="view-fade c-page max-w-xl mx-auto py-10">
       <div class="bg-white border ${error ? 'border-rose-200' : 'border-emerald-200'} rounded-3xl shadow-soft p-8 text-center">

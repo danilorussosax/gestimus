@@ -1,12 +1,26 @@
-import { db, fingerprintCommissario } from '../db.js';
+import { db } from '../db.js';
 import { escapeHtml, displayName, toast } from '../utils.js';
-import { PB_URL } from '../pb.js';
+import { pb, PB_URL } from '../pb.js';
 import { runMigration, legacyTotal, clearLegacy } from '../migrate.js';
 import { icon } from '../icons.js';
 import { t } from '../i18n.js';
 
 export function renderHome(root) {
   const meta = db.state.meta;
+  // Anti-escalation: la fonte di verità è l'account autenticato, non meta.role
+  // (che è uno stato client persistito in localStorage e può essere stato
+  // resettato a null dal "Cambia ruolo"). Un account `commissario` finisce
+  // SEMPRE sulla dashboard commissario e non vede mai il tile Admin.
+  const authRole = pb.authStore.isValid ? (pb.authStore.model?.role || null) : null;
+  if (authRole === 'commissario') {
+    // Se meta.role è stato resettato, ripristiniamo il legame con il commissario
+    // dell'account così renderCommissarioHome non fa redirect alla login.
+    if (meta.role !== 'commissario') {
+      const com = db.state.commissari.find(c => c.id === pb.authStore.model?.commissario);
+      if (com) db.setRole('commissario', com.id);
+    }
+    return renderCommissarioHome(root);
+  }
   if (meta.role === 'commissario') {
     return renderCommissarioHome(root);
   }
@@ -160,7 +174,15 @@ export function renderHome(root) {
   // Card "Configurazione admin": porta DIRETTAMENTE al selettore concorso
   // (renderConcorsoSelector), da cui l'admin sceglie un concorso esistente o
   // ne crea uno nuovo / lo elimina. Non auto-seleziona il primo.
+  // Guard: solo account admin/superadmin possono usare questo handler. Il tile
+  // viene comunque nascosto a un commissario dal gate iniziale, ma duplichiamo
+  // qui per chiudere il path "click via DevTools / vecchio handler in cache".
   root.querySelector('[data-action="role-admin"]')?.addEventListener('click', () => {
+    const r = pb.authStore.model?.role;
+    if (r !== 'admin' && r !== 'superadmin') {
+      toast(t('home.role.forbidden') || 'Operazione non consentita.', 'error');
+      return;
+    }
     db.setRole('admin');
     db.setActiveConcorso(null);
     location.hash = '#/admin';
@@ -170,6 +192,11 @@ export function renderHome(root) {
   // di quel concorso (setActiveConcorso + role=admin + #/admin).
   root.querySelectorAll('[data-open-concorso]').forEach(tr => {
     tr.addEventListener('click', () => {
+      const r = pb.authStore.model?.role;
+      if (r !== 'admin' && r !== 'superadmin') {
+        toast(t('home.role.forbidden') || 'Operazione non consentita.', 'error');
+        return;
+      }
       db.setRole('admin');
       db.setActiveConcorso(tr.dataset.openConcorso);
       location.hash = '#/admin';
@@ -184,7 +211,11 @@ export function renderHome(root) {
       if (!sel.value) return;
       const com = db.state.commissari.find(c => c.id === sel.value);
       if (!com) return;
-      db.setActiveConcorso(com.concorso_id);
+      // Con l'anagrafica multi-concorso (migration 1700000042): se è assegnato a
+      // un solo concorso entra direttamente; altrimenti attiva il primo come
+      // fallback e la home commissario lo lascerà scegliere.
+      const firstId = Array.isArray(com.concorsi_ids) ? com.concorsi_ids[0] : null;
+      if (firstId) db.setActiveConcorso(firstId);
       db.setRole('commissario', sel.value);
       location.hash = '#/commissario';
     });
@@ -307,16 +338,24 @@ function renderCommissarioHome(root) {
     location.hash = '#/';
     return;
   }
-  const fp = fingerprintCommissario(currentCom);
-  const myRecords = db.state.commissari.filter(c => fingerprintCommissario(c) === fp);
-  const concorsoCardsHtml = myRecords.map(rec => {
-    const concorso = db.state.concorsi.find(x => x.id === rec.concorso_id);
+  // Con l'archivio per-tenant (migration 1700000042) un commissario fisico ha
+  // un singolo record e un array `concorsi_ids`. Iteriamo i concorsi su cui è
+  // assegnato per mostrare una card per ciascuno. `rec` resta lo STESSO record
+  // (currentCom) ad ogni iterazione, ma `concorso` cambia.
+  const rec = currentCom;
+  const myConcorsi = (rec.concorsi_ids || [])
+    .map(id => db.state.concorsi.find(x => x.id === id))
+    .filter(Boolean);
+  const concorsoCardsHtml = myConcorsi.map(concorso => {
     if (!concorso) return '';
     const fasi = db.fasiByConcorso(concorso.id);
     const fasiInCorso = fasi.filter(f => f.stato === 'IN_CORSO').length;
     const fasiConcluse = fasi.filter(f => f.stato === 'CONCLUSA').length;
     const candidati = db.candidatiByConcorso(concorso.id);
-    const recIsPres = db.isPresidenteDiQualcheCommissione(rec.id);
+    // Presidente SCOPED al concorso corrente (non globale): in questo concorso
+    // questo commissario è presidente di almeno una commissione?
+    const recIsPres = db.state.commissioni.some(cm =>
+      cm.concorso_id === concorso.id && cm.presidente_id === rec.id);
     const role = recIsPres ? t('com_home.role_presidente') : t('com_home.role_commissario');
     const roleIcon = recIsPres ? icon('star', { size: 14 }) : icon('music', { size: 14 });
     const statusClass = concorso.stato === 'ATTIVO' ? 'c-tag--green' : 'c-tag--gray c-tag--no-dot';
@@ -339,7 +378,7 @@ function renderCommissarioHome(root) {
       ? `<span class="c-tag c-tag--blue">${fasiInCorso} ${escapeHtml(t('com_home.tag_in_corso'))}</span>`
       : `<span class="c-tag c-tag--gray c-tag--no-dot">${escapeHtml(t('com_home.tag_no_active'))}</span>`;
     return `
-      <button data-pick-com="${rec.id}" class="c-tile c-tile--padded c-tile--clickable text-left flex flex-col" style="min-height:11rem">
+      <button data-pick-concorso="${concorso.id}" class="c-tile c-tile--padded c-tile--clickable text-left flex flex-col" style="min-height:11rem">
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0 flex-1">
             <p class="c-tile__eyebrow">${escapeHtml(t('com_home.tile_eyebrow'))}</p>
@@ -387,8 +426,11 @@ function renderCommissarioHome(root) {
     `;
   }).join('');
 
-  const total = myRecords.length;
-  const presCount = myRecords.filter(r => db.isPresidenteDiQualcheCommissione(r.id)).length;
+  const total = myConcorsi.length;
+  // Quanti concorsi vedono questo commissario come presidente di almeno una commissione.
+  const presCount = myConcorsi.filter(c =>
+    db.state.commissioni.some(cm => cm.concorso_id === c.id && cm.presidente_id === rec.id)
+  ).length;
   const greeting = t('com_home.greeting', { name: displayName(currentCom) });
 
   root.innerHTML = `
@@ -421,13 +463,13 @@ function renderCommissarioHome(root) {
     </section>
   `;
 
-  root.querySelectorAll('[data-pick-com]').forEach(btn => {
+  root.querySelectorAll('[data-pick-concorso]').forEach(btn => {
     btn.addEventListener('click', () => {
-      const recId = btn.dataset.pickCom;
-      const rec = db.state.commissari.find(c => c.id === recId);
-      if (!rec) return;
-      db.setActiveConcorso(rec.concorso_id);
-      db.setRole('commissario', rec.id);
+      const concorsoId = btn.dataset.pickConcorso;
+      if (!concorsoId) return;
+      db.setActiveConcorso(concorsoId);
+      // Il currentCom è l'anagrafica: resta invariato, cambia solo il concorso attivo.
+      db.setRole('commissario', currentCom.id);
       location.hash = '#/commissario';
     });
   });

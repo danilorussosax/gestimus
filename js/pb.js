@@ -1,46 +1,39 @@
-// PocketBase client wrapper, used for migration from localStorage and (later) runtime sync.
-import PocketBase from 'https://cdn.jsdelivr.net/npm/pocketbase@0.21.5/+esm';
+// pb.js — stub di compatibilità.
+// Il backend non è più PocketBase ma Postgres+Fastify. Il client PB è stato
+// rimosso e sostituito da js/api.js. Tutti gli usi diretti di `pb.*` nelle view
+// vanno migrati a `api` da './api.js' o ai metodi di `db` esposti da './db.js'.
+//
+// Questi export mantengono solo i nomi più usati come stub no-op per non
+// rompere import residuali durante la migrazione. Saranno rimossi alla fine
+// della Fase 5.
 
-export const PB_URL = (() => {
-  // Allow override via ?pb=URL query param or window.PB_URL
-  const u = new URL(window.location.href);
-  const q = u.searchParams.get('pb');
-  if (q) return q.replace(/\/$/, '');
-  if (typeof window.PB_URL === 'string') return window.PB_URL.replace(/\/$/, '');
-  // Use same origin: in production Caddy proxies /api/* to PB,
-  // in development with Caddy multitenant the same applies.
-  // Fallback per sviluppo diretto (npm start senza Caddy): ?pb=...
-  return `${location.protocol}//${location.host}`;
-})();
+import { api } from './api.js';
 
-export const pb = new PocketBase(PB_URL);
-pb.autoCancellation(false);
+export const PB_URL = '/api';
 
 export async function pbHealthy() {
   try {
-    const res = await fetch(`${PB_URL}/api/health`, { cache: 'no-store' });
+    const res = await fetch('/healthz', { credentials: 'include' });
     return res.ok;
   } catch {
     return false;
   }
 }
 
-export async function pbCounts() {
-  const counts = {};
-  for (const name of ['concorsi','commissari','candidati','fasi','candidati_fase','valutazioni']) {
-    try {
-      const list = await pb.collection(name).getList(1, 1);
-      counts[name] = list.totalItems;
-    } catch (e) {
-      counts[name] = -1; // collection missing or unreachable
-    }
-  }
-  return counts;
+/**
+ * Nel nuovo backend i campi file (logo/foto) sono già URL relativi tipo
+ * `/uploads/<tenant>/<resource>/<id>/<filename>`. Ritorniamo direttamente quello.
+ */
+export function fileURL(_record, filenameOrUrl) {
+  if (!filenameOrUrl || typeof filenameOrUrl !== 'string') return null;
+  if (filenameOrUrl.startsWith('/') || filenameOrUrl.startsWith('http')) return filenameOrUrl;
+  return null;
 }
 
 export function dataURLToBlob(dataURL) {
   if (!dataURL || typeof dataURL !== 'string' || !dataURL.startsWith('data:')) return null;
   const [meta, b64] = dataURL.split(',');
+  if (!b64) return null;
   const mime = (meta.match(/data:([^;]+)/) || [])[1] || 'application/octet-stream';
   const bin = atob(b64);
   const arr = new Uint8Array(bin.length);
@@ -48,12 +41,31 @@ export function dataURLToBlob(dataURL) {
   return new Blob([arr], { type: mime });
 }
 
-export function fileURL(record, fileName) {
-  if (!record || !fileName) return null;
-  // Prefer SDK helper if available (varies across versions: getURL vs getUrl).
-  if (pb.files?.getURL) return pb.files.getURL(record, fileName);
-  if (pb.files?.getUrl) return pb.files.getUrl(record, fileName);
-  if (pb.getFileUrl)    return pb.getFileUrl(record, fileName);
-  // Fallback: construct manually using PB's stable URL pattern.
-  return `${PB_URL}/api/files/${record.collectionId}/${record.id}/${encodeURIComponent(fileName)}`;
+/**
+ * Stub `pb.authStore`. Le view che leggono `pb.authStore.model.role` o
+ * `pb.authStore.isValid` continuano a funzionare; per popolarlo si chiama
+ * `refreshAuth()` (lo fa `db.init()` automaticamente).
+ */
+let cachedMe = null;
+export const pb = {
+  authStore: {
+    get isValid() {
+      return !!cachedMe;
+    },
+    get model() {
+      return cachedMe;
+    },
+    clear() {
+      cachedMe = null;
+    },
+  },
+};
+
+export async function refreshAuth() {
+  try {
+    cachedMe = await api.get('/auth/me');
+  } catch {
+    cachedMe = null;
+  }
+  return cachedMe;
 }

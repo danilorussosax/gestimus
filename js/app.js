@@ -12,6 +12,7 @@ import { renderDashboard } from './views/admin-dashboard.js';
 import { renderImpostazioni } from './views/admin-impostazioni.js';
 import { renderUsers } from './views/admin-users.js';
 import { renderStats } from './views/admin-stats.js';
+import { renderManuale } from './views/admin-manuale.js';
 import { renderSuperadmin } from './views/superadmin.js';
 import { registerPaletteShortcut } from './palette.js';
 import { icon } from './icons.js';
@@ -27,7 +28,7 @@ function currentRoute() {
   if (h.startsWith('#/admin')) {
     const q = new URLSearchParams(h.split('?')[1] || '');
     const tab = q.get('tab') || '';
-    const adminTabs = ['dashboard','statistiche','impostazioni','utenti'];
+    const adminTabs = ['dashboard','statistiche','impostazioni','utenti','manuale'];
     if (adminTabs.includes(tab)) return 'admin-' + tab;
     return 'admin';
   }
@@ -54,18 +55,25 @@ function render() {
   const route = currentRoute();
   const meta = db.state.meta;
 
-  // Guard: se il ruolo route richiede non corrisponde a meta.role, redirect a home.
+  // Guard: la rotta deve essere consentita sia da meta.role (stato client) sia
+  // dal ruolo dell'account autenticato (fonte di verità). Quest'ultimo evita
+  // privilege escalation client-side (es. commissario che setta meta.role='admin'
+  // via DevTools o cliccando un tile non gated e raggiunge `#/admin`).
   // Se siamo già su home il setting di hash non triggera hashchange — riprendiamo
   // esplicitamente con un nuovo render() per non lasciare root vuoto.
+  const authRole = pb.authStore.model?.role || null;
+  const rank = { commissario: 1, admin: 2, superadmin: 3 };
+  const authRank = rank[authRole] || 0;
+  const allowed = (needed) => (rank[needed] || 0) <= authRank;
   const wantsRoute = (cond) => {
     if (cond) return false;
     if (location.hash === '#/' || location.hash === '') { /* già su home, evita loop */ }
     else { location.hash = '#/'; return true; }
     return false;
   };
-  if (route === 'superadmin' && wantsRoute(meta.role === 'superadmin')) return;
-  if (route.startsWith('admin') && wantsRoute(meta.role === 'admin')) return;
-  if (route === 'commissario' && wantsRoute(meta.role === 'commissario')) return;
+  if (route === 'superadmin' && wantsRoute(meta.role === 'superadmin' && allowed('superadmin'))) return;
+  if (route.startsWith('admin') && wantsRoute(meta.role === 'admin' && allowed('admin'))) return;
+  if (route === 'commissario' && wantsRoute(meta.role === 'commissario' && allowed('commissario'))) return;
 
   updateHeader();
 
@@ -94,6 +102,7 @@ function render() {
     else if (effectiveRoute === 'admin-statistiche') { unmountFloatingTimer(); renderStats(root); }
     else if (effectiveRoute === 'admin-impostazioni') { unmountFloatingTimer(); renderImpostazioni(root); }
     else if (effectiveRoute === 'admin-utenti') { unmountFloatingTimer(); renderUsers(root); }
+    else if (effectiveRoute === 'admin-manuale') { unmountFloatingTimer(); renderManuale(root); }
     else if (effectiveRoute === 'admin') { unmountFloatingTimer(); renderAdmin(root); }
     else if (effectiveRoute === 'commissario') renderCommissario(root);
   } catch (e) {
@@ -147,8 +156,12 @@ function updateHeader() {
       const c = db.state.concorsi.find(x => x.id === meta.activeConcorsoId);
       if (c?.logo_url) activeLogo = c.logo_url;
     } else if (meta.role === 'commissario') {
+      // Il commissario può essere assegnato a più concorsi: prendiamo il primo
+      // della lista come "primario" per il logo header (fallback se non c'è un
+      // activeConcorsoId selezionato).
       const com = db.state.commissari.find(x => x.id === meta.currentCommissarioId);
-      const c = com ? db.state.concorsi.find(x => x.id === com.concorso_id) : null;
+      const firstId = com && Array.isArray(com.concorsi_ids) ? com.concorsi_ids[0] : null;
+      const c = firstId ? db.state.concorsi.find(x => x.id === firstId) : null;
       if (c?.logo_url) activeLogo = c.logo_url;
     }
     if (!activeLogo && ente?.logo_url) activeLogo = ente.logo_url;
@@ -321,7 +334,10 @@ async function boot() {
     } else if (acc?.role === 'commissario' && acc.commissario) {
       const com = db.state.commissari.find(c => c.id === acc.commissario);
       if (com) {
-        db.setActiveConcorso(com.concorso_id);
+        // Il commissario ora è anagrafica con concorsi[]: se ne ha almeno uno,
+        // attiva il primo come default (la home permette di scegliere gli altri).
+        const firstId = Array.isArray(com.concorsi_ids) ? com.concorsi_ids[0] : null;
+        if (firstId) db.setActiveConcorso(firstId);
         db.setRole('commissario', com.id);
       }
     }

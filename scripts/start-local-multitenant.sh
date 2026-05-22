@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # start-local-multitenant.sh — Avvia un ambiente multitenant locale per sviluppo.
 #
-# Crea 2 tenant (ente1, ente2) con:
-#   - Database separati in pocketbase/pb_data_ente1/ e pocketbase/pb_data_ente2/
-#   -PocketBase su porte 8091 e 8092
+# Crea il tenant ente1 + la platform con:
+#   - Database separati in pocketbase/pb_data_ente1/ e pocketbase/pb_data_platform/
+#   - PocketBase su porte 8091 (ente1) e 8093 (platform)
 #   - Caddy su porta 8000 come reverse proxy
-#   - http://ente1.test:8000/ → PB ente1 (porta 8091)
-#   - http://ente2.test:8000/ → PB ente2 (porta 8092)
+#   - http://ente1.test:8000/    → PB ente1 (porta 8091)
+#   - http://platform.test:8000/ → PB platform (porta 8093)
 #
 # Prerequisiti: Caddy installato (`brew install caddy`)
 #
@@ -16,9 +16,7 @@
 #
 # Dopo l'avvio, accedi a:
 #   http://ente1.test:8000/     → App tenant 1
-#   http://ente2.test:8000/     → App tenant 2
 #   http://ente1.test:8000/_/   → Admin UI tenant 1
-#   http://ente2.test:8000/_/   → Admin UI tenant 2
 
 set -euo pipefail
 
@@ -28,7 +26,6 @@ PB_MIGRATIONS="${PROJECT_DIR}/pb_migrations"
 PID_DIR="/tmp/gestionale-multitenant"
 
 ENTE1_PORT=8091
-ENTE2_PORT=8092
 PLATFORM_PORT=8093
 CADDY_PORT=8000
 
@@ -44,7 +41,7 @@ add_host_entry() {
 stop_all() {
   echo "→ Fermando tutti i processi..."
   # 1. Stop via file PID (path "happy")
-  for NAME in pb-ente1 pb-ente2 pb-platform caddy; do
+  for NAME in pb-ente1 pb-platform caddy; do
     if [ -f "${PID_DIR}/${NAME}.pid" ]; then
       kill "$(cat "${PID_DIR}/${NAME}.pid")" 2>/dev/null || true
       rm -f "${PID_DIR}/${NAME}.pid"
@@ -76,7 +73,6 @@ fi
 
 mkdir -p "${PID_DIR}" \
   "${PROJECT_DIR}/pocketbase/pb_data_ente1" \
-  "${PROJECT_DIR}/pocketbase/pb_data_ente2" \
   "${PROJECT_DIR}/pocketbase/pb_data_platform"
 
 # Shared secret di SVILUPPO (non usare in produzione). Esportata a tutti i PB locali:
@@ -94,12 +90,11 @@ echo ""
 
 # 1. Aggiungo host entries
 add_host_entry "ente1.test"
-add_host_entry "ente2.test"
 add_host_entry "platform.test"
 
 # 2. Verifico che le porte siano libere.
 # Usiamo -sTCP:LISTEN per ignorare connessioni residue (CLOSE_WAIT, TIME_WAIT) di client.
-for PORT in $ENTE1_PORT $ENTE2_PORT $PLATFORM_PORT $CADDY_PORT; do
+for PORT in $ENTE1_PORT $PLATFORM_PORT $CADDY_PORT; do
   if lsof -nP -iTCP:"${PORT}" -sTCP:LISTEN >/dev/null 2>&1; then
     echo "✗ Porta ${PORT} già in ascolto da un altro processo. Liberala prima di continuare."
     echo "  Esegui: lsof -nP -iTCP:${PORT} -sTCP:LISTEN per vederlo."
@@ -117,17 +112,7 @@ echo "→ Avvio PocketBase ente1 su porta ${ENTE1_PORT}..."
   &>/tmp/pb-ente1.log &
 echo $! > "${PID_DIR}/pb-ente1.pid"
 
-# 4. Avvia PocketBase per ente2
-echo "→ Avvio PocketBase ente2 su porta ${ENTE2_PORT}..."
-"${PB_BIN}" serve \
-  --http="127.0.0.1:${ENTE2_PORT}" \
-  --dir="${PROJECT_DIR}/pocketbase/pb_data_ente2" \
-  --migrationsDir="${PB_MIGRATIONS}" \
-  --hooksDir="${PROJECT_DIR}/pb_hooks" \
-  &>/tmp/pb-ente2.log &
-echo $! > "${PID_DIR}/pb-ente2.pid"
-
-# 4b. Avvia PocketBase per la piattaforma
+# 4. Avvia PocketBase per la piattaforma
 echo "→ Avvio PocketBase platform su porta ${PLATFORM_PORT}..."
 "${PB_BIN}" serve \
   --http="127.0.0.1:${PLATFORM_PORT}" \
@@ -139,7 +124,7 @@ echo $! > "${PID_DIR}/pb-platform.pid"
 
 # 5. Attendi che PB sia healthy
 echo "→ Attesa che PocketBase risponda..."
-for PORT in $ENTE1_PORT $ENTE2_PORT $PLATFORM_PORT; do
+for PORT in $ENTE1_PORT $PLATFORM_PORT; do
   for i in $(seq 1 15); do
     if curl -sf "http://127.0.0.1:${PORT}/api/health" >/dev/null 2>&1; then
       echo "  ✓ PB porta ${PORT} healthy"
@@ -156,18 +141,11 @@ cat > "${CADDYFILE}" <<EOF
     root * ${PROJECT_DIR}
 
     @ente1 host ente1.test
-    @ente2 host ente2.test
     @platform host platform.test
 
     handle @ente1 {
         @api path /api/* /_/*
         reverse_proxy @api localhost:${ENTE1_PORT}
-        file_server
-    }
-
-    handle @ente2 {
-        @api path /api/* /_/*
-        reverse_proxy @api localhost:${ENTE2_PORT}
         file_server
     }
 
@@ -194,13 +172,12 @@ sleep 2
 # 8. Crea admin per tutti i tenant (se non esistono già)
 echo ""
 echo "→ Creazione account admin..."
-for TENANT in ente1 ente2 platform; do
+for TENANT in ente1 platform; do
   if [ "$TENANT" = "platform" ]; then
     PORT="${PLATFORM_PORT}"
     ROLE="superadmin"
   else
     PORT="${ENTE1_PORT}"
-    [ "$TENANT" = "ente2" ] && PORT="${ENTE2_PORT}"
     ROLE="admin"
   fi
 
@@ -234,11 +211,6 @@ echo ""
 echo "  Tenant 1: http://ente1.test:8000/"
 echo "            Admin UI: http://ente1.test:8000/_/"
 echo "            Email: admin@ente1.test"
-echo "            Password: admin123"
-echo ""
-echo "  Tenant 2: http://ente2.test:8000/"
-echo "            Admin UI: http://ente2.test:8000/_/"
-echo "            Email: admin@ente2.test"
 echo "            Password: admin123"
 echo ""
 echo "  Piattaforma: http://platform.test:8000/"

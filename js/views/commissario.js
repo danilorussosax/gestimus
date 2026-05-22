@@ -1,9 +1,23 @@
 import { db } from '../db.js';
+import { pb } from '../pb.js';
 import { escapeHtml, toast, modal, confirmDialog, ageFromDate, displayName, fmtDate } from '../utils.js';
 import {
   pesato, getPesiFor, getScala, voteStep, fmtVoto, getModoValutazione, getCriteri,
 } from '../scoring.js';
 import { t } from '../i18n.js';
+
+// "Cambia ruolo" / "Torna al menu" dai pulsanti delle viste commissario:
+// per un account commissario NON resettiamo meta.role (sarebbe un buco per
+// la home: meta.role=null fa apparire il tile Admin). Per un admin che sta
+// "impersonando" un commissario, invece, va resettato così la home gli
+// rimostra il selettore di ruolo.
+function leaveCommissarioView() {
+  const authRole = pb.authStore.model?.role || null;
+  if (authRole !== 'commissario') {
+    db.setRole(null);
+  }
+  location.hash = '#/';
+}
 
 // Local working state for the current candidato (in-memory only, not yet saved)
 const draft = {
@@ -48,23 +62,32 @@ export function renderCommissario(root) {
     location.hash = '#/';
     return;
   }
-  const concorso = db.state.concorsi.find(c => c.id === com.concorso_id);
+  // Con l'anagrafica per-tenant (migration 1700000042) un commissario può essere
+  // assegnato a più concorsi. Usiamo il concorso attivo della sessione (impostato
+  // dalla home) e verifichiamo che il commissario sia effettivamente assegnato.
+  const activeId = db.state.meta.activeConcorsoId;
+  const isAssigned = activeId && Array.isArray(com.concorsi_ids) && com.concorsi_ids.includes(activeId);
+  const concorso = isAssigned
+    ? db.state.concorsi.find(c => c.id === activeId)
+    : (com.concorsi_ids || []).map(id => db.state.concorsi.find(x => x.id === id)).filter(Boolean)[0];
   if (!concorso) {
-    db.setRole(null);
-    location.hash = '#/';
+    leaveCommissarioView();
     return;
+  }
+  // Se l'active non era allineato (es. fresh login senza pick dalla home), allinea.
+  if (db.state.meta.activeConcorsoId !== concorso.id) {
+    db.setActiveConcorso(concorso.id);
   }
 
   const fasi = db.fasiByConcorso(concorso.id);
   const faseAttiva = fasi.find(f => f.stato === 'IN_CORSO');
 
-  // Il commissario è "presidente" SOLO se è presidente della commissione
-  // assegnata alla fase corrente (o, in assenza di fase attiva, di una
-  // qualsiasi commissione del concorso → cosi vede comunque il pannello
-  // di controllo per gestire l'avvio di una fase pianificata).
-  const isPresidenteFase = faseAttiva
-    ? db.getPresidenteForFase(faseAttiva)?.id === com.id
-    : db.state.commissioni.some(c => c.concorso_id === concorso.id && c.presidente_id === com.id);
+  // Un presidente può avviare/concludere SOLO le fasi della commissione di cui
+  // è presidente. fasiPresidente è il sottoinsieme di fasi che questo
+  // commissario ha effettivamente diritto a controllare; isPresidenteFase
+  // diventa il flag "mostra pannello" derivato.
+  const fasiPresidente = fasi.filter(f => db.getPresidenteForFase(f)?.id === com.id);
+  const isPresidenteFase = fasiPresidente.length > 0;
 
   if (!faseAttiva) {
     unmountFloatingTimer();
@@ -73,7 +96,7 @@ export function renderCommissario(root) {
     // sfruttare lo schermo (su laptop/desktop la griglia 2 colonne respira).
     root.innerHTML = `
       <section class="view-fade c-page max-w-7xl mx-auto" data-pres-fullpage="1">
-        ${isPresidenteFase ? presidentePanelHtml(concorso, fasi) : `
+        ${isPresidenteFase ? presidentePanelHtml(concorso, fasiPresidente) : `
           <div class="bg-card border border-border rounded-lg shadow-soft p-10 text-center">
             <div class="text-6xl mb-4">⏸️</div>
             <h2 class="text-2xl font-bold">${escapeHtml(t('com.no_phase.title'))}</h2>
@@ -101,6 +124,22 @@ export function renderCommissario(root) {
   // Determine commissari assigned to this fase (preset all or subset).
   const assignedIds = db.getFaseCommissariIds(faseAttiva);
   if (!assignedIds.includes(com.id)) {
+    // Se il commissario non è membro della fase attiva ma è presidente di
+    // un'altra commissione del concorso, mostra comunque il suo pannello di
+    // controllo (altrimenti resterebbe bloccato finché la fase altrui chiude).
+    if (isPresidenteFase) {
+      unmountFloatingTimer();
+      root.innerHTML = `
+        <section class="view-fade c-page max-w-7xl mx-auto" data-pres-fullpage="1">
+          ${presidentePanelHtml(concorso, fasiPresidente)}
+          <div class="mt-5 flex items-center justify-center gap-2">
+            <a href="#/" class="c-btn c-btn--outline c-btn--sm">${escapeHtml(t('app.dashboard'))}</a>
+          </div>
+        </section>
+      `;
+      bindPresidentePanel(root, concorso);
+      return;
+    }
     return renderNotAssigned(root, concorso, faseAttiva, com);
   }
 
@@ -140,11 +179,11 @@ export function renderCommissario(root) {
 
   if (waitingFor) {
     unmountFloatingTimer();
-    return renderWaiting(root, concorso, faseAttiva, com, waitingFor, allCommissariIds);
+    return renderWaiting(root, concorso, faseAttiva, com, waitingFor, allCommissariIds, isPresidenteFase ? fasiPresidente : null);
   }
   if (!current) {
     unmountFloatingTimer();
-    return renderAllDone(root, concorso, faseAttiva, com, myEvaluated);
+    return renderAllDone(root, concorso, faseAttiva, com, myEvaluated, isPresidenteFase ? fasiPresidente : null);
   }
 
   const cand = db.state.candidati.find(c => c.id === current.candidato_id);
@@ -158,7 +197,7 @@ export function renderCommissario(root) {
 
   root.innerHTML = `
     <section class="view-fade c-page">
-      ${isPresidenteFase ? presidentePanelHtml(concorso, fasi) : ''}
+      ${isPresidenteFase ? presidentePanelHtml(concorso, fasiPresidente) : ''}
       <header class="flex flex-wrap items-start justify-between gap-3 mb-5">
         <div>
           <div class="text-xs font-semibold text-amber-700 uppercase tracking-wider">${escapeHtml(faseAttiva.nome)} <span class="text-slate-400">· ${escapeHtml(t('com.scale_suffix', { scala }))}</span> ${modo === 'sincrona' ? `<span class="inline-flex items-center gap-1 ml-1 text-[10px] font-medium px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded normal-case">${escapeHtml(t('com.sincrona_tag'))}</span>` : ''}</div>
@@ -338,7 +377,9 @@ function preflightCheck(fase, prevFase) {
 }
 
 function fasePresStats(fase) {
-  // For IN_CORSO/CONCLUSA: candidates evaluated vs total, pass count
+  // For IN_CORSO/CONCLUSA: candidates evaluated vs total, pass count.
+  // Inoltre `commissariDone/Total`: quanti commissari hanno valutato TUTTI i
+  // candidati della fase (serve al presidente per decidere se chiudere).
   const cfs = db.candidatiFaseList(fase.id);
   const total = cfs.length;
   const commissariIds = db.getFaseCommissariIds(fase);
@@ -347,7 +388,11 @@ function fasePresStats(fase) {
   )).length;
   const partial = cfs.filter(cf => db.state.valutazioni.some(v => v.candidato_fase_id === cf.id)).length - fullyVoted;
   const passed = cfs.filter(cf => cf.ammesso_prossima_fase).length;
-  return { total, fullyVoted, partial, passed };
+  const commissariTotal = commissariIds.length;
+  const commissariDone = total === 0 ? 0 : commissariIds.filter(cid =>
+    cfs.every(cf => db.state.valutazioni.some(v => v.candidato_fase_id === cf.id && v.commissario_id === cid))
+  ).length;
+  return { total, fullyVoted, partial, passed, commissariDone, commissariTotal };
 }
 
 function presidentePanelHtml(concorso, fasi) {
@@ -452,6 +497,9 @@ function fasePresCardHtml(fase, concorso) {
   } else if (isRunning) {
     const stats = fasePresStats(fase);
     const pct = stats.total ? Math.round(stats.fullyVoted / stats.total * 100) : 0;
+    const comPct = stats.commissariTotal ? Math.round(stats.commissariDone / stats.commissariTotal * 100) : 0;
+    const allCommittee = stats.commissariTotal > 0 && stats.commissariDone === stats.commissariTotal;
+    const missingCom = Math.max(0, stats.commissariTotal - stats.commissariDone);
     bodyExtraHtml = `
       <div class="mt-3 pt-3 border-t border-slate-200/80">
         <div class="flex items-center justify-between mb-1.5">
@@ -467,10 +515,24 @@ function fasePresCardHtml(fase, concorso) {
           <span class="inline-flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-slate-300"></span>${Math.max(0, stats.total - stats.fullyVoted - stats.partial)} ${escapeHtml(t('com.pres.cand_pending'))}</span>
         </div>
       </div>
+      <div class="mt-3 pt-3 border-t border-slate-200/80">
+        <div class="flex items-center justify-between mb-1.5">
+          <p class="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-semibold">${escapeHtml(t('com.pres.committee_title'))}</p>
+          <span class="text-xs font-bold ${allCommittee ? 'text-emerald-700' : 'text-amber-700'}">${stats.commissariDone} / ${stats.commissariTotal} <span class="text-slate-500 font-normal">(${comPct}%)</span></span>
+        </div>
+        <div class="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
+          <div class="h-full ${allCommittee ? 'bg-gradient-to-r from-emerald-500 to-emerald-600' : 'bg-gradient-to-r from-amber-400 to-amber-500'} transition-all" style="width:${comPct}%"></div>
+        </div>
+        <div class="mt-2 text-[11px] ${allCommittee ? 'text-emerald-700 font-semibold' : 'text-amber-700'}">
+          ${allCommittee
+            ? '✓ ' + escapeHtml(t('com.pres.committee_all_done'))
+            : escapeHtml(t('com.pres.committee_pending', { n: missingCom }))}
+        </div>
+      </div>
     `;
     actionAreaHtml = `
       <div class="mt-3 pt-3 border-t border-slate-200/80 flex items-center justify-end gap-2">
-        <button data-pres-action="end" data-id="${fase.id}" class="inline-flex items-center gap-1.5 text-sm font-bold text-white bg-amber-600 hover:bg-amber-700 px-4 py-2 rounded-lg shadow-sm transition">${escapeHtml(t('com.pres.end'))}</button>
+        <button data-pres-action="end" data-id="${fase.id}" class="inline-flex items-center gap-1.5 text-sm font-bold text-white ${allCommittee ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'} px-4 py-2 rounded-lg shadow-sm transition">${escapeHtml(t('com.pres.end'))}</button>
       </div>
     `;
   } else if (isDone) {
@@ -1016,12 +1078,11 @@ function renderNotAssigned(root, concorso, fase, com) {
     </section>
   `;
   root.querySelector('[data-action="back"]').addEventListener('click', () => {
-    db.setRole(null);
-    location.hash = '#/';
+    leaveCommissarioView();
   });
 }
 
-function renderWaiting(root, concorso, fase, com, cf, allCommissariIds) {
+function renderWaiting(root, concorso, fase, com, cf, allCommissariIds, fasiPresidente = null) {
   const cand = db.state.candidati.find(c => c.id === cf.candidato_id);
   const commissari = db.commissariByConcorso(concorso.id).filter(c => allCommissariIds.includes(c.id));
   const votedSet = new Set(
@@ -1033,9 +1094,12 @@ function renderWaiting(root, concorso, fase, com, cf, allCommissariIds) {
   const totalCount = commissari.length;
   const eta = ageFromDate(cand?.data_nascita) ?? cand?.eta;
 
+  const isPresidente = Array.isArray(fasiPresidente) && fasiPresidente.length > 0;
+  const wrapperCls = isPresidente ? 'view-fade c-page max-w-7xl mx-auto py-8' : 'view-fade max-w-2xl mx-auto py-8';
   root.innerHTML = `
-    <section class="view-fade max-w-2xl mx-auto py-8">
-      <div class="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-soft">
+    <section class="${wrapperCls}">
+      ${isPresidente ? presidentePanelHtml(concorso, fasiPresidente) : ''}
+      <div class="bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-soft ${isPresidente ? 'max-w-2xl mx-auto' : ''}">
         <div class="text-center">
           <div class="text-5xl mb-3">⏳</div>
           <div class="text-xs font-semibold text-amber-700 uppercase tracking-wider">${escapeHtml(fase.nome)} <span class="inline-flex items-center gap-1 ml-1 text-[10px] font-medium px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded normal-case">${escapeHtml(t('com.sincrona_tag'))}</span></div>
@@ -1098,25 +1162,30 @@ function renderWaiting(root, concorso, fase, com, cf, allCommissariIds) {
 
   root.querySelector('[data-action="refresh"]').addEventListener('click', () => renderCommissario(root));
   root.querySelector('[data-action="logout"]').addEventListener('click', () => {
-    db.setRole(null);
-    location.hash = '#/';
+    leaveCommissarioView();
   });
+  if (isPresidente) bindPresidentePanel(root, concorso);
 }
 
-function renderAllDone(root, concorso, fase, com, evaluated) {
+function renderAllDone(root, concorso, fase, com, evaluated, fasiPresidente = null) {
+  const isPresidente = Array.isArray(fasiPresidente) && fasiPresidente.length > 0;
+  const wrapperCls = isPresidente ? 'view-fade c-page max-w-7xl mx-auto py-8' : 'view-fade max-w-2xl mx-auto text-center py-16';
   root.innerHTML = `
-    <section class="view-fade max-w-2xl mx-auto text-center py-16">
-      <div class="text-6xl mb-4">✅</div>
-      <h2 class="text-xl font-bold text-slate-900">${escapeHtml(t('com.all_done.title'))}</h2>
-      <p class="text-slate-600 mt-2">${t('com.all_done.desc', { count: evaluated.length, fase: escapeHtml(fase.nome) })}</p>
-      <p class="text-sm text-slate-500 mt-1">${escapeHtml(t('com.all_done.help'))}</p>
-      <div class="mt-6">
-        <button data-action="back" class="text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 px-4 py-2 rounded-lg">${escapeHtml(t('com.back_to_menu'))}</button>
+    <section class="${wrapperCls}">
+      ${isPresidente ? presidentePanelHtml(concorso, fasiPresidente) : ''}
+      <div class="${isPresidente ? 'bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-soft max-w-2xl mx-auto text-center' : ''}">
+        <div class="text-6xl mb-4">✅</div>
+        <h2 class="text-xl font-bold text-slate-900">${escapeHtml(t('com.all_done.title'))}</h2>
+        <p class="text-slate-600 mt-2">${t('com.all_done.desc', { count: evaluated.length, fase: escapeHtml(fase.nome) })}</p>
+        <p class="text-sm text-slate-500 mt-1">${escapeHtml(isPresidente ? t('com.all_done.help_pres') : t('com.all_done.help'))}</p>
+        <div class="mt-6">
+          <button data-action="back" class="text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 px-4 py-2 rounded-lg">${escapeHtml(t('com.back_to_menu'))}</button>
+        </div>
       </div>
     </section>
   `;
   root.querySelector('[data-action="back"]').addEventListener('click', () => {
-    db.setRole(null);
-    location.hash = '#/';
+    leaveCommissarioView();
   });
+  if (isPresidente) bindPresidentePanel(root, concorso);
 }

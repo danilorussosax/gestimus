@@ -6,8 +6,13 @@
 // `/api/admin/apply-plan` quando il super-admin salva il piano) e applica i
 // controlli su create di:
 //   - `concorsi`  → conta i concorsi con stato != 'CONCLUSO'; blocca se >= limit_concorsi
-//   - `iscrizioni`→ conta le iscrizioni del CICLO ANNUALE dall'anniversario di piano_inizio
-//                   (fallback: anno solare se piano_inizio mancante)
+//   - `iscrizioni`→ conta le PERSONE FISICHE iscritte nel CICLO ANNUALE
+//                   dall'anniversario di piano_inizio (fallback: anno solare).
+//                   Un'iscrizione individuale = 1 persona; un'iscrizione di
+//                   gruppo = N persone (numero di membri in gruppo_membri,
+//                   con minimo 1). La stessa persona presente sia in un gruppo
+//                   che come singolo viene contata più volte: ogni iscrizione
+//                   genera quote/pagamento autonomi.
 //
 // Inoltre: se `piano_scadenza + grace_giorni < now`, blocca entrambe.
 //
@@ -111,7 +116,23 @@ onRecordBeforeCreateRequest((e) => {
     }
     const cicloStart = ciclo.toISOString();
 
-    let count = 0;
+    // Conta "per testa": per ogni iscrizione, individuale = 1; gruppo = numero
+    // di membri valorizzati in gruppo_membri (minimo 1, anche se l'array è
+    // vuoto o mal-formato, per non perdere il pagamento già ricevuto).
+    const countTeste = (rec) => {
+      const tipo = String(rec.get('tipo') || '').toLowerCase();
+      if (tipo !== 'gruppo') return 1;
+      let membri = rec.get('gruppo_membri');
+      if (!membri) return 1;
+      if (typeof membri === 'string') {
+        try { membri = JSON.parse(membri); } catch (_) { return 1; }
+      }
+      if (!Array.isArray(membri)) return 1;
+      const validi = membri.filter((m) => m && (m.nome || m.cognome));
+      return Math.max(1, validi.length);
+    };
+
+    let counted = 0;
     try {
       const items = $app.dao().findRecordsByFilter(
         'iscrizioni',
@@ -119,15 +140,20 @@ onRecordBeforeCreateRequest((e) => {
         '', 0, 0,
         { y: cicloStart },
       );
-      count = items ? items.length : 0;
+      if (items) for (let i = 0; i < items.length; i++) counted += countTeste(items[i]);
     } catch (err) { return; }
-    if (count >= limit) {
+
+    const incoming = countTeste(e.record);
+    if (counted + incoming > limit) {
       const cicloFineMs = ciclo.getTime() + (365 * 24 * 60 * 60 * 1000);
       const cicloFine = new Date(cicloFineMs).toLocaleDateString('it-IT');
+      const dettaglio = incoming > 1
+        ? ' L\'iscrizione di un gruppo da ' + incoming + ' persone supererebbe il limite.'
+        : '';
       throw new BadRequestError(
-        'Limite del piano raggiunto: ' + count + '/' + limit + ' iscritti nel ciclo annuale corrente ' +
-        '(dal ' + ciclo.toLocaleDateString('it-IT') + ' al ' + cicloFine + '). ' +
-        'L\'ente ha esaurito la quota del piano corrente.'
+        'Limite del piano raggiunto: ' + counted + '/' + limit + ' iscritti (persone fisiche) ' +
+        'nel ciclo annuale corrente (dal ' + ciclo.toLocaleDateString('it-IT') + ' al ' + cicloFine + ').' +
+        dettaglio + ' L\'ente ha esaurito la quota del piano corrente.'
       );
     }
   } catch (err) {

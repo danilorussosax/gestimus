@@ -215,6 +215,7 @@ npm run cleanup:e2e   # pulisce i record di test dal DB
 | [`DEPLOY-IONOS.md`](DEPLOY-IONOS.md) | Guida completa per il deploy su VPS IONOS |
 | [`MULTITENANT_PLAN.md`](MULTITENANT_PLAN.md) | Design dell'architettura multitenant |
 | [`POCKETBASE.md`](POCKETBASE.md) | Note sul backend PocketBase |
+| [`docs/manuale-admin.md`](docs/manuale-admin.md) | **Manuale operativo per l'admin di ente** — consultabile in-app da *Admin → Manuale* (con TOC sticky, stampa A4 / esportazione PDF). Le immagini referenziate vivono in `docs/screenshots/`. |
 | [`Schema_Gestionale_Concorso_Musicale.docx`](Schema_Gestionale_Concorso_Musicale.docx) | Schema dati originale (Word) |
 
 ## Contributi

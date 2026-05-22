@@ -1,0 +1,88 @@
+import type { FastifyPluginAsync } from 'fastify';
+import { eq } from 'drizzle-orm';
+import { z } from 'zod';
+import { sezioni } from '../db/schema.js';
+import { requireAuth, requireRole } from '../middleware/auth.js';
+import { writeAudit } from '../services/audit.js';
+
+const uuid = z.string().uuid();
+const createBody = z.object({
+  concorsoId: uuid,
+  nome: z.string().min(1).max(255),
+  descrizione: z.string().optional(),
+  ordine: z.number().int().optional(),
+});
+const updateBody = createBody.partial().omit({ concorsoId: true });
+
+export const sezioniRoutes: FastifyPluginAsync = async (app) => {
+  app.addHook('preHandler', requireAuth);
+
+  app.get('/', async (req) => {
+    const q = z.object({ concorsoId: uuid.optional() }).parse(req.query);
+    return req.dbTx(async (tx) => {
+      return q.concorsoId
+        ? tx.select().from(sezioni).where(eq(sezioni.concorsoId, q.concorsoId))
+        : tx.select().from(sezioni);
+    });
+  });
+
+  app.get('/:id', async (req, reply) => {
+    const { id } = z.object({ id: uuid }).parse(req.params);
+    return req.dbTx(async (tx) => {
+      const rows = await tx.select().from(sezioni).where(eq(sezioni.id, id)).limit(1);
+      if (rows.length === 0) return reply.notFound();
+      return rows[0];
+    });
+  });
+
+  app.post('/', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+    const parsed = createBody.safeParse(req.body);
+    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    return req.dbTx(async (tx) => {
+      const [created] = await tx
+        .insert(sezioni)
+        .values({ tenantId: req.tenant!.id, ...parsed.data })
+        .returning();
+      await writeAudit(tx, req, 'sezione.create', {
+        targetType: 'sezione',
+        targetId: created!.id,
+        payload: { nome: created!.nome },
+      });
+      return reply.code(201).send(created);
+    });
+  });
+
+  app.patch('/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+    const { id } = z.object({ id: uuid }).parse(req.params);
+    const parsed = updateBody.safeParse(req.body);
+    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    return req.dbTx(async (tx) => {
+      const [updated] = await tx
+        .update(sezioni)
+        .set(parsed.data)
+        .where(eq(sezioni.id, id))
+        .returning();
+      if (!updated) return reply.notFound();
+      await writeAudit(tx, req, 'sezione.update', {
+        targetType: 'sezione',
+        targetId: id,
+        payload: parsed.data,
+      });
+      return updated;
+    });
+  });
+
+  app.delete('/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+    const { id } = z.object({ id: uuid }).parse(req.params);
+    return req.dbTx(async (tx) => {
+      const [deleted] = await tx.delete(sezioni).where(eq(sezioni.id, id)).returning();
+      if (!deleted) return reply.notFound();
+      await writeAudit(tx, req, 'sezione.delete', {
+        targetType: 'sezione',
+        targetId: id,
+        payload: { nome: deleted.nome },
+      });
+      return reply.code(204).send();
+    });
+  });
+};
