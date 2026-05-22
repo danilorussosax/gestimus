@@ -27,20 +27,32 @@ function shuffleSeeded<T>(arr: T[], seed: number): T[] {
 }
 
 const uuid = z.string().uuid();
+// Helper: il frontend tipicamente invia "" per i campi vuoti del form (es.
+// commissioneId="" quando "Nessuna commissione" è selezionato). Convertiamo
+// "" in null così le zod sotto possono accettare il valore "non impostato"
+// uniformemente, sia come undefined sia come null.
+const emptyToNull = <T>(v: T) => (v === '' ? null : v);
+
 const createBody = z.object({
   concorsoId: uuid,
   ordine: z.number().int().min(1),
   nome: z.string().min(1).max(255),
-  ammessi: z.number().int().positive().optional(),
-  dataPrevista: z.string().date().optional(),
+  ammessi: z.preprocess(emptyToNull, z.number().int().positive().nullable()).optional(),
+  dataPrevista: z.preprocess(emptyToNull, z.string().date().nullable()).optional(),
   scala: z.number().int().min(2).max(1000).optional(),
-  modoValutazione: z.enum(['autonoma', 'sincrona']).optional(),
+  modoValutazione: z.preprocess(
+    emptyToNull,
+    z.enum(['autonoma', 'sincrona']).nullable(),
+  ).optional(),
   pesi: z.unknown().optional(),
   metodoMedia: z
-    .enum(['aritmetica', 'olimpica', 'winsorizzata', 'mediana', 'deviazione_standard'])
+    .preprocess(
+      emptyToNull,
+      z.enum(['aritmetica', 'olimpica', 'winsorizzata', 'mediana', 'deviazione_standard']).nullable(),
+    )
     .optional(),
-  tempoMinuti: z.number().int().positive().optional(),
-  commissioneId: uuid.optional(),
+  tempoMinuti: z.preprocess(emptyToNull, z.number().int().nonnegative().nullable()).optional(),
+  commissioneId: z.preprocess(emptyToNull, uuid.nullable()).optional(),
   tiebreakStrategy: z
     .array(z.object({ key: z.string().min(1).max(50), enabled: z.boolean() }))
     .nullable()
