@@ -129,7 +129,9 @@ export function renderLogin(root, onSuccess) {
     try {
       const account = await db.login(data.email.trim(), data.password);
       if (!account.attivo) throw new Error(t('login.error.disabled'));
-      await db.reload();
+      // Nota: db.login() chiama già loadAll() internamente (skip per superadmin).
+      // Una reload qui sarebbe ridondante per admin/commissario e crasherebbe per
+      // superadmin (endpoint per-tenant 500 senza tenant context).
 
       // Set role+route in modo che il primo render mostri SUBITO la vista giusta.
       // Usiamo history.replaceState al posto di `location.hash =` per evitare il

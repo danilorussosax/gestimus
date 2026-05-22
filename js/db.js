@@ -349,7 +349,11 @@ export const db = {
     notify();
   },
 
-  reload: async () => { await loadAll(); },
+  reload: async () => {
+    // Super-admin opera su /api/platform/*; loadAll() per-tenant esplode in 500.
+    if (pb.authStore.model?.role === 'superadmin') return;
+    await loadAll();
+  },
   reloadEntePublic: async () => { await loadEntePublic(); notify(); },
 
   // ---------- Meta locale ----------
