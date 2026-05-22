@@ -59,8 +59,8 @@ export const candidatiRoutes: FastifyPluginAsync = async (app) => {
         });
         return reply.code(201).send(created);
       } catch (err) {
-        const e = err as { code?: string };
-        if (e.code === '23505') return reply.conflict('numero_candidato già usato nel concorso');
+        const e = err as { code?: string; cause?: { code?: string } };
+        if ((e.code ?? e.cause?.code) === '23505') return reply.conflict('numero_candidato già usato nel concorso');
         throw err;
       }
     });

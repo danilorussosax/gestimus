@@ -266,35 +266,53 @@ async function loadAll() {
 
   // Carica candidati_fase per ogni fase (no endpoint cumulativo)
   state.candidati_fase = [];
+  const cfFailures = [];
   for (const f of state.fasi) {
     try {
       const list = await api.get('/api/candidati-fase', { faseId: f.id });
       state.candidati_fase.push(...(list || []).map(mapCandidatoFase));
     } catch (e) {
+      cfFailures.push(f.id);
       console.warn('candidati-fase load failed for fase', f.id, e?.message);
     }
+  }
+  if (cfFailures.length > 0) {
+    state.meta._loadErrors = state.meta._loadErrors || [];
+    state.meta._loadErrors.push(`candidati_fase non caricati per ${cfFailures.length} fasi`);
   }
 
   // Carica valutazioni per ogni candidato_fase
   state.valutazioni = [];
+  const valFailures = [];
   for (const cf of state.candidati_fase) {
     try {
       const list = await api.get('/api/valutazioni', { candidatoFaseId: cf.id });
       state.valutazioni.push(...(list || []).map(mapValutazione));
     } catch (e) {
+      valFailures.push(cf.id);
       console.warn('valutazioni load failed for cf', cf.id, e?.message);
     }
+  }
+  if (valFailures.length > 0) {
+    state.meta._loadErrors = state.meta._loadErrors || [];
+    state.meta._loadErrors.push(`valutazioni non caricate per ${valFailures.length} candidati`);
   }
 
   // Membri gruppo (candidati_gruppo) — alias storico
   state.candidati_gruppo = [];
+  const mgFailures = [];
   for (const c of state.candidati.filter((x) => x.is_gruppo)) {
     try {
       const list = await api.get('/api/membri-gruppo', { candidatoId: c.id });
       state.candidati_gruppo.push(...(list || []).map(mapMembroGruppo));
     } catch (e) {
+      mgFailures.push(c.id);
       console.warn('membri-gruppo load failed for candidato', c.id, e?.message);
     }
+  }
+  if (mgFailures.length > 0) {
+    state.meta._loadErrors = state.meta._loadErrors || [];
+    state.meta._loadErrors.push(`membri-gruppo non caricati per ${mgFailures.length} gruppi`);
   }
 
   // Accounts (solo admin può listarli; per commissario fallisce 403 → array vuoto)
@@ -625,20 +643,35 @@ export const db = {
     if (patch.presidente_id !== undefined) body.presidenteCommissarioId = patch.presidente_id || null;
     if (Object.keys(body).length > 0) await api.patch(`/api/commissioni/${id}`, body);
 
-    // Riconcilia le 3 join tables in modo idempotente
+    // Riconcilia le 3 join tables in modo idempotente.
+    // Non muto lo state ottimisticamente: solo dopo il GET finale del record
+    // aggiornato dal server scriviamo nello state — così se uno qualunque
+    // dei sync (delete/post) fallisce, lo state non resta in stato intermedio.
     const current = state.commissioni.find((c) => c.id === id);
     if (!current) return null;
     const sync = async (relName, currentIds, newIds) => {
-      if (!Array.isArray(newIds)) return currentIds;
+      if (!Array.isArray(newIds)) return;
       const cur = new Set(currentIds);
       const next = new Set(newIds);
       for (const a of cur) if (!next.has(a)) await api.delete(`/api/commissioni/${id}/${relName}/${a}`);
       for (const b of next) if (!cur.has(b)) await api.post(`/api/commissioni/${id}/${relName}/${b}`, {});
-      return newIds.slice();
     };
-    current.commissari_ids = await sync('commissari', current.commissari_ids, patch.commissari_ids);
-    current.sezioni_ids = await sync('sezioni', current.sezioni_ids, patch.sezioni_ids);
-    current.categorie_ids = await sync('categorie', current.categorie_ids, patch.categorie_ids);
+    try {
+      await sync('commissari', current.commissari_ids, patch.commissari_ids);
+      await sync('sezioni', current.sezioni_ids, patch.sezioni_ids);
+      await sync('categorie', current.categorie_ids, patch.categorie_ids);
+    } catch (err) {
+      // Forziamo un reload del record dal server per riallineare lo state alla
+      // verità del backend, anche dopo una sync parziale.
+      try {
+        const refreshed = await api.get(`/api/commissioni/${id}`);
+        const c = mapCommissione(refreshed);
+        const i = state.commissioni.findIndex((x) => x.id === id);
+        if (i >= 0) state.commissioni[i] = c;
+        notify();
+      } catch { /* network down: state resta com'era */ }
+      throw err;
+    }
 
     const refreshed = await api.get(`/api/commissioni/${id}`);
     const c = mapCommissione(refreshed);

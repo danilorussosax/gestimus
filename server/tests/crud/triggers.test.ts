@@ -7,6 +7,24 @@ import { createApp } from '../../src/app.js';
 import { dbApp, dbSuper } from '../../src/db/client.js';
 import { auditLog, concorsi } from '../../src/db/schema.js';
 
+/**
+ * Drizzle ≥ 0.42 wrappa l'errore PG. Cerchiamo il regex nella catena .cause.
+ */
+function pgErrorMatching(re: RegExp) {
+  return (err: unknown) => {
+    const msgs: string[] = [];
+    let cur: unknown = err;
+    let depth = 0;
+    while (cur && depth < 5) {
+      const c = cur as { message?: string; cause?: unknown };
+      if (typeof c.message === 'string') msgs.push(c.message);
+      cur = c.cause;
+      depth++;
+    }
+    return re.test(msgs.join(' '));
+  };
+}
+
 describe('DB triggers (clamp + freeze + audit append-only)', () => {
   let app: FastifyInstance;
   let cookie: string;
@@ -196,7 +214,7 @@ describe('DB triggers (clamp + freeze + audit append-only)', () => {
           await tx.execute(sql`SELECT app_set_tenant((SELECT id FROM tenants WHERE slug='ente1')::uuid)`);
           await tx.execute(sql`UPDATE audit_log SET action='tampered' WHERE id=${rows[0]!.id}`);
         }),
-      /permission denied/i,
+      pgErrorMatching(/permission denied/i),
       'UPDATE su audit_log deve essere rifiutato a gestimus_app',
     );
   });
@@ -210,7 +228,7 @@ describe('DB triggers (clamp + freeze + audit append-only)', () => {
           await tx.execute(sql`SELECT app_set_tenant((SELECT id FROM tenants WHERE slug='ente1')::uuid)`);
           await tx.execute(sql`DELETE FROM audit_log WHERE id=${rows[0]!.id}`);
         }),
-      /permission denied/i,
+      pgErrorMatching(/permission denied/i),
       'DELETE su audit_log deve essere rifiutato a gestimus_app',
     );
   });

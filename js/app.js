@@ -310,9 +310,17 @@ async function boot() {
   try {
     await db.init();
   } catch (e) {
-    console.error('PB init failed:', e);
+    console.error('db.init failed:', e);
     showConnectionError(e);
     return;
+  }
+  // Errori parziali in loadAll (es. /candidati-fase o /valutazioni di una
+  // fase isolata sono falliti): mostra avviso aggregato all'utente, così non
+  // gli si presentano KPI / classifiche silenziosamente incomplete.
+  const loadErrors = db.state?.meta?._loadErrors;
+  if (Array.isArray(loadErrors) && loadErrors.length > 0) {
+    toast(`Caricamento parziale: ${loadErrors.join(' · ')}. Ricarica la pagina per riprovare.`, 'error', 8000);
+    db.state.meta._loadErrors = [];
   }
   // Restore role from authStore if a session exists.
   // Importante: settiamo il ruolo PRIMA del primo render così la prima vista

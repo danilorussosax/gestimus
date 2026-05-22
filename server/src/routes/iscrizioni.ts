@@ -18,7 +18,16 @@ const iscrizioneCreateBody = z.object({
   cognome: z.string().max(255).optional(),
   email: z.string().email(),
   telefono: z.string().max(50).optional(),
-  dataNascita: z.string().date().optional(),
+  dataNascita: z
+    .string()
+    .date()
+    .refine((d) => new Date(d) <= new Date(), {
+      message: 'data di nascita futura non valida',
+    })
+    .refine((d) => new Date(d) >= new Date('1900-01-01'), {
+      message: 'data di nascita troppo lontana nel passato',
+    })
+    .optional(),
   nazionalita: z.string().max(100).optional(),
   strumento: z.string().max(255).optional(),
   programma: z.unknown().optional(),
@@ -279,14 +288,26 @@ export const iscrizioniAdminRoutes: FastifyPluginAsync = async (app) => {
       if (!body.success) return reply.badRequest(body.error.message);
 
       return req.dbTx(async (tx) => {
-        const rows = await tx.select().from(iscrizioni).where(eq(iscrizioni.id, id)).limit(1);
+        // Lock pessimistico sulla riga iscrizione → previene doppia approvazione
+        // concorrente; lock advisory transazionale sul concorso → serializza il
+        // calcolo del prossimo numeroCandidato evitando duplicate-key clash.
+        const rows = await tx
+          .select()
+          .from(iscrizioni)
+          .where(eq(iscrizioni.id, id))
+          .limit(1)
+          .for('update');
         if (rows.length === 0) return reply.notFound();
         const isc = rows[0]!;
         if (isc.stato === 'APPROVATA' && isc.candidatoId) {
           return { ok: true, alreadyApproved: true, candidatoId: isc.candidatoId };
         }
 
-        // Calcola numero candidato successivo per il concorso
+        await tx.execute(
+          sql`SELECT pg_advisory_xact_lock(hashtext(${isc.concorsoId}::text))`,
+        );
+
+        // Calcola numero candidato successivo per il concorso (sotto lock)
         const next = await tx
           .select({ m: max(candidati.numeroCandidato) })
           .from(candidati)

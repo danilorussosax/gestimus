@@ -134,6 +134,105 @@ SELECT apply_tenant_rls('iscrizioni');
 SELECT apply_tenant_rls('iscrizioni_allegati');
 
 -- =====================================================================
+-- 4b. Junction tenant-coherence trigger
+--     Difesa in profondità: anche se l'app sbagliasse, il DB rifiuta una
+--     INSERT/UPDATE su una junction se il tenant_id del record non coincide
+--     con il tenant_id della parent referenziata. RLS già blocca le letture
+--     cross-tenant; questo trigger blocca anche le scritture incrociate
+--     (es. via dbSuper o bypass del middleware).
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION check_junction_tenant_coherence()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  parent_tenant uuid;
+BEGIN
+  IF TG_TABLE_NAME = 'commissioni_commissari' THEN
+    SELECT tenant_id INTO parent_tenant FROM commissioni WHERE id = NEW.commissione_id;
+    IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+      RAISE EXCEPTION 'commissioni_commissari: tenant_id mismatch (junction=% vs parent commissione=%)',
+        NEW.tenant_id, parent_tenant;
+    END IF;
+    SELECT tenant_id INTO parent_tenant FROM commissari WHERE id = NEW.commissario_id;
+    IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+      RAISE EXCEPTION 'commissioni_commissari: tenant_id mismatch (junction=% vs parent commissario=%)',
+        NEW.tenant_id, parent_tenant;
+    END IF;
+  ELSIF TG_TABLE_NAME = 'commissioni_sezioni' THEN
+    SELECT tenant_id INTO parent_tenant FROM commissioni WHERE id = NEW.commissione_id;
+    IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+      RAISE EXCEPTION 'commissioni_sezioni: tenant_id mismatch';
+    END IF;
+    SELECT tenant_id INTO parent_tenant FROM sezioni WHERE id = NEW.sezione_id;
+    IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+      RAISE EXCEPTION 'commissioni_sezioni: sezione di tenant differente';
+    END IF;
+  ELSIF TG_TABLE_NAME = 'commissioni_categorie' THEN
+    SELECT tenant_id INTO parent_tenant FROM commissioni WHERE id = NEW.commissione_id;
+    IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+      RAISE EXCEPTION 'commissioni_categorie: tenant_id mismatch';
+    END IF;
+    SELECT tenant_id INTO parent_tenant FROM categorie WHERE id = NEW.categoria_id;
+    IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+      RAISE EXCEPTION 'commissioni_categorie: categoria di tenant differente';
+    END IF;
+  ELSIF TG_TABLE_NAME = 'fasi_sezioni' THEN
+    SELECT tenant_id INTO parent_tenant FROM fasi WHERE id = NEW.fase_id;
+    IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+      RAISE EXCEPTION 'fasi_sezioni: tenant_id mismatch';
+    END IF;
+    SELECT tenant_id INTO parent_tenant FROM sezioni WHERE id = NEW.sezione_id;
+    IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+      RAISE EXCEPTION 'fasi_sezioni: sezione di tenant differente';
+    END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_junction_cc_tenant_check ON commissioni_commissari;
+CREATE TRIGGER trg_junction_cc_tenant_check
+  BEFORE INSERT OR UPDATE ON commissioni_commissari
+  FOR EACH ROW EXECUTE FUNCTION check_junction_tenant_coherence();
+
+DROP TRIGGER IF EXISTS trg_junction_cs_tenant_check ON commissioni_sezioni;
+CREATE TRIGGER trg_junction_cs_tenant_check
+  BEFORE INSERT OR UPDATE ON commissioni_sezioni
+  FOR EACH ROW EXECUTE FUNCTION check_junction_tenant_coherence();
+
+DROP TRIGGER IF EXISTS trg_junction_cca_tenant_check ON commissioni_categorie;
+CREATE TRIGGER trg_junction_cca_tenant_check
+  BEFORE INSERT OR UPDATE ON commissioni_categorie
+  FOR EACH ROW EXECUTE FUNCTION check_junction_tenant_coherence();
+
+DROP TRIGGER IF EXISTS trg_junction_fs_tenant_check ON fasi_sezioni;
+CREATE TRIGGER trg_junction_fs_tenant_check
+  BEFORE INSERT OR UPDATE ON fasi_sezioni
+  FOR EACH ROW EXECUTE FUNCTION check_junction_tenant_coherence();
+
+-- =====================================================================
+-- 4c. Indici performance + vincoli di integrità aggiuntivi
+-- =====================================================================
+
+-- Index composito per query frequenti su candidati_fase
+CREATE INDEX IF NOT EXISTS idx_candidati_fase_fase_stato
+  ON candidati_fase(fase_id, stato);
+
+-- UNIQUE per-concorso su iscrizioni: stessa email non può iscriversi 2 volte
+-- allo stesso concorso. Non blocca iscrizioni a concorsi diversi dello stesso
+-- ente, né cross-tenant (RLS).
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'uniq_iscrizioni_concorso_email'
+  ) THEN
+    ALTER TABLE iscrizioni
+      ADD CONSTRAINT uniq_iscrizioni_concorso_email UNIQUE (concorso_id, email);
+  END IF;
+END $$;
+
+-- =====================================================================
 -- 5. Audit log append-only: revoke UPDATE e DELETE al ruolo applicativo
 --    Solo il super-admin (BYPASSRLS) può cancellare in caso di GDPR.
 -- =====================================================================

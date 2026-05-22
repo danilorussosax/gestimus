@@ -23,8 +23,12 @@ const updateBody = z.object({
  * Il trigger `freeze_valutazione_fase_conclusa` solleva con SQLSTATE 23514.
  */
 function handlePgError(err: unknown): { code: number; body: { error: string } } | null {
-  const e = err as { code?: string; message?: string };
-  if (e.code === '23514' && e.message?.includes('CONCLUSA')) {
+  const e = err as { code?: string; message?: string; cause?: { code?: string; message?: string } };
+  const pgCode = e.code ?? e.cause?.code;
+  // Drizzle ≥ 0.42 wrappa l'errore: e.message è "Failed query: ...", il msg
+  // Postgres reale è in e.cause.message. Concateniamo entrambi.
+  const allMsgs = `${e.message ?? ''} ${e.cause?.message ?? ''}`;
+  if (pgCode === '23514' && allMsgs.includes('CONCLUSA')) {
     return { code: 409, body: { error: 'fase CONCLUSA: valutazioni in sola lettura' } };
   }
   return null;

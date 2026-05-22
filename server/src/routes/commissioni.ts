@@ -172,6 +172,11 @@ export const commissioniRoutes: FastifyPluginAsync = async (app) => {
           .insert(commissioniSezioni)
           .values({ tenantId: req.tenant!.id, commissioneId: id, sezioneId })
           .onConflictDoNothing();
+        await writeAudit(tx, req, 'commissione.add_sezione', {
+          targetType: 'commissione',
+          targetId: id,
+          payload: { sezioneId },
+        });
         return reply.code(204).send();
       });
     },
@@ -191,6 +196,11 @@ export const commissioniRoutes: FastifyPluginAsync = async (app) => {
               eq(commissioniSezioni.sezioneId, sezioneId),
             ),
           );
+        await writeAudit(tx, req, 'commissione.remove_sezione', {
+          targetType: 'commissione',
+          targetId: id,
+          payload: { sezioneId },
+        });
         return reply.code(204).send();
       });
     },
@@ -208,6 +218,11 @@ export const commissioniRoutes: FastifyPluginAsync = async (app) => {
           .insert(commissioniCategorie)
           .values({ tenantId: req.tenant!.id, commissioneId: id, categoriaId })
           .onConflictDoNothing();
+        await writeAudit(tx, req, 'commissione.add_categoria', {
+          targetType: 'commissione',
+          targetId: id,
+          payload: { categoriaId },
+        });
         return reply.code(204).send();
       });
     },
@@ -227,6 +242,11 @@ export const commissioniRoutes: FastifyPluginAsync = async (app) => {
               eq(commissioniCategorie.categoriaId, categoriaId),
             ),
           );
+        await writeAudit(tx, req, 'commissione.remove_categoria', {
+          targetType: 'commissione',
+          targetId: id,
+          payload: { categoriaId },
+        });
         return reply.code(204).send();
       });
     },

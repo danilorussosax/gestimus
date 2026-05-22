@@ -71,6 +71,27 @@ const TENANT_TABLES = [
   { name: 'iscrizioni_allegati', table: iscrizioniAllegati },
 ] as const;
 
+/**
+ * Drizzle ORM ≥ 0.42 wrappa gli errori PostgreSQL — l'oggetto error principale
+ * espone solo "Failed query: ..."; il messaggio Postgres reale è in err.cause.
+ * Questo helper attraversa la catena .cause e cerca il regex su qualunque
+ * livello, così i nostri test restano stabili agli aggiornamenti.
+ */
+function pgErrorMatching(re: RegExp) {
+  return (err: unknown) => {
+    const msgs: string[] = [];
+    let cur: unknown = err;
+    let depth = 0;
+    while (cur && depth < 5) {
+      const c = cur as { message?: string; cause?: unknown };
+      if (typeof c.message === 'string') msgs.push(c.message);
+      cur = c.cause;
+      depth++;
+    }
+    return re.test(msgs.join(' '));
+  };
+}
+
 describe('RLS isolamento tenant (22 tabelle)', () => {
   let ente1Id: string;
   let ente2Id: string;
@@ -157,7 +178,7 @@ describe('RLS isolamento tenant (22 tabelle)', () => {
           });
         });
       },
-      /row violates row-level security|new row violates/i,
+      pgErrorMatching(/row violates row-level security|new row violates/i),
     );
   });
 
@@ -193,7 +214,7 @@ describe('RLS isolamento tenant (22 tabelle)', () => {
           });
         });
       },
-      /row violates row-level security|new row violates/i,
+      pgErrorMatching(/row violates row-level security|new row violates/i),
     );
   });
 
@@ -219,7 +240,7 @@ describe('RLS isolamento tenant (22 tabelle)', () => {
           );
         });
       },
-      /permission denied/i,
+      pgErrorMatching(/permission denied/i),
     );
   });
 
@@ -231,7 +252,7 @@ describe('RLS isolamento tenant (22 tabelle)', () => {
           await tx.execute(sql`DELETE FROM audit_log WHERE tenant_id = ${ente1Id}::uuid`);
         });
       },
-      /permission denied/i,
+      pgErrorMatching(/permission denied/i),
     );
   });
 });

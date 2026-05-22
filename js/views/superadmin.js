@@ -152,6 +152,11 @@ function updateLayoutToggle(main) {
   });
 }
 
+// Stats di default → KPI non mostrano NaN se una API fallisce
+const EMPTY_STATS = Object.freeze({
+  concorsi: 0, commissari: 0, candidati: 0, iscrizioni: 0, accounts: 0, diskUsageBytes: 0,
+});
+
 async function loadAll(main) {
   try {
     state.enti = await api.get('/api/platform/tenants');
@@ -159,6 +164,12 @@ async function loadAll(main) {
     main.querySelector('#sa-list').innerHTML = errorBox('Caricamento enti fallito', err);
     return;
   }
+  // Pre-carica default per evitare KPI con NaN se la fetch fallisce
+  for (const t of state.enti) {
+    if (!state.enteStats.has(t.id)) state.enteStats.set(t.id, { ...EMPTY_STATS });
+    if (!state.enteSmtp.has(t.id)) state.enteSmtp.set(t.id, { configured: false });
+  }
+  const failures = [];
   await Promise.all(state.enti.map(async (t) => {
     try {
       const [stats, smtp] = await Promise.all([
@@ -167,8 +178,17 @@ async function loadAll(main) {
       ]);
       state.enteStats.set(t.id, stats);
       state.enteSmtp.set(t.id, smtp);
-    } catch { /* ignore */ }
+    } catch (err) {
+      failures.push({ slug: t.slug, err });
+    }
   }));
+  if (failures.length > 0) {
+    toast(
+      `Stats/SMTP non caricate per ${failures.length} ente${failures.length > 1 ? 'i' : ''} (${failures.map((f) => f.slug).join(', ')})`,
+      'error',
+      5000,
+    );
+  }
   renderKPI(main);
   renderList(main);
 }
@@ -484,13 +504,17 @@ function wireListActions(container, main) {
     });
   });
 
-  // Click outside chiude menu
-  if (!container._docClickWired) {
-    document.addEventListener('click', () => {
-      document.querySelectorAll('[data-menu]:not(.hidden)').forEach((m) => m.classList.add('hidden'));
-    });
-    container._docClickWired = true;
-  }
+  // Click outside chiude menu (attached once via module-level guard)
+  ensureCloseMenuOnDocClick();
+}
+
+let _saDocClickWired = false;
+function ensureCloseMenuOnDocClick() {
+  if (_saDocClickWired) return;
+  document.addEventListener('click', () => {
+    document.querySelectorAll('[data-menu]:not(.hidden)').forEach((m) => m.classList.add('hidden'));
+  });
+  _saDocClickWired = true;
 }
 
 function buildActionMenu(t) {
