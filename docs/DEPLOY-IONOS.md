@@ -349,9 +349,9 @@ Listino vendita (definito in `js/piani.js`, prezzi **IVA inclusa 22%**):
 | **Starter** | €150 | €122,95 | €2,50 | **€120,45** |
 | **Pro** ⭐ | €230 | €188,52 | €3,70 | **€184,82** |
 | **Ultra** | €350 | €286,89 | €5,50 | **€281,39** |
-| **PPE** (per concorso) | €50 setup + €1/iscr. | variabile | ~1,7% | margine medio ~96% |
+| **PPE** (per concorso) | €100 setup + €1/iscr. | variabile | ~1,7% | margine medio ~96% |
 
-Esempio PPE concorso medio (100 iscritti): €50 + €1×100 = **€150 IVA incl.** → €122,95 imponibile − €2,50 Stripe ≈ **€120 margine netto**.
+Esempio PPE concorso medio (100 iscritti): €100 + €1×100 = **€200 IVA incl.** → €163,93 imponibile − €3,70 Stripe ≈ **€160 margine netto**.
 
 ### Scenario realistico — 20 enti sul VPS L+ (regime, anno 3+)
 
@@ -362,10 +362,10 @@ Mix tipico in un MVP che sta crescendo:
 | Starter | 4 | €482 |
 | Pro | 12 | €2.218 |
 | Ultra | 3 | €844 |
-| PPE (~5 concorsi/anno, 100 iscr/concorso) | 1 | €603 |
-| **Totale ricavi netti** | **20** | **~€4.147** |
+| PPE (~5 concorsi/anno, 100 iscr/concorso) | 1 | €803 |
+| **Totale ricavi netti** | **20** | **~€4.347** |
 | **− Costi infra (VPS + dominio)** | | −€108 |
-| **= Margine annuo** | | **~€4.039** |
+| **= Margine annuo** | | **~€4.239** |
 
 Cliente che entra in Starter e nell'anno 2 passa a Pro → +€64 di MRR aggiuntivo gratis.
 
@@ -392,7 +392,7 @@ Costo infra fisso (anno 3+): **€108/anno netto**.
 |---|---|
 | Solo Pro | **1 cliente** Pro paga 1,7× i costi |
 | Solo Starter | 1 cliente Starter copre il 112% dei costi |
-| Solo PPE | ~1 concorso PPE attivato nell'anno (100 iscr/concorso) |
+| Solo PPE | <1 concorso PPE attivato nell'anno (100 iscr/concorso) copre già 1,5× i costi |
 
 **ROI Anno 1**: con setup VPS €10 una tantum + €60 VPS promo + €10 dominio = €80 netti di investimento, basta 1 cliente Pro per andare in attivo dal primo anno.
 

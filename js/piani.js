@@ -57,13 +57,13 @@ export const PIANI = {
   ppe: {
     key: 'ppe',
     nome: 'Pay-per-Event',
-    descrizione: 'Niente canone: paghi €50 setup per ogni concorso attivato + €1 per ogni iscritto (persona fisica: un quartetto = 4 iscritti).',
+    descrizione: 'Niente canone: paghi €100 setup per ogni concorso attivato + €1 per ogni iscritto (persona fisica: un quartetto = 4 iscritti).',
     prezzo_eur: 0,
     durata_giorni: null, // pay-as-you-go, nessuna scadenza
     limit_concorsi: null, // illimitato
     limit_iscritti_annui: null, // illimitato
     is_ppe: true,
-    ppe_setup_per_concorso: 50,
+    ppe_setup_per_concorso: 100,
     ppe_per_iscritto: 1,
     badge_color: 'slate',
     cta: 'Attiva PPE',

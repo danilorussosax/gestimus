@@ -37,7 +37,7 @@ Tutto in **italiano**, accessibile da PC, tablet e smartphone, senza installazio
 
 |  | **Trial** | **Starter** | **Pro** ⭐ | **Ultra** | **Pay-per-Event** |
 |---|:---:|:---:|:---:|:---:|:---:|
-| **Prezzo** | gratis | **€150** /anno | **€230** /anno | **€350** /anno | €50 /concorso + €1/iscritto |
+| **Prezzo** | gratis | **€150** /anno | **€230** /anno | **€350** /anno | €100 /concorso + €1/iscritto |
 | **Durata** | 30 giorni | 12 mesi | 12 mesi | 12 mesi | nessun impegno |
 | **Concorsi attivabili** | 1 | 2 | 5 | 10 | illimitati |
 | **Iscritti / anno** | 5 | 100 | 500 | 2.000 | illimitati |
@@ -118,11 +118,11 @@ Tutto in **italiano**, accessibile da PC, tablet e smartphone, senza installazio
 
 ---
 
-### 💸 Pay-per-Event — €50 + €1/iscritto
+### 💸 Pay-per-Event — €100 + €1/iscritto
 
 **Niente canone. Paghi solo quando lavori.**
 
-- €50 di setup per ogni concorso che attivi
+- €100 di setup per ogni concorso che attivi
 - €1 per ogni iscritto (persona fisica) al concorso — un quartetto = 4 iscritti
 - Concorsi e iscritti illimitati
 - Stesse funzionalità degli altri piani
@@ -131,10 +131,10 @@ Tutto in **italiano**, accessibile da PC, tablet e smartphone, senza installazio
 
 | Iscritti al concorso | Costo totale |
 |---:|---:|
-| 30 | €80 |
-| 50 | €100 |
-| 100 | €150 |
-| 200 | €250 |
+| 30 | €130 |
+| 50 | €150 |
+| 100 | €200 |
+| 200 | €300 |
 
 ✅ Ideale per:
 - **Concorsi one-shot** (rassegne occasionali, edizioni saltuarie)
@@ -142,8 +142,8 @@ Tutto in **italiano**, accessibile da PC, tablet e smartphone, senza installazio
 - **Test di mercato** su un nuovo concorso
 
 📌 Quando passare da PPE a un piano flat?
-- 1 concorso con **180+ iscritti**: passa a **Pro** (€230 vs €230)
-- 3-5 concorsi con **50+ iscritti totali ciascuno**: passa a **Pro** (€230 vs €250-500)
+- 1 concorso con **130+ iscritti**: passa a **Pro** (€230 vs €230)
+- 2 concorsi con **30+ iscritti totali**: passa a **Pro** (€200 PPE + €30 iscritti = €230, già il pareggio con Pro)
 - Oltre 5 concorsi all'anno: vai direttamente su **Ultra**
 
 ---
