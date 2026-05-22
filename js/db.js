@@ -654,11 +654,17 @@ export const db = {
   },
 
   // ---------- Commissari ----------
+  // Lista dei commissari ATTIVI per un concorso. Gli INATTIVI sono nascosti
+  // dalla vista "Commissari del concorso" — finiscono in archivio finché non
+  // vengono ri-attivati.
   commissariByConcorso(concorso_id) {
-    return state.commissari.filter((c) => c.concorso_id === concorso_id);
+    return state.commissari.filter(
+      (c) => c.concorso_id === concorso_id && c.stato !== 'INATTIVO',
+    );
   },
+  // Archivio: commissari INATTIVI del tenant. Da qui possono essere riattivati
+  // sul concorso a cui erano originariamente assegnati.
   archivioCommissari() {
-    // Senza colonna "archiviato": consideriamo "archivio" i commissari con stato INATTIVO
     return state.commissari.filter((c) => c.stato === 'INATTIVO');
   },
   getAccountForCommissario(commissario_id) {
@@ -723,11 +729,11 @@ export const db = {
     notify();
   },
 
-  // Multi-concorso (assegna/disassegna): nel nuovo modello il commissario è
-  // single-concorso. Manteniamo le firme ma sono stub no-op fino a una
-  // potenziale Fase 6 con re-design dello schema commissari.
-  async assegnaCommissarioAConcorso(commissario_id, concorso_id) {
-    return this.updateCommissario(commissario_id, {}); // no-op finché single-concorso
+  // Nel modello attuale i commissari sono single-concorso: "rimuovi" non
+  // cambia FK, ma sposta lo stato in INATTIVO (→ scompare dalla vista del
+  // concorso, appare in archivio). "Riassegna" ripristina lo stato ATTIVO.
+  async assegnaCommissarioAConcorso(commissario_id, _concorso_id) {
+    return this.updateCommissario(commissario_id, { stato: 'ATTIVO' });
   },
   async disassegnaCommissarioDaConcorso(commissario_id, _concorso_id) {
     return this.updateCommissario(commissario_id, { stato: 'INATTIVO' });
