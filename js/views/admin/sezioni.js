@@ -41,7 +41,13 @@ export function renderSezioni(root, concorso) {
       danger: true,
       onConfirm: async () => {
         try { await db.deleteSezione(id); renderSezioni(root, concorso); }
-        catch (e) { toast(e.message, 'error'); }
+        catch (e) {
+          // 409 = sezione in uso → il backend manda body.error pulito (vedi
+          // server/src/routes/sezioni.ts). Usiamo quello invece del wrap di
+          // ApiError, più leggibile per l'admin.
+          const msg = e?.status === 409 && e?.body?.error ? e.body.error : e.message;
+          toast(msg, 'error');
+        }
       }
     });
   }));
@@ -62,7 +68,10 @@ export function renderSezioni(root, concorso) {
       danger: true,
       onConfirm: async () => {
         try { await db.deleteCategoria(id); renderSezioni(root, concorso); }
-        catch (e) { toast(e.message, 'error'); }
+        catch (e) {
+          const msg = e?.status === 409 && e?.body?.error ? e.body.error : e.message;
+          toast(msg, 'error');
+        }
       }
     });
   }));
@@ -143,7 +152,8 @@ function openCopyCategorieModal(concorso, fromSezioneId, onSaved) {
 
 function sezioneCardHtml(s) {
   const cats = db.categorieBySezione(s.id);
-  const candCount = db.state.candidati.filter(c => Array.isArray(c.sezioni_ids) && c.sezioni_ids.includes(s.id)).length;
+  // Modello N:1 (vedi mapCandidato): un candidato ha una sola sezione_id.
+  const candCount = db.state.candidati.filter(c => c.sezione_id === s.id).length;
   return `
     <li class="bg-white border border-slate-200 rounded-2xl p-4">
       <div class="flex items-start justify-between gap-3">
@@ -163,18 +173,22 @@ function sezioneCardHtml(s) {
       <div class="mt-3 ml-13 sm:ml-13 pl-3 border-l-2 border-slate-100">
         ${cats.length === 0 ? `<p class="text-xs text-slate-400 italic mb-2">${escapeHtml(t('admin.sezioni.no_cats'))}</p>` : `
           <ul class="space-y-1.5 mb-2">
-            ${cats.map(c => `
+            ${cats.map(c => {
+              const catCount = db.state.candidati.filter(x => x.categoria_id === c.id).length;
+              return `
               <li class="flex items-center justify-between gap-2 bg-slate-50 rounded-lg px-3 py-2">
-                <div class="min-w-0">
+                <div class="min-w-0 flex items-center gap-2">
                   <span class="text-sm font-medium text-slate-800">${escapeHtml(c.nome)}</span>
-                  ${c.descrizione ? `<span class="text-[11px] text-slate-500 ml-2">${escapeHtml(c.descrizione)}</span>` : ''}
+                  <span class="text-[10px] font-mono px-1.5 py-0.5 bg-white border border-slate-200 rounded text-slate-600" title="Candidati assegnati">${catCount}</span>
+                  ${c.descrizione ? `<span class="text-[11px] text-slate-500 ml-1">${escapeHtml(c.descrizione)}</span>` : ''}
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
                   <button data-edit-cat="${c.id}" class="w-9 h-9 inline-flex items-center justify-center rounded-lg text-brand-700 bg-white hover:bg-brand-50 border border-brand-100 transition-colors" title="${escapeHtml(t('admin.sezioni.btn_edit_title'))}">${icon('edit', { size: 18 })}</button>
                   <button data-del-cat="${c.id}" class="w-9 h-9 inline-flex items-center justify-center rounded-lg text-rose-600 bg-white hover:bg-rose-50 border border-rose-100 transition-colors" title="${escapeHtml(t('admin.sezioni.btn_delete_title'))}">${icon('trash', { size: 18 })}</button>
                 </div>
               </li>
-            `).join('')}
+            `;
+            }).join('')}
           </ul>
         `}
         <div class="flex flex-wrap items-center gap-2">

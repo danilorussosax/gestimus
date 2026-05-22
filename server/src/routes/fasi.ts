@@ -1,10 +1,28 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { candidatiFase, fasi } from '../db/schema.js';
+import { candidati, candidatiFase, fasi, fasiSezioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { faseChannel } from '../realtime/hub.js';
+
+// Estrae le sezioni_ids per un array di fasi via singola query batched.
+// Restituisce una mappa { faseId → [sezioneId, ...] }.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function loadFaseSezioniMap(tx: any, faseIds: string[]): Promise<Map<string, string[]>> {
+  const map = new Map<string, string[]>();
+  if (faseIds.length === 0) return map;
+  const rows = await tx
+    .select({ faseId: fasiSezioni.faseId, sezioneId: fasiSezioni.sezioneId })
+    .from(fasiSezioni)
+    .where(inArray(fasiSezioni.faseId, faseIds));
+  for (const r of rows as Array<{ faseId: string; sezioneId: string }>) {
+    const arr = map.get(r.faseId) ?? [];
+    arr.push(r.sezioneId);
+    map.set(r.faseId, arr);
+  }
+  return map;
+}
 
 function mulberry32(seed: number): () => number {
   let t = seed >>> 0;
@@ -57,6 +75,10 @@ const createBody = z.object({
     .array(z.object({ key: z.string().min(1).max(50), enabled: z.boolean() }))
     .nullable()
     .optional(),
+  // Ambito sezione della fase: array di sezioniId che restringono la fase a
+  // determinate sezioni. Se omesso o array vuoto, la fase è "globale" sul
+  // concorso. Lo sync della join table fasi_sezioni avviene nel POST/PATCH.
+  sezioniIds: z.array(uuid).optional(),
 });
 const updateBody = createBody.partial().omit({ concorsoId: true });
 
@@ -66,9 +88,11 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
   app.get('/', async (req) => {
     const q = z.object({ concorsoId: uuid.optional() }).parse(req.query);
     return req.dbTx(async (tx) => {
-      return q.concorsoId
-        ? tx.select().from(fasi).where(eq(fasi.concorsoId, q.concorsoId))
-        : tx.select().from(fasi);
+      const rows = q.concorsoId
+        ? await tx.select().from(fasi).where(eq(fasi.concorsoId, q.concorsoId))
+        : await tx.select().from(fasi);
+      const sezMap = await loadFaseSezioniMap(tx, rows.map((r) => r.id));
+      return rows.map((r) => ({ ...r, sezioniIds: sezMap.get(r.id) ?? [] }));
     });
   });
 
@@ -77,7 +101,8 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     return req.dbTx(async (tx) => {
       const rows = await tx.select().from(fasi).where(eq(fasi.id, id)).limit(1);
       if (rows.length === 0) return reply.notFound();
-      return rows[0];
+      const sezMap = await loadFaseSezioniMap(tx, [id]);
+      return { ...rows[0]!, sezioniIds: sezMap.get(id) ?? [] };
     });
   });
 
@@ -86,16 +111,23 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) return reply.badRequest(parsed.error.message);
     return req.dbTx(async (tx) => {
       try {
+        const { sezioniIds, ...faseFields } = parsed.data;
         const [created] = await tx
           .insert(fasi)
-          .values({ tenantId: req.tenant!.id, ...parsed.data })
+          .values({ tenantId: req.tenant!.id, ...faseFields })
           .returning();
+        // Sync join table fasi_sezioni (insert iniziale, no detach necessario)
+        if (sezioniIds && sezioniIds.length > 0) {
+          await tx.insert(fasiSezioni).values(
+            sezioniIds.map((sid) => ({ faseId: created!.id, sezioneId: sid, tenantId: req.tenant!.id })),
+          );
+        }
         await writeAudit(tx, req, 'fase.create', {
           targetType: 'fase',
           targetId: created!.id,
           payload: { ordine: created!.ordine, nome: created!.nome },
         });
-        return reply.code(201).send(created);
+        return reply.code(201).send({ ...created, sezioniIds: sezioniIds ?? [] });
       } catch (err) {
         const e = err as { code?: string; cause?: { code?: string } };
         if ((e.code ?? e.cause?.code) === '23505') return reply.conflict('ordine già usato nel concorso');
@@ -152,18 +184,38 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     const parsed = updateBody.safeParse(req.body);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
     return req.dbTx(async (tx) => {
-      const [updated] = await tx
-        .update(fasi)
-        .set({ ...parsed.data, updatedAt: new Date() })
-        .where(eq(fasi.id, id))
-        .returning();
+      const { sezioniIds, ...faseFields } = parsed.data;
+      // Aggiorna i campi base solo se ne è stato passato almeno uno (oltre a sezioniIds)
+      let updated;
+      if (Object.keys(faseFields).length > 0) {
+        const [u] = await tx
+          .update(fasi)
+          .set({ ...faseFields, updatedAt: new Date() })
+          .where(eq(fasi.id, id))
+          .returning();
+        updated = u;
+      } else {
+        const rows = await tx.select().from(fasi).where(eq(fasi.id, id)).limit(1);
+        updated = rows[0];
+      }
       if (!updated) return reply.notFound();
+      // Sync della join table solo se sezioniIds è stato esplicitamente inviato
+      // (undefined = "non modificare", array vuoto = "rimuovi tutte le sezioni").
+      if (sezioniIds !== undefined) {
+        await tx.delete(fasiSezioni).where(eq(fasiSezioni.faseId, id));
+        if (sezioniIds.length > 0) {
+          await tx.insert(fasiSezioni).values(
+            sezioniIds.map((sid) => ({ faseId: id, sezioneId: sid, tenantId: req.tenant!.id })),
+          );
+        }
+      }
       await writeAudit(tx, req, 'fase.update', {
         targetType: 'fase',
         targetId: id,
         payload: parsed.data,
       });
-      return updated;
+      const finalSezMap = await loadFaseSezioniMap(tx, [id]);
+      return { ...updated, sezioniIds: finalSezMap.get(id) ?? [] };
     });
   });
 
@@ -198,6 +250,41 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
         .where(eq(fasi.id, id))
         .returning();
       if (!updated) return reply.notFound();
+
+      // Auto-popola candidati_fase se la fase è ancora vuota:
+      //   - se la fase ha sezioni associate, prende i candidati del concorso
+      //     filtrati per quelle sezioni;
+      //   - altrimenti prende tutti i candidati del concorso.
+      // È idempotente: se ci sono già righe candidati_fase per questa fase,
+      // non tocca nulla (l'admin potrebbe averle gestite manualmente).
+      const existing = await tx
+        .select({ id: candidatiFase.id })
+        .from(candidatiFase)
+        .where(eq(candidatiFase.faseId, id));
+      if (existing.length === 0) {
+        const sezMap = await loadFaseSezioniMap(tx, [id]);
+        const sezIds = sezMap.get(id) ?? [];
+        const candRows = sezIds.length > 0
+          ? await tx
+              .select({ id: candidati.id })
+              .from(candidati)
+              .where(and(eq(candidati.concorsoId, updated.concorsoId), inArray(candidati.sezioneId, sezIds)))
+          : await tx
+              .select({ id: candidati.id })
+              .from(candidati)
+              .where(eq(candidati.concorsoId, updated.concorsoId));
+        if (candRows.length > 0) {
+          await tx.insert(candidatiFase).values(
+            candRows.map((c, i) => ({
+              tenantId: req.tenant!.id,
+              faseId: id,
+              candidatoId: c.id,
+              posizione: i + 1,
+            })),
+          );
+        }
+      }
+
       await writeAudit(tx, req, 'fase.start', {
         targetType: 'fase',
         targetId: id,

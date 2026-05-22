@@ -273,7 +273,10 @@ function contattiFields(d) {
 // ---------- Sezione 3: Dati artistici ----------
 function artisticiFields(d, state) {
   const sezioneSel = d.sezione || '';
-  const categorieDellaSezione = state.categorie.filter(c => c.sezione === sezioneSel);
+  // Il payload pubblico mappa le categorie con `sezione_id` (vedi db.js
+  // fetchConcorsoIscrizioniAperto). Filtriamo su quel campo, non `c.sezione`.
+  const categorieDellaSezione = state.categorie.filter(c => c.sezione_id === sezioneSel);
+  const sezioneHaCategorie = sezioneSel && categorieDellaSezione.length > 0;
   return `
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <label class="c-field"><span class="c-field__label">Strumento *</span><input name="strumento" required class="c-input" value="${escapeHtml(d.strumento || '')}" placeholder="es. Pianoforte" /></label>
@@ -285,9 +288,9 @@ function artisticiFields(d, state) {
             ${state.sezioni.map(s => `<option value="${escapeHtml(s.id)}" ${sezioneSel === s.id ? 'selected' : ''}>${escapeHtml(s.nome)}</option>`).join('')}
           </select>
         </label>
-        <label class="c-field"><span class="c-field__label">Categoria</span>
-          <select name="categoria" class="c-input" ${categorieDellaSezione.length === 0 ? 'disabled' : ''}>
-            <option value="">— Nessuna —</option>
+        <label class="c-field"><span class="c-field__label">Categoria${sezioneHaCategorie ? ' *' : ''}</span>
+          <select name="categoria" class="c-input" ${categorieDellaSezione.length === 0 ? 'disabled' : ''} ${sezioneHaCategorie ? 'required' : ''}>
+            <option value="">${categorieDellaSezione.length === 0 ? '— Seleziona prima una sezione —' : '— Scegli categoria —'}</option>
             ${categorieDellaSezione.map(c => `<option value="${escapeHtml(c.id)}" ${d.categoria === c.id ? 'selected' : ''}>${escapeHtml(c.nome)}</option>`).join('')}
           </select>
         </label>
@@ -503,12 +506,16 @@ function onFieldChange(ev, state, root) {
   }
   // Dipendenza: sezione → ricarica le categorie disponibili (re-render parziale)
   if (el.name === 'sezione') {
-    // Aggiorna le option di categoria mantenendo il resto del form intatto
     const catSel = root.querySelector('select[name="categoria"]');
     if (catSel) {
-      const cats = state.categorie.filter(c => c.sezione === el.value);
-      catSel.innerHTML = `<option value="">— Nessuna —</option>` + cats.map(c => `<option value="${c.id}">${c.nome}</option>`).join('');
+      // Le categorie del payload pubblico usano `sezione_id` (vedi db.js
+      // fetchConcorsoIscrizioniAperto): filtriamo su quello.
+      const cats = state.categorie.filter(c => c.sezione_id === el.value);
+      const placeholder = cats.length === 0 ? '— Seleziona prima una sezione —' : '— Scegli categoria —';
+      catSel.innerHTML = `<option value="">${placeholder}</option>` + cats.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.nome)}</option>`).join('');
       catSel.disabled = cats.length === 0;
+      // Se la sezione ha categorie la categoria diventa obbligatoria.
+      catSel.required = cats.length > 0;
       d.categoria = '';
     }
   }

@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { categorie } from '../db/schema.js';
+import { candidati, categorie } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 
@@ -77,6 +77,20 @@ export const categorieRoutes: FastifyPluginAsync = async (app) => {
   app.delete('/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
     return req.dbTx(async (tx) => {
+      // Pre-check: candidati che hanno scelto questa categoria. Senza FK lato
+      // DB diventerebbero orfani (categoria_id punta a un record che non esiste
+      // più). Blocchiamo finché l'admin non li riassegna.
+      const candCount = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(candidati)
+        .where(eq(candidati.categoriaId, id));
+      const nCand = candCount[0]?.n ?? 0;
+      if (nCand > 0) {
+        return reply.code(409).send({
+          error: `Categoria in uso: ${nCand} candidati la referenziano. Rimuovi prima i riferimenti.`,
+          candidati: nCand,
+        });
+      }
       const [deleted] = await tx.delete(categorie).where(eq(categorie.id, id)).returning();
       if (!deleted) return reply.notFound();
       await writeAudit(tx, req, 'categoria.delete', {

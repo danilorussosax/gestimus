@@ -12,16 +12,18 @@ const enteBody = z.object({
   codiceFiscale: z.string().max(50).optional(),
   partitaIva: z.string().max(50).optional(),
   telefono: z.string().max(50).optional(),
-  email: z.string().email().optional(),
-  pec: z.string().email().optional(),
+  email: z.string().email().optional().or(z.literal('')),
+  pec: z.string().email().optional().or(z.literal('')),
   sitoWeb: z.string().max(255).optional(),
   note: z.string().optional(),
 });
 
+// logoUrl può essere un dataURL base64 inline (PNG/WebP fino a qualche MB) —
+// il vecchio limite di 500 char accettava solo path. JSONB tollera testi lunghi.
 const brandingBody = z.object({
   nomePubblico: z.string().max(255).optional(),
   sottotitolo: z.string().max(255).optional(),
-  logoUrl: z.string().max(500).optional(),
+  logoUrl: z.string().max(10_000_000).optional(),
   coloreAccent: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
   coloreSfondo: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
 });
@@ -48,14 +50,22 @@ export const enteRoutes: FastifyPluginAsync = async (app) => {
   });
 
   /**
-   * PATCH /ente (admin) → aggiorna ente_settings
+   * PATCH /ente (admin) → MERGE su ente_settings (no overwrite del JSONB).
+   * Inviare solo i campi che cambiano; gli altri restano intatti.
    */
   app.patch('/', { preHandler: [requireAuth, requireRole('admin')] }, async (req, reply) => {
     const parsed = enteBody.safeParse(req.body);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
+    const existing = await dbSuper
+      .select({ enteSettings: tenants.enteSettings })
+      .from(tenants)
+      .where(eq(tenants.id, req.tenant!.id))
+      .limit(1);
+    const current = (existing[0]?.enteSettings as Record<string, unknown> | null) ?? {};
+    const merged = { ...current, ...parsed.data };
     await dbSuper
       .update(tenants)
-      .set({ enteSettings: parsed.data, updatedAt: new Date() })
+      .set({ enteSettings: merged, updatedAt: new Date() })
       .where(eq(tenants.id, req.tenant!.id));
     await req.dbTx(async (tx) => {
       await writeAudit(tx, req, 'ente.update', { targetType: 'tenant', targetId: req.tenant!.id });
@@ -81,14 +91,21 @@ export const enteRoutes: FastifyPluginAsync = async (app) => {
   });
 
   /**
-   * PATCH /ente/branding (admin) → aggiorna branding pubblico
+   * PATCH /ente/branding (admin) → MERGE branding pubblico (no overwrite).
    */
   app.patch('/branding', { preHandler: [requireAuth, requireRole('admin')] }, async (req, reply) => {
     const parsed = brandingBody.safeParse(req.body);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
+    const existing = await dbSuper
+      .select({ brandingPublic: tenants.brandingPublic })
+      .from(tenants)
+      .where(eq(tenants.id, req.tenant!.id))
+      .limit(1);
+    const current = (existing[0]?.brandingPublic as Record<string, unknown> | null) ?? {};
+    const merged = { ...current, ...parsed.data };
     await dbSuper
       .update(tenants)
-      .set({ brandingPublic: parsed.data, updatedAt: new Date() })
+      .set({ brandingPublic: merged, updatedAt: new Date() })
       .where(eq(tenants.id, req.tenant!.id));
     await req.dbTx(async (tx) => {
       await writeAudit(tx, req, 'branding.update', {

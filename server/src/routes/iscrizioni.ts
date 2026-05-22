@@ -167,6 +167,43 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(400).send({ error: 'consensi GDPR mancanti' });
       }
 
+      // Gerarchia categoria→sezione + cross-concorso check anche per il form
+      // pubblico: il backend è l'ultimo guardiano (il client può manomettere il
+      // payload). Se viene scelta una categoria di un'altra sezione/concorso
+      // → 400. Se manca la sezione ma c'è la categoria → la deriviamo.
+      let sezioneId = data.sezioneId;
+      const categoriaId = data.categoriaId;
+      if (sezioneId) {
+        const checkSez = await req.dbTx(async (tx) =>
+          tx.select({ concorsoId: sezioni.concorsoId }).from(sezioni).where(eq(sezioni.id, sezioneId!)).limit(1),
+        );
+        if (checkSez.length === 0 || checkSez[0]!.concorsoId !== data.concorsoId) {
+          return reply.code(400).send({ error: 'sezione non appartenente al concorso' });
+        }
+      }
+      if (categoriaId) {
+        const checkCat = await req.dbTx(async (tx) =>
+          tx.select({ sezioneId: categorie.sezioneId }).from(categorie).where(eq(categorie.id, categoriaId)).limit(1),
+        );
+        if (checkCat.length === 0) {
+          return reply.code(400).send({ error: 'categoria non trovata' });
+        }
+        const catSezId = checkCat[0]!.sezioneId;
+        if (sezioneId && catSezId !== sezioneId) {
+          return reply.code(400).send({ error: 'la categoria non appartiene alla sezione scelta' });
+        }
+        if (!sezioneId) {
+          // Auto-derive: l'utente ha scelto solo la categoria — propaga sezione
+          sezioneId = catSezId;
+          const checkCatConcorso = await req.dbTx(async (tx) =>
+            tx.select({ concorsoId: sezioni.concorsoId }).from(sezioni).where(eq(sezioni.id, catSezId)).limit(1),
+          );
+          if (checkCatConcorso.length === 0 || checkCatConcorso[0]!.concorsoId !== data.concorsoId) {
+            return reply.code(400).send({ error: 'la categoria non appartiene al concorso' });
+          }
+        }
+      }
+
       const emailToken = generateToken();
       return req.dbTx(async (tx) => {
         const [created] = await tx
@@ -184,8 +221,8 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
             strumento: data.strumento,
             programma: data.programma as object | undefined,
             docentiPreparatori: data.docentiPreparatori,
-            sezioneId: data.sezioneId,
-            categoriaId: data.categoriaId,
+            sezioneId,
+            categoriaId,
             isGruppo: data.isGruppo ?? false,
             membri: data.membri as object | undefined,
             tutore: data.tutore as object | undefined,

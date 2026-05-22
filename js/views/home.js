@@ -5,6 +5,7 @@ import { pb, PB_URL } from '../pb.js';
 // nuovo stack Postgres: la home non offre più la migrazione.
 import { icon } from '../icons.js';
 import { t } from '../i18n.js';
+import { setAdminTab } from './admin.js';
 
 export function renderHome(root) {
   const meta = db.state.meta;
@@ -202,6 +203,10 @@ export function renderHome(root) {
       }
       db.setRole('admin');
       db.setActiveConcorso(tr.dataset.openConcorso);
+      // activeTab è module-level in admin.js: se in una sessione precedente l'utente
+      // era su "Impostazioni" o "Risultati", aprendo da qui senza reset si finirebbe
+      // su quella tab. Forziamo dashboard come landing.
+      setAdminTab('dashboard');
       location.hash = '#/admin';
     });
   });

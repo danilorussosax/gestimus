@@ -183,6 +183,14 @@ export function readFileAsDataURL(file) {
 
 export async function readImageResized(file, maxDim = 400, quality = 0.85) {
   const dataURL = await readFileAsDataURL(file);
+  // Preserva il formato sorgente per non rompere la trasparenza:
+  // PNG/WebP/SVG → output con alpha; JPEG → JPEG (ricompresso, più leggero).
+  const inputMime = (file?.type || '').toLowerCase();
+  const outputMime = inputMime === 'image/jpeg' || inputMime === 'image/jpg'
+    ? 'image/jpeg'
+    : inputMime === 'image/webp'
+    ? 'image/webp'
+    : 'image/png'; // png è il safe default — supporta alpha ed è lossless
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.onload = () => {
@@ -193,7 +201,8 @@ export async function readImageResized(file, maxDim = 400, quality = 0.85) {
       canvas.width = w; canvas.height = h;
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0, w, h);
-      resolve(canvas.toDataURL('image/jpeg', quality));
+      // toDataURL ignora il parametro quality per image/png — innocuo passarlo.
+      resolve(canvas.toDataURL(outputMime, quality));
     };
     img.onerror = reject;
     img.src = dataURL;

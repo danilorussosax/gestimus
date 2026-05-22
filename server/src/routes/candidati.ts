@@ -1,23 +1,56 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { candidati } from '../db/schema.js';
+import { candidati, categorie, sezioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 
+// Verifica che sezione e categoria scelte appartengano al concorso del
+// candidato (e che la categoria appartenga alla sezione). Senza FK al DB
+// queste relazioni potrebbero andare in incoerenza; rifiutiamo qui.
+// Ritorna { ok: true } oppure { ok: false, error: '...' }.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function validateScope(tx: any, concorsoId: string, sezioneId: string | null | undefined, categoriaId: string | null | undefined): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (sezioneId) {
+    const sez = await tx.select({ concorsoId: sezioni.concorsoId }).from(sezioni).where(eq(sezioni.id, sezioneId)).limit(1);
+    if (sez.length === 0) return { ok: false, error: 'sezione non trovata' };
+    if (sez[0].concorsoId !== concorsoId) return { ok: false, error: 'la sezione non appartiene al concorso del candidato' };
+  }
+  if (categoriaId) {
+    const cat = await tx.select({ sezioneId: categorie.sezioneId }).from(categorie).where(eq(categorie.id, categoriaId)).limit(1);
+    if (cat.length === 0) return { ok: false, error: 'categoria non trovata' };
+    if (sezioneId && cat[0].sezioneId !== sezioneId) {
+      return { ok: false, error: 'la categoria non appartiene alla sezione scelta' };
+    }
+    // Caso PATCH solo-categoria senza nuova sezione: verifica che la sezione
+    // della categoria appartenga al concorso del candidato.
+    if (!sezioneId) {
+      const catSez = await tx.select({ concorsoId: sezioni.concorsoId }).from(sezioni).where(eq(sezioni.id, cat[0].sezioneId)).limit(1);
+      if (catSez.length === 0 || catSez[0].concorsoId !== concorsoId) {
+        return { ok: false, error: 'la categoria non appartiene al concorso del candidato' };
+      }
+    }
+  }
+  return { ok: true };
+}
+
 const uuid = z.string().uuid();
+// Helper: il frontend manda "" o null per i campi vuoti del form (es. la radio
+// "Nessuna sezione" del candidato). Trasformiamo "" in null così le zod sotto
+// possono accettare il valore "non impostato" uniformemente.
+const emptyToNull = <T>(v: T) => (v === '' ? null : v);
 const createBody = z.object({
   concorsoId: uuid,
   numeroCandidato: z.number().int().positive(),
   nome: z.string().min(1).max(255),
   cognome: z.string().max(255).optional(),
   strumento: z.string().min(1).max(255),
-  dataNascita: z.string().date().optional(),
+  dataNascita: z.preprocess(emptyToNull, z.string().date().nullable()).optional(),
   nazionalita: z.string().max(100).optional(),
   docentiPreparatori: z.array(z.string()).optional(),
-  dataIscrizione: z.string().date().optional(),
-  sezioneId: uuid.optional(),
-  categoriaId: uuid.optional(),
+  dataIscrizione: z.preprocess(emptyToNull, z.string().date().nullable()).optional(),
+  sezioneId: z.preprocess(emptyToNull, uuid.nullable()).optional(),
+  categoriaId: z.preprocess(emptyToNull, uuid.nullable()).optional(),
   isGruppo: z.boolean().optional(),
 });
 const updateBody = createBody.partial().omit({ concorsoId: true });
@@ -47,10 +80,20 @@ export const candidatiRoutes: FastifyPluginAsync = async (app) => {
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
     return req.dbTx(async (tx) => {
+      const scope = await validateScope(tx, parsed.data.concorsoId, parsed.data.sezioneId, parsed.data.categoriaId);
+      if (!scope.ok) return reply.badRequest(scope.error);
+      // Gerarchia categoria→sezione: se è stata scelta una categoria ma non
+      // una sezione (es. payload generato da import/script esterno), deriviamo
+      // la sezione dalla categoria così il record resta coerente.
+      const data = { ...parsed.data };
+      if (data.categoriaId && !data.sezioneId) {
+        const cat = await tx.select({ sezioneId: categorie.sezioneId }).from(categorie).where(eq(categorie.id, data.categoriaId)).limit(1);
+        if (cat.length > 0) data.sezioneId = cat[0]!.sezioneId;
+      }
       try {
         const [created] = await tx
           .insert(candidati)
-          .values({ tenantId: req.tenant!.id, ...parsed.data })
+          .values({ tenantId: req.tenant!.id, ...data })
           .returning();
         await writeAudit(tx, req, 'candidato.create', {
           targetType: 'candidato',
@@ -71,9 +114,34 @@ export const candidatiRoutes: FastifyPluginAsync = async (app) => {
     const parsed = updateBody.safeParse(req.body);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
     return req.dbTx(async (tx) => {
+      // Per validare lo scope sezione/categoria serve sapere il concorso del
+      // candidato. Lo leggiamo prima (l'id non è modificabile via PATCH).
+      const cur = await tx
+        .select({ concorsoId: candidati.concorsoId, sezioneId: candidati.sezioneId })
+        .from(candidati)
+        .where(eq(candidati.id, id))
+        .limit(1);
+      if (cur.length === 0) return reply.notFound();
+      const scope = await validateScope(
+        tx,
+        cur[0]!.concorsoId,
+        // Se la PATCH non tocca sezione, usa quella corrente come riferimento
+        // per verificare la coerenza della categoria.
+        parsed.data.sezioneId !== undefined ? parsed.data.sezioneId : cur[0]!.sezioneId,
+        parsed.data.categoriaId,
+      );
+      if (!scope.ok) return reply.badRequest(scope.error);
+      // Gerarchia categoria→sezione: se la PATCH cambia la categoria senza
+      // toccare la sezione, propaghiamo la sezione della nuova categoria così
+      // i due campi restano coerenti.
+      const data = { ...parsed.data };
+      if (data.categoriaId && data.sezioneId === undefined) {
+        const cat = await tx.select({ sezioneId: categorie.sezioneId }).from(categorie).where(eq(categorie.id, data.categoriaId)).limit(1);
+        if (cat.length > 0) data.sezioneId = cat[0]!.sezioneId;
+      }
       const [updated] = await tx
         .update(candidati)
-        .set({ ...parsed.data, updatedAt: new Date() })
+        .set({ ...data, updatedAt: new Date() })
         .where(eq(candidati.id, id))
         .returning();
       if (!updated) return reply.notFound();

@@ -1,7 +1,7 @@
 import { db } from '../db.js';
 import { t } from '../i18n.js';
 import { icon } from '../icons.js';
-import { escapeHtml, toast, readFileAsDataURL } from '../utils.js';
+import { escapeHtml, toast, readImageResized } from '../utils.js';
 
 export function renderImpostazioni(root) {
   const ente = db.getEnte();
@@ -104,7 +104,9 @@ export function renderImpostazioni(root) {
   `;
 
   const form = root.querySelector('#ente-form');
-  let logoFile = null;
+  // Memorizziamo il logo come dataURL già ridimensionato + format-preserving
+  // (readImageResized mantiene PNG/WebP con alpha, ricomprime solo JPEG).
+  let logoDataURL = null;
 
   // Sync color picker <-> text input
   const cp1 = form.querySelector('[name="colore_primario"]');
@@ -116,12 +118,17 @@ export function renderImpostazioni(root) {
   cp2.addEventListener('input', () => { ct2.value = cp2.value; });
   ct2.addEventListener('input', () => { if (/^#[0-9a-f]{6}$/i.test(ct2.value)) cp2.value = ct2.value; });
 
-  // Logo preview
+  // Logo preview + resize a max 800px (dataURL inline, format-preserving)
   form.querySelector('[name="logo"]').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast(t('admin.settings.logo_error') || 'File troppo grande (max 5 MB)', 'error');
+      e.target.value = '';
+      return;
+    }
     try {
-      const url = await readFileAsDataURL(file);
+      const url = await readImageResized(file, 800, 0.85);
       const preview = root.querySelector('#ente-logo-preview');
       if (preview.tagName === 'IMG') {
         preview.src = url;
@@ -133,7 +140,7 @@ export function renderImpostazioni(root) {
         img.className = 'w-full h-full object-contain';
         preview.replaceWith(img);
       }
-      logoFile = file;
+      logoDataURL = url;
     } catch (err) {
       toast(t('admin.settings.logo_error'), 'error');
     }
@@ -152,8 +159,8 @@ export function renderImpostazioni(root) {
       colore_primario: formData.get('colore_primario'),
       colore_secondario: formData.get('colore_secondario'),
     };
-    if (logoFile) {
-      patch.logo = logoFile;
+    if (logoDataURL) {
+      patch.logo = logoDataURL;
     }
     try {
       await db.saveEnte(patch);

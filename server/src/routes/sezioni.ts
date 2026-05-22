@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { sezioni } from '../db/schema.js';
+import { candidati, fasiSezioni, sezioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 
@@ -75,6 +75,27 @@ export const sezioniRoutes: FastifyPluginAsync = async (app) => {
   app.delete('/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
     return req.dbTx(async (tx) => {
+      // Pre-check: candidati e fasi che referenziano questa sezione.
+      // Le `categorie` figlie e le righe `fasi_sezioni` cascade automaticamente
+      // (vedi schema), ma i candidati hanno solo sezione_id NULLABLE senza FK
+      // e diventerebbero orfani con dati incoerenti. Rifiutiamo.
+      const candCount = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(candidati)
+        .where(eq(candidati.sezioneId, id));
+      const fasiCount = await tx
+        .select({ n: sql<number>`count(*)::int` })
+        .from(fasiSezioni)
+        .where(eq(fasiSezioni.sezioneId, id));
+      const nCand = candCount[0]?.n ?? 0;
+      const nFasi = fasiCount[0]?.n ?? 0;
+      if (nCand > 0 || nFasi > 0) {
+        return reply.code(409).send({
+          error: `Sezione in uso: ${nCand} candidati e ${nFasi} fasi la referenziano. Rimuovi prima i riferimenti.`,
+          candidati: nCand,
+          fasi: nFasi,
+        });
+      }
       const [deleted] = await tx.delete(sezioni).where(eq(sezioni.id, id)).returning();
       if (!deleted) return reply.notFound();
       await writeAudit(tx, req, 'sezione.delete', {

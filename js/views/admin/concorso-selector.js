@@ -6,7 +6,7 @@ import { escapeHtml, modal, toast, confirmDialog, readImageResized } from '../..
 import { icon } from '../../icons.js';
 import { t } from '../../i18n.js';
 import { tiebreakStrategyHtml } from './common.js';
-import { setAdminTab } from '../admin.js';
+import { setAdminTab, renderAdmin } from '../admin.js';
 
 export function renderConcorsoSelector(root) {
   const concorsi = db.state.concorsi;
@@ -145,7 +145,10 @@ export function openCreateConcorso() {
       const logoFile = body.querySelector('[name="logo"]').files[0] || null;
       if (!nome) { toast(t('admin.concorso.required_nome') || 'Il nome è obbligatorio', 'error'); return false; }
       try {
-        const logo = logoFile ? await readImageResized(logoFile, 800, 0.85) : undefined;
+        // db.createConcorso si aspetta { dataURL, name } — non la sola stringa.
+        const logo = logoFile
+          ? { dataURL: await readImageResized(logoFile, 800, 0.85), name: logoFile.name }
+          : undefined;
         const c = await db.createConcorso({ nome, anno: Number(anno), data_inizio, logo });
         if (anonimo) await db.updateConcorso(c.id, { anonimo: true });
         db.setActiveConcorso(c.id);
@@ -254,7 +257,9 @@ export function openEditConcorso(concorso, onSaved) {
       try {
         const patch = { nome, anno: Number(anno), data_inizio, stato, anonimo, iscrizioni_aperte, iscrizioni_chiusura };
         if (default_tiebreak_strategy !== null) patch.default_tiebreak_strategy = default_tiebreak_strategy;
-        if (logoFile) patch.logo = await readImageResized(logoFile, 800, 0.85);
+        if (logoFile) {
+          patch.logo = { dataURL: await readImageResized(logoFile, 800, 0.85), name: logoFile.name };
+        }
         await db.updateConcorso(concorso.id, patch);
         toast(t('admin.concorso.updated') || 'Concorso aggiornato', 'success');
         if (onSaved) onSaved();

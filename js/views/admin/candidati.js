@@ -205,8 +205,12 @@ export function renderCandidati(root, concorso) {
 function candidatoCardHtml(c) {
   const eta = ageFromDate(c.data_nascita) ?? c.eta;
   const docenti = c.docenti_preparatori || [];
-  const sezioni = (c.sezioni_ids || []).map(id => db.state.sezioni.find(s => s.id === id)).filter(Boolean);
-  const categorie = (c.categorie_ids || []).map(id => db.state.categorie.find(x => x.id === id)).filter(Boolean);
+  // Lo schema DB è N:1 (una sezione, una categoria per candidato), non N:M.
+  // Normalizzo a singleton-array così il rendering del badge sotto resta uguale.
+  const sezione = c.sezione_id ? db.state.sezioni.find(s => s.id === c.sezione_id) : null;
+  const categoria = c.categoria_id ? db.state.categorie.find(x => x.id === c.categoria_id) : null;
+  const sezioni = sezione ? [sezione] : [];
+  const categorie = categoria ? [categoria] : [];
   const isGruppo = c.tipo === 'gruppo';
   const membri = isGruppo ? db.membriGruppo(c.id) : [];
   return `
@@ -307,8 +311,8 @@ function openCandidatoForm(concorso, candidato, onSaved) {
   let fotoData = candidato?.foto || null;
   const initialFoto = candidato?.foto || null;
   const todayISO = new Date().toISOString().slice(0,10);
-  const initSezIds = new Set(Array.isArray(candidato?.sezioni_ids) ? candidato.sezioni_ids : []);
-  const initCatIds = new Set(Array.isArray(candidato?.categorie_ids) ? candidato.categorie_ids : []);
+  const initSezId = candidato?.sezione_id || '';
+  const initCatId = candidato?.categoria_id || '';
   const allSezioni = db.sezioniByConcorso(concorso.id);
 
   const inputCls = 'mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500';
@@ -385,21 +389,27 @@ function openCandidatoForm(concorso, candidato, onSaved) {
             <p class="text-[11px] text-slate-500">${escapeHtml(t('admin.candidato.section_iscrizione_help'))}</p>
           </header>
           ${allSezioni.length === 0 ? `<p class="text-xs text-slate-400 italic">${t('admin.candidato.no_sezioni')}</p>` : `
+            <p class="text-[11px] text-slate-500 mb-2">Un candidato appartiene a una sola sezione e a una sola categoria all'interno di essa.</p>
             <div class="space-y-2">
+              <label class="flex items-center gap-2 cursor-pointer border border-slate-200 rounded-lg p-2 bg-white">
+                <input type="radio" name="sezione_id" value="" ${!initSezId ? 'checked' : ''} class="w-4 h-4" />
+                <span class="text-sm text-slate-600 italic">— Nessuna sezione —</span>
+              </label>
               ${allSezioni.map(s => {
                 const cats = db.categorieBySezione(s.id);
+                const isSelected = initSezId === s.id;
                 return `
-                  <div class="border border-slate-200 rounded-lg p-2.5 bg-slate-50">
+                  <div class="border ${isSelected ? 'border-brand-300 ring-1 ring-brand-200' : 'border-slate-200'} rounded-lg p-2.5 bg-slate-50">
                     <label class="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" data-cand-sez="${s.id}" ${initSezIds.has(s.id) ? 'checked' : ''} class="w-4 h-4 rounded border-slate-300 text-brand-600" />
+                      <input type="radio" name="sezione_id" value="${s.id}" ${isSelected ? 'checked' : ''} data-toggle-cats class="w-4 h-4" />
                       <span class="text-sm font-semibold text-slate-800">${escapeHtml(s.nome)}</span>
                       <span class="text-[10px] text-slate-500">${escapeHtml(t('admin.candidato.cats_count', { n: cats.length }))}</span>
                     </label>
                     ${cats.length > 0 ? `
-                      <div class="mt-2 ml-6 grid grid-cols-1 sm:grid-cols-2 gap-1">
+                      <div class="mt-2 ml-6 grid grid-cols-1 sm:grid-cols-2 gap-1" data-cats-for="${s.id}" ${isSelected ? '' : 'hidden'}>
                         ${cats.map(c => `
                           <label class="flex items-center gap-2 bg-white hover:bg-brand-50 border border-slate-200 rounded-md px-2 py-1 cursor-pointer">
-                            <input type="checkbox" data-cand-cat="${c.id}" ${initCatIds.has(c.id) ? 'checked' : ''} class="w-3.5 h-3.5 rounded border-slate-300 text-brand-600" />
+                            <input type="radio" name="categoria_id_${s.id}" value="${c.id}" ${isSelected && initCatId === c.id ? 'checked' : ''} class="w-3.5 h-3.5" />
                             <span class="text-xs text-slate-700">${escapeHtml(c.nome)}</span>
                           </label>
                         `).join('')}
@@ -440,15 +450,60 @@ function openCandidatoForm(concorso, candidato, onSaved) {
         }
       });
       fotoClear.addEventListener('click', () => { fotoData = null; setFotoUI(); });
+
+      // Show/hide del blocco categorie in base alla sezione selezionata: la
+      // categoria scelta è quella del radio group `categoria_id_<sezId>` della
+      // sezione attiva. Cambio di sezione → nascondi le categorie delle altre.
+      const sezRadios = body.querySelectorAll('input[name="sezione_id"]');
+      const syncCatsVisibility = () => {
+        const selected = Array.from(sezRadios).find(r => r.checked);
+        const selectedId = selected ? selected.value : '';
+        body.querySelectorAll('[data-cats-for]').forEach(box => {
+          const show = box.dataset.catsFor === selectedId;
+          box.hidden = !show;
+        });
+      };
+      sezRadios.forEach(r => r.addEventListener('change', syncCatsVisibility));
+      syncCatsVisibility();
+
+      // Auto-derive sezione dalla categoria: se l'utente clicca su una
+      // categoria, la sua sezione padre deve essere selezionata (gerarchia
+      // dura). Il name del radio categoria è `categoria_id_<sezId>` → estraiamo
+      // il sezId e forziamo il radio sezione corrispondente.
+      body.querySelectorAll('input[name^="categoria_id_"]').forEach(catRadio => {
+        catRadio.addEventListener('change', () => {
+          if (!catRadio.checked) return;
+          const sezId = catRadio.name.slice('categoria_id_'.length);
+          if (!sezId) return;
+          const sezRadio = body.querySelector(`input[name="sezione_id"][value="${sezId}"]`);
+          if (sezRadio && !sezRadio.checked) {
+            sezRadio.checked = true;
+            syncCatsVisibility();
+          }
+        });
+      });
     },
     onPrimary: async (body) => {
       const form = body.querySelector('#frm');
       if (!form.reportValidity()) return false;
       const data = Object.fromEntries(new FormData(form));
       const docenti = (data.docenti || '').split('\n').map(s => s.trim()).filter(Boolean);
-      // Read sezioni/categorie selections
-      const sezIds = Array.from(body.querySelectorAll('input[data-cand-sez]:checked')).map(i => i.dataset.candSez);
-      const catIds = Array.from(body.querySelectorAll('input[data-cand-cat]:checked')).map(i => i.dataset.candCat);
+      // Lettura sezione + categoria: il group `categoria_id_<sezId>` è valido
+      // solo per la sezione corrente; le altre vengono ignorate.
+      const sezSelected = body.querySelector('input[name="sezione_id"]:checked');
+      const sezione_id = sezSelected ? sezSelected.value : '';
+      let categoria_id = '';
+      if (sezione_id) {
+        const catSelected = body.querySelector(`input[name="categoria_id_${sezione_id}"]:checked`);
+        categoria_id = catSelected ? catSelected.value : '';
+        // Se la sezione ha categorie ma l'utente non ne ha scelta una, blocca
+        // (la categoria è obbligatoria quando esiste un'opzione).
+        const hasCategorie = db.categorieBySezione(sezione_id).length > 0;
+        if (hasCategorie && !categoria_id) {
+          toast('Scegli una categoria della sezione selezionata', 'error');
+          return false;
+        }
+      }
       const tipo = (data.tipo || 'individuale').trim() || 'individuale';
       const baseFields = {
         nome: (data.nome || '').trim(),
@@ -457,8 +512,8 @@ function openCandidatoForm(concorso, candidato, onSaved) {
         data_nascita: data.data_nascita,
         nazionalita: (data.nazionalita || '').trim(),
         docenti_preparatori: docenti,
-        sezioni_ids: sezIds,
-        categorie_ids: catIds,
+        sezione_id: sezione_id || null,
+        categoria_id: categoria_id || null,
         tipo,
       };
       // Per gruppi, cognome e data_nascita non sono obbligatori

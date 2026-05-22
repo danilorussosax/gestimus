@@ -8,6 +8,33 @@ import { fmtVoto, getScala, getMetodoMedia, getModoValutazione, mediaCandidato, 
 import { icon } from '../../icons.js';
 import { t } from '../../i18n.js';
 
+// Helper persi durante lo split di admin.js — riportati qui per evitare ReferenceError
+// in renderRisultati (usa buildVerbaleBlock) e in exportVerbalePdf.
+function faseScopeLabel(fase) {
+  const ids = Array.isArray(fase?.sezioni_ids) ? fase.sezioni_ids : [];
+  if (ids.length === 0) return '';
+  const nomi = ids.map(id => db.state.sezioni.find(s => s.id === id)?.nome).filter(Boolean);
+  if (nomi.length === 0) return '';
+  return ' · ' + nomi.join(' + ');
+}
+
+function loadImageDataURL(src) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const c = document.createElement('canvas');
+        c.width = img.naturalWidth; c.height = img.naturalHeight;
+        c.getContext('2d').drawImage(img, 0, 0);
+        resolve(c.toDataURL('image/png'));
+      } catch { resolve(null); }
+    };
+    img.onerror = () => resolve(null);
+    img.src = src;
+  });
+}
+
 // Tag dinamici disponibili nel template verbale: il blocco "general" si
 // applica all'intero concorso (header), il blocco "fase" è disponibile solo
 // quando si genera un verbale di singola fase.

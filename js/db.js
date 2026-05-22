@@ -131,6 +131,9 @@ function mapFase(r) {
     tempo_minuti: r.tempoMinuti || 0,
     stato: r.stato || 'PIANIFICATA',
     tiebreak_strategy: r.tiebreakStrategy || null,
+    // sezioni_ids: array di id sezioni a cui la fase è ristretta. Vuoto = fase
+    // globale sul concorso. Popolato dal backend via join table fasi_sezioni.
+    sezioni_ids: Array.isArray(r.sezioniIds) ? r.sezioniIds : [],
     timer_started_at: r.timerStartedAt || null,
     timer_paused_at: r.timerPausedAt || null,
     timer_bonus_seconds: r.timerBonusSeconds || 0,
@@ -233,9 +236,39 @@ function mapMembroGruppo(r) {
 // Loader iniziale
 // ====================================================================
 
+// Appiattisce il record tenant: oltre alle colonne top-level (id/nome/slug/...),
+// espone i campi nested di enteSettings/brandingPublic come proprietà piatte
+// (logo_url, email_contatto, ecc.) per non costringere ogni view a navigare
+// il JSONB.
+function mapEnte(r) {
+  if (!r) return null;
+  const bp = r.brandingPublic || {};
+  const es = r.enteSettings || {};
+  return {
+    ...r,
+    // Preferiamo il nome pubblico custom (modificabile dall'admin) e cadiamo
+    // sul nome top-level del tenant (immutabile lato frontend).
+    nome: bp.nomePubblico || r.nome || null,
+    logo_url: bp.logoUrl || null,
+    colore_primario: bp.coloreAccent || null,
+    colore_secondario: bp.coloreSfondo || null,
+    sottotitolo: bp.sottotitolo || null,
+    descrizione: es.note || null,
+    email_contatto: es.email || null,
+    telefono: es.telefono || null,
+    sito_web: es.sitoWeb || null,
+    indirizzo: es.sede || null,
+    codice_fiscale: es.codiceFiscale || null,
+    partita_iva: es.partitaIva || null,
+    pec: es.pec || null,
+    enteSettings: es,
+    brandingPublic: bp,
+  };
+}
+
 async function loadEntePublic() {
   try {
-    state.ente_public = await api.get('/api/ente/public');
+    state.ente_public = mapEnte(await api.get('/api/ente/public'));
   } catch {
     state.ente_public = null;
   }
@@ -262,7 +295,7 @@ async function loadAll() {
   state.candidati = (candidati || []).map(mapCandidato);
   state.fasi = (fasi || []).map(mapFase);
   state._criteri = criteri || []; // tenuti raw, non usati direttamente dalle view core
-  state.ente = ente;
+  state.ente = mapEnte(ente);
 
   // Carica candidati_fase per ogni fase (no endpoint cumulativo)
   state.candidati_fase = [];
@@ -795,6 +828,12 @@ export const db = {
   candidatiByConcorso(concorso_id) {
     return state.candidati.filter((c) => c.concorso_id === concorso_id);
   },
+  // Membri di un candidato-gruppo (righe della tabella candidati_membri
+  // collegate via candidato_id). I membri sono dati piatti (nome/cognome/
+  // strumento), non riferimenti ad altri candidati.
+  membriGruppo(gruppo_id) {
+    return state.candidati_gruppo.filter((m) => m.candidato_id === gruppo_id);
+  },
   async createCandidato({ concorso_id, nome, cognome = '', strumento, data_nascita = null, nazionalita = '', foto = null, docenti_preparatori = [], sezione_id = null, categoria_id = null, tipo = 'individuale' }) {
     const numero = Math.max(0, ...state.candidati.filter((c) => c.concorso_id === concorso_id).map((c) => c.numero_candidato)) + 1;
     const r = await api.post('/api/candidati', {
@@ -864,7 +903,7 @@ export const db = {
   fasiByConcorso(concorso_id) {
     return state.fasi.filter((f) => f.concorso_id === concorso_id).sort((a, b) => a.ordine - b.ordine);
   },
-  async createFase({ concorso_id, nome, ammessi = null, data_prevista = null, scala = 100, modo_valutazione = 'autonoma', metodo_media = 'aritmetica', tempo_minuti = 0, pesi = null, commissione_id = null, tiebreak_strategy = null }) {
+  async createFase({ concorso_id, nome, ammessi = null, data_prevista = null, scala = 100, modo_valutazione = 'autonoma', metodo_media = 'aritmetica', tempo_minuti = 0, pesi = null, commissione_id = null, tiebreak_strategy = null, sezioni_ids = [] }) {
     const ordine = state.fasi.filter((f) => f.concorso_id === concorso_id).length + 1;
     const r = await api.post('/api/fasi', {
       concorsoId: concorso_id,
@@ -877,6 +916,7 @@ export const db = {
       pesi: pesi || undefined,
       commissioneId: commissione_id || undefined,
       tiebreakStrategy: tiebreak_strategy || undefined,
+      sezioniIds: Array.isArray(sezioni_ids) && sezioni_ids.length > 0 ? sezioni_ids : undefined,
     });
     const f = mapFase(r);
     state.fasi.push(f); notify();
@@ -890,6 +930,7 @@ export const db = {
       metodo_media: 'metodoMedia', tempo_minuti: 'tempoMinuti',
       pesi: 'pesi', commissione_id: 'commissioneId',
       tiebreak_strategy: 'tiebreakStrategy', ordine: 'ordine',
+      sezioni_ids: 'sezioniIds',
     };
     for (const [k, v] of Object.entries(keymap)) {
       if (patch[k] !== undefined) body[v] = patch[k];
@@ -947,9 +988,53 @@ export const db = {
   // ---------- Ente / branding ----------
   getEnte() { return state.ente; },
   getEntePublic() { return state.ente_public; },
+  /**
+   * Salva i campi piatti del form ente sui due endpoint corretti:
+   *   - /api/ente         (PATCH MERGE su enteSettings: email, telefono, sede, ...)
+   *   - /api/ente/branding (PATCH MERGE su brandingPublic: logoUrl, colori)
+   *
+   * Il `patch` arriva dal form admin-impostazioni.js con nomi piatti tipo
+   * `email_contatto`, `colore_primario`, `logo` (File o dataURL).
+   */
   async saveEnte(patch) {
-    await api.patch('/api/ente', patch);
-    state.ente = await api.get('/api/ente');
+    const enteFields = {};
+    if (patch.email_contatto !== undefined) enteFields.email = patch.email_contatto;
+    if (patch.telefono !== undefined) enteFields.telefono = patch.telefono;
+    if (patch.sito_web !== undefined) enteFields.sitoWeb = patch.sito_web;
+    if (patch.indirizzo !== undefined) enteFields.sede = patch.indirizzo;
+    if (patch.descrizione !== undefined) enteFields.note = patch.descrizione;
+    if (Object.keys(enteFields).length > 0) {
+      await api.patch('/api/ente', enteFields);
+    }
+
+    const brandingFields = {};
+    if (patch.nome !== undefined) brandingFields.nomePubblico = patch.nome;
+    if (patch.sottotitolo !== undefined) brandingFields.sottotitolo = patch.sottotitolo;
+    if (patch.colore_primario !== undefined) brandingFields.coloreAccent = patch.colore_primario;
+    if (patch.colore_secondario !== undefined) brandingFields.coloreSfondo = patch.colore_secondario;
+    if (patch.logo !== undefined) {
+      // Il form può passare File, dataURL string o null (rimozione).
+      if (patch.logo instanceof File || patch.logo instanceof Blob) {
+        brandingFields.logoUrl = await new Promise((resolve, reject) => {
+          const r = new FileReader();
+          r.onload = () => resolve(r.result);
+          r.onerror = reject;
+          r.readAsDataURL(patch.logo);
+        });
+      } else if (typeof patch.logo === 'string') {
+        brandingFields.logoUrl = patch.logo;
+      } else if (patch.logo === null) {
+        brandingFields.logoUrl = '';
+      }
+    }
+    if (Object.keys(brandingFields).length > 0) {
+      await api.patch('/api/ente/branding', brandingFields);
+    }
+
+    state.ente = mapEnte(await api.get('/api/ente'));
+    // L'endpoint pubblico (usato per branding pre-login) ha una copia separata;
+    // ricarichiamo anche quello così l'header logo si aggiorna senza reload.
+    await loadEntePublic();
     notify();
     return state.ente;
   },
@@ -975,6 +1060,15 @@ export const db = {
     const f = mapFase(r);
     const i = state.fasi.findIndex((x) => x.id === faseId);
     if (i >= 0) state.fasi[i] = f;
+    // Il backend auto-popola candidati_fase se vuota — ricarico localmente
+    // così la UI mostra subito la lista candidati.
+    try {
+      const list = await api.get('/api/candidati-fase', { faseId });
+      state.candidati_fase = state.candidati_fase.filter((cf) => cf.fase_id !== faseId);
+      state.candidati_fase.push(...(list || []).map(mapCandidatoFase));
+    } catch (e) {
+      console.warn('reload candidati_fase after start failed:', e?.message);
+    }
     notify();
     return f;
   },
@@ -1261,10 +1355,13 @@ export const db = {
    *     is_gruppo, membri, tutore, consensi_gdpr, started_at, honeypot }
    */
   async createIscrizione(payload) {
+    // Tolleriamo sia gli alias snake_case dei mapper interni sia i name dei
+    // <input>/<select> usati dal form pubblico (iscrizione.js draft → d.sezione,
+    // d.categoria, d.concorso, ecc.). Il backend vuole camelCase puro.
     const body = {
-      concorsoId: payload.concorso_id,
-      honeypot: payload.honeypot || undefined,
-      startedAt: payload.started_at || undefined,
+      concorsoId: payload.concorso_id || payload.concorso || payload.concorsoId,
+      honeypot: payload.honeypot || payload.website || undefined,
+      startedAt: payload.started_at || payload._form_started_at || undefined,
       nome: payload.nome,
       cognome: payload.cognome,
       email: payload.email,
@@ -1274,10 +1371,10 @@ export const db = {
       strumento: payload.strumento,
       programma: payload.programma,
       docentiPreparatori: payload.docenti_preparatori,
-      sezioneId: payload.sezione_id || undefined,
-      categoriaId: payload.categoria_id || undefined,
-      isGruppo: !!payload.is_gruppo,
-      membri: payload.membri,
+      sezioneId: payload.sezione_id || payload.sezione || undefined,
+      categoriaId: payload.categoria_id || payload.categoria || undefined,
+      isGruppo: payload.is_gruppo != null ? !!payload.is_gruppo : payload.tipo === 'gruppo',
+      membri: payload.membri || payload.gruppo_membri,
       tutore: payload.tutore,
       consensiGdpr: payload.consensi_gdpr,
     };
