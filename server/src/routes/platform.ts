@@ -15,6 +15,8 @@ import {
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { hashPassword } from '../services/password.js';
 import { writePlatformAudit } from '../services/audit.js';
+import { listBackups } from '../services/backup.js';
+import { runTenantCleanup } from '../services/cleanup.js';
 
 const TENANT_STATES = ['attivo', 'sospeso', 'archiviato'] as const;
 const TENANT_PLANS = ['trial', 'starter', 'pro', 'ultra', 'ppe'] as const;
@@ -437,6 +439,23 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
       .orderBy(desc(platformAuditLog.createdAt))
       .limit(limit);
     return rows;
+  });
+
+  /**
+   * GET /backups → lista dei dump pre-hard-delete presenti in ARCHIVE_DIR.
+   */
+  app.get('/backups', { preHandler: platformGuards }, async () => {
+    return await listBackups();
+  });
+
+  /**
+   * POST /jobs/cleanup-tenants → trigger manuale del job di hard-delete
+   * (utile per ops/test; il cron notturno fa la stessa cosa automaticamente).
+   */
+  app.post('/jobs/cleanup-tenants', { preHandler: platformGuards }, async (req) => {
+    const result = await runTenantCleanup();
+    await writePlatformAudit(req, 'platform.jobs.cleanup_manual', { payload: result });
+    return result;
   });
 
   /**

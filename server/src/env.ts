@@ -14,6 +14,14 @@ const schema = z.object({
   GESTIMUS_SECRET_KEY: z.string().min(32),
   UPLOADS_DIR: z.string().default('./uploads'),
   UPLOADS_MAX_FILE_SIZE_MB: z.coerce.number().int().positive().default(5),
+  // Cleanup automatico tenant archiviati + backup pre-hard-delete (Fase 6 traccia B)
+  ARCHIVE_DIR: z.string().default('./archive'),
+  BACKUP_RETENTION_DAYS: z.coerce.number().int().min(0).max(3650).default(90),
+  CLEANUP_CRON_SCHEDULE: z.string().default('0 3 * * *'),
+  CLEANUP_ENABLED: z
+    .string()
+    .default('true')
+    .transform((v) => v.toLowerCase() === 'true'),
   PLATFORM_SMTP_HOST: z.string().optional(),
   PLATFORM_SMTP_PORT: z.coerce.number().int().positive().optional(),
   PLATFORM_SMTP_USER: z.string().optional(),
