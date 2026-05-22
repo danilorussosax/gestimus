@@ -32,14 +32,16 @@ Listino IONOS Italia (aggiornato — promo 24 mesi · poi rinnovo automatico al 
 
 | Piano | vCPU | RAM | NVMe | €/mese (promo) | €/mese (rinnovo) | Enti supportati |
 |-------|----:|----:|----:|----:|----:|------|
-| VPS XS+ | 1 | 1 GB | 10 GB | €1,00 | – (mensile) | demo / single tenant |
-| VPS S+ | 2 | 2 GB | 80 GB | €2,00 | €2,50 | 3–8 enti leggeri |
-| VPS M+ | 4 | 4 GB | 120 GB | €3,00 | €4,50 | 8–20 enti standard |
-| **VPS L+** ⭐ *(più venduto)* | **6** | **8 GB** | **240 GB** | **€5,00** | **€8,00** | **20–50 enti completi** |
-| VPS XL+ | 8 | 16 GB | 480 GB | €9,00 | €15,00 | 40–100 enti |
-| VPS XXL+ | 12 | 24 GB | 720 GB | €15,00 | €29,50 | 60–150 enti |
+| VPS XS+ | 1 | 1 GB | 10 GB | €1,00 | – (mensile) | demo / fino a ~20 enti idle |
+| VPS S+ | 2 | 2 GB | 80 GB | €2,00 | €2,50 | 50–100 enti |
+| VPS M+ | 4 | 4 GB | 120 GB | €3,00 | €4,50 | 150–300 enti |
+| **VPS L+** ⭐ *(più venduto)* | **6** | **8 GB** | **240 GB** | **€5,00** | **€8,00** | **300–500 enti (fino a ~800 con tenant prevalentemente idle)** |
+| VPS XL+ | 8 | 16 GB | 480 GB | €9,00 | €15,00 | 800–1500 enti |
+| VPS XXL+ | 12 | 24 GB | 720 GB | €15,00 | €29,50 | 1500–3000 enti |
 
-**Consiglio**: per Gestimus parti con **VPS L+** (€5/mese promo, €8 a rinnovo) — è il piano "best seller", offre 240 GB NVMe (sufficienti per anni anche con upload foto+CV degli iscritti) e 8 GB RAM (margine per N processi PocketBase + nginx + buffer SSE realtime). Il datacenter più vicino fisicamente è la **Germania (Francoforte)** → conforme GDPR, latenza ~25-40 ms dall'Italia.
+> **Nota — capacità cambiata con il nuovo stack PG+Fastify+Drizzle.** Lo stack PocketBase (legacy) richiedeva **1 processo per ente** (~50-150 MB RAM ciascuno), per cui la VPS L+ si fermava a 20-50 enti. Con multitenancy logica via `tenant_id`+RLS l'app è **un solo processo Node + un solo Postgres** condiviso: la RAM/CPU non scalano più col numero di enti ma col **traffico totale**, e il vincolo si sposta sul disco (~300 MB/tenant medio fra DB e allegati CV/foto) e sui picchi di utenti concorrenti (form pubblici aperti contemporaneamente). I numeri in tabella sono stime conservative basate sul nuovo modello, non ancora validate da load test in produzione.
+
+**Consiglio**: per Gestimus parti con **VPS L+** (€5/mese promo, €8 a rinnovo) — è il piano "best seller", offre 240 GB NVMe (sufficienti per anni anche con upload foto+CV degli iscritti) e 8 GB RAM (Postgres `shared_buffers` ~2 GB + Fastify + nginx + cache OS, con margine per i picchi concorsi). Il datacenter più vicino fisicamente è la **Germania (Francoforte)** → conforme GDPR, latenza ~25-40 ms dall'Italia.
 
 **Cosa è incluso in tutti i piani**:
 - 1× IPv4 dedicato + 1× IPv6 con rete /80
@@ -319,7 +321,7 @@ Costi reali IVA esclusa (aggiungi 22% per il totale lordo):
 | **Totale netto** | **~€80** | **~€72** | **~€108** |
 | **Totale lordo (IVA 22%)** | **~€98** | **~€88** | **~€132** |
 
-Per **enti illimitati** (~20-50 sul VPS L+, vedi tabella sopra). Se servono più enti, scala a VPS XL+ (€132/anno promo).
+Per **enti illimitati** (~300-500 sul VPS L+ col nuovo stack PG+Fastify, vedi tabella sopra). Se servono più enti, scala a VPS XL+ (€132/anno promo).
 
 ### Costo "per ente" (ammortizzato)
 
@@ -327,8 +329,11 @@ Per **enti illimitati** (~20-50 sul VPS L+, vedi tabella sopra). Se servono più
 |---:|---:|
 | 5 enti | €26,40 |
 | 10 enti | €13,20 |
-| 20 enti | **€6,60** |
-| 50 enti (capacità max VPS L+) | **€2,64** |
+| 20 enti | €6,60 |
+| 50 enti | €2,64 |
+| 100 enti | €1,32 |
+| 300 enti | **€0,44** |
+| 500 enti (capacità realistica VPS L+) | **€0,26** |
 
 Confronto: piattaforme SaaS dedicate equivalenti partono da €30/mese per istanza.
 
@@ -364,9 +369,9 @@ Mix tipico in un MVP che sta crescendo:
 
 Cliente che entra in Starter e nell'anno 2 passa a Pro → +€64 di MRR aggiuntivo gratis.
 
-### Scenario "VPS pieno" — 50 enti sul VPS L+
+### Scenario "crescita matura" — 50 enti sul VPS L+
 
-Mix possibile a regime con marketing attivo:
+Mix possibile a regime con marketing attivo (la VPS L+ tecnicamente regge ~300-500 enti, qui mostriamo uno scenario commerciale realistico di medio termine):
 
 | Piano | Clienti | Ricavo annuo netto |
 |---|---:|---:|
@@ -377,7 +382,7 @@ Mix possibile a regime con marketing attivo:
 | − Costi infra | | −€108 |
 | **= Margine annuo** | | **~€8.651** |
 
-Quando il VPS L+ è saturo, scala a **VPS XL+** (€132/anno promo, €180 rinnovo) — supporta 40-100 enti, infra resta marginale (€1,80-€3,30/ente/anno).
+Headroom tecnico abbondante: la stessa VPS L+ può ospitare 6-10× questo volume prima di dover scalare. Quando si avvicina la saturazione reale (>500 enti o picchi di concorrenza elevati), si sale a **VPS XL+** (€132/anno promo, €180 rinnovo) — supporta 800-1500 enti, infra resta sotto €0,20/ente/anno.
 
 ### Break-even
 
