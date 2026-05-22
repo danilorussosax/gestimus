@@ -1,850 +1,780 @@
-// Super-admin: gestione enti (ex "tenants") + impostazioni piattaforma.
-// L'interfaccia è stata rinominata "Tenant" → "Ente" su richiesta utente.
-// Il modello DB conserva il nome `tenants` per compatibilità con le migration esistenti.
-//
-// Funzionalità:
-//   1. Lista enti con stato/salute/statistiche
-//   2. Create/Edit ente
-//   3. Delete ente (con avviso: la delete non ferma il PB; servono comandi server)
-//   4. Configurazione SMTP centralizzata (memorizzata in platform_settings)
-//      + propagazione opzionale ai singoli enti
+// Super-admin: gestione enti + audit + backup + config piattaforma.
+// Backend Postgres+Fastify: tutto via /api/platform/* (vedi server/src/routes/platform.ts).
 
-import { db } from '../db.js';
-import { pb, PB_URL } from '../pb.js';
-import { t } from '../i18n.js';
+import { api, ApiError } from '../api.js';
 import { icon } from '../icons.js';
-import { escapeHtml, toast, modal, confirmDialog } from '../utils.js';
-import { PIANI, PIANO_KEYS, getPianoOrDefault, pianoDefaults, pianoStatus, pianoPriceLabel } from '../piani.js';
+import { escapeHtml, fmtDate, fmtBytes, toast, modal, confirmDialog } from '../utils.js';
+import { PIANO_KEYS, pianoPriceLabel } from '../piani.js';
 
-const _state = { enti: [], settings: null, loading: false };
+const STATI = ['attivo', 'sospeso', 'archiviato'];
+
+const state = {
+  tab: 'enti', // 'enti' | 'audit' | 'backups' | 'config'
+  enti: [],
+  enteFilter: 'all',
+  audit: [],
+  backups: [],
+  config: null,
+};
 
 export function renderSuperadmin(root) {
   root.innerHTML = `
     <section class="view-fade c-page">
       <header class="c-page-header">
         <p class="c-page-header__eyebrow">Super admin</p>
-        <h1 class="c-page-header__title">Gestione Enti</h1>
-        <p class="c-page-header__sub">Configura gli enti della piattaforma e le impostazioni SMTP condivise.</p>
+        <h1 class="c-page-header__title">Pannello piattaforma</h1>
+        <p class="c-page-header__sub">Gestione enti, audit globale, backup pre-cancellazione e configurazione di sistema.</p>
       </header>
-
       <div class="c-page max-w-6xl mx-auto">
-
-        <!-- Toolbar -->
-        <div class="flex flex-wrap items-center justify-between gap-3 mb-6">
-          <p class="text-sm text-ink-700" id="ente-count">Caricamento…</p>
-          <div class="flex items-center gap-2">
-            <button data-action="settings" class="c-btn c-btn--ghost c-btn--sm !gap-1" title="URL applicazione globale">${icon('settings', { size: 14 })} <span>Impostazioni globali</span></button>
-            <button data-action="refresh-stats" class="c-btn c-btn--ghost c-btn--sm !gap-1">${icon('refresh', { size: 14 })} <span>Aggiorna statistiche</span></button>
-            <button data-action="add-ente" class="c-btn c-btn--primary c-btn--sm">
-              <span>Nuovo ente</span><span class="c-btn__icon" aria-hidden="true">${icon('plus', { size: 14 })}</span>
-            </button>
-          </div>
-        </div>
-
-        <div id="ente-list">
-          <div class="text-center py-10 text-ink-700 text-sm">Caricamento…</div>
-        </div>
+        <nav class="flex flex-wrap gap-2 border-b border-slate-200 mb-6" role="tablist" id="sa-tabs">
+          ${tabButton('enti', 'Enti', 'building')}
+          ${tabButton('audit', 'Audit log', 'list')}
+          ${tabButton('backups', 'Backup', 'download')}
+          ${tabButton('config', 'Configurazione', 'settings')}
+        </nav>
+        <div id="sa-panel"></div>
       </div>
     </section>
   `;
-
-  root.querySelector('[data-action="add-ente"]').addEventListener('click', () => showEnteModal());
-  root.querySelector('[data-action="refresh-stats"]').addEventListener('click', () => refreshAllStats(root));
-  root.querySelector('[data-action="settings"]').addEventListener('click', () => showSettingsModal());
-
-  // Carica enti + settings in parallelo
-  loadEnti(root);
-  loadSettings();
+  root.querySelectorAll('#sa-tabs [data-tab]').forEach((b) => {
+    b.addEventListener('click', () => switchTab(root, b.dataset.tab));
+  });
+  switchTab(root, state.tab);
 }
 
-// ============================================================================
-// Lista enti
-// ============================================================================
-
-async function loadEnti(root) {
-  let enti;
-  try {
-    const token = pb.authStore.token;
-    const res = await fetch(`${PB_URL}/api/collections/tenants/records?perPage=500&sort=created`, {
-      headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data?.message || res.status);
-    enti = data.items || [];
-    _state.enti = enti;
-  } catch (e) {
-    const el = root?.querySelector('#ente-list');
-    if (el) el.innerHTML = `
-      <div class="bg-white border border-dashed border-brand-200 rounded-2xl p-10 text-center">
-        <h3 class="text-lg font-bold text-ink-900">Errore caricamento enti</h3>
-        <p class="text-sm text-ink-700 mt-1">${escapeHtml(e.message || String(e))}</p>
-      </div>`;
-    return;
-  }
-
-  const countEl = root.querySelector('#ente-count');
-  if (countEl) countEl.textContent = enti.length === 0 ? 'Nessun ente registrato' : `${enti.length} ente${enti.length === 1 ? '' : 'i'} registrat${enti.length === 1 ? 'o' : 'i'}`;
-
-  const listEl = root.querySelector('#ente-list');
-  if (!listEl) return;
-  if (enti.length === 0) {
-    listEl.innerHTML = `
-      <div class="bg-white border-2 border-dashed border-slate-200 rounded-2xl py-12 text-center">
-        <div class="text-4xl mb-2">🏛</div>
-        <p class="text-sm text-slate-500 italic">Nessun ente ancora registrato. Clicca su "Nuovo ente" per iniziare.</p>
-      </div>`;
-    return;
-  }
-
-  // Health check + has-admin probe paralleli per ogni ente.
-  const healthMap = {};
-  const hasAdminMap = {};
-  await Promise.all(enti.map(async (e) => {
-    const base = `http://127.0.0.1:${e.porta_pb}`;
-    try {
-      const h = await fetch(`${base}/api/health`, { cache: 'no-store' });
-      healthMap[e.id] = h.ok;
-    } catch { healthMap[e.id] = false; }
-    if (healthMap[e.id]) {
-      try {
-        const r = await fetch(`${base}/api/setup/has-admin`, { cache: 'no-store' });
-        if (r.ok) {
-          const j = await r.json();
-          hasAdminMap[e.id] = j.hasAdmin !== false;
-        } else {
-          hasAdminMap[e.id] = true; // conservativo
-        }
-      } catch { hasAdminMap[e.id] = true; }
-    } else {
-      hasAdminMap[e.id] = null; // sconosciuto se PB offline
-    }
-  }));
-
-  try {
-    listEl.innerHTML = `<div class="space-y-3">${enti.map(e => enteCardHtml(e, healthMap[e.id], hasAdminMap[e.id])).join('')}</div>`;
-  } catch (e) {
-    listEl.innerHTML = `<div class="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-sm text-rose-800">Errore rendering: ${escapeHtml(e.message || String(e))}</div>`;
-    return;
-  }
-
-  // Bind azioni delle card
-  listEl.querySelectorAll('[data-action="edit-ente"]').forEach(btn => btn.addEventListener('click', () => {
-    const e = enti.find(x => x.id === btn.dataset.id);
-    if (e) showEnteModal(e);
-  }));
-  listEl.querySelectorAll('[data-action="smtp-ente"]').forEach(btn => btn.addEventListener('click', () => {
-    const e = enti.find(x => x.id === btn.dataset.id);
-    if (e) showEnteSmtpModal(e, root);
-  }));
-  listEl.querySelectorAll('[data-action="create-admin"]').forEach(btn => btn.addEventListener('click', () => {
-    const e = enti.find(x => x.id === btn.dataset.id);
-    if (e) showCreateAdminModal(e, root);
-  }));
-  listEl.querySelectorAll('[data-action="delete-ente"]').forEach(btn => btn.addEventListener('click', () => {
-    const e = enti.find(x => x.id === btn.dataset.id);
-    if (e) confirmDeleteEnte(e, root);
-  }));
-}
-
-function enteCardHtml(ente, healthy = null, hasAdmin = null) {
-  const stato = ente.stato || 'attivo';
-  const statoColors = {
-    attivo: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-    sospeso: 'bg-amber-50 text-amber-700 border-amber-200',
-    archiviato: 'bg-slate-100 text-slate-700 border-slate-200',
-  };
-  const statoIcons = {
-    attivo: icon('checkCircle', { size: 12 }),
-    sospeso: icon('warning', { size: 12 }),
-    archiviato: icon('package', { size: 12 }),
-  };
-  // Costruisco l'URL dell'app del tenant inferendo proto/porta dal SUO stesso
-  // ambiente (la piattaforma corrente): in dev locale `platform.test:8000` →
-  // tenant gira a `<dominio>:8000`. In produzione `platform.gestimus.it` →
-  // tenant gira a `https://<dominio>` (porta 443 default, no parametro `?pb=`).
-  // Il reverse-proxy (Caddy locale o nginx prod) si occupa di mappare /api/* al PB.
-  const proto = window.location.protocol;            // 'http:' | 'https:'
-  const platformHost = window.location.host;          // 'platform.test:8000' o 'platform.gestimus.it'
-  const platformPort = platformHost.split(':')[1] || '';
-  const portSuffix = platformPort && platformPort !== '80' && platformPort !== '443'
-    ? `:${platformPort}` : '';
-  const adminUrl = ente.dominio
-    ? `${proto}//${ente.dominio}${portSuffix}/`
-    : `http://127.0.0.1:${ente.porta_pb}/`;
-  // L'admin UI di PB resta sempre sulla porta interna (utile in dev; in prod
-  // passa per nginx come /_/ via subdomain → meglio usare anche qui il dominio).
-  const adminUiUrl = ente.dominio
-    ? `${proto}//${ente.dominio}${portSuffix}/_/`
-    : `http://127.0.0.1:${ente.porta_pb}/_/`;
-  const hasStats = ente.num_concorsi != null;
-  const lastRefresh = ente.ultimo_refresh
-    ? new Date(ente.ultimo_refresh).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })
-    : null;
+function tabButton(key, label, iconName) {
   return `
-    <div class="bg-white border border-brand-100 rounded-2xl p-5 hover:shadow-soft transition-shadow group">
-      <div class="flex items-start justify-between gap-3 mb-4">
-        <div class="min-w-0 flex-1">
-          <div class="flex items-center gap-2 flex-wrap">
-            <h3 class="font-semibold text-ink-900 text-lg">${escapeHtml(ente.nome)}</h3>
-            <span class="font-mono text-xs text-ink-500">${escapeHtml(ente.slug)}</span>
-            <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${statoColors[stato] || statoColors.attivo}">
-              ${statoIcons[stato] || ''} ${escapeHtml(stato)}
-            </span>
-            ${healthy !== null ? `<span class="inline-flex items-center gap-1 text-[10px] ${healthy ? 'text-emerald-700' : 'text-rose-700'}"><span class="w-1.5 h-1.5 rounded-full ${healthy ? 'bg-emerald-500' : 'bg-rose-500'}"></span>${healthy ? 'Online' : 'Offline'}</span>` : ''}
-            ${ente.smtp_enabled ? `<span class="inline-flex items-center gap-1 text-[10px] text-brand-700" title="${escapeHtml((ente.smtp_host || '') + (ente.smtp_last_propagated_at ? ' · propagato ' + new Date(ente.smtp_last_propagated_at).toLocaleString('it-IT') : ''))}">${icon('mail', { size: 12 })} SMTP</span>` : ''}
-            ${hasAdmin === false ? `<span class="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-100 border border-amber-300 px-2 py-0.5 rounded-full" title="L'ente non ha ancora un account admin. Cliccare il pulsante con la chiave per crearne uno.">⚠ Admin mancante</span>` : ''}
-            ${(() => {
-              if (!ente.piano) return '';
-              const p = getPianoOrDefault(ente.piano);
-              const s = pianoStatus(ente);
-              const colorMap = {
-                trial: 'bg-sky-50 text-sky-700 border-sky-200',
-                starter: 'bg-emerald-50 text-emerald-700 border-emerald-200',
-                pro: 'bg-brand-50 text-brand-700 border-brand-200',
-                ultra: 'bg-amber-50 text-amber-700 border-amber-200',
-                ppe: 'bg-slate-100 text-slate-700 border-slate-200',
-              };
-              const stateMap = {
-                expired:  'bg-rose-50 text-rose-700 border-rose-200',
-                expiring: 'bg-amber-50 text-amber-800 border-amber-300',
-                active:   colorMap[ente.piano] || 'bg-slate-100 text-slate-700 border-slate-200',
-              };
-              return `<span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full border ${stateMap[s.state]}" title="${escapeHtml(p.nome + ' · ' + s.label)}">${escapeHtml(p.nome)}${s.state !== 'active' ? ` · ${escapeHtml(s.label)}` : ''}</span>`;
-            })()}
-          </div>
-          <div class="text-xs text-ink-700 mt-1">
-            ${ente.dominio ? `${escapeHtml(ente.dominio)} · ` : ''}PB porta ${ente.porta_pb}
-          </div>
+    <button data-tab="${key}" class="sa-tab inline-flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 border-transparent text-ink-700 hover:text-ink-900 hover:border-slate-300 transition-colors">
+      ${icon(iconName, { size: 16 })}<span>${label}</span>
+    </button>
+  `;
+}
+
+function switchTab(root, tab) {
+  state.tab = tab;
+  root.querySelectorAll('#sa-tabs [data-tab]').forEach((b) => {
+    const active = b.dataset.tab === tab;
+    b.classList.toggle('text-brand-700', active);
+    b.classList.toggle('border-brand-600', active);
+    b.classList.toggle('text-ink-700', !active);
+  });
+  const panel = root.querySelector('#sa-panel');
+  if (tab === 'enti') return renderEntiPanel(panel);
+  if (tab === 'audit') return renderAuditPanel(panel);
+  if (tab === 'backups') return renderBackupsPanel(panel);
+  if (tab === 'config') return renderConfigPanel(panel);
+}
+
+// ============================================================================
+// ENTI
+// ============================================================================
+
+async function renderEntiPanel(panel) {
+  panel.innerHTML = `
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <div class="flex items-center gap-2">
+        <label class="text-sm text-ink-700">Stato:</label>
+        <select id="sa-stato-filter" class="c-input c-input--sm">
+          <option value="all">Tutti</option>
+          <option value="attivo">Attivi</option>
+          <option value="sospeso">Sospesi</option>
+          <option value="archiviato">Archiviati</option>
+        </select>
+        <span class="text-sm text-ink-700 ml-2" id="sa-enti-count"></span>
+      </div>
+      <button data-action="new-ente" class="c-btn c-btn--primary c-btn--sm">
+        ${icon('plus', { size: 14 })}<span>Nuovo ente</span>
+      </button>
+    </div>
+    <div id="sa-enti-list"><div class="text-center py-10 text-ink-700 text-sm">Caricamento…</div></div>
+  `;
+  panel.querySelector('#sa-stato-filter').value = state.enteFilter;
+  panel.querySelector('#sa-stato-filter').addEventListener('change', (e) => {
+    state.enteFilter = e.target.value;
+    loadEnti(panel);
+  });
+  panel.querySelector('[data-action="new-ente"]').addEventListener('click', () => showNewEnteModal(panel));
+  await loadEnti(panel);
+}
+
+async function loadEnti(panel) {
+  const listEl = panel.querySelector('#sa-enti-list');
+  try {
+    const query = state.enteFilter === 'all' ? null : { stato: state.enteFilter };
+    state.enti = await api.get('/api/platform/tenants', query);
+  } catch (err) {
+    listEl.innerHTML = errorBox('Caricamento enti fallito', err);
+    return;
+  }
+  panel.querySelector('#sa-enti-count').textContent = `${state.enti.length} ente${state.enti.length === 1 ? '' : 'i'}`;
+  if (state.enti.length === 0) {
+    listEl.innerHTML = emptyBox('Nessun ente in questo stato.');
+    return;
+  }
+  listEl.innerHTML = `
+    <div class="grid gap-3">
+      ${state.enti.map(enteCard).join('')}
+    </div>
+  `;
+  listEl.querySelectorAll('[data-ente-id]').forEach((card) => {
+    card.querySelector('[data-action="detail"]').addEventListener('click', () => {
+      showEnteDetail(card.dataset.enteId, panel);
+    });
+  });
+}
+
+function enteCard(t) {
+  const statoBadge = badge(t.stato, statoColor(t.stato));
+  const pianoBadge = badge(t.piano, 'bg-slate-100 text-slate-800');
+  const archInfo = t.stato === 'archiviato'
+    ? `<span class="text-xs text-amber-700">Cleanup ${cleanupCountdown(t)}</span>`
+    : '';
+  const protectedFlag = t.slug === 'platform' ? `<span class="text-xs text-slate-500 italic">(super-admin)</span>` : '';
+  return `
+    <div class="c-card p-4 flex flex-wrap items-center justify-between gap-3" data-ente-id="${t.id}">
+      <div class="flex-1 min-w-0">
+        <div class="flex items-center gap-2 flex-wrap">
+          <strong class="text-ink-900">${escapeHtml(t.nome)}</strong>
+          ${statoBadge}
+          ${pianoBadge}
+          ${protectedFlag}
         </div>
-        <div class="flex items-center gap-1.5 shrink-0">
-          <a href="${adminUrl}" target="_blank" class="text-brand-600 hover:text-brand-800 hover:bg-brand-50 w-9 h-9 inline-flex items-center justify-center rounded-lg border border-brand-100 transition-colors" title="Apri app dell'ente">${icon('externalLink', { size: 18 })}</a>
-          <a href="${adminUiUrl}" target="_blank" class="text-brand-600 hover:text-brand-800 hover:bg-brand-50 w-9 h-9 inline-flex items-center justify-center rounded-lg border border-brand-100 transition-colors" title="Apri admin UI">${icon('settings', { size: 18 })}</a>
-          <button data-action="smtp-ente" data-id="${ente.id}" class="text-brand-600 hover:text-brand-800 hover:bg-brand-50 w-9 h-9 inline-flex items-center justify-center rounded-lg border border-brand-100 transition-colors" title="Configura SMTP">${icon('mail', { size: 18 })}</button>
-          ${hasAdmin === false ? `<button data-action="create-admin" data-id="${ente.id}" class="text-amber-700 hover:text-amber-900 hover:bg-amber-50 w-9 h-9 inline-flex items-center justify-center rounded-lg border-2 border-amber-300 transition-colors animate-pulse" title="Crea admin (l'ente non ne ha uno)">${icon('lock', { size: 18 })}</button>` : ''}
-          <button data-action="edit-ente" data-id="${ente.id}" class="text-brand-600 hover:text-brand-800 hover:bg-brand-50 w-9 h-9 inline-flex items-center justify-center rounded-lg border border-brand-100 transition-colors" title="Modifica">${icon('edit', { size: 18 })}</button>
-          <button data-action="delete-ente" data-id="${ente.id}" class="text-rose-600 hover:text-rose-800 hover:bg-rose-50 w-9 h-9 inline-flex items-center justify-center rounded-lg border border-rose-100 transition-colors" title="Elimina">${icon('trash', { size: 18 })}</button>
+        <div class="text-xs text-ink-700 mt-1">
+          <code>${escapeHtml(t.slug)}</code> · creato il ${fmtDate(t.createdAt)}
+          ${t.pianoScadenza ? ` · scadenza piano ${fmtDate(t.pianoScadenza)}` : ''}
+          ${archInfo ? ` · ${archInfo}` : ''}
         </div>
       </div>
-      ${hasStats ? `
-        <div class="grid grid-cols-3 gap-3 mb-3">
-          <div class="bg-brand-50/50 border border-brand-100 rounded-xl px-3 py-2.5 flex items-center gap-2">
-            <span class="text-brand-600 shrink-0">${icon('trophy', { size: 16 })}</span>
-            <div><div class="text-lg font-black text-ink-900 leading-none">${ente.num_concorsi}</div><div class="text-[10px] text-ink-700 uppercase tracking-wider">Concorsi</div></div>
-          </div>
-          <div class="bg-accent-50/50 border border-accent-100 rounded-xl px-3 py-2.5 flex items-center gap-2">
-            <span class="text-accent-500 shrink-0">${icon('judge', { size: 16 })}</span>
-            <div><div class="text-lg font-black text-ink-900 leading-none">${ente.num_commissari}</div><div class="text-[10px] text-ink-700 uppercase tracking-wider">Commissari</div></div>
-          </div>
-          <div class="bg-sun-50/50 border border-sun-100 rounded-xl px-3 py-2.5 flex items-center gap-2">
-            <span class="text-sun-600 shrink-0">${icon('graduation', { size: 16 })}</span>
-            <div><div class="text-lg font-black text-ink-900 leading-none">${ente.num_candidati}</div><div class="text-[10px] text-ink-700 uppercase tracking-wider">Candidati</div></div>
-          </div>
-        </div>
-      ` : `
-        <div class="bg-brand-50/50 border border-dashed border-brand-100 rounded-xl px-3 py-3 mb-3">
-          <p class="text-xs text-ink-700 flex items-center gap-1.5">${icon('info', { size: 12 })} Statistiche non ancora rilevate. Clicca "Aggiorna statistiche".</p>
-        </div>
-      `}
-      ${(() => {
-        if (!ente.piano) return '';
-        const p = getPianoOrDefault(ente.piano);
-        if (p.is_ppe) {
-          const concorsi = ente.num_concorsi ?? 0;
-          const cand = ente.num_candidati ?? 0;
-          const stima = concorsi * (ente.ppe_setup_per_concorso || 0) + cand * (ente.ppe_per_iscritto || 0);
-          return `<div class="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 mb-3 text-[11px] text-slate-700">
-            <span class="font-semibold">PPE</span> · ${concorsi} concorsi × €${ente.ppe_setup_per_concorso || 0} + ${cand} iscritti × €${(ente.ppe_per_iscritto || 0).toFixed(2)} = <span class="font-bold">€${stima.toFixed(2)}</span> stimati
-          </div>`;
-        }
-        if (!hasStats) return '';
-        const lc = ente.limit_concorsi || 0;
-        const li = ente.limit_iscritti_annui || 0;
-        const concorsiPct = lc > 0 ? Math.min(100, Math.round((ente.num_concorsi / lc) * 100)) : 0;
-        const candPct = li > 0 ? Math.min(100, Math.round((ente.num_candidati / li) * 100)) : 0;
-        const barColor = (pct) => pct >= 100 ? 'bg-rose-500' : pct >= 80 ? 'bg-amber-500' : 'bg-emerald-500';
-        return `<div class="bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 mb-3 space-y-1.5">
-          <div>
-            <div class="flex items-center justify-between text-[11px] text-slate-700 mb-0.5">
-              <span>Concorsi</span>
-              <span class="font-mono">${ente.num_concorsi}${lc > 0 ? ` / ${lc}` : ' / ∞'}</span>
-            </div>
-            ${lc > 0 ? `<div class="h-1.5 bg-slate-200 rounded-full overflow-hidden"><div class="h-full ${barColor(concorsiPct)}" style="width:${concorsiPct}%"></div></div>` : ''}
-          </div>
-          <div>
-            <div class="flex items-center justify-between text-[11px] text-slate-700 mb-0.5">
-              <span>Iscritti/anno</span>
-              <span class="font-mono">${ente.num_candidati}${li > 0 ? ` / ${li}` : ' / ∞'}</span>
-            </div>
-            ${li > 0 ? `<div class="h-1.5 bg-slate-200 rounded-full overflow-hidden"><div class="h-full ${barColor(candPct)}" style="width:${candPct}%"></div></div>` : ''}
-          </div>
-        </div>`;
-      })()}
-      <div class="flex items-center gap-3 text-[11px] text-ink-700">
-        <span class="inline-flex items-center gap-1">
-          <span class="w-1.5 h-1.5 rounded-full ${lastRefresh ? 'bg-emerald-500' : 'bg-slate-400'}"></span>
-          ${lastRefresh ? `Ultimo aggiornamento: ${lastRefresh}` : 'Mai aggiornato'}
-        </span>
+      <div class="flex gap-2">
+        <button data-action="detail" class="c-btn c-btn--ghost c-btn--sm">
+          ${icon('arrowRight', { size: 14 })}<span>Dettaglio</span>
+        </button>
       </div>
-      ${ente.note ? `<p class="text-xs text-ink-700 mt-2 italic">${escapeHtml(ente.note)}</p>` : ''}
     </div>
   `;
 }
 
+function statoColor(s) {
+  if (s === 'attivo') return 'bg-emerald-100 text-emerald-800';
+  if (s === 'sospeso') return 'bg-amber-100 text-amber-800';
+  if (s === 'archiviato') return 'bg-rose-100 text-rose-800';
+  return 'bg-slate-100 text-slate-800';
+}
+
+function cleanupCountdown(t) {
+  if (!t.cleanupScheduledAt) return 'mai';
+  const ms = new Date(t.cleanupScheduledAt).getTime() - Date.now();
+  if (ms <= 0) return 'scaduto (in attesa job)';
+  const days = Math.ceil(ms / 86400_000);
+  return `${days} ${days === 1 ? 'giorno' : 'giorni'}`;
+}
+
 // ============================================================================
-// Delete ente — con avviso che NON ferma il PB
+// Dettaglio ente (modal)
 // ============================================================================
 
-function confirmDeleteEnte(ente, root) {
+async function showEnteDetail(id, panel) {
+  let ente, stats, smtp;
+  try {
+    [ente, stats, smtp] = await Promise.all([
+      api.get(`/api/platform/tenants/${id}`),
+      api.get(`/api/platform/tenants/${id}/stats`),
+      api.get(`/api/platform/tenants/${id}/smtp`),
+    ]);
+  } catch (err) {
+    toast(`Errore caricamento dettaglio: ${err.message}`, 'error');
+    return;
+  }
   modal({
-    title: `Elimina ente "${ente.nome}"`,
-    width: 'max-w-lg',
-    contentHtml: `
-      <div class="space-y-4 text-sm">
-        <div class="bg-rose-50 border border-rose-200 rounded-xl p-4">
-          <p class="font-bold text-rose-900 mb-1">⚠ Attenzione: questa azione NON ferma il PocketBase dell'ente.</p>
-          <p class="text-rose-800 text-xs leading-relaxed">Eliminando questo record dalla piattaforma rimuovi solo il <strong>riferimento</strong>. Il processo PB (porta ${ente.porta_pb}) e i dati su filesystem restano attivi. Se vuoi una rimozione completa, esegui dopo questo passo:</p>
-          <pre class="mt-2 bg-white border border-rose-200 rounded p-2 text-[11px] font-mono text-rose-900 overflow-x-auto">./scripts/remove-tenant.sh ${escapeHtml(ente.slug)}
-./scripts/remove-tenant.sh ${escapeHtml(ente.slug)} --purge -y    # cancella i dati senza prompt</pre>
-          <p class="text-[11px] text-rose-700 mt-2">Senza flag = archivia i dati in <code>pocketbase/_archive/</code> (locale) o <code>/srv/pb/archive/</code> (prod). Con <code>--purge</code> = cancella definitivamente.</p>
+    title: `Ente: ${ente.nome}`,
+    wide: true,
+    contentHtml: enteDetailHtml(ente, stats, smtp),
+    onMount: (modalRoot) => wireDetailActions(modalRoot, ente, panel),
+    primaryLabel: null,
+  });
+}
+
+function enteDetailHtml(t, stats, smtp) {
+  return `
+    <div class="space-y-5">
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div>
+          <h3 class="text-sm font-semibold text-ink-900 mb-2">Anagrafica</h3>
+          <dl class="text-sm space-y-1">
+            <div class="flex justify-between"><dt class="text-ink-700">Slug:</dt><dd><code>${escapeHtml(t.slug)}</code></dd></div>
+            <div class="flex justify-between"><dt class="text-ink-700">Stato:</dt><dd>${badge(t.stato, statoColor(t.stato))}</dd></div>
+            <div class="flex justify-between"><dt class="text-ink-700">Piano:</dt><dd>${escapeHtml(t.piano)} <span class="text-xs text-ink-700">(${pianoPriceLabel(t.piano)})</span></dd></div>
+            <div class="flex justify-between"><dt class="text-ink-700">Dominio:</dt><dd>${t.dominio ? escapeHtml(t.dominio) : '<span class="text-ink-500 italic">—</span>'}</dd></div>
+            <div class="flex justify-between"><dt class="text-ink-700">Cleanup days:</dt><dd>${t.cleanupAfterDays === 0 ? 'mai' : t.cleanupAfterDays}</dd></div>
+            <div class="flex justify-between"><dt class="text-ink-700">2FA admin:</dt><dd>${t.require2faAdmin ? 'richiesto' : 'opzionale'}</dd></div>
+            ${t.stato === 'archiviato' ? `<div class="flex justify-between"><dt class="text-ink-700">Archiviato il:</dt><dd>${fmtDate(t.archiviatoAt)}</dd></div>` : ''}
+            ${t.stato === 'archiviato' ? `<div class="flex justify-between"><dt class="text-ink-700">Cleanup tra:</dt><dd class="text-amber-700">${cleanupCountdown(t)}</dd></div>` : ''}
+          </dl>
         </div>
-        <p class="text-ink-700">Vuoi procedere con la rimozione del record di registro?</p>
-        <label class="flex items-start gap-2 text-xs text-ink-700">
-          <input type="checkbox" data-confirm-ck class="mt-0.5 rounded border-slate-300" />
-          <span>Ho compreso che dovrò fermare manualmente il servizio PB tramite lo script <code>remove-tenant.sh</code> sul server.</span>
-        </label>
+        <div>
+          <h3 class="text-sm font-semibold text-ink-900 mb-2">Statistiche</h3>
+          <dl class="text-sm space-y-1">
+            <div class="flex justify-between"><dt class="text-ink-700">Concorsi:</dt><dd>${stats.concorsi}</dd></div>
+            <div class="flex justify-between"><dt class="text-ink-700">Commissari:</dt><dd>${stats.commissari}</dd></div>
+            <div class="flex justify-between"><dt class="text-ink-700">Candidati:</dt><dd>${stats.candidati}</dd></div>
+            <div class="flex justify-between"><dt class="text-ink-700">Iscrizioni:</dt><dd>${stats.iscrizioni}</dd></div>
+            <div class="flex justify-between"><dt class="text-ink-700">Account:</dt><dd>${stats.accounts}</dd></div>
+          </dl>
+        </div>
+      </div>
+
+      <div>
+        <h3 class="text-sm font-semibold text-ink-900 mb-2">SMTP</h3>
+        <p class="text-sm text-ink-700">
+          ${smtp.configured ? `Configurato${smtp.encrypted ? ' (password cifrata at-rest)' : ''}` : 'Non configurato (verrà usato il fallback platform).'}
+        </p>
+        <div class="flex gap-2 mt-2">
+          <button data-action="smtp-edit" class="c-btn c-btn--ghost c-btn--sm">${icon('settings', { size: 14 })}<span>Configura SMTP</span></button>
+          ${smtp.configured ? `<button data-action="smtp-delete" class="c-btn c-btn--ghost c-btn--sm text-rose-700">${icon('x', { size: 14 })}<span>Rimuovi</span></button>` : ''}
+        </div>
+      </div>
+
+      ${t.note ? `<div><h3 class="text-sm font-semibold text-ink-900 mb-1">Note</h3><p class="text-sm text-ink-700 whitespace-pre-wrap">${escapeHtml(t.note)}</p></div>` : ''}
+
+      <div>
+        <h3 class="text-sm font-semibold text-ink-900 mb-2">Azioni</h3>
+        <div class="flex flex-wrap gap-2">
+          <button data-action="edit-meta" class="c-btn c-btn--ghost c-btn--sm">${icon('edit', { size: 14 })}<span>Modifica meta</span></button>
+          ${lifecycleButtons(t)}
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function lifecycleButtons(t) {
+  if (t.slug === 'platform') return '<p class="text-xs text-slate-500 italic">Tenant platform protetto.</p>';
+  const btns = [];
+  if (t.stato === 'attivo') {
+    btns.push(actionBtn('suspend', 'Sospendi', 'pause', 'amber'));
+    btns.push(actionBtn('archive', 'Archivia', 'folder', 'rose'));
+  } else if (t.stato === 'sospeso') {
+    btns.push(actionBtn('reactivate', 'Riattiva', 'play', 'emerald'));
+    btns.push(actionBtn('archive', 'Archivia', 'folder', 'rose'));
+  } else if (t.stato === 'archiviato') {
+    btns.push(actionBtn('restore', 'Ripristina', 'arrowLeft', 'emerald'));
+    btns.push(actionBtn('hard-delete', 'Cancella subito', 'trash', 'rose'));
+  }
+  return btns.join('');
+}
+
+function actionBtn(action, label, iconName, color) {
+  const colorCls = color === 'rose' ? 'text-rose-700 hover:bg-rose-50'
+    : color === 'amber' ? 'text-amber-700 hover:bg-amber-50'
+    : color === 'emerald' ? 'text-emerald-700 hover:bg-emerald-50'
+    : '';
+  return `<button data-action="${action}" class="c-btn c-btn--ghost c-btn--sm ${colorCls}">${icon(iconName, { size: 14 })}<span>${label}</span></button>`;
+}
+
+function wireDetailActions(modalRoot, t, panel) {
+  const handlers = {
+    'edit-meta': () => showEditMetaModal(t, panel),
+    'smtp-edit': () => showSmtpModal(t, panel),
+    'smtp-delete': () => deleteTenantSmtp(t, panel),
+    'suspend': () => lifecycleAction(t, 'suspend', 'Sospendere', panel),
+    'reactivate': () => lifecycleAction(t, 'reactivate', 'Riattivare', panel),
+    'archive': () => showArchiveModal(t, panel),
+    'restore': () => lifecycleAction(t, 'restore', 'Ripristinare', panel),
+    'hard-delete': () => showHardDeleteModal(t, panel),
+  };
+  for (const [name, fn] of Object.entries(handlers)) {
+    const btn = modalRoot.querySelector(`[data-action="${name}"]`);
+    if (btn) btn.addEventListener('click', fn);
+  }
+}
+
+async function lifecycleAction(t, op, verb, panel) {
+  if (!confirm(`${verb} ente "${t.nome}"?`)) return;
+  try {
+    await api.post(`/api/platform/tenants/${t.id}/${op}`);
+    toast(`${verb}: operazione eseguita`, 'success');
+    closeAllModals();
+    await loadEnti(panel);
+  } catch (err) {
+    toast(`Errore: ${err.message}`, 'error');
+  }
+}
+
+function showArchiveModal(t, panel) {
+  modal({
+    title: `Archivia ${t.nome}`,
+    contentHtml: `
+      <p class="text-sm text-ink-700 mb-3">L'ente verrà disattivato. Il cleanup automatico cancellerà definitivamente i dati dopo i giorni indicati. <strong>0 = mai</strong>.</p>
+      <label class="text-sm font-medium block mb-1">Giorni prima del cleanup:</label>
+      <input type="number" id="archive-days" class="c-input" min="0" max="3650" value="${t.cleanupAfterDays}">
+    `,
+    primaryLabel: 'Archivia',
+    onPrimary: async () => {
+      const days = Number(document.getElementById('archive-days').value);
+      try {
+        await api.post(`/api/platform/tenants/${t.id}/archive`, { cleanupAfterDays: days });
+        toast('Ente archiviato', 'success');
+        closeAllModals();
+        await loadEnti(panel);
+      } catch (err) {
+        toast(`Errore: ${err.message}`, 'error');
+      }
+    },
+  });
+}
+
+function showHardDeleteModal(t, panel) {
+  confirmDialog({
+    title: `Cancella definitivamente ${t.nome}`,
+    message: `<strong>Operazione irreversibile.</strong> Verranno cancellati tutti i dati del tenant (concorsi, valutazioni, iscrizioni, account, audit log).<br><br>Digita lo slug <code>${escapeHtml(t.slug)}</code> per confermare.`,
+    danger: true,
+    onConfirm: async () => {
+      const input = prompt(`Digita lo slug per confermare: ${t.slug}`);
+      if (input !== t.slug) {
+        toast('Annullato', 'info');
+        return;
+      }
+      try {
+        await api.delete(`/api/platform/tenants/${t.id}`);
+        toast('Ente cancellato', 'success');
+        closeAllModals();
+        await loadEnti(panel);
+      } catch (err) {
+        toast(`Errore: ${err.message}`, 'error');
+      }
+    },
+  });
+}
+
+function showEditMetaModal(t, panel) {
+  const planOpts = PIANO_KEYS.map((k) => `<option value="${k}" ${t.piano === k ? 'selected' : ''}>${k}</option>`).join('');
+  modal({
+    title: `Modifica ${t.nome}`,
+    contentHtml: `
+      <div class="space-y-3">
+        <div>
+          <label class="text-sm font-medium">Nome</label>
+          <input id="em-nome" class="c-input" value="${escapeHtml(t.nome)}">
+        </div>
+        <div class="grid gap-2 sm:grid-cols-2">
+          <div>
+            <label class="text-sm font-medium">Piano</label>
+            <select id="em-piano" class="c-input">${planOpts}</select>
+          </div>
+          <div>
+            <label class="text-sm font-medium">Scadenza piano</label>
+            <input id="em-piano-scadenza" type="date" class="c-input" value="${t.pianoScadenza ?? ''}">
+          </div>
+        </div>
+        <div>
+          <label class="text-sm font-medium">Dominio custom</label>
+          <input id="em-dominio" class="c-input" value="${escapeHtml(t.dominio ?? '')}" placeholder="es. ente1.gestimus.it">
+        </div>
+        <div class="grid gap-2 sm:grid-cols-2">
+          <div>
+            <label class="text-sm font-medium">Cleanup days (0 = mai)</label>
+            <input id="em-cleanup-days" type="number" class="c-input" min="0" max="3650" value="${t.cleanupAfterDays}">
+          </div>
+          <div>
+            <label class="text-sm font-medium block">2FA admin</label>
+            <label class="inline-flex items-center gap-2 mt-2">
+              <input id="em-2fa" type="checkbox" ${t.require2faAdmin ? 'checked' : ''}>
+              <span class="text-sm">Richiesto per gli admin</span>
+            </label>
+          </div>
+        </div>
+        <div>
+          <label class="text-sm font-medium">Note</label>
+          <textarea id="em-note" class="c-input" rows="3">${escapeHtml(t.note ?? '')}</textarea>
+        </div>
       </div>
     `,
-    primaryLabel: 'Elimina record',
-    onPrimary: async (body) => {
-      const ack = body.querySelector('[data-confirm-ck]').checked;
-      if (!ack) { toast('Conferma la checkbox per procedere', 'warn'); return false; }
+    primaryLabel: 'Salva',
+    onPrimary: async () => {
+      const body = {
+        nome: document.getElementById('em-nome').value.trim(),
+        piano: document.getElementById('em-piano').value,
+        pianoScadenza: document.getElementById('em-piano-scadenza').value || null,
+        dominio: document.getElementById('em-dominio').value.trim() || null,
+        cleanupAfterDays: Number(document.getElementById('em-cleanup-days').value),
+        require2faAdmin: document.getElementById('em-2fa').checked,
+        note: document.getElementById('em-note').value.trim() || null,
+      };
       try {
-        const token = pb.authStore.token;
-        const res = await fetch(`${PB_URL}/api/collections/tenants/records/${ente.id}`, {
-          method: 'DELETE',
-          headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-        });
-        if (!res.ok && res.status !== 204) {
-          const j = await res.json().catch(() => ({}));
-          throw new Error(j.message || String(res.status));
-        }
-        toast(`Ente "${ente.nome}" rimosso dal registro. Ricordati di eseguire remove-tenant.sh sul server.`, 'success');
-        // Cleanup ottimistico locale: rimuovi dal cache anche se il refresh remoto fallisse.
-        _state.enti = _state.enti.filter(x => x.id !== ente.id);
-        loadEnti(root);
-      } catch (e) {
-        toast(e.message || 'Errore', 'error');
-        return false;
+        await api.patch(`/api/platform/tenants/${t.id}`, body);
+        toast('Modifiche salvate', 'success');
+        closeAllModals();
+        await loadEnti(panel);
+      } catch (err) {
+        toast(`Errore: ${err.message}`, 'error');
       }
     },
   });
 }
 
 // ============================================================================
-// Refresh statistiche (riusa logica precedente)
+// Nuovo ente
 // ============================================================================
 
-async function refreshAllStats(root) {
-  const btn = root.querySelector('[data-action="refresh-stats"]');
-  if (btn) { btn.disabled = true; btn.querySelector('span').textContent = 'Aggiornamento…'; }
-  const token = pb.authStore.token;
-  const res = await fetch(`${PB_URL}/api/collections/tenants/records?perPage=500&sort=created`, {
-    headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-  });
-  const data = await res.json();
-  if (!res.ok) { if (btn) { btn.disabled = false; btn.querySelector('span').textContent = 'Aggiorna statistiche'; } return; }
-
-  const enti = data.items || [];
-  for (const e of enti) {
-    const pbUrl = `http://127.0.0.1:${e.porta_pb}`;
-    const stats = { concorsi: 0, commissari: 0, candidati: 0, healthy: false };
-    try {
-      const h = await fetch(`${pbUrl}/api/health`, { cache: 'no-store' });
-      stats.healthy = h.ok;
-    } catch {}
-    if (e.email_admin && stats.healthy) {
-      try {
-        const authRes = await fetch(`${pbUrl}/api/collections/accounts/auth-with-password`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ identity: e.email_admin, password: 'admin123' }),
-        });
-        if (authRes.ok) {
-          const authData = await authRes.json();
-          const headers = { 'Authorization': `Bearer ${authData.token}` };
-          const [concorsiR, commissariR, candidatiR] = await Promise.all([
-            fetch(`${pbUrl}/api/collections/concorsi/records?perPage=1`, { headers }).then(r => r.json()).catch(() => ({})),
-            fetch(`${pbUrl}/api/collections/commissari/records?perPage=1`, { headers }).then(r => r.json()).catch(() => ({})),
-            fetch(`${pbUrl}/api/collections/candidati/records?perPage=1`, { headers }).then(r => r.json()).catch(() => ({})),
-          ]);
-          stats.concorsi    = concorsiR?.totalItems    || 0;
-          stats.commissari  = commissariR?.totalItems  || 0;
-          stats.candidati   = candidatiR?.totalItems   || 0;
-        }
-      } catch {}
-    }
-    try {
-      await fetch(`${PB_URL}/api/collections/tenants/records/${e.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-        body: JSON.stringify({
-          num_concorsi: stats.concorsi,
-          num_commissari: stats.commissari,
-          num_candidati: stats.candidati,
-          ultimo_refresh: new Date().toISOString(),
-        }),
-      });
-    } catch {}
-  }
-  if (btn) { btn.disabled = false; btn.querySelector('span').textContent = 'Aggiorna statistiche'; }
-  loadEnti(root);
-}
-
-// ============================================================================
-// Modal Crea/Modifica ente (rinominato in UI da "Tenant")
-// ============================================================================
-
-function showEnteModal(existing = null) {
-  const isEdit = !!existing;
-  const title = isEdit ? `Modifica ente "${existing.nome}"` : 'Nuovo ente';
-  const contentHtml = `
-    <div class="space-y-4">
-      <label class="c-field">
-        <span class="c-field__label">Slug *</span>
-        <input name="slug" type="text" required class="c-input font-mono" value="${escapeHtml(existing?.slug || '')}" placeholder="es. ente3" ${isEdit ? 'readonly' : ''} />
-        <p class="text-xs text-ink-700 mt-1">Identificativo univoco — solo lettere minuscole, numeri e trattini. Usato per cartella dati e sottodominio.</p>
-      </label>
-      <label class="c-field">
-        <span class="c-field__label">Nome dell'ente *</span>
-        <input name="nome" type="text" required class="c-input" value="${escapeHtml(existing?.nome || '')}" placeholder="es. Conservatorio di Milano" />
-      </label>
-      <div class="grid grid-cols-2 gap-4">
-        <label class="c-field">
-          <span class="c-field__label">Dominio</span>
-          <input name="dominio" type="text" class="c-input" value="${escapeHtml(existing?.dominio || '')}" placeholder="es. ente3.test" />
-        </label>
-        <label class="c-field">
-          <span class="c-field__label">Porta PocketBase *</span>
-          <input name="porta_pb" type="number" required class="c-input" value="${existing?.porta_pb || ''}" placeholder="es. 8094" />
-        </label>
-      </div>
-      <label class="c-field">
-        <span class="c-field__label">Email admin di riferimento</span>
-        <input name="email_admin" type="email" class="c-input" value="${escapeHtml(existing?.email_admin || '')}" placeholder="admin@ente3.test" />
-        <p class="text-xs text-ink-700 mt-1">Usata dal super admin per recuperare statistiche e propagare configurazioni.</p>
-      </label>
-      <label class="c-field">
-        <span class="c-field__label">Stato</span>
-        <select name="stato" class="c-input">
-          <option value="attivo" ${existing?.stato === 'attivo' ? 'selected' : ''}>Attivo</option>
-          <option value="sospeso" ${existing?.stato === 'sospeso' ? 'selected' : ''}>Sospeso</option>
-          <option value="archiviato" ${existing?.stato === 'archiviato' ? 'selected' : ''}>Archiviato</option>
-        </select>
-      </label>
-      <label class="c-field">
-        <span class="c-field__label">Note</span>
-        <textarea name="note" rows="2" class="c-input">${escapeHtml(existing?.note || '')}</textarea>
-      </label>
-
-      <!-- Sezione piano commerciale -->
-      <div class="border-t border-slate-200 pt-4 mt-2">
-        <h4 class="text-sm font-bold text-slate-800 uppercase tracking-wider mb-3">Piano commerciale</h4>
-        <div class="grid grid-cols-2 gap-4">
-          <label class="c-field">
-            <span class="c-field__label">Piano *</span>
-            <select name="piano" class="c-input">
-              ${PIANO_KEYS.map(k => {
-                const p = PIANI[k];
-                const sel = (existing?.piano || 'trial') === k ? 'selected' : '';
-                return `<option value="${k}" ${sel}>${escapeHtml(p.nome)} — ${escapeHtml(pianoPriceLabel(k))}</option>`;
-              }).join('')}
-            </select>
-            <p class="text-[11px] text-slate-500 mt-1" data-piano-hint></p>
-          </label>
-          <label class="c-field">
-            <span class="c-field__label">Scadenza</span>
-            <input name="piano_scadenza" type="date" class="c-input" value="${existing?.piano_scadenza ? new Date(existing.piano_scadenza).toISOString().slice(0,10) : ''}" />
-            <p class="text-[11px] text-slate-500 mt-1">Per i piani annuali è auto-calcolata (+365g). Per PPE resta vuota.</p>
-          </label>
-        </div>
-        <div class="grid grid-cols-2 gap-4 mt-3">
-          <label class="c-field">
-            <span class="c-field__label">Limite concorsi</span>
-            <input name="limit_concorsi" type="number" min="0" class="c-input" value="${existing?.limit_concorsi ?? ''}" placeholder="auto dal piano" />
-            <p class="text-[11px] text-slate-500 mt-1">Lascia vuoto per usare il default del piano. 0 = illimitato.</p>
-          </label>
-          <label class="c-field">
-            <span class="c-field__label">Limite iscritti/anno</span>
-            <input name="limit_iscritti_annui" type="number" min="0" class="c-input" value="${existing?.limit_iscritti_annui ?? ''}" placeholder="auto dal piano" />
-            <p class="text-[11px] text-slate-500 mt-1">Override opzionale. 0 = illimitato.</p>
-          </label>
-        </div>
-        <label class="c-field mt-3">
-          <span class="c-field__label">Note piano (interno)</span>
-          <textarea name="piano_note" rows="2" class="c-input" placeholder="es. sconto 10% concordato per il primo anno">${escapeHtml(existing?.piano_note || '')}</textarea>
-        </label>
-        <section class="bg-emerald-50 border border-emerald-200 rounded-xl p-3 mt-3 text-xs text-emerald-900">
-          <p class="font-semibold mb-1">✓ Auto-propagazione al PB dell'ente</p>
-          <p>Salvando qui, i limiti vengono applicati <strong>automaticamente</strong> al PocketBase del singolo ente (via shared-secret <code>GESTIMUS_SECRET_KEY</code>).</p>
-          <details class="mt-1 text-[11px]">
-            <summary class="cursor-pointer text-emerald-800 hover:text-emerald-900">Fallback manuale (se l'auto-propagazione fallisce)</summary>
-            <pre class="mt-2 bg-white border border-emerald-200 rounded p-2 font-mono">./scripts/apply-ente-plan.sh ${escapeHtml(existing?.slug || '<slug>')}</pre>
-            <p class="mt-1 text-emerald-800">Usato solo se il PB del tenant era offline al momento del save (i log del platform mostrano il warning).</p>
-          </details>
-        </section>
-      </div>
-    </div>
-  `;
+function showNewEnteModal(panel) {
+  const planOpts = PIANO_KEYS.map((k) => `<option value="${k}" ${k === 'trial' ? 'selected' : ''}>${k}</option>`).join('');
   modal({
-    title,
-    contentHtml,
-    primaryLabel: isEdit ? 'Salva' : 'Crea',
-    onMount: (body) => {
-      // Aggiorna l'hint del piano e auto-calcola scadenza quando l'utente cambia piano.
-      const selPiano = body.querySelector('[name="piano"]');
-      const inputScad = body.querySelector('[name="piano_scadenza"]');
-      const hint = body.querySelector('[data-piano-hint]');
-      const inputLC = body.querySelector('[name="limit_concorsi"]');
-      const inputLI = body.querySelector('[name="limit_iscritti_annui"]');
-      const refreshHint = (resetLimits) => {
-        const p = getPianoOrDefault(selPiano.value);
-        hint.textContent = p.descrizione + (p.is_ppe ? '' : ` · ${p.limit_concorsi} concorsi · ${p.limit_iscritti_annui} iscritti/anno`);
-        // Auto scadenza
-        if (p.durata_giorni) {
-          const d = new Date();
-          d.setDate(d.getDate() + p.durata_giorni);
-          inputScad.value = d.toISOString().slice(0, 10);
-        } else {
-          inputScad.value = '';
-        }
-        if (resetLimits) {
-          inputLC.placeholder = `default piano: ${p.limit_concorsi ?? '∞'}`;
-          inputLI.placeholder = `default piano: ${p.limit_iscritti_annui ?? '∞'}`;
-          inputLC.value = '';
-          inputLI.value = '';
-        }
-      };
-      selPiano.addEventListener('change', () => refreshHint(true));
-      refreshHint(false);
-    },
-    onPrimary: async (body) => {
-      const slug = body.querySelector('[name="slug"]').value.trim();
-      const nome = body.querySelector('[name="nome"]').value.trim();
-      const dominio = body.querySelector('[name="dominio"]').value.trim();
-      const porta_pb = body.querySelector('[name="porta_pb"]').value;
-      const stato = body.querySelector('[name="stato"]').value;
-      const note = body.querySelector('[name="note"]').value.trim();
-      const email_admin = body.querySelector('[name="email_admin"]').value.trim();
-      if (!slug || !nome || !porta_pb) { toast('Slug, nome e porta sono obbligatori', 'error'); return false; }
-      // Piano
-      const piano = body.querySelector('[name="piano"]').value;
-      const pianoScadRaw = body.querySelector('[name="piano_scadenza"]').value;
-      const pianoLcRaw = body.querySelector('[name="limit_concorsi"]').value;
-      const pianoLiRaw = body.querySelector('[name="limit_iscritti_annui"]').value;
-      const pianoNote = body.querySelector('[name="piano_note"]').value.trim();
-      const pianoCfg = getPianoOrDefault(piano);
-      const defaults = pianoDefaults(piano);
-      const data = {
-        slug, nome, dominio, porta_pb: Number(porta_pb), stato, note, email_admin,
-        piano,
-        piano_inizio: existing?.piano === piano && existing?.piano_inizio ? existing.piano_inizio : defaults.piano_inizio,
-        piano_scadenza: pianoScadRaw ? new Date(pianoScadRaw + 'T23:59:59').toISOString() : '',
-        limit_concorsi: pianoLcRaw === '' ? (pianoCfg.limit_concorsi ?? 0) : Number(pianoLcRaw),
-        limit_iscritti_annui: pianoLiRaw === '' ? (pianoCfg.limit_iscritti_annui ?? 0) : Number(pianoLiRaw),
-        ppe_setup_per_concorso: pianoCfg.ppe_setup_per_concorso ?? 0,
-        ppe_per_iscritto: pianoCfg.ppe_per_iscritto ?? 0,
-        piano_note: pianoNote,
-      };
-      try {
-        const token = pb.authStore.token;
-        const headers = { 'Content-Type': 'application/json' };
-        if (token) headers['Authorization'] = `Bearer ${token}`;
-        if (isEdit) {
-          const res = await fetch(`${PB_URL}/api/collections/tenants/records/${existing.id}`, { method: 'PATCH', headers, body: JSON.stringify(data) });
-          if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || res.status);
-          toast(`Ente "${nome}" aggiornato`, 'success');
-        } else {
-          const res = await fetch(`${PB_URL}/api/collections/tenants/records`, { method: 'POST', headers, body: JSON.stringify(data) });
-          if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || res.status);
-          toast(`Ente "${nome}" creato`, 'success');
-        }
-        renderSuperadmin(document.getElementById('app-root'));
-      } catch (e) { toast(e.message, 'error'); return false; }
-    },
-  });
-}
-
-// ============================================================================
-// Impostazioni globali — SOLO app_url (URL pubblico della piattaforma).
-// L'SMTP è per ente, vedi `showEnteSmtpModal` più sotto.
-// ============================================================================
-
-async function loadSettings() {
-  try {
-    const token = pb.authStore.token;
-    const res = await fetch(`${PB_URL}/api/collections/platform_settings/records?perPage=1`, {
-      headers: token ? { 'Authorization': `Bearer ${token}` } : {},
-    });
-    if (!res.ok) return;
-    const data = await res.json();
-    _state.settings = data.items?.[0] || null;
-  } catch {}
-}
-
-function showSettingsModal() {
-  const s = _state.settings || {};
-  modal({
-    title: 'Impostazioni globali',
-    width: 'max-w-lg',
+    title: 'Nuovo ente',
     contentHtml: `
-      <div class="space-y-4">
-        <p class="text-sm text-ink-700">Impostazioni valide per tutta la piattaforma. L'SMTP è invece configurato per <strong>ogni singolo ente</strong> — clicca l'icona ✉ sulla card di un ente per gestirlo.</p>
-        <label class="c-field">
-          <span class="c-field__label">URL applicazione</span>
-          <input name="app_url" class="c-input font-mono" value="${escapeHtml(s.app_url || '')}" placeholder="https://app.miodominio.it" />
-          <p class="text-[11px] text-slate-500 mt-1">Usato come base per costruire i link nelle email (es. conferma iscrizione, reset password). Esempio: <code>https://${escapeHtml('${tenantSlug}')}.miodominio.it</code></p>
+      <div class="space-y-3">
+        <div class="grid gap-2 sm:grid-cols-2">
+          <div>
+            <label class="text-sm font-medium">Slug (sottodominio)</label>
+            <input id="ne-slug" class="c-input" placeholder="es. conservatorio-milano" pattern="[a-z0-9][a-z0-9-]*[a-z0-9]">
+            <p class="text-xs text-ink-700 mt-1">kebab-case, 2-63 caratteri</p>
+          </div>
+          <div>
+            <label class="text-sm font-medium">Nome ente</label>
+            <input id="ne-nome" class="c-input" placeholder="es. Conservatorio Verdi">
+          </div>
+        </div>
+        <div class="grid gap-2 sm:grid-cols-2">
+          <div>
+            <label class="text-sm font-medium">Piano</label>
+            <select id="ne-piano" class="c-input">${planOpts}</select>
+          </div>
+          <div>
+            <label class="text-sm font-medium">Cleanup days (post-archiviazione)</label>
+            <input id="ne-cleanup" type="number" class="c-input" min="0" max="3650" value="30">
+          </div>
+        </div>
+        <hr class="border-slate-200">
+        <p class="text-sm font-semibold text-ink-900">Primo amministratore</p>
+        <div class="grid gap-2 sm:grid-cols-2">
+          <div>
+            <label class="text-sm font-medium">Email admin</label>
+            <input id="ne-admin-email" type="email" class="c-input">
+          </div>
+          <div>
+            <label class="text-sm font-medium">Password</label>
+            <input id="ne-admin-pass" type="text" class="c-input" value="${escapeHtml(genPassword())}">
+            <p class="text-xs text-ink-700 mt-1">Min 8 caratteri. Comunica all'utente in modo sicuro.</p>
+          </div>
+        </div>
+      </div>
+    `,
+    primaryLabel: 'Crea ente',
+    onPrimary: async () => {
+      const body = {
+        slug: document.getElementById('ne-slug').value.trim().toLowerCase(),
+        nome: document.getElementById('ne-nome').value.trim(),
+        piano: document.getElementById('ne-piano').value,
+        cleanupAfterDays: Number(document.getElementById('ne-cleanup').value),
+        adminEmail: document.getElementById('ne-admin-email').value.trim().toLowerCase(),
+        adminPassword: document.getElementById('ne-admin-pass').value,
+      };
+      if (!body.slug || !body.nome || !body.adminEmail || !body.adminPassword) {
+        toast('Compila tutti i campi obbligatori', 'error');
+        return;
+      }
+      try {
+        await api.post('/api/platform/tenants', body);
+        toast(`Ente "${body.slug}" creato`, 'success');
+        closeAllModals();
+        await loadEnti(panel);
+      } catch (err) {
+        toast(`Errore: ${err.message}`, 'error');
+      }
+    },
+  });
+}
+
+function genPassword(len = 14) {
+  const chars = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@$%&*';
+  let out = '';
+  const arr = new Uint32Array(len);
+  crypto.getRandomValues(arr);
+  for (let i = 0; i < len; i++) out += chars[arr[i] % chars.length];
+  return out;
+}
+
+// ============================================================================
+// SMTP
+// ============================================================================
+
+function showSmtpModal(t, panel) {
+  modal({
+    title: `SMTP per ${t.nome}`,
+    contentHtml: `
+      <p class="text-sm text-ink-700 mb-3">La password viene cifrata at-rest (AES-GCM) prima del salvataggio. Il backend invalida la cache del transporter immediatamente.</p>
+      <div class="space-y-2">
+        <div class="grid gap-2 sm:grid-cols-2">
+          <div>
+            <label class="text-sm font-medium">Host</label>
+            <input id="smtp-host" class="c-input" placeholder="smtp.example.com">
+          </div>
+          <div>
+            <label class="text-sm font-medium">Port</label>
+            <input id="smtp-port" type="number" class="c-input" value="587">
+          </div>
+        </div>
+        <div>
+          <label class="text-sm font-medium">User</label>
+          <input id="smtp-user" class="c-input">
+        </div>
+        <div>
+          <label class="text-sm font-medium">Password</label>
+          <input id="smtp-pass" type="password" class="c-input">
+        </div>
+        <div>
+          <label class="text-sm font-medium">From</label>
+          <input id="smtp-from" class="c-input" placeholder='es. "Gestimus Ente" <noreply@ente.it>'>
+        </div>
+        <label class="inline-flex items-center gap-2 text-sm mt-1">
+          <input id="smtp-secure" type="checkbox">
+          <span>Connessione SSL/TLS implicita (porta 465)</span>
         </label>
       </div>
     `,
     primaryLabel: 'Salva',
-    onPrimary: async (body) => {
-      const data = { app_url: body.querySelector('[name="app_url"]').value.trim() };
-      try {
-        const token = pb.authStore.token;
-        const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` };
-        if (_state.settings?.id) {
-          const res = await fetch(`${PB_URL}/api/collections/platform_settings/records/${_state.settings.id}`, { method: 'PATCH', headers, body: JSON.stringify(data) });
-          if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || res.status);
-        } else {
-          const res = await fetch(`${PB_URL}/api/collections/platform_settings/records`, { method: 'POST', headers, body: JSON.stringify(data) });
-          if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || res.status);
-          _state.settings = await res.json();
-        }
-        toast('Impostazioni salvate', 'success');
-        loadSettings();
-      } catch (e) { toast(e.message || 'Errore', 'error'); return false; }
-    },
-  });
-}
-
-// ============================================================================
-// SMTP per singolo ente — apri dalla card con icona ✉.
-// I dati vengono salvati nel record `tenants` corrispondente.
-// La propagazione al PocketBase del singolo ente è manuale via
-// `scripts/apply-ente-smtp.sh <slug>` (legge i settings da platform e applica
-// via admin API al PB dell'ente).
-// ============================================================================
-
-function showEnteSmtpModal(ente, root) {
-  const lastProp = ente.smtp_last_propagated_at
-    ? new Date(ente.smtp_last_propagated_at).toLocaleString('it-IT')
-    : null;
-  modal({
-    title: `SMTP per "${ente.nome}"`,
-    width: 'max-w-2xl',
-    contentHtml: `
-      <div class="space-y-5">
-        <section class="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-900">
-          <p>Le credenziali SMTP qui impostate sono <strong>specifiche di questo ente</strong>: enti diversi possono usare provider diversi (SendGrid, Postmark, Gmail, …). PocketBase del singolo ente userà queste credenziali per inviare email transazionali (conferma iscrizioni, ecc.).</p>
-        </section>
-
-        <section>
-          <label class="flex items-center gap-2 text-sm text-ink-800 mb-4">
-            <input name="smtp_enabled" type="checkbox" class="rounded border-slate-300" ${ente.smtp_enabled ? 'checked' : ''} />
-            <span class="font-semibold">Abilita SMTP per questo ente</span>
-          </label>
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <label class="c-field">
-              <span class="c-field__label">Host *</span>
-              <input name="smtp_host" class="c-input font-mono" value="${escapeHtml(ente.smtp_host || '')}" placeholder="smtp.gmail.com" />
-            </label>
-            <label class="c-field">
-              <span class="c-field__label">Porta *</span>
-              <input name="smtp_port" type="number" min="1" max="65535" class="c-input" value="${ente.smtp_port || 587}" />
-            </label>
-            <label class="c-field">
-              <span class="c-field__label">Username</span>
-              <input name="smtp_username" class="c-input" value="${escapeHtml(ente.smtp_username || '')}" placeholder="apikey · user · email" />
-            </label>
-            <label class="c-field">
-              <span class="c-field__label">Password / API key${ente.smtp_password ? ' <span class="text-[10px] font-normal text-emerald-700">(cifrata · lascia vuoto per non modificare)</span>' : ''}</span>
-              <input name="smtp_password" type="password" class="c-input" value="" placeholder="${ente.smtp_password ? '••••••••' : 'inserisci password / API key'}" autocomplete="new-password" />
-            </label>
-            <label class="c-field">
-              <span class="c-field__label">Cifratura</span>
-              <select name="smtp_tls" class="c-input">
-                <option value="starttls" ${ente.smtp_tls === 'starttls' || !ente.smtp_tls ? 'selected' : ''}>STARTTLS (porta 587)</option>
-                <option value="tls" ${ente.smtp_tls === 'tls' ? 'selected' : ''}>TLS implicito (porta 465)</option>
-                <option value="none" ${ente.smtp_tls === 'none' ? 'selected' : ''}>Nessuna (porta 25, sconsigliato)</option>
-              </select>
-            </label>
-            <label class="c-field">
-              <span class="c-field__label">Indirizzo mittente *</span>
-              <input name="sender_address" type="email" class="c-input" value="${escapeHtml(ente.sender_address || '')}" placeholder="noreply@${escapeHtml(ente.dominio || 'esempio.it')}" />
-            </label>
-            <label class="c-field sm:col-span-2">
-              <span class="c-field__label">Nome mittente</span>
-              <input name="sender_name" class="c-input" value="${escapeHtml(ente.sender_name || ente.nome || '')}" placeholder="es. ${escapeHtml(ente.nome || 'Concorso Musicale')}" />
-            </label>
-          </div>
-        </section>
-
-        <section class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900">
-          <p class="font-semibold mb-1">⚠ Propagazione manuale al PB dell'ente</p>
-          <p>Dopo aver salvato qui, applica le impostazioni al PocketBase dell'ente con:</p>
-          <pre class="mt-2 bg-white border border-amber-200 rounded p-2 font-mono text-[11px]">./scripts/apply-ente-smtp.sh ${escapeHtml(ente.slug)}</pre>
-          <p class="mt-1">(In assenza di propagazione, le impostazioni sono solo memorizzate nella piattaforma ma il PB dell'ente non sa come inviare email.)</p>
-        </section>
-
-        ${lastProp ? `<p class="text-[11px] text-slate-500">Ultima propagazione: ${lastProp}${ente.smtp_last_propagation_result ? ` · ${escapeHtml(ente.smtp_last_propagation_result)}` : ''}</p>` : ''}
-      </div>
-    `,
-    primaryLabel: 'Salva configurazione SMTP',
-    onPrimary: async (body) => {
-      const newPwd = body.querySelector('[name="smtp_password"]').value;
-      const data = {
-        smtp_enabled:   body.querySelector('[name="smtp_enabled"]').checked,
-        smtp_host:      body.querySelector('[name="smtp_host"]').value.trim(),
-        smtp_port:      Number(body.querySelector('[name="smtp_port"]').value) || 587,
-        smtp_username:  body.querySelector('[name="smtp_username"]').value.trim(),
-        smtp_tls:       body.querySelector('[name="smtp_tls"]').value,
-        sender_address: body.querySelector('[name="sender_address"]').value.trim(),
-        sender_name:    body.querySelector('[name="sender_name"]').value.trim(),
+    onPrimary: async () => {
+      const body = {
+        host: document.getElementById('smtp-host').value.trim(),
+        port: Number(document.getElementById('smtp-port').value),
+        user: document.getElementById('smtp-user').value.trim(),
+        password: document.getElementById('smtp-pass').value,
+        from: document.getElementById('smtp-from').value.trim(),
+        secure: document.getElementById('smtp-secure').checked,
       };
-      // Includi smtp_password solo se l'utente ha digitato qualcosa,
-      // altrimenti il valore cifrato esistente viene preservato lato server.
-      if (newPwd) data.smtp_password = newPwd;
-      // Validazione minima se abilitato
-      if (data.smtp_enabled) {
-        if (!data.smtp_host || !data.sender_address) {
-          toast('Host e indirizzo mittente sono obbligatori quando SMTP è abilitato', 'error');
-          return false;
-        }
+      if (!body.host || !body.user || !body.password || !body.from) {
+        toast('Compila tutti i campi', 'error');
+        return;
       }
       try {
-        const token = pb.authStore.token;
-        const res = await fetch(`${PB_URL}/api/collections/tenants/records/${ente.id}`, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-          body: JSON.stringify(data),
-        });
-        if (!res.ok) throw new Error((await res.json().catch(() => ({}))).message || res.status);
-        toast(`SMTP di "${ente.nome}" salvato. Ricordati di propagare con apply-ente-smtp.sh.`, 'success');
-        loadEnti(root);
-      } catch (e) { toast(e.message || 'Errore', 'error'); return false; }
+        await api.put(`/api/platform/tenants/${t.id}/smtp`, body);
+        toast('SMTP salvato', 'success');
+        closeAllModals();
+      } catch (err) {
+        toast(`Errore: ${err.message}`, 'error');
+      }
     },
   });
 }
 
-// ============================================================================
-// Crea admin per un ente — solo se l'ente non ne ha già uno.
-// Chiama l'endpoint pubblico /api/setup/create-admin del PocketBase dell'ente
-// (definito in pb_hooks/setup.pb.js). L'endpoint rifiuta se un admin esiste già.
-// ============================================================================
-function showCreateAdminModal(ente, root) {
-  const defaultEmail = ente.email_admin || `admin@${ente.dominio || ente.slug + '.test'}`;
-  // Password generata: 4 parole casuali + numeri (memorabile ma robusta)
-  const generated = generatePassword(12);
-  const enteUrl = `http://127.0.0.1:${ente.porta_pb}`;
-
-  modal({
-    title: `Crea admin per "${ente.nome}"`,
-    width: 'max-w-lg',
-    contentHtml: `
-      <div class="space-y-4">
-        <div class="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-900">
-          <p><strong>Quando usare:</strong> al primo avvio dell'ente, quando ancora non esiste un account amministrativo.</p>
-          <p class="mt-1">L'endpoint server rifiuta la creazione se un admin esiste già — quindi è sicuro chiamarlo più volte.</p>
-        </div>
-
-        <label class="c-field">
-          <span class="c-field__label">Email admin *</span>
-          <input name="email" type="email" required class="c-input" value="${escapeHtml(defaultEmail)}" />
-        </label>
-        <div class="grid grid-cols-2 gap-3">
-          <label class="c-field"><span class="c-field__label">Nome</span>
-            <input name="nome" class="c-input" placeholder="es. Mario" />
-          </label>
-          <label class="c-field"><span class="c-field__label">Cognome</span>
-            <input name="cognome" class="c-input" placeholder="es. Rossi" />
-          </label>
-        </div>
-        <label class="c-field">
-          <span class="c-field__label">Password * (min 6)</span>
-          <div class="flex items-center gap-2">
-            <input name="password" type="text" required minlength="6" class="c-input font-mono" value="${escapeHtml(generated)}" />
-            <button type="button" data-rerand class="c-btn c-btn--outline c-btn--sm shrink-0" title="Rigenera">🎲</button>
-            <button type="button" data-copy-pwd class="c-btn c-btn--outline c-btn--sm shrink-0" title="Copia">📋</button>
-          </div>
-          <span class="text-[11px] text-slate-500 mt-1 block">La password viene mostrata in chiaro: copiala e comunicala in modo sicuro all'admin dell'ente. Potrà cambiarla al primo login.</span>
-        </label>
-
-        <p class="text-[11px] text-slate-500">Endpoint: <code class="font-mono bg-slate-100 px-1 rounded">${escapeHtml(enteUrl)}/api/setup/create-admin</code></p>
-      </div>
-    `,
-    primaryLabel: 'Crea admin',
-    onMount: (body) => {
-      const pwd = body.querySelector('[name="password"]');
-      body.querySelector('[data-rerand]').addEventListener('click', () => { pwd.value = generatePassword(12); });
-      body.querySelector('[data-copy-pwd]').addEventListener('click', async () => {
-        try { await navigator.clipboard.writeText(pwd.value); toast('Password copiata', 'info'); } catch {}
-      });
-    },
-    onPrimary: async (body) => {
-      const email = body.querySelector('[name="email"]').value.trim().toLowerCase();
-      const password = body.querySelector('[name="password"]').value;
-      const nome = body.querySelector('[name="nome"]').value.trim();
-      const cognome = body.querySelector('[name="cognome"]').value.trim();
-      if (!email || !email.includes('@')) { toast('Email non valida', 'error'); return false; }
-      if (!password || password.length < 6) { toast('Password troppo corta (min 6)', 'error'); return false; }
-      try {
-        const res = await fetch(`${enteUrl}/api/setup/create-admin`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email, password, nome, cognome, role: 'admin' }),
-        });
-        const d = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          const errMap = {
-            invalid_email: 'Email non valida',
-            password_too_short: 'Password troppo corta',
-            admin_already_exists: 'Esiste già un admin per questo ente. Apri la UI admin per gestirlo.',
-            email_taken: 'Email già usata su questo ente',
-            check_failed: 'Errore di verifica admin esistenti',
-            create_failed: d.message || 'Errore di creazione',
-            invalid_body: 'Richiesta non valida',
-          };
-          throw new Error(errMap[d.error] || d.error || `HTTP ${res.status}`);
-        }
-        toast(`Admin "${email}" creato su "${ente.nome}"`, 'success');
-        // Salva l'email come email_admin sul record tenant (se non già impostata)
-        if (!ente.email_admin) {
-          try {
-            const token = pb.authStore.token;
-            await fetch(`${PB_URL}/api/collections/tenants/records/${ente.id}`, {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-              body: JSON.stringify({ email_admin: email }),
-            });
-          } catch {}
-        }
-        loadEnti(root);
-      } catch (e) { toast(e.message || 'Errore', 'error'); return false; }
-    },
-  });
-}
-
-// Genera una password "facile da pronunciare" di lunghezza ~N: 4 sillabe + 2 cifre.
-function generatePassword(len = 12) {
-  const cons = 'bcdfghjklmnpqrstvwxz';
-  const voc  = 'aeiou';
-  let out = '';
-  while (out.length < len - 2) {
-    out += cons[Math.floor(Math.random() * cons.length)] + voc[Math.floor(Math.random() * voc.length)];
+async function deleteTenantSmtp(t, _panel) {
+  if (!confirm(`Rimuovere la configurazione SMTP di ${t.nome}?`)) return;
+  try {
+    await api.delete(`/api/platform/tenants/${t.id}/smtp`);
+    toast('SMTP rimosso', 'success');
+    closeAllModals();
+  } catch (err) {
+    toast(`Errore: ${err.message}`, 'error');
   }
-  // Capitalizza prima lettera
-  out = out[0].toUpperCase() + out.slice(1);
-  // Aggiungi 2 cifre
-  out += String(Math.floor(Math.random() * 100)).padStart(2, '0');
-  return out.slice(0, len);
+}
+
+// ============================================================================
+// AUDIT
+// ============================================================================
+
+async function renderAuditPanel(panel) {
+  panel.innerHTML = `
+    <div class="flex flex-wrap gap-2 items-end mb-4">
+      <div>
+        <label class="text-sm font-medium block">Action</label>
+        <input id="au-action" class="c-input c-input--sm" placeholder="es. platform.tenant.archive">
+      </div>
+      <div>
+        <label class="text-sm font-medium block">Tenant ID</label>
+        <input id="au-tenant" class="c-input c-input--sm" placeholder="UUID (opzionale)">
+      </div>
+      <div>
+        <label class="text-sm font-medium block">Limit</label>
+        <input id="au-limit" type="number" class="c-input c-input--sm" value="100" min="1" max="500">
+      </div>
+      <button data-action="au-load" class="c-btn c-btn--primary c-btn--sm">${icon('search', { size: 14 })}<span>Carica</span></button>
+    </div>
+    <div id="sa-audit-list"><div class="text-center py-10 text-ink-700 text-sm">Caricamento…</div></div>
+  `;
+  panel.querySelector('[data-action="au-load"]').addEventListener('click', () => loadAudit(panel));
+  await loadAudit(panel);
+}
+
+async function loadAudit(panel) {
+  const listEl = panel.querySelector('#sa-audit-list');
+  const action = panel.querySelector('#au-action').value.trim();
+  const tenantId = panel.querySelector('#au-tenant').value.trim();
+  const limit = panel.querySelector('#au-limit').value;
+  const query = { limit };
+  if (action) query.action = action;
+  if (tenantId) query.tenantId = tenantId;
+  try {
+    state.audit = await api.get('/api/platform/audit', query);
+  } catch (err) {
+    listEl.innerHTML = errorBox('Caricamento audit fallito', err);
+    return;
+  }
+  if (state.audit.length === 0) {
+    listEl.innerHTML = emptyBox('Nessuna riga di audit nei filtri selezionati.');
+    return;
+  }
+  listEl.innerHTML = `
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-xs">
+        <thead class="bg-slate-50 text-left">
+          <tr>
+            <th class="px-3 py-2">Quando</th>
+            <th class="px-3 py-2">Action</th>
+            <th class="px-3 py-2">Tenant</th>
+            <th class="px-3 py-2">Actor</th>
+            <th class="px-3 py-2">Payload</th>
+            <th class="px-3 py-2">IP</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          ${state.audit.map(auditRow).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function auditRow(r) {
+  return `
+    <tr>
+      <td class="px-3 py-2 whitespace-nowrap text-ink-700">${fmtDate(r.createdAt)}</td>
+      <td class="px-3 py-2"><code>${escapeHtml(r.action)}</code></td>
+      <td class="px-3 py-2">${r.targetTenantSlug ? `<code>${escapeHtml(r.targetTenantSlug)}</code>` : '<span class="text-ink-500 italic">—</span>'}</td>
+      <td class="px-3 py-2 text-ink-700">${r.actorAccountId ?? '—'}</td>
+      <td class="px-3 py-2"><pre class="text-xs whitespace-pre-wrap max-w-xs overflow-hidden">${r.payload ? escapeHtml(JSON.stringify(r.payload)) : ''}</pre></td>
+      <td class="px-3 py-2 text-ink-700">${escapeHtml(r.ip ?? '—')}</td>
+    </tr>
+  `;
+}
+
+// ============================================================================
+// BACKUP
+// ============================================================================
+
+async function renderBackupsPanel(panel) {
+  panel.innerHTML = `
+    <div class="flex flex-wrap items-center justify-between gap-3 mb-4">
+      <p class="text-sm text-ink-700">Backup JSON gzipped dei tenant cancellati. Retention: vedi <code>BACKUP_RETENTION_DAYS</code> nelle env (default 90gg).</p>
+      <button data-action="run-cleanup" class="c-btn c-btn--ghost c-btn--sm">${icon('refresh', { size: 14 })}<span>Esegui cleanup ora</span></button>
+    </div>
+    <div id="sa-backups-list"><div class="text-center py-10 text-ink-700 text-sm">Caricamento…</div></div>
+  `;
+  panel.querySelector('[data-action="run-cleanup"]').addEventListener('click', () => runCleanupManual(panel));
+  await loadBackups(panel);
+}
+
+async function loadBackups(panel) {
+  const listEl = panel.querySelector('#sa-backups-list');
+  try {
+    state.backups = await api.get('/api/platform/backups');
+  } catch (err) {
+    listEl.innerHTML = errorBox('Caricamento backup fallito', err);
+    return;
+  }
+  if (state.backups.length === 0) {
+    listEl.innerHTML = emptyBox('Nessun backup presente.');
+    return;
+  }
+  listEl.innerHTML = `
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm">
+        <thead class="bg-slate-50 text-left">
+          <tr>
+            <th class="px-3 py-2">File</th>
+            <th class="px-3 py-2">Tenant</th>
+            <th class="px-3 py-2">Size</th>
+            <th class="px-3 py-2">Modificato</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          ${state.backups.map((b) => `
+            <tr>
+              <td class="px-3 py-2"><code class="text-xs">${escapeHtml(b.filename)}</code></td>
+              <td class="px-3 py-2"><code>${escapeHtml(b.tenantSlug)}</code></td>
+              <td class="px-3 py-2 text-ink-700">${fmtBytes(b.sizeBytes)}</td>
+              <td class="px-3 py-2 text-ink-700">${fmtDate(b.modifiedAt)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+async function runCleanupManual(panel) {
+  if (!confirm("Eseguire ora il job di cleanup? Verranno hard-deletati i tenant archiviati con cleanup_scheduled_at scaduto.")) return;
+  try {
+    const r = await api.post('/api/platform/jobs/cleanup-tenants');
+    toast(`Job: candidati=${r.candidatesFound}, eliminati=${r.deleted}, backup=${r.backedUp}, errori=${r.errors.length}`, 'success', 6000);
+    await loadBackups(panel);
+  } catch (err) {
+    toast(`Errore: ${err.message}`, 'error');
+  }
+}
+
+// ============================================================================
+// CONFIG PIATTAFORMA
+// ============================================================================
+
+async function renderConfigPanel(panel) {
+  panel.innerHTML = `<div class="text-center py-10 text-ink-700 text-sm">Caricamento…</div>`;
+  try {
+    state.config = await api.get('/api/platform/config');
+  } catch (err) {
+    panel.innerHTML = errorBox('Caricamento config fallito', err);
+    return;
+  }
+  const c = state.config ?? { defaultCleanupDays: 30, require2faSuperadmin: false };
+  panel.innerHTML = `
+    <div class="c-card p-5 max-w-xl">
+      <h3 class="text-sm font-semibold text-ink-900 mb-3">Configurazione piattaforma</h3>
+      <div class="space-y-3">
+        <div>
+          <label class="text-sm font-medium">Default cleanup days</label>
+          <input id="cfg-cleanup" type="number" class="c-input" min="0" max="3650" value="${c.defaultCleanupDays}">
+          <p class="text-xs text-ink-700 mt-1">Giorni di default tra archiviazione e hard-delete (0 = mai). Override per-tenant disponibile.</p>
+        </div>
+        <label class="inline-flex items-center gap-2 text-sm">
+          <input id="cfg-2fa" type="checkbox" ${c.require2faSuperadmin ? 'checked' : ''}>
+          <span>Richiedi 2FA TOTP a tutti i super-admin</span>
+        </label>
+        <div class="pt-3">
+          <button data-action="cfg-save" class="c-btn c-btn--primary c-btn--sm">${icon('check', { size: 14 })}<span>Salva</span></button>
+        </div>
+      </div>
+    </div>
+  `;
+  panel.querySelector('[data-action="cfg-save"]').addEventListener('click', async () => {
+    const body = {
+      defaultCleanupDays: Number(document.getElementById('cfg-cleanup').value),
+      require2faSuperadmin: document.getElementById('cfg-2fa').checked,
+    };
+    try {
+      await api.patch('/api/platform/config', body);
+      toast('Configurazione salvata', 'success');
+    } catch (err) {
+      toast(`Errore: ${err.message}`, 'error');
+    }
+  });
+}
+
+// ============================================================================
+// Helpers
+// ============================================================================
+
+function badge(text, classes) {
+  return `<span class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${classes}">${escapeHtml(text)}</span>`;
+}
+
+function emptyBox(msg) {
+  return `<div class="bg-white border-2 border-dashed border-slate-200 rounded-2xl py-12 text-center"><p class="text-sm text-slate-500 italic">${escapeHtml(msg)}</p></div>`;
+}
+
+function errorBox(title, err) {
+  const detail = err instanceof ApiError ? `${err.status} — ${err.body?.error || err.message}` : err.message || String(err);
+  return `<div class="bg-rose-50 border border-rose-200 rounded-2xl p-6 text-rose-900"><h3 class="font-bold">${escapeHtml(title)}</h3><p class="text-sm mt-1">${escapeHtml(detail)}</p></div>`;
+}
+
+function closeAllModals() {
+  document.querySelectorAll('.c-modal-backdrop, [data-modal-backdrop]').forEach((el) => el.remove());
+  document.body.classList.remove('overflow-hidden');
 }

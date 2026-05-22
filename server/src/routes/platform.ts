@@ -17,6 +17,8 @@ import { hashPassword } from '../services/password.js';
 import { writePlatformAudit } from '../services/audit.js';
 import { listBackups } from '../services/backup.js';
 import { runTenantCleanup } from '../services/cleanup.js';
+import { encryptSmtp, isEncryptedSmtp } from '../services/crypto-smtp.js';
+import { invalidateTransporter } from '../services/email.js';
 
 const TENANT_STATES = ['attivo', 'sospeso', 'archiviato'] as const;
 const TENANT_PLANS = ['trial', 'starter', 'pro', 'ultra', 'ppe'] as const;
@@ -75,6 +77,15 @@ const updateConfigBody = z
     defaultCleanupDays: z.number().int().min(0).max(3650),
   })
   .partial();
+
+const smtpBody = z.object({
+  host: z.string().min(1).max(255),
+  port: z.number().int().positive().max(65535),
+  secure: z.boolean().optional(),
+  user: z.string().min(1).max(255),
+  password: z.string().min(1).max(500),
+  from: z.string().min(1).max(255),
+});
 
 const auditQuery = z.object({
   limit: z.coerce.number().int().min(1).max(500).default(100),
@@ -439,6 +450,58 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
       .orderBy(desc(platformAuditLog.createdAt))
       .limit(limit);
     return rows;
+  });
+
+  /**
+   * GET /tenants/:id/smtp → stato della config SMTP del tenant (no password)
+   */
+  app.get('/tenants/:id/smtp', { preHandler: platformGuards }, async (req, reply) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const t = await findTenant(id);
+    if (!t) return reply.notFound();
+    const raw = t.smtpConfig;
+    if (!raw) return { configured: false };
+    return { configured: true, encrypted: isEncryptedSmtp(raw) };
+  });
+
+  /**
+   * PUT /tenants/:id/smtp → salva config SMTP cifrata at-rest
+   */
+  app.put('/tenants/:id/smtp', { preHandler: platformGuards }, async (req, reply) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const parsed = smtpBody.safeParse(req.body);
+    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    const t = await findTenant(id);
+    if (!t) return reply.notFound();
+
+    const encrypted = encryptSmtp(parsed.data);
+    await dbSuper
+      .update(tenants)
+      .set({ smtpConfig: encrypted, updatedAt: new Date() })
+      .where(eq(tenants.id, id));
+    invalidateTransporter(id);
+    await auditChange(req, 'platform.tenant.smtp.update', t, {
+      host: parsed.data.host,
+      port: parsed.data.port,
+      user: parsed.data.user,
+    });
+    return { ok: true };
+  });
+
+  /**
+   * DELETE /tenants/:id/smtp → rimuove la config SMTP del tenant
+   */
+  app.delete('/tenants/:id/smtp', { preHandler: platformGuards }, async (req, reply) => {
+    const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
+    const t = await findTenant(id);
+    if (!t) return reply.notFound();
+    await dbSuper
+      .update(tenants)
+      .set({ smtpConfig: null, updatedAt: new Date() })
+      .where(eq(tenants.id, id));
+    invalidateTransporter(id);
+    await auditChange(req, 'platform.tenant.smtp.delete', t);
+    return { ok: true };
   });
 
   /**

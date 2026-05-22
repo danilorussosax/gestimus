@@ -367,6 +367,72 @@ describe('Platform super-admin (Fase 6)', () => {
     assert.equal(cfg.id, 1);
   });
 
+  // ────────────────────────────────────────────────────────────────────────────
+  // SMTP per tenant (traccia C)
+  // ────────────────────────────────────────────────────────────────────────────
+
+  test('SMTP super-admin: GET vergine → not configured; PUT cifra; DELETE pulisce', async () => {
+    // Usa ente2 (seedato, niente SMTP per default)
+    const ente2 = await dbSuper.query.tenants.findFirst({ where: eq(tenants.slug, 'ente2') });
+
+    const before = await app.inject({
+      method: 'GET',
+      url: `/api/platform/tenants/${ente2!.id}/smtp`,
+      headers: platformHdrs(),
+    });
+    assert.equal(before.statusCode, 200);
+    assert.equal(before.json().configured, false);
+
+    const put = await app.inject({
+      method: 'PUT',
+      url: `/api/platform/tenants/${ente2!.id}/smtp`,
+      headers: platformHdrsJson(),
+      payload: {
+        host: 'smtp.example.com',
+        port: 587,
+        user: 'noreply@example.com',
+        password: 'super-secret',
+        from: 'Demo <noreply@example.com>',
+      },
+    });
+    assert.equal(put.statusCode, 200);
+
+    // Verifica che la password sia stata cifrata (non leggibile dal DB raw)
+    const row = await dbSuper.query.tenants.findFirst({ where: eq(tenants.id, ente2!.id) });
+    const raw = JSON.stringify(row!.smtpConfig);
+    assert.ok(!raw.includes('super-secret'), 'password non deve apparire in chiaro');
+
+    const after = await app.inject({
+      method: 'GET',
+      url: `/api/platform/tenants/${ente2!.id}/smtp`,
+      headers: platformHdrs(),
+    });
+    assert.equal(after.statusCode, 200);
+    assert.equal(after.json().configured, true);
+    assert.equal(after.json().encrypted, true);
+
+    // Audit
+    const audit = await dbSuper
+      .select()
+      .from(platformAuditLog)
+      .where(eq(platformAuditLog.targetTenantId, ente2!.id));
+    assert.ok(audit.some((a) => a.action === 'platform.tenant.smtp.update'));
+
+    const del = await app.inject({
+      method: 'DELETE',
+      url: `/api/platform/tenants/${ente2!.id}/smtp`,
+      headers: platformHdrs(),
+    });
+    assert.equal(del.statusCode, 200);
+
+    const final = await app.inject({
+      method: 'GET',
+      url: `/api/platform/tenants/${ente2!.id}/smtp`,
+      headers: platformHdrs(),
+    });
+    assert.equal(final.json().configured, false);
+  });
+
   test('PATCH /api/platform/config → aggiorna defaultCleanupDays', async () => {
     const res = await app.inject({
       method: 'PATCH',
