@@ -1126,43 +1126,145 @@ function showEditMetaModal(t, main) {
 }
 
 function showNewEnteModal(main) {
-  const planOpts = PIANO_KEYS.map((k) => `<option value="${k}" ${k === 'trial' ? 'selected' : ''}>${PIANI[k].nome} (${pianoPriceLabel(k)})</option>`).join('');
+  const initialPassword = genPassword();
+  const planCards = PIANO_KEYS.map((k) => {
+    const p = PIANI[k];
+    const colors = {
+      sky: 'ring-sky-500 bg-sky-50',
+      emerald: 'ring-emerald-500 bg-emerald-50',
+      brand: 'ring-brand-500 bg-brand-50',
+      amber: 'ring-amber-500 bg-amber-50',
+      slate: 'ring-slate-400 bg-slate-50',
+    };
+    const accent = colors[p.badge_color] ?? colors.slate;
+    return `
+      <label class="ne-plan-card cursor-pointer block border-2 border-slate-200 rounded-lg p-3 hover:border-slate-300 transition-colors ${p.featured ? 'relative' : ''}" data-plan="${k}">
+        ${p.featured ? '<span class="absolute -top-2 right-3 bg-brand-600 text-white text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full">consigliato</span>' : ''}
+        <input type="radio" name="ne-piano" value="${k}" class="sr-only" ${k === 'trial' ? 'checked' : ''}>
+        <div class="flex items-baseline justify-between mb-1">
+          <span class="font-semibold text-ink-900">${escapeHtml(p.nome)}</span>
+          <span class="text-xs text-ink-700">${escapeHtml(pianoPriceLabel(k))}</span>
+        </div>
+        <p class="text-xs text-ink-700 mb-2 line-clamp-2">${escapeHtml(p.descrizione)}</p>
+        <ul class="text-[11px] text-ink-700 space-y-0.5">
+          <li>📊 Concorsi: <strong class="text-ink-900">${planLimitDisplay(p.limit_concorsi)}</strong></li>
+          <li>👥 Iscrizioni/anno: <strong class="text-ink-900">${planLimitDisplay(p.limit_iscritti_annui)}</strong></li>
+        </ul>
+        <div class="ne-plan-radio-indicator hidden mt-2 pt-2 border-t border-slate-200 text-xs text-emerald-700 font-medium inline-flex items-center gap-1">
+          ${icon('check', { size: 12 })}<span>Selezionato</span>
+        </div>
+      </label>
+    `;
+  }).join('');
+
   modal({
     title: 'Nuovo ente',
+    wide: true,
+    primaryLabel: 'Crea ente',
     contentHtml: `
-      <div class="space-y-3">
-        <div class="grid gap-2 sm:grid-cols-2">
-          <div>
-            <label class="text-sm font-medium">Slug (sottodominio)</label>
-            <input id="ne-slug" class="c-input" placeholder="es. conservatorio-milano">
-            <p class="text-xs text-ink-700 mt-1">kebab-case, 2-63 caratteri</p>
+      <div class="space-y-5">
+        <!-- Step 1: Identificazione -->
+        <section>
+          <header class="flex items-center gap-2 mb-3">
+            <span class="w-6 h-6 inline-flex items-center justify-center rounded-full bg-brand-600 text-white text-xs font-bold">1</span>
+            <h3 class="text-sm font-semibold text-ink-900">Identificazione</h3>
+          </header>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label class="text-sm font-medium block mb-1">Nome ente <span class="text-rose-600">*</span></label>
+              <input id="ne-nome" class="c-input" placeholder="es. Conservatorio Verdi" autocomplete="off">
+              <p class="text-xs text-ink-500 mt-1">Visibile agli utenti del tenant.</p>
+            </div>
+            <div>
+              <label class="text-sm font-medium block mb-1">Slug <span class="text-rose-600">*</span></label>
+              <input id="ne-slug" class="c-input font-mono text-sm" placeholder="conservatorio-verdi" autocomplete="off">
+              <p id="ne-slug-help" class="text-xs text-ink-500 mt-1">2-63 caratteri, kebab-case (a-z, 0-9, trattino).</p>
+              <p id="ne-slug-preview" class="hidden text-xs text-brand-700 mt-1 font-mono">→ <span></span></p>
+              <p id="ne-slug-error" class="hidden text-xs text-rose-700 mt-1"></p>
+            </div>
           </div>
-          <div>
-            <label class="text-sm font-medium">Nome ente</label>
-            <input id="ne-nome" class="c-input" placeholder="es. Conservatorio Verdi">
+        </section>
+
+        <!-- Step 2: Piano -->
+        <section>
+          <header class="flex items-center gap-2 mb-3">
+            <span class="w-6 h-6 inline-flex items-center justify-center rounded-full bg-brand-600 text-white text-xs font-bold">2</span>
+            <h3 class="text-sm font-semibold text-ink-900">Piano</h3>
+            <span class="text-xs text-ink-500">— modificabile in seguito da "Cambia piano"</span>
+          </header>
+          <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3" id="ne-plan-cards">
+            ${planCards}
           </div>
-        </div>
-        <div class="grid gap-2 sm:grid-cols-2">
-          <div><label class="text-sm font-medium">Piano</label><select id="ne-piano" class="c-input">${planOpts}</select></div>
-          <div><label class="text-sm font-medium">Cleanup days post-archiviazione</label><input id="ne-cleanup" type="number" class="c-input" min="0" max="3650" value="30"></div>
-        </div>
-        <hr class="border-slate-200">
-        <p class="text-sm font-semibold text-ink-900">Primo amministratore</p>
-        <div class="grid gap-2 sm:grid-cols-2">
-          <div><label class="text-sm font-medium">Email admin</label><input id="ne-admin-email" type="email" class="c-input"></div>
-          <div>
-            <label class="text-sm font-medium">Password (≥ 8 caratteri)</label>
-            <input id="ne-admin-pass" type="text" class="c-input" value="${escapeHtml(genPassword())}">
+          <div class="mt-3 grid gap-3 sm:grid-cols-2">
+            <div>
+              <label class="text-sm font-medium block mb-1">Cleanup days post-archiviazione</label>
+              <input id="ne-cleanup" type="number" class="c-input" min="0" max="3650" value="30">
+              <p class="text-xs text-ink-500 mt-1">Giorni tra archiviazione e hard-delete (0 = mai).</p>
+            </div>
+            <div>
+              <label class="text-sm font-medium block mb-1">Scadenza piano</label>
+              <input id="ne-piano-scadenza" type="date" class="c-input">
+              <p class="text-xs text-ink-500 mt-1">Lascia vuoto se non scade.</p>
+            </div>
           </div>
-        </div>
+        </section>
+
+        <!-- Step 3: Amministratore -->
+        <section>
+          <header class="flex items-center gap-2 mb-3">
+            <span class="w-6 h-6 inline-flex items-center justify-center rounded-full bg-brand-600 text-white text-xs font-bold">3</span>
+            <h3 class="text-sm font-semibold text-ink-900">Primo amministratore</h3>
+          </header>
+          <div class="grid gap-3 sm:grid-cols-2">
+            <div>
+              <label class="text-sm font-medium block mb-1">Email admin <span class="text-rose-600">*</span></label>
+              <input id="ne-admin-email" type="email" class="c-input" placeholder="admin@ente.it" autocomplete="off">
+              <p id="ne-email-error" class="hidden text-xs text-rose-700 mt-1"></p>
+            </div>
+            <div>
+              <label class="text-sm font-medium block mb-1">Password <span class="text-rose-600">*</span></label>
+              <div class="flex gap-1.5">
+                <div class="relative flex-1">
+                  <input id="ne-admin-pass" type="text" class="c-input pr-9 font-mono text-sm" value="${escapeHtml(initialPassword)}" autocomplete="new-password">
+                  <button type="button" data-pass-toggle class="absolute right-1.5 top-1/2 -translate-y-1/2 p-1 text-ink-700 hover:text-ink-900" title="Nascondi/mostra">${icon('eye', { size: 14 })}</button>
+                </div>
+                <button type="button" data-pass-regen class="c-btn c-btn--ghost c-btn--sm" title="Genera nuova">${icon('refresh', { size: 14 })}</button>
+                <button type="button" data-pass-copy class="c-btn c-btn--ghost c-btn--sm" title="Copia">${icon('copy', { size: 14 })}</button>
+              </div>
+              <div class="mt-1.5">
+                <div class="h-1 bg-slate-200 rounded-full overflow-hidden">
+                  <div id="ne-pass-strength" class="h-full transition-all" style="width:0"></div>
+                </div>
+                <p id="ne-pass-strength-label" class="text-[11px] text-ink-500 mt-0.5"></p>
+              </div>
+            </div>
+          </div>
+          <div class="mt-3 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 text-xs text-amber-900 flex items-start gap-2">
+            ${icon('warning', { size: 14 })}
+            <span>Comunica le credenziali al cliente in modo sicuro (gestore password, mai email in chiaro). L'admin può cambiare la password al primo accesso.</span>
+          </div>
+        </section>
+
+        <!-- Riepilogo -->
+        <section id="ne-summary" class="hidden bg-slate-50 border border-slate-200 rounded-lg p-3 text-sm">
+          <p class="text-[11px] uppercase tracking-wide font-semibold text-ink-500 mb-2">Riepilogo</p>
+          <dl class="space-y-1 text-xs">
+            <div class="flex justify-between"><dt class="text-ink-700">Ente:</dt><dd id="ne-sum-nome" class="font-medium text-ink-900">—</dd></div>
+            <div class="flex justify-between"><dt class="text-ink-700">URL:</dt><dd id="ne-sum-url" class="font-mono text-brand-700">—</dd></div>
+            <div class="flex justify-between"><dt class="text-ink-700">Piano:</dt><dd id="ne-sum-piano" class="font-medium text-ink-900">—</dd></div>
+            <div class="flex justify-between"><dt class="text-ink-700">Admin:</dt><dd id="ne-sum-admin" class="font-mono text-ink-900">—</dd></div>
+          </dl>
+        </section>
       </div>
     `,
-    primaryLabel: 'Crea ente',
+    onMount: (modalRoot) => wireNewEnteModal(modalRoot),
     onPrimary: async () => {
+      const slug = document.getElementById('ne-slug').value.trim().toLowerCase();
       const body = {
-        slug: document.getElementById('ne-slug').value.trim().toLowerCase(),
+        slug,
         nome: document.getElementById('ne-nome').value.trim(),
-        piano: document.getElementById('ne-piano').value,
+        piano: document.querySelector('input[name="ne-piano"]:checked')?.value ?? 'trial',
+        pianoScadenza: document.getElementById('ne-piano-scadenza').value || null,
         cleanupAfterDays: Number(document.getElementById('ne-cleanup').value),
         adminEmail: document.getElementById('ne-admin-email').value.trim().toLowerCase(),
         adminPassword: document.getElementById('ne-admin-pass').value,
@@ -1171,9 +1273,17 @@ function showNewEnteModal(main) {
         toast('Compila tutti i campi obbligatori', 'error');
         return;
       }
+      if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(body.slug) || body.slug.length < 2 || body.slug.length > 63) {
+        toast('Slug non valido (kebab-case, 2-63 caratteri)', 'error');
+        return;
+      }
+      if (body.adminPassword.length < 8) {
+        toast('Password troppo corta (min 8 caratteri)', 'error');
+        return;
+      }
       try {
         await api.post('/api/platform/tenants', body);
-        toast(`Ente "${body.slug}" creato`, 'success');
+        toast(`Ente "${body.slug}" creato. Comunica le credenziali in modo sicuro.`, 'success', 6000);
         closeAllModals();
         await loadAll(main);
       } catch (err) {
@@ -1181,6 +1291,180 @@ function showNewEnteModal(main) {
       }
     },
   });
+}
+
+function wireNewEnteModal(root) {
+  const nomeEl = root.querySelector('#ne-nome');
+  const slugEl = root.querySelector('#ne-slug');
+  const slugHelp = root.querySelector('#ne-slug-help');
+  const slugPreview = root.querySelector('#ne-slug-preview');
+  const slugPreviewText = slugPreview.querySelector('span');
+  const slugError = root.querySelector('#ne-slug-error');
+  const emailEl = root.querySelector('#ne-admin-email');
+  const emailError = root.querySelector('#ne-email-error');
+  const passEl = root.querySelector('#ne-admin-pass');
+  const passStrength = root.querySelector('#ne-pass-strength');
+  const passLabel = root.querySelector('#ne-pass-strength-label');
+  const summary = root.querySelector('#ne-summary');
+  const sumNome = root.querySelector('#ne-sum-nome');
+  const sumUrl = root.querySelector('#ne-sum-url');
+  const sumPiano = root.querySelector('#ne-sum-piano');
+  const sumAdmin = root.querySelector('#ne-sum-admin');
+
+  // Cache slug ente esistenti per check disponibilità
+  const existingSlugs = new Set(state.enti.map((t) => t.slug.toLowerCase()));
+  existingSlugs.add('platform'); // riservato
+
+  let slugTouched = false;
+
+  // Auto-genera slug da nome (kebab-case, fino a 63 char)
+  nomeEl.addEventListener('input', () => {
+    if (!slugTouched) {
+      slugEl.value = kebabize(nomeEl.value);
+      validateSlug();
+    }
+    updateSummary();
+  });
+  slugEl.addEventListener('input', () => {
+    slugTouched = true;
+    slugEl.value = slugEl.value.toLowerCase();
+    validateSlug();
+    updateSummary();
+  });
+
+  function validateSlug() {
+    const s = slugEl.value.trim();
+    slugError.classList.add('hidden');
+    slugPreview.classList.add('hidden');
+    slugHelp.classList.remove('hidden');
+    if (!s) return;
+    if (s.length < 2 || s.length > 63) {
+      slugError.textContent = `Lunghezza fuori range (attuale: ${s.length}, ammesso: 2-63)`;
+      slugError.classList.remove('hidden');
+      slugHelp.classList.add('hidden');
+      return;
+    }
+    if (!/^[a-z0-9][a-z0-9-]*[a-z0-9]$/.test(s)) {
+      slugError.textContent = 'Solo a-z, 0-9 e trattino. Non può iniziare/finire con trattino.';
+      slugError.classList.remove('hidden');
+      slugHelp.classList.add('hidden');
+      return;
+    }
+    if (existingSlugs.has(s)) {
+      slugError.textContent = `Slug "${s}" già in uso o riservato`;
+      slugError.classList.remove('hidden');
+      slugHelp.classList.add('hidden');
+      return;
+    }
+    slugPreviewText.textContent = `${s}.gestimus.local:4000`;
+    slugPreview.classList.remove('hidden');
+    slugHelp.classList.add('hidden');
+  }
+
+  // Email validation live
+  emailEl.addEventListener('input', () => {
+    emailError.classList.add('hidden');
+    const v = emailEl.value.trim();
+    if (v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+      emailError.textContent = 'Email non valida';
+      emailError.classList.remove('hidden');
+    }
+    updateSummary();
+  });
+
+  // Password tools
+  root.querySelector('[data-pass-toggle]').addEventListener('click', () => {
+    passEl.type = passEl.type === 'password' ? 'text' : 'password';
+  });
+  root.querySelector('[data-pass-regen]').addEventListener('click', () => {
+    passEl.value = genPassword();
+    passEl.type = 'text';
+    updateStrength();
+    toast('Nuova password generata', 'info', 1500);
+  });
+  root.querySelector('[data-pass-copy]').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText(passEl.value);
+      toast('Password copiata negli appunti', 'success', 1500);
+    } catch {
+      toast('Impossibile copiare: usa Ctrl/Cmd+C', 'error');
+    }
+  });
+  passEl.addEventListener('input', updateStrength);
+
+  function updateStrength() {
+    const pwd = passEl.value;
+    const score = passwordScore(pwd);
+    const widths = ['0%', '25%', '50%', '75%', '100%'];
+    const colors = ['', 'bg-rose-500', 'bg-amber-500', 'bg-emerald-500', 'bg-emerald-600'];
+    const labels = ['', 'Debole', 'Media', 'Buona', 'Forte'];
+    passStrength.style.width = widths[score];
+    passStrength.className = `h-full transition-all ${colors[score]}`;
+    passLabel.textContent = pwd ? `Robustezza: ${labels[score]}${pwd.length < 8 ? ' (min 8 caratteri)' : ''}` : '';
+    passLabel.className = `text-[11px] mt-0.5 ${pwd.length < 8 ? 'text-rose-700' : 'text-ink-500'}`;
+  }
+
+  // Card selezione piano
+  root.querySelectorAll('.ne-plan-card').forEach((card) => {
+    card.addEventListener('click', () => {
+      root.querySelectorAll('.ne-plan-card').forEach((c) => {
+        c.classList.remove('border-brand-500', 'bg-brand-50');
+        c.classList.add('border-slate-200');
+        c.querySelector('.ne-plan-radio-indicator')?.classList.add('hidden');
+        c.querySelector('input[type=radio]').checked = false;
+      });
+      card.classList.add('border-brand-500', 'bg-brand-50');
+      card.classList.remove('border-slate-200');
+      card.querySelector('input[type=radio]').checked = true;
+      card.querySelector('.ne-plan-radio-indicator')?.classList.remove('hidden');
+      updateSummary();
+    });
+  });
+  // Marca iniziale (trial)
+  const initialPlan = root.querySelector('.ne-plan-card[data-plan="trial"]');
+  if (initialPlan) {
+    initialPlan.classList.add('border-brand-500', 'bg-brand-50');
+    initialPlan.classList.remove('border-slate-200');
+    initialPlan.querySelector('.ne-plan-radio-indicator')?.classList.remove('hidden');
+  }
+
+  function updateSummary() {
+    const nome = nomeEl.value.trim();
+    const slug = slugEl.value.trim();
+    const piano = root.querySelector('input[name="ne-piano"]:checked')?.value;
+    const email = emailEl.value.trim();
+    if (!nome && !slug && !email) {
+      summary.classList.add('hidden');
+      return;
+    }
+    summary.classList.remove('hidden');
+    sumNome.textContent = nome || '—';
+    sumUrl.textContent = slug ? `${slug}.gestimus.local:4000` : '—';
+    sumPiano.textContent = piano ? `${PIANI[piano].nome} (${pianoPriceLabel(piano)})` : '—';
+    sumAdmin.textContent = email || '—';
+  }
+
+  updateStrength();
+}
+
+function kebabize(s) {
+  return s
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 63);
+}
+
+function passwordScore(pwd) {
+  if (!pwd) return 0;
+  let score = 0;
+  if (pwd.length >= 8) score++;
+  if (pwd.length >= 12 && /\d/.test(pwd)) score++;
+  if (/[a-z]/.test(pwd) && /[A-Z]/.test(pwd)) score++;
+  if (/[^a-zA-Z0-9]/.test(pwd) && pwd.length >= 10) score++;
+  return Math.min(4, score);
 }
 
 function genPassword(len = 14) {
