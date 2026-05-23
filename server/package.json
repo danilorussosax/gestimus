@@ -24,7 +24,7 @@
     "test:rls": "node --test --test-force-exit --import tsx tests/rls/*.test.ts",
     "test:auth": "node --test --test-force-exit --import tsx tests/auth/*.test.ts",
     "test:crud": "node --test --test-force-exit --import tsx tests/crud/*.test.ts",
-    "lint": "tsc -p . --noEmit"
+    "lint": "tsc -p tsconfig.lint.json"
   },
   "engines": {
     "node": ">=22"
