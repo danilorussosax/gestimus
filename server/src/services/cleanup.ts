@@ -2,6 +2,7 @@ import { and, eq, isNotNull, lte, sql } from 'drizzle-orm';
 import { dbSuper, superPool } from '../db/client.js';
 import { platformAuditLog, tenants } from '../db/schema.js';
 import { backupTenant, pruneOldBackups } from './backup.js';
+import { computePlatformAuditSig } from './audit.js';
 import { env } from '../env.js';
 
 export type CleanupResult = {
@@ -75,7 +76,8 @@ export async function runTenantCleanup(): Promise<CleanupResult> {
         // crasha tra i due, la transazione fa rollback e lo stato resta
         // consistente (tenant ancora presente, ritentabile al prossimo run).
         await dbSuper.transaction(async (tx) => {
-          await tx.insert(platformAuditLog).values({
+          // M196: insert diretto (no req) → firmiamo esplicitamente la riga.
+          const auditRow = {
             actorAccountId: null,
             action: 'platform.tenant.cleanup_auto',
             targetTenantSlug: t.slug,
@@ -89,7 +91,10 @@ export async function runTenantCleanup(): Promise<CleanupResult> {
               archiviatoAt: t.archiviatoAt,
               cleanupScheduledAt: t.cleanupScheduledAt,
             },
-          });
+            ip: null,
+            userAgent: null,
+          };
+          await tx.insert(platformAuditLog).values({ ...auditRow, sig: computePlatformAuditSig(auditRow) });
           await tx.delete(tenants).where(eq(tenants.id, t.id));
         });
         result.deleted += 1;

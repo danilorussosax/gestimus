@@ -138,6 +138,9 @@ export const auditLog = pgTable(
     payload: jsonb('payload'),
     ip: text('ip'),
     userAgent: text('user_agent'),
+    // M196: HMAC del contenuto riga (tamper-evidence). Nullable per le righe
+    // pre-feature (legacy).
+    sig: text('sig'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -164,6 +167,7 @@ export const platformAuditLog = pgTable(
     payload: jsonb('payload'),
     ip: text('ip'),
     userAgent: text('user_agent'),
+    sig: text('sig'), // M196: HMAC del contenuto riga (tamper-evidence)
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('idx_platform_audit_time').on(t.createdAt)],

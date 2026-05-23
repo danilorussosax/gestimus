@@ -1,11 +1,12 @@
 import 'dotenv/config';
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { and, eq, like } from 'drizzle-orm';
+import { and, eq, inArray, like } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { createApp } from '../../src/app.js';
 import { dbSuper } from '../../src/db/client.js';
 import { auditLog, commissari, concorsi, tenants } from '../../src/db/schema.js';
+import { computeAuditLogSig, verifyAuditIntegrity } from '../../src/services/audit.js';
 
 describe('GDPR privacy endpoints', () => {
   let app: FastifyInstance;
@@ -129,6 +130,32 @@ describe('GDPR privacy endpoints', () => {
 
     // cleanup della voce di test
     await dbSuper.delete(auditLog).where(and(eq(auditLog.tenantId, tenantId), eq(auditLog.action, 'test.n183.audit')));
+  });
+
+  // M196: tamper-evidence dell'audit_log via HMAC per-riga.
+  test('M196: verifyAuditIntegrity rileva manomissioni e valida le firme', async () => {
+    const tenantId = (await dbSuper
+      .select({ id: tenants.id })
+      .from(tenants)
+      .where(eq(tenants.slug, 'ente1')))[0]!.id;
+
+    // Riga firmata correttamente, payload multi-chiave (verifica che il canonical
+    // sia stabile rispetto al riordino delle chiavi operato da jsonb).
+    const good = { tenantId, actorAccountId: null, action: 'test.m196.ok', targetType: null, targetId: null, payload: { zeta: 'z', alpha: 'a', count: 3 }, ip: null, userAgent: null };
+    await dbSuper.insert(auditLog).values({ ...good, sig: computeAuditLogSig(good) });
+
+    // Riga firmata, poi manomessa (payload cambiato senza ri-firmare).
+    const bad = { tenantId, actorAccountId: null, action: 'test.m196.bad', targetType: null, targetId: null, payload: { v: 1 }, ip: null, userAgent: null };
+    const [badInserted] = await dbSuper.insert(auditLog).values({ ...bad, sig: computeAuditLogSig(bad) }).returning();
+    await dbSuper.update(auditLog).set({ payload: { v: 999 } }).where(eq(auditLog.id, badInserted!.id));
+
+    const report = await verifyAuditIntegrity(tenantId);
+    assert.ok(report.tampered.some((t) => t.action === 'test.m196.bad'), 'manomissione rilevata');
+    assert.ok(!report.tampered.some((t) => t.action === 'test.m196.ok'), 'firma valida non segnalata (canonical stabile)');
+
+    await dbSuper
+      .delete(auditLog)
+      .where(and(eq(auditLog.tenantId, tenantId), inArray(auditLog.action, ['test.m196.ok', 'test.m196.bad'])));
   });
 
   test('erase richiede almeno un identificatore', async () => {
