@@ -318,7 +318,7 @@ function openIscrizioneDetail(isc, concorso, onChanged) {
           try {
             await db.rejectIscrizione(isc.id, reason);
             toast('Iscrizione rifiutata', 'info');
-            document.querySelector('#modal-root .modal-close')?.click();
+            document.querySelector('#modal-root [data-action="close"]')?.click();
             if (onChanged) onChanged();
           } catch (e) { toast(`Errore: ${e?.message || e}`, 'error'); }
         });

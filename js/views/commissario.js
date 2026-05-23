@@ -891,6 +891,9 @@ function beep() {
     osc.start();
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
     osc.stop(ctx.currentTime + 0.6);
+    // M157: chiudi l'AudioContext a fine beep — altrimenti ogni beep ne lascia
+    // uno aperto e i browser limitano il numero di context concorrenti (~6).
+    osc.onended = () => { ctx.close().catch(() => {}); };
   } catch { /* fallback silenzioso */ }
 }
 

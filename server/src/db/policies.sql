@@ -229,6 +229,36 @@ BEGIN
       RAISE EXCEPTION 'valutazioni: tenant_id mismatch (junction=% vs parent candidati_fase=%)',
         NEW.tenant_id, parent_tenant;
     END IF;
+  ELSIF TG_TABLE_NAME = 'accounts' THEN
+    -- M166: commissario_id è nullable → verifica solo se valorizzato.
+    IF NEW.commissario_id IS NOT NULL THEN
+      SELECT tenant_id INTO parent_tenant FROM commissari WHERE id = NEW.commissario_id;
+      IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+        RAISE EXCEPTION 'accounts: commissario_id di tenant differente';
+      END IF;
+    END IF;
+  ELSIF TG_TABLE_NAME = 'commissioni' THEN
+    -- M166: presidente_commissario_id nullable.
+    IF NEW.presidente_commissario_id IS NOT NULL THEN
+      SELECT tenant_id INTO parent_tenant FROM commissari WHERE id = NEW.presidente_commissario_id;
+      IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+        RAISE EXCEPTION 'commissioni: presidente di tenant differente';
+      END IF;
+    END IF;
+  ELSIF TG_TABLE_NAME IN ('candidati', 'iscrizioni') THEN
+    -- M166: sezione_id/categoria_id nullable.
+    IF NEW.sezione_id IS NOT NULL THEN
+      SELECT tenant_id INTO parent_tenant FROM sezioni WHERE id = NEW.sezione_id;
+      IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+        RAISE EXCEPTION '%: sezione_id di tenant differente', TG_TABLE_NAME;
+      END IF;
+    END IF;
+    IF NEW.categoria_id IS NOT NULL THEN
+      SELECT tenant_id INTO parent_tenant FROM categorie WHERE id = NEW.categoria_id;
+      IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+        RAISE EXCEPTION '%: categoria_id di tenant differente', TG_TABLE_NAME;
+      END IF;
+    END IF;
   END IF;
   RETURN NEW;
 END $$;
@@ -263,6 +293,28 @@ CREATE TRIGGER trg_cf_tenant_check
 DROP TRIGGER IF EXISTS trg_val_tenant_check ON valutazioni;
 CREATE TRIGGER trg_val_tenant_check
   BEFORE INSERT OR UPDATE ON valutazioni
+  FOR EACH ROW EXECUTE FUNCTION check_junction_tenant_coherence();
+
+-- M166: coerenza tenant anche sui FK nullable (accounts.commissario_id,
+-- commissioni.presidente_commissario_id, candidati/iscrizioni sezione+categoria).
+DROP TRIGGER IF EXISTS trg_accounts_tenant_check ON accounts;
+CREATE TRIGGER trg_accounts_tenant_check
+  BEFORE INSERT OR UPDATE ON accounts
+  FOR EACH ROW EXECUTE FUNCTION check_junction_tenant_coherence();
+
+DROP TRIGGER IF EXISTS trg_commissioni_tenant_check ON commissioni;
+CREATE TRIGGER trg_commissioni_tenant_check
+  BEFORE INSERT OR UPDATE ON commissioni
+  FOR EACH ROW EXECUTE FUNCTION check_junction_tenant_coherence();
+
+DROP TRIGGER IF EXISTS trg_candidati_tenant_check ON candidati;
+CREATE TRIGGER trg_candidati_tenant_check
+  BEFORE INSERT OR UPDATE ON candidati
+  FOR EACH ROW EXECUTE FUNCTION check_junction_tenant_coherence();
+
+DROP TRIGGER IF EXISTS trg_iscrizioni_tenant_check ON iscrizioni;
+CREATE TRIGGER trg_iscrizioni_tenant_check
+  BEFORE INSERT OR UPDATE ON iscrizioni
   FOR EACH ROW EXECUTE FUNCTION check_junction_tenant_coherence();
 
 -- =====================================================================

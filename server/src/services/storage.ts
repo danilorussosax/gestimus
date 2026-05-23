@@ -1,4 +1,4 @@
-import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { join, normalize, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
@@ -123,7 +123,12 @@ export async function saveFile(args: {
     throw Object.assign(new Error('path traversal rilevato'), { code: 'INVALID_PATH' });
   }
 
-  await writeFile(absPath, args.buffer);
+  // M151: scrittura atomica — write su file temporaneo + rename. Un crash a
+  // metà writeFile lascerebbe altrimenti un file parziale/corrotto al path
+  // finale (rename è atomico sullo stesso filesystem).
+  const tmpPath = `${absPath}.tmp-${randomBytes(4).toString('hex')}`;
+  await writeFile(tmpPath, args.buffer);
+  await rename(tmpPath, absPath);
 
   return {
     filename,

@@ -49,6 +49,15 @@ const requirePlatformContext: preHandlerAsyncHookHandler = async (req, reply) =>
 
 const platformGuards = [requirePlatformContext, requireAuth, requireRole('superadmin')];
 
+// M159: dominio custom deve essere un hostname valido (es. concorsi.example.com),
+// non una stringa arbitraria. nullable per "nessun dominio".
+const HOSTNAME_RE = /^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,}$/i;
+const dominioSchema = z
+  .string()
+  .max(255)
+  .regex(HOSTNAME_RE, 'dominio non valido (es. concorsi.example.com)')
+  .nullable();
+
 const createTenantBody = z.object({
   slug: z
     .string()
@@ -58,7 +67,7 @@ const createTenantBody = z.object({
   nome: z.string().min(1).max(255),
   piano: z.enum(TENANT_PLANS),
   pianoScadenza: z.string().date().nullable().optional(),
-  dominio: z.string().max(255).nullable().optional(),
+  dominio: dominioSchema.optional(),
   note: z.string().max(2000).nullable().optional(),
   cleanupAfterDays: z.number().int().min(0).max(3650).optional(),
   require2faAdmin: z.boolean().optional(),
@@ -71,7 +80,7 @@ const updateTenantBody = z
     nome: z.string().min(1).max(255),
     piano: z.enum(TENANT_PLANS),
     pianoScadenza: z.string().date().nullable(),
-    dominio: z.string().max(255).nullable(),
+    dominio: dominioSchema,
     note: z.string().max(2000).nullable(),
     cleanupAfterDays: z.number().int().min(0).max(3650),
     require2faAdmin: z.boolean(),

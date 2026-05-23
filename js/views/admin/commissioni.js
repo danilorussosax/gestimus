@@ -2,7 +2,7 @@
 // Estratto da js/views/admin.js (refactoring).
 
 import { db } from '../../db.js';
-import { escapeHtml, modal, toast, confirmDialog, displayName } from '../../utils.js';
+import { escapeHtml, modal, toast, confirmDialog, displayName, safeUrl } from '../../utils.js';
 import { icon } from '../../icons.js';
 import { t } from '../../i18n.js';
 import { iconaPerSezione } from './common.js';
@@ -97,7 +97,7 @@ function commissioneCardHtml(c) {
               const isPresQui = c.presidente_id === m.id;
               return `
               <span class="inline-flex items-center gap-1 text-[11px] ${isPresQui ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-300' : 'bg-slate-100 text-slate-700'} px-2 py-0.5 rounded-full">
-                <span class="w-4 h-4 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-[9px] overflow-hidden">${m.foto ? `<img src="${m.foto}" class="w-full h-full object-cover" alt="" />` : '🧑‍⚖️'}</span>
+                <span class="w-4 h-4 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-[9px] overflow-hidden">${m.foto_url && safeUrl(m.foto_url) ? `<img src="${safeUrl(m.foto_url)}" class="w-full h-full object-cover" alt="" />` : '🧑‍⚖️'}</span>
                 ${escapeHtml(displayName(m))}${isPresQui ? ' 🎯' : ''}
               </span>`;
             }).join('')}
@@ -143,7 +143,7 @@ function openCommissioneForm(concorso, existing, onSaved) {
   const renderCommList = () => allCom.map(c => `
     <label class="flex items-center gap-2 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 cursor-pointer">
       <input type="checkbox" data-comm="${c.id}" ${selCommissari.has(c.id) ? 'checked' : ''} class="w-4 h-4 rounded border-slate-300 text-brand-600" />
-      <div class="w-6 h-6 rounded-full bg-amber-100 text-amber-700 overflow-hidden flex items-center justify-center text-xs shrink-0">${c.foto ? `<img src="${c.foto}" alt="" class="w-full h-full object-cover" />` : '🧑‍⚖️'}</div>
+      <div class="w-6 h-6 rounded-full bg-amber-100 text-amber-700 overflow-hidden flex items-center justify-center text-xs shrink-0">${c.foto_url && safeUrl(c.foto_url) ? `<img src="${safeUrl(c.foto_url)}" alt="" class="w-full h-full object-cover" />` : '🧑‍⚖️'}</div>
       <span class="text-sm text-slate-800 truncate">${escapeHtml(displayName(c))}${db.isPresidenteDiQualcheCommissione(c.id) ? ' 🎯' : ''}</span>
       <span class="text-[10px] text-slate-500 ml-auto truncate">${escapeHtml(c.specialita || '')}</span>
     </label>
