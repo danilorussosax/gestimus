@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { and, eq, or, sql } from 'drizzle-orm';
+import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   accounts,
@@ -10,7 +10,7 @@ import {
   iscrizioni,
 } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
-import { writeAudit } from '../services/audit.js';
+import { writeAudit, computeAuditLogSig } from '../services/audit.js';
 import { dbSuper } from '../db/client.js';
 
 const erasureBody = z.object({
@@ -146,6 +146,9 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
       sql`'erased+' || ${tbl.id}::text || '@erased.local'`;
 
     const result = await req.dbTx(async (tx) => {
+      // N183: account della persona (per scrubbare ip/userAgent dalle sue azioni
+      // nell'audit). Popolato dai path commissarioId/email.
+      const erasedAccountIds: string[] = [];
       if (parsed.data.commissarioId) {
         const res = await tx
           .update(commissari)
@@ -153,6 +156,11 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
           .where(eq(commissari.id, parsed.data.commissarioId))
           .returning();
         touched.commissari += res.length;
+        const linked = await tx
+          .select({ id: accounts.id })
+          .from(accounts)
+          .where(eq(accounts.commissarioId, parsed.data.commissarioId));
+        erasedAccountIds.push(...linked.map((a) => a.id));
       }
 
       if (parsed.data.candidatoId) {
@@ -230,6 +238,7 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
           .where(sql`lower(${accounts.email}) = ${email}`)
           .returning();
         touched.accounts += acc.length;
+        erasedAccountIds.push(...acc.map((a) => a.id));
       }
 
       // N137 (GDPR Art. 17): NON loggare i selettori nel payload (email,
@@ -239,30 +248,58 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
         payload: { touched },
       });
 
-      return { ok: true, touched };
+      return { ok: true, touched, accountIds: erasedAccountIds };
     });
 
-    // N183 (GDPR Art. 17): scrub mirato delle PII (email) dai payload STORICI
-    // dell'audit_log della persona (es. iscrizione.create_public, login). audit_log
-    // è append-only per il ruolo app → lo scrub passa da dbSuper (gestimus_super).
-    // Chirurgico: rimuove SOLO la chiave `email` dal payload, preservando
-    // azione/attore/timestamp → l'integrità forense dell'audit resta intatta.
+    // N183 (GDPR Art. 17): scrub delle PII residue dall'audit_log STORICO della
+    // persona. audit_log è append-only per il ruolo app → si passa da dbSuper.
+    //  - rimuove la chiave `email` dai payload che la contengono o che
+    //    referenziano (target_id) un'entità erasa;
+    //  - azzera ip/userAgent SOLO sulle azioni compiute dalla persona stessa
+    //    (actor = suo account), non sulle azioni di un admin che la riguardano.
+    // Ogni riga toccata viene RI-FIRMATA (M196) per non risultare manomessa.
     // Best-effort: un fallimento non annulla l'erasure già committata.
-    if (parsed.data.email) {
-      const email = parsed.data.email.toLowerCase();
-      try {
-        await dbSuper
-          .update(auditLog)
-          .set({ payload: sql`${auditLog.payload} - 'email'` })
-          .where(
-            and(
-              eq(auditLog.tenantId, req.tenant.id),
-              sql`lower(${auditLog.payload} ->> 'email') = ${email}`,
-            ),
-          );
-      } catch (err) {
-        req.log.warn({ err }, 'N183: scrub email dai payload audit fallito (best-effort)');
+    try {
+      const email = parsed.data.email?.toLowerCase() ?? null;
+      const targetIds = [parsed.data.commissarioId, parsed.data.candidatoId, parsed.data.iscrizioneId]
+        .filter((x): x is string => !!x);
+      const accountIds = result.accountIds;
+      const orConds = [];
+      if (email) orConds.push(sql`lower(${auditLog.payload} ->> 'email') = ${email}`);
+      if (targetIds.length) orConds.push(inArray(auditLog.targetId, targetIds));
+      if (accountIds.length) orConds.push(inArray(auditLog.actorAccountId, accountIds));
+      if (orConds.length > 0) {
+        const rows = await dbSuper
+          .select()
+          .from(auditLog)
+          .where(and(eq(auditLog.tenantId, req.tenant.id), or(...orConds)));
+        for (const r of rows) {
+          const isOwnAction = !!r.actorAccountId && accountIds.includes(r.actorAccountId);
+          let payload = r.payload as Record<string, unknown> | null;
+          if (payload && typeof payload === 'object' && 'email' in payload) {
+            payload = { ...payload };
+            delete payload.email;
+          }
+          const ip = isOwnAction ? null : r.ip;
+          const userAgent = isOwnAction ? null : r.userAgent;
+          const sig = computeAuditLogSig({
+            tenantId: r.tenantId,
+            actorAccountId: r.actorAccountId,
+            action: r.action,
+            targetType: r.targetType,
+            targetId: r.targetId,
+            payload,
+            ip,
+            userAgent,
+          });
+          await dbSuper
+            .update(auditLog)
+            .set({ payload, ip, userAgent, sig })
+            .where(eq(auditLog.id, r.id));
+        }
       }
+    } catch (err) {
+      req.log.warn({ err }, 'N183: scrub PII dall audit fallito (best-effort)');
     }
 
     return result;
