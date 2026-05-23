@@ -573,6 +573,13 @@ input:-webkit-autofill:focus {
 }
 .c-field__hint { font-size: 0.8125rem; color: hsl(var(--muted-foreground)); font-weight: 400; }
 
+.c-label {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: hsl(var(--foreground));
+  margin-bottom: 0.25rem;
+}
 .c-input,
 .c-select,
 .c-textarea {

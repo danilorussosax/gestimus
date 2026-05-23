@@ -1,6 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { and, desc, eq, gte, inArray, max, sql } from 'drizzle-orm';
-import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { candidati, categorie, concorsi, iscrizioni, sezioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
@@ -9,6 +8,7 @@ import { sendMail } from '../services/email.js';
 import { env } from '../env.js';
 import { parsePagination } from '../lib/pagination.js';
 import { todayISODate } from '../lib/date.js';
+import { generateToken } from '../lib/token.js';
 
 const uuid = z.string().uuid();
 
@@ -87,10 +87,6 @@ const iscrizioneCreateBody = z.object({
 
 const MIN_TIME_ON_PAGE_MS = 3000;
 const GDPR_MIN_AGE_TUTORE = 16;
-
-function generateToken(): string {
-  return randomBytes(24).toString('base64url');
-}
 
 // =====================================================================
 // Plugin PUBBLICO: niente auth, niente requireTenant — ma tenant è risolto

@@ -73,10 +73,15 @@ const assignBody = z.object({
   candidatoId: uuid,
   posizione: z.number().int().positive().optional(),
 });
+const emptyToNull = <T>(v: T) => (v === '' ? null : v);
+const timeStr = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/);
 const updateBody = z.object({
   posizione: z.number().int().positive().optional(),
   stato: z.enum(['IN_ATTESA', 'IN_ESECUZIONE', 'COMPLETATO', 'ELIMINATO']).optional(),
   ammessoProssimaFase: z.boolean().optional(),
+  // Scheduling: assegnazione manuale del blocco e override dell'orario individuale.
+  eventoId: z.preprocess(emptyToNull, uuid.nullable()).optional(),
+  oraPrevista: z.preprocess(emptyToNull, timeStr.nullable()).optional(),
 });
 
 export const candidatiFaseRoutes: FastifyPluginAsync = async (app) => {
@@ -145,7 +150,9 @@ export const candidatiFaseRoutes: FastifyPluginAsync = async (app) => {
       if (
         parsed.data.stato !== undefined ||
         parsed.data.posizione !== undefined ||
-        parsed.data.ammessoProssimaFase !== undefined
+        parsed.data.ammessoProssimaFase !== undefined ||
+        parsed.data.eventoId !== undefined ||
+        parsed.data.oraPrevista !== undefined
       ) {
         return reply.code(403).send({ error: 'solo admin può modificare stato/posizione/ammissione del candidato' });
       }

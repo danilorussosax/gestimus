@@ -15,6 +15,10 @@ ALTER TABLE fasi ADD COLUMN IF NOT EXISTS timer_paused_at timestamptz;
 ALTER TABLE fasi ADD COLUMN IF NOT EXISTS timer_bonus_seconds integer NOT NULL DEFAULT 0;
 ALTER TABLE fasi ADD COLUMN IF NOT EXISTS timer_started_for_cf_id uuid;
 
+-- Scheduling (slot per candidato): collegamento al blocco calendario + orario.
+ALTER TABLE candidati_fase ADD COLUMN IF NOT EXISTS evento_id uuid;
+ALTER TABLE candidati_fase ADD COLUMN IF NOT EXISTS ora_prevista time;
+
 -- fasi.tiebreak_strategy: era stata creata come TEXT, ma il frontend invia
 -- un array di oggetti {key, enabled}. Convertiamo a jsonb se serve.
 DO $$
@@ -61,6 +65,21 @@ BEGIN
     ALTER TABLE accounts
       ADD CONSTRAINT accounts_commissario_id_fkey
       FOREIGN KEY (commissario_id) REFERENCES commissari(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+
+-- FK candidati_fase.evento_id → eventi_calendario.id (forward reference circolare:
+-- candidati_fase è definita prima di eventi_calendario in schema.ts). Guardata
+-- sull'esistenza della tabella così db:policies non esplode su DB pre-feature.
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_class WHERE relname = 'eventi_calendario')
+     AND NOT EXISTS (
+       SELECT 1 FROM pg_constraint WHERE conname = 'candidati_fase_evento_id_fkey'
+     ) THEN
+    ALTER TABLE candidati_fase
+      ADD CONSTRAINT candidati_fase_evento_id_fkey
+      FOREIGN KEY (evento_id) REFERENCES eventi_calendario(id) ON DELETE SET NULL;
   END IF;
 END $$;
 
@@ -132,6 +151,9 @@ SELECT apply_tenant_rls('candidati_fase');
 SELECT apply_tenant_rls('valutazioni');
 SELECT apply_tenant_rls('iscrizioni');
 SELECT apply_tenant_rls('iscrizioni_allegati');
+SELECT apply_tenant_rls('sale');
+SELECT apply_tenant_rls('eventi_calendario');
+SELECT apply_tenant_rls('calendario_pubblicazioni');
 
 -- N133: guardia anti-regressione. Le default privileges (sopra) concedono CRUD
 -- a gestimus_app su OGNI tabella futura in `public`. Se una nuova tabella con
@@ -221,6 +243,39 @@ BEGIN
     IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
       RAISE EXCEPTION 'candidati_fase: tenant_id mismatch (junction=% vs parent candidato=%)',
         NEW.tenant_id, parent_tenant;
+    END IF;
+    -- evento_id nullable (scheduling): se valorizzato, deve essere dello stesso tenant.
+    IF NEW.evento_id IS NOT NULL THEN
+      SELECT tenant_id INTO parent_tenant FROM eventi_calendario WHERE id = NEW.evento_id;
+      IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+        RAISE EXCEPTION 'candidati_fase: evento_id di tenant differente';
+      END IF;
+    END IF;
+  ELSIF TG_TABLE_NAME = 'eventi_calendario' THEN
+    -- FK nullable (fase/sezione/categoria/sala): se valorizzati, stesso tenant.
+    IF NEW.fase_id IS NOT NULL THEN
+      SELECT tenant_id INTO parent_tenant FROM fasi WHERE id = NEW.fase_id;
+      IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+        RAISE EXCEPTION 'eventi_calendario: fase_id di tenant differente';
+      END IF;
+    END IF;
+    IF NEW.sezione_id IS NOT NULL THEN
+      SELECT tenant_id INTO parent_tenant FROM sezioni WHERE id = NEW.sezione_id;
+      IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+        RAISE EXCEPTION 'eventi_calendario: sezione_id di tenant differente';
+      END IF;
+    END IF;
+    IF NEW.categoria_id IS NOT NULL THEN
+      SELECT tenant_id INTO parent_tenant FROM categorie WHERE id = NEW.categoria_id;
+      IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+        RAISE EXCEPTION 'eventi_calendario: categoria_id di tenant differente';
+      END IF;
+    END IF;
+    IF NEW.sala_id IS NOT NULL THEN
+      SELECT tenant_id INTO parent_tenant FROM sale WHERE id = NEW.sala_id;
+      IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+        RAISE EXCEPTION 'eventi_calendario: sala_id di tenant differente';
+      END IF;
     END IF;
   ELSIF TG_TABLE_NAME = 'valutazioni' THEN
     -- N113: coerenza tenant verso il parent candidati_fase.
@@ -315,6 +370,12 @@ CREATE TRIGGER trg_candidati_tenant_check
 DROP TRIGGER IF EXISTS trg_iscrizioni_tenant_check ON iscrizioni;
 CREATE TRIGGER trg_iscrizioni_tenant_check
   BEFORE INSERT OR UPDATE ON iscrizioni
+  FOR EACH ROW EXECUTE FUNCTION check_junction_tenant_coherence();
+
+-- eventi_calendario: coerenza tenant sui FK nullable (fase/sezione/categoria/sala).
+DROP TRIGGER IF EXISTS trg_eventi_tenant_check ON eventi_calendario;
+CREATE TRIGGER trg_eventi_tenant_check
+  BEFORE INSERT OR UPDATE ON eventi_calendario
   FOR EACH ROW EXECUTE FUNCTION check_junction_tenant_coherence();
 
 -- =====================================================================

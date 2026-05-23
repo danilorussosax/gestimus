@@ -45,6 +45,8 @@ const empty = () => ({
   ente: null,
   ente_public: null,
   candidati_gruppo: [], // membri di gruppo (alias storico)
+  sale: [],
+  eventi: [], // eventi_calendario (blocchi)
   meta: { activeConcorsoId: null, role: null, currentCommissarioId: null },
 });
 
@@ -233,6 +235,8 @@ function mapCandidatoFase(r) {
     posizione: r.posizione || null,
     stato: r.stato || 'IN_ATTESA',
     ammesso_prossima_fase: r.ammessoProssimaFase ?? null,
+    evento_id: r.eventoId || null,
+    ora_prevista: r.oraPrevista || null,
   };
 }
 function mapValutazione(r) {
@@ -377,6 +381,51 @@ async function loadEntePublic() {
   }
 }
 
+// ---- Calendario / scheduling mappers ----
+function mapSala(r) {
+  return { id: r.id, concorso_id: r.concorsoId, nome: r.nome || '', indirizzo: r.indirizzo || '', ordine: r.ordine ?? null };
+}
+function mapEvento(r) {
+  return {
+    id: r.id,
+    concorso_id: r.concorsoId,
+    fase_id: r.faseId || null,
+    sezione_id: r.sezioneId || null,
+    categoria_id: r.categoriaId || null,
+    sala_id: r.salaId || null,
+    tipo: r.tipo || 'ESIBIZIONE',
+    titolo: r.titolo || '',
+    data: dateStr(r.data),
+    ora_inizio: r.oraInizio || null,
+    ora_fine: r.oraFine || null,
+    durata_candidato_minuti: r.durataCandidatoMinuti ?? null,
+    note: r.note || '',
+    ordine: r.ordine ?? null,
+  };
+}
+function mapCalendarioPub(r) {
+  return {
+    id: r.id,
+    concorso_id: r.concorsoId,
+    token: r.token,
+    scopo: r.scopo,
+    sezione_id: r.sezioneId || null,
+    giorno: dateStr(r.giorno),
+    etichetta: r.etichetta || '',
+    attivo: !!r.attivo,
+    mostra_nomi: !!r.mostraNomi,
+    mostra_commissione: !!r.mostraCommissione,
+  };
+}
+
+/**
+ * Fetch standalone della pagina pubblica del calendario (no auth, no state).
+ * Usato dalla rotta #/calendario?token=… renderizzata anche pre-login.
+ */
+export async function fetchCalendarioPubblico(token) {
+  return api.get(`/api/public/calendario/${encodeURIComponent(token)}`);
+}
+
 async function loadAll() {
   // N90: allSettled invece di Promise.all → un singolo endpoint che fallisce
   // (es. /api/criteri 500) non abbatte l'intero caricamento iniziale. Le
@@ -392,6 +441,8 @@ async function loadAll() {
     ['fasi', '/api/fasi'],
     ['criteri', '/api/criteri'],
     ['ente', '/api/ente'],
+    ['sale', '/api/calendario/sale'],
+    ['eventi', '/api/calendario/eventi'],
   ];
   const coreResults = await Promise.allSettled(coreSpecs.map(([, url]) => api.get(url)));
   const coreFailures = [];
@@ -405,7 +456,8 @@ async function loadAll() {
     return null;
   };
   const concorsi = pick(0), sezioni = pick(1), categorie = pick(2), commissioni = pick(3),
-    commissari = pick(4), candidati = pick(5), fasi = pick(6), criteri = pick(7), ente = pick(8, true);
+    commissari = pick(4), candidati = pick(5), fasi = pick(6), criteri = pick(7), ente = pick(8, true),
+    saleRows = pick(9, true), eventiRows = pick(10, true);
   if (coreFailures.length > 0) {
     state.meta._loadErrors = state.meta._loadErrors || [];
     state.meta._loadErrors.push(`risorse non caricate: ${coreFailures.join(', ')}`);
@@ -427,6 +479,8 @@ async function loadAll() {
     return f;
   });
   state.ente = mapEnte(ente);
+  state.sale = (saleRows || []).map(mapSala);
+  state.eventi = (eventiRows || []).map(mapEvento);
 
   // H6: carica candidati_fase + valutazioni + membri-gruppo IN PARALLELO
   // invece che N+M+K richieste sequenziali. Per 5 fasi × 50 candidati la
@@ -1850,6 +1904,141 @@ export const db = {
     const res = await api.post(`/api/iscrizioni/${iscrizioneId}/reject`, { reason });
     notify();
     return res;
+  },
+
+  // ---------- Calendario / scheduling ----------
+  saleByConcorso(concorso_id) {
+    return state.sale.filter((s) => s.concorso_id === concorso_id)
+      .sort((a, b) => (a.ordine ?? 0) - (b.ordine ?? 0) || a.nome.localeCompare(b.nome));
+  },
+  async createSala({ concorso_id, nome, indirizzo = '', ordine = null }) {
+    const r = await api.post('/api/calendario/sale', { concorsoId: concorso_id, nome, indirizzo, ordine });
+    const s = mapSala(r); state.sale.push(s); notify();
+    return s;
+  },
+  async updateSala(id, patch) {
+    const body = {};
+    if (patch.nome != null) body.nome = patch.nome;
+    if (patch.indirizzo != null) body.indirizzo = patch.indirizzo;
+    if (patch.ordine !== undefined) body.ordine = patch.ordine;
+    const r = await api.patch(`/api/calendario/sale/${id}`, body);
+    const s = mapSala(r);
+    const i = state.sale.findIndex((x) => x.id === id);
+    if (i >= 0) state.sale[i] = s;
+    notify();
+    return s;
+  },
+  async deleteSala(id) {
+    await api.delete(`/api/calendario/sale/${id}`);
+    state.sale = state.sale.filter((s) => s.id !== id);
+    // I blocchi che usavano la sala restano (sala_id → null lato server).
+    state.eventi = state.eventi.map((e) => (e.sala_id === id ? { ...e, sala_id: null } : e));
+    notify();
+  },
+
+  eventiByConcorso(concorso_id) {
+    return state.eventi.filter((e) => e.concorso_id === concorso_id)
+      .sort((a, b) => (a.data || '').localeCompare(b.data || '') || (a.ora_inizio || '').localeCompare(b.ora_inizio || ''));
+  },
+  async createEvento(payload) {
+    const body = {
+      concorsoId: payload.concorso_id,
+      faseId: payload.fase_id ?? null,
+      sezioneId: payload.sezione_id ?? null,
+      categoriaId: payload.categoria_id ?? null,
+      salaId: payload.sala_id ?? null,
+      tipo: payload.tipo || 'ESIBIZIONE',
+      titolo: payload.titolo ?? null,
+      data: payload.data,
+      oraInizio: payload.ora_inizio ?? null,
+      oraFine: payload.ora_fine ?? null,
+      durataCandidatoMinuti: payload.durata_candidato_minuti ?? null,
+      note: payload.note ?? null,
+      ordine: payload.ordine ?? null,
+    };
+    const r = await api.post('/api/calendario/eventi', body);
+    const e = mapEvento(r); state.eventi.push(e); notify();
+    return e;
+  },
+  async updateEvento(id, patch) {
+    const map = {
+      fase_id: 'faseId', sezione_id: 'sezioneId', categoria_id: 'categoriaId', sala_id: 'salaId',
+      tipo: 'tipo', titolo: 'titolo', data: 'data', ora_inizio: 'oraInizio', ora_fine: 'oraFine',
+      durata_candidato_minuti: 'durataCandidatoMinuti', note: 'note', ordine: 'ordine',
+    };
+    const body = {};
+    for (const [k, v] of Object.entries(map)) if (patch[k] !== undefined) body[v] = patch[k];
+    const r = await api.patch(`/api/calendario/eventi/${id}`, body);
+    const e = mapEvento(r);
+    const i = state.eventi.findIndex((x) => x.id === id);
+    if (i >= 0) state.eventi[i] = e;
+    notify();
+    return e;
+  },
+  async deleteEvento(id) {
+    await api.delete(`/api/calendario/eventi/${id}`);
+    state.eventi = state.eventi.filter((e) => e.id !== id);
+    // Sgancia gli slot in cache.
+    state.candidati_fase = state.candidati_fase.map((cf) =>
+      cf.evento_id === id ? { ...cf, evento_id: null, ora_prevista: null } : cf);
+    notify();
+  },
+  // Applica gli slot ritornati dal backend (genera/riordina) allo stato locale.
+  _applySlots(eventoId, slots) {
+    const byCf = new Map((slots || []).map((s) => [s.id, s]));
+    state.candidati_fase = state.candidati_fase.map((cf) => {
+      if (byCf.has(cf.id)) {
+        const s = byCf.get(cf.id);
+        return { ...cf, evento_id: eventoId, ora_prevista: s.oraPrevista || null, posizione: s.posizione ?? cf.posizione };
+      }
+      // Slot precedentemente legato a questo blocco ma non più presente → sganciato.
+      if (cf.evento_id === eventoId) return { ...cf, evento_id: null, ora_prevista: null };
+      return cf;
+    });
+    notify();
+  },
+  async generaSlotEvento(eventoId) {
+    const slots = await api.post(`/api/calendario/eventi/${eventoId}/genera-slot`, {});
+    this._applySlots(eventoId, slots);
+    return slots;
+  },
+  async riordinaSlotEvento(eventoId, ordine) {
+    const slots = await api.post(`/api/calendario/eventi/${eventoId}/riordina-slot`, { ordine });
+    this._applySlots(eventoId, slots);
+    return slots;
+  },
+  slotByEvento(eventoId) {
+    return state.candidati_fase
+      .filter((cf) => cf.evento_id === eventoId)
+      .sort((a, b) => (a.ora_prevista || '').localeCompare(b.ora_prevista || '') || (a.posizione ?? 0) - (b.posizione ?? 0));
+  },
+
+  // Link pubblici del calendario.
+  async calendarioLinks(concorso_id) {
+    const rows = await api.get('/api/calendario/pubblicazioni', { concorsoId: concorso_id });
+    return (rows || []).map(mapCalendarioPub);
+  },
+  async createCalendarioLink(payload) {
+    const r = await api.post('/api/calendario/pubblicazioni', {
+      concorsoId: payload.concorso_id,
+      scopo: payload.scopo,
+      sezioneId: payload.sezione_id ?? null,
+      giorno: payload.giorno ?? null,
+      etichetta: payload.etichetta ?? null,
+      mostraNomi: payload.mostra_nomi ?? true,
+      mostraCommissione: payload.mostra_commissione ?? false,
+    });
+    return mapCalendarioPub(r);
+  },
+  async updateCalendarioLink(id, patch) {
+    const map = { sezione_id: 'sezioneId', giorno: 'giorno', etichetta: 'etichetta', attivo: 'attivo', mostra_nomi: 'mostraNomi', mostra_commissione: 'mostraCommissione' };
+    const body = {};
+    for (const [k, v] of Object.entries(map)) if (patch[k] !== undefined) body[v] = patch[k];
+    const r = await api.patch(`/api/calendario/pubblicazioni/${id}`, body);
+    return mapCalendarioPub(r);
+  },
+  async deleteCalendarioLink(id) {
+    await api.delete(`/api/calendario/pubblicazioni/${id}`);
   },
 
   // ---------- Comandi disabilitati ----------

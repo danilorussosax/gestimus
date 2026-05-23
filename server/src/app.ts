@@ -32,6 +32,8 @@ import { auditRoutes } from './routes/audit.js';
 import { membriGruppoRoutes } from './routes/membri-gruppo.js';
 import { enteRoutes } from './routes/ente.js';
 import { iscrizioniAdminRoutes, iscrizioniPublicRoutes } from './routes/iscrizioni.js';
+import { calendarioRoutes } from './routes/calendario.js';
+import { calendarioPublicRoutes } from './routes/calendario-public.js';
 import { platformRoutes } from './routes/platform.js';
 import { startRealtimeHub } from './realtime/hub.js';
 
@@ -165,6 +167,10 @@ export async function createApp(): Promise<FastifyInstance> {
   // Fase 5c: iscrizioni pubbliche + admin
   await app.register(iscrizioniPublicRoutes, { prefix: '/api/public' });
   await app.register(iscrizioniAdminRoutes, { prefix: '/api/iscrizioni' });
+
+  // Calendario / scheduling: admin (CRUD + slot) + pubblico (link read-only)
+  await app.register(calendarioPublicRoutes, { prefix: '/api/public' });
+  await app.register(calendarioRoutes, { prefix: '/api/calendario' });
 
   // Fase 6: super-admin platform layer (gestione enti, lifecycle, audit, config)
   await app.register(platformRoutes, { prefix: '/api/platform' });

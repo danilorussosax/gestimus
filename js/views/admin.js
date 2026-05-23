@@ -10,6 +10,7 @@ import { renderCommissioni } from './admin/commissioni.js';
 import { renderCommissari } from './admin/commissari.js';
 import { renderRisultati } from './admin/risultati.js';
 import { renderFasi } from './admin/fasi.js';
+import { renderCalendario } from './admin/calendario.js';
 import { renderAudit } from './admin/audit.js';
 import { renderConcorsoSelector, openCreateConcorso, openEditConcorso } from './admin/concorso-selector.js';
 import { renderDashboard } from './admin/dashboard.js';
@@ -69,6 +70,7 @@ export function renderAdmin(root) {
               ${navItem('commissari', 'judge', t('admin.nav.commissari'), comCount)}
               ${navItem('commissioni', 'scale', t('admin.nav.commissioni'), commCount)}
               ${navItem('fasi', 'flag', t('admin.nav.fasi'), fasiCount)}
+              ${navItem('calendario', 'calendar', t('admin.nav.calendario'), null)}
               ${navItem('iscrizioni', 'user', 'Iscrizioni', null)}
               ${navItem('candidati', 'graduation', t('admin.nav.candidati'), candCount)}
               ${navItem('risultati', 'trophy', t('admin.nav.risultati'), null)}
@@ -131,6 +133,7 @@ export function renderAdmin(root) {
               ${mobileTab('commissari', t('admin.nav.commissari'),'judge')}
               ${mobileTab('commissioni', t('admin.nav.commissioni'),'scale')}
               ${mobileTab('fasi', t('admin.nav.fasi'),'flag')}
+              ${mobileTab('calendario', t('admin.nav.calendario'),'calendar')}
               ${mobileTab('iscrizioni', 'Iscrizioni','user')}
               ${mobileTab('candidati', t('admin.nav.candidati'),'graduation')}
               ${mobileTab('risultati', t('admin.nav.risultati'),'trophy')}
@@ -170,6 +173,7 @@ export function renderAdmin(root) {
   else if (activeTab === 'commissari') renderCommissari(content, concorso);
   else if (activeTab === 'commissioni') renderCommissioni(content, concorso);
   else if (activeTab === 'iscrizioni') renderIscrizioni(content, concorso);
+  else if (activeTab === 'calendario') renderCalendario(content, concorso);
   else if (activeTab === 'risultati') renderRisultati(content, concorso);
   else if (activeTab === 'audit') renderAudit(content, concorso);
   else if (activeTab === 'impostazioni-concorso') renderImpostazioniConcorso(content, concorso);

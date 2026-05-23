@@ -11,6 +11,7 @@ import {
   pgTable,
   primaryKey,
   text,
+  time,
   timestamp,
   uniqueIndex,
   uuid,
@@ -577,6 +578,11 @@ export const candidatiFase = pgTable(
     posizione: integer('posizione'),
     stato: text('stato').notNull().default('IN_ATTESA'),
     ammessoProssimaFase: boolean('ammesso_prossima_fase'),
+    // Scheduling: collega lo slot del candidato al blocco di calendario e il
+    // suo orario individuale (auto-generato da eventi_calendario.ora_inizio +
+    // posizione · durata, oppure override manuale dall'admin).
+    eventoId: uuid('evento_id'),
+    oraPrevista: time('ora_prevista'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
@@ -588,6 +594,7 @@ export const candidatiFase = pgTable(
     uniqueIndex('uniq_candidati_fase').on(t.faseId, t.candidatoId),
     index('idx_candidati_fase_tenant').on(t.tenantId),
     index('idx_candidati_fase_fase').on(t.faseId),
+    index('idx_candidati_fase_evento').on(t.eventoId),
     // N18: l'UPDATE del conclude filtra (fase_id, stato).
     index('idx_candidati_fase_fase_stato').on(t.faseId, t.stato),
     // N42: query "tutte le fasi di un candidato" (scoring/risultati) molto comuni.
@@ -732,5 +739,111 @@ export const iscrizioniAllegati = pgTable(
   (t) => [
     check('iscrizioni_allegati_tipo_check', sql`${t.tipo} IN ('foto','documento','ricevuta','altro')`),
     index('idx_iscrizioni_allegati_iscrizione').on(t.iscrizioneId),
+  ],
+);
+
+// ============================================================================
+// CALENDARIO / SCHEDULING: sale, eventi_calendario, calendario_pubblicazioni
+// ============================================================================
+
+/**
+ * Sale: anagrafica ambienti per concorso. Permette lo scheduling parallelo su
+ * più ambienti (es. due aule che esibiscono in contemporanea).
+ */
+export const sale = pgTable(
+  'sale',
+  {
+    id: uuid('id').primaryKey().default(sql`uuidv7()`),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    concorsoId: uuid('concorso_id')
+      .notNull()
+      .references(() => concorsi.id, { onDelete: 'cascade' }),
+    nome: text('nome').notNull(),
+    indirizzo: text('indirizzo'),
+    ordine: integer('ordine'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index('idx_sale_tenant').on(t.tenantId), index('idx_sale_concorso').on(t.concorsoId)],
+);
+
+/**
+ * Eventi calendario: i "blocchi" pianificati. Un blocco ESIBIZIONE collega una
+ * (sezione · categoria · fase) a una data + ora + sala e raccoglie gli slot dei
+ * candidati (candidati_fase.evento_id). Un blocco EVENTO è libero (es.
+ * Cerimonia/Premiazione) e non ha candidati.
+ *
+ * I FK fase/sezione/categoria/sala sono `set null` (nullable): un blocco resta
+ * in calendario anche se la struttura cambia. La coerenza tenant dei FK nullable
+ * è garantita dal trigger check_junction_tenant_coherence (vedi policies.sql).
+ */
+export const eventiCalendario = pgTable(
+  'eventi_calendario',
+  {
+    id: uuid('id').primaryKey().default(sql`uuidv7()`),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    concorsoId: uuid('concorso_id')
+      .notNull()
+      .references(() => concorsi.id, { onDelete: 'cascade' }),
+    faseId: uuid('fase_id').references(() => fasi.id, { onDelete: 'set null' }),
+    sezioneId: uuid('sezione_id').references(() => sezioni.id, { onDelete: 'set null' }),
+    categoriaId: uuid('categoria_id').references(() => categorie.id, { onDelete: 'set null' }),
+    salaId: uuid('sala_id').references(() => sale.id, { onDelete: 'set null' }),
+    tipo: text('tipo').notNull().default('ESIBIZIONE'),
+    titolo: text('titolo'),
+    data: date('data').notNull(),
+    oraInizio: time('ora_inizio'),
+    oraFine: time('ora_fine'),
+    durataCandidatoMinuti: integer('durata_candidato_minuti'),
+    note: text('note'),
+    ordine: integer('ordine'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('eventi_calendario_tipo_check', sql`${t.tipo} IN ('ESIBIZIONE','EVENTO')`),
+    index('idx_eventi_tenant').on(t.tenantId),
+    index('idx_eventi_concorso').on(t.concorsoId),
+    index('idx_eventi_concorso_data').on(t.concorsoId, t.data),
+  ],
+);
+
+/**
+ * Pubblicazioni calendario: ogni riga è un link pubblico read-only (token) con
+ * uno scope (intero concorso / singola sezione / singola giornata) e una
+ * granularità privacy (mostra/nascondi nomi candidati e giuria). La route
+ * pubblica risolve il token sotto RLS nel contesto tenant del subdomain → un
+ * token di un altro tenant non viene trovato.
+ */
+export const calendarioPubblicazioni = pgTable(
+  'calendario_pubblicazioni',
+  {
+    id: uuid('id').primaryKey().default(sql`uuidv7()`),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    concorsoId: uuid('concorso_id')
+      .notNull()
+      .references(() => concorsi.id, { onDelete: 'cascade' }),
+    token: text('token').notNull(),
+    scopo: text('scopo').notNull(),
+    sezioneId: uuid('sezione_id').references(() => sezioni.id, { onDelete: 'cascade' }),
+    giorno: date('giorno'),
+    etichetta: text('etichetta'),
+    attivo: boolean('attivo').notNull().default(true),
+    mostraNomi: boolean('mostra_nomi').notNull().default(true),
+    mostraCommissione: boolean('mostra_commissione').notNull().default(false),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check('calpub_scopo_check', sql`${t.scopo} IN ('CONCORSO','SEZIONE','GIORNO')`),
+    uniqueIndex('uniq_calpub_token').on(t.token),
+    index('idx_calpub_tenant').on(t.tenantId),
+    index('idx_calpub_concorso').on(t.concorsoId),
   ],
 );

@@ -8,6 +8,7 @@ import { renderCommissario, unmountFloatingTimer } from './views/commissario.js'
 import { renderLogin } from './views/login.js';
 import { renderIscrizione } from './views/iscrizione.js';
 import { renderPrivacy } from './views/privacy.js';
+import { renderCalendarioPubblico } from './views/calendario-pubblico.js';
 import { renderDashboard } from './views/admin-dashboard.js';
 import { renderImpostazioni } from './views/admin-impostazioni.js';
 import { renderUsers } from './views/admin-users.js';
@@ -24,6 +25,7 @@ function currentRoute() {
   const h = location.hash || '#/';
   if (h.startsWith('#/privacy')) return 'privacy';
   if (h.startsWith('#/iscrizione')) return 'iscrizione';
+  if (h.startsWith('#/calendario')) return 'calendario';
   if (h.startsWith('#/superadmin')) return 'superadmin';
   if (h.startsWith('#/admin')) {
     const q = new URLSearchParams(h.split('?')[1] || '');
@@ -45,9 +47,11 @@ function render() {
   if (!pb.authStore.isValid) {
     unmountFloatingTimer();
     updateHeader();
-    // Pagine pubbliche (no login richiesto): form iscrizione + informativa privacy.
+    // Pagine pubbliche (no login richiesto): form iscrizione + informativa privacy
+    // + calendario pubblico (link read-only condivisibile).
     if (currentRoute() === 'iscrizione') { renderIscrizione(root); return; }
     if (currentRoute() === 'privacy')    { renderPrivacy(root); return; }
+    if (currentRoute() === 'calendario') { renderCalendarioPubblico(root); return; }
     renderLogin(root, () => render());
     return;
   }
@@ -99,6 +103,7 @@ function render() {
   try {
     if (effectiveRoute === 'privacy') { unmountFloatingTimer(); renderPrivacy(root); }
     else if (effectiveRoute === 'iscrizione') { unmountFloatingTimer(); renderIscrizione(root); }
+    else if (effectiveRoute === 'calendario') { unmountFloatingTimer(); renderCalendarioPubblico(root); }
     else if (effectiveRoute === 'home') { unmountFloatingTimer(); renderHome(root); }
     else if (effectiveRoute === 'superadmin') { unmountFloatingTimer(); renderSuperadmin(root); }
     else if (effectiveRoute === 'admin-dashboard') { unmountFloatingTimer(); renderDashboard(root); }
