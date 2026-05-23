@@ -1,11 +1,11 @@
 import 'dotenv/config';
 import { test, describe, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { eq, like } from 'drizzle-orm';
+import { and, eq, like } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { createApp } from '../../src/app.js';
 import { dbSuper } from '../../src/db/client.js';
-import { commissari, concorsi } from '../../src/db/schema.js';
+import { auditLog, commissari, concorsi } from '../../src/db/schema.js';
 
 describe('GDPR privacy endpoints', () => {
   let app: FastifyInstance;
@@ -93,6 +93,45 @@ describe('GDPR privacy endpoints', () => {
     assert.equal(row.email, null);
     assert.equal(row.telefono, null);
     assert.equal(row.stato, 'INATTIVO');
+  });
+
+  test('N183: erase per email redige la PII (email) dai payload storici dell audit_log', async () => {
+    const targetEmail = 'n183-forget@test.local';
+    // Crea un concorso per ricavare il tenantId di ente1 (via dbSuper).
+    const c = await app.inject({
+      method: 'POST', url: '/api/concorsi', headers: hdrs(),
+      payload: { nome: `Erase Test N183 ${Date.now()}`, anno: 2026 },
+    });
+    const tenantId = (await dbSuper
+      .select({ tenantId: concorsi.tenantId })
+      .from(concorsi)
+      .where(eq(concorsi.id, c.json().id)))[0]!.tenantId;
+
+    // Voce audit STORICA con l'email nel payload (come iscrizione.create_public).
+    await dbSuper.insert(auditLog).values({
+      tenantId,
+      action: 'test.n183.audit',
+      payload: { email: targetEmail, queued: true },
+    });
+
+    const erase = await app.inject({
+      method: 'POST', url: '/api/privacy/erase', headers: hdrs(),
+      payload: { email: targetEmail, motivo: 'Richiesta GDPR art. 17 (N183)' },
+    });
+    assert.equal(erase.statusCode, 200);
+
+    const rows = await dbSuper
+      .select()
+      .from(auditLog)
+      .where(and(eq(auditLog.tenantId, tenantId), eq(auditLog.action, 'test.n183.audit')));
+    const mine = rows.find((r) => (r.payload as Record<string, unknown> | null)?.queued === true);
+    assert.ok(mine, 'la voce audit esiste ancora (integrità preservata)');
+    const p = mine!.payload as Record<string, unknown>;
+    assert.equal(p.email, undefined, 'email rimossa dal payload audit');
+    assert.equal(p.queued, true, 'gli altri campi del payload restano');
+
+    // cleanup della voce di test
+    await dbSuper.delete(auditLog).where(and(eq(auditLog.tenantId, tenantId), eq(auditLog.action, 'test.n183.audit')));
   });
 
   test('erase richiede almeno un identificatore', async () => {

@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { eq, or, sql } from 'drizzle-orm';
+import { and, eq, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   accounts,
@@ -11,6 +11,7 @@ import {
 } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
+import { dbSuper } from '../db/client.js';
 
 const erasureBody = z.object({
   email: z.string().email().optional(),
@@ -107,6 +108,7 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
    * Non cancella record per non rompere integrità referenziale (valutazioni, audit, …).
    */
   app.post('/erase', async (req, reply) => {
+    if (!req.tenant) return reply.code(400).send({ error: 'tenant context richiesto' });
     const parsed = erasureBody.safeParse(req.body);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
 
@@ -143,7 +145,7 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
     const erasedEmail = (tbl: { id: unknown }) =>
       sql`'erased+' || ${tbl.id}::text || '@erased.local'`;
 
-    return req.dbTx(async (tx) => {
+    const result = await req.dbTx(async (tx) => {
       if (parsed.data.commissarioId) {
         const res = await tx
           .update(commissari)
@@ -239,5 +241,30 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
 
       return { ok: true, touched };
     });
+
+    // N183 (GDPR Art. 17): scrub mirato delle PII (email) dai payload STORICI
+    // dell'audit_log della persona (es. iscrizione.create_public, login). audit_log
+    // è append-only per il ruolo app → lo scrub passa da dbSuper (gestimus_super).
+    // Chirurgico: rimuove SOLO la chiave `email` dal payload, preservando
+    // azione/attore/timestamp → l'integrità forense dell'audit resta intatta.
+    // Best-effort: un fallimento non annulla l'erasure già committata.
+    if (parsed.data.email) {
+      const email = parsed.data.email.toLowerCase();
+      try {
+        await dbSuper
+          .update(auditLog)
+          .set({ payload: sql`${auditLog.payload} - 'email'` })
+          .where(
+            and(
+              eq(auditLog.tenantId, req.tenant.id),
+              sql`lower(${auditLog.payload} ->> 'email') = ${email}`,
+            ),
+          );
+      } catch (err) {
+        req.log.warn({ err }, 'N183: scrub email dai payload audit fallito (best-effort)');
+      }
+    }
+
+    return result;
   });
 };
