@@ -1,9 +1,9 @@
 import { eq } from 'drizzle-orm';
-import { gzip } from 'node:zlib';
+import { gzip, gunzip } from 'node:zlib';
 import { promisify } from 'node:util';
-import { mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { createCipheriv, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { keyBuffer } from './crypto-smtp.js';
 import { dbSuper } from '../db/client.js';
 import {
@@ -34,6 +34,7 @@ import {
 import { env } from '../env.js';
 
 const gzipP = promisify(gzip);
+const gunzipP = promisify(gunzip);
 
 /**
  * Versione del formato di backup. Bump quando lo schema cambia in modo non
@@ -175,6 +176,70 @@ export async function backupTenant(tenantId: string): Promise<BackupResult> {
     tableCounts,
     exportedAt: manifest.exportedAt,
   };
+}
+
+// L257: ordine di reinserimento FK-safe per il restore (le tabelle padre prima
+// dei figli). `accounts`/`sessions`/`audit_log` per ultimi: accounts referenzia
+// commissari, quindi va dopo.
+const RESTORE_ORDER: TenantTableName[] = [
+  'concorsi', 'sezioni', 'categorie', 'commissari', 'commissari_archivio',
+  'commissioni', 'commissioni_commissari', 'commissioni_sezioni', 'commissioni_categorie',
+  'fasi', 'fasi_sezioni', 'criteri', 'candidati', 'candidati_membri',
+  'candidati_fase', 'valutazioni', 'iscrizioni', 'iscrizioni_allegati',
+  'accounts', 'sessions', 'audit_log',
+];
+
+// Le stringhe ISO con ora (timestamp) vanno riviste a Date per l'insert Drizzle;
+// le date-only (YYYY-MM-DD, colonne `date` mode string) restano stringhe.
+const ISO_DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/;
+
+/**
+ * L257: ripristina un tenant da un file di backup cifrato (DR). Decifra
+ * (AES-256-GCM), decomprime, e reinserisce il tenant + tutte le tabelle in
+ * ordine FK-safe, in un'unica transazione. Rifiuta se il tenant esiste già
+ * (per non sovrascrivere dati vivi). Da usare via script ops, non via HTTP.
+ */
+export async function restoreTenant(filepath: string): Promise<{
+  tenantId: string;
+  tenantSlug: string;
+  tableCounts: Record<string, number>;
+}> {
+  const fileBuffer = await readFile(filepath);
+  if (fileBuffer[0] !== ENC_VERSION_BYTE) {
+    throw new Error(`restore: formato non supportato (version byte ${fileBuffer[0]})`);
+  }
+  const iv = fileBuffer.subarray(1, 13);
+  const tag = fileBuffer.subarray(13, 29);
+  const ciphertext = fileBuffer.subarray(29);
+  const decipher = createDecipheriv(AES_ALGO, keyBuffer(), iv);
+  decipher.setAuthTag(tag);
+  const compressed = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  const json = (await gunzipP(compressed)).toString('utf8');
+  const manifest = JSON.parse(json, (_k, v) =>
+    typeof v === 'string' && ISO_DATETIME_RE.test(v) ? new Date(v) : v,
+  ) as BackupManifest;
+
+  return dbSuper.transaction(async (tx) => {
+    const existing = await tx
+      .select({ id: tenants.id })
+      .from(tenants)
+      .where(eq(tenants.id, manifest.tenantId))
+      .limit(1);
+    if (existing.length > 0) {
+      throw new Error(`restore: il tenant ${manifest.tenantId} esiste già — rifiuto per non sovrascrivere`);
+    }
+    await tx.insert(tenants).values(manifest.tenant as typeof tenants.$inferInsert);
+    const counts: Record<string, number> = {};
+    for (const name of RESTORE_ORDER) {
+      const rows = (manifest.tables[name] ?? []) as unknown[];
+      if (rows.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await tx.insert(TENANT_TABLES[name] as any).values(rows as any);
+      }
+      counts[name] = rows.length;
+    }
+    return { tenantId: manifest.tenantId, tenantSlug: manifest.tenantSlug, tableCounts: counts };
+  });
 }
 
 export type BackupListEntry = {

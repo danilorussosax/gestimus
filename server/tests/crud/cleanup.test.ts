@@ -10,7 +10,7 @@ import { eq, like } from 'drizzle-orm';
 import { createApp } from '../../src/app.js';
 import { dbSuper } from '../../src/db/client.js';
 import { accounts, concorsi, platformAuditLog, tenants } from '../../src/db/schema.js';
-import { backupTenant, listBackups, pruneOldBackups } from '../../src/services/backup.js';
+import { backupTenant, listBackups, pruneOldBackups, restoreTenant } from '../../src/services/backup.js';
 import { runTenantCleanup } from '../../src/services/cleanup.js';
 import { hashPassword } from '../../src/services/password.js';
 import { env } from '../../src/env.js';
@@ -239,5 +239,40 @@ describe('Cleanup tenant + backup pre-hard-delete (Fase 6 traccia B)', () => {
     await dbSuper.delete(tenants).where(eq(tenants.id, t!.id));
     await dbSuper.delete(platformAuditLog).where(eq(platformAuditLog.targetTenantSlug, neverSlug));
     void r;
+  });
+
+  // L257: roundtrip backup → hard-delete → restore. Tenant disposable dedicato.
+  test('restoreTenant ripristina tenant + dati da un backup cifrato', async () => {
+    const rslug = `${TEST_SLUG_PREFIX}restore-${Date.now()}`;
+    const [t] = await dbSuper
+      .insert(tenants)
+      .values({ slug: rslug, nome: `Restore ${rslug}`, piano: 'trial', stato: 'archiviato' })
+      .returning();
+    const tid = t!.id;
+    await dbSuper.insert(concorsi).values({ tenantId: tid, nome: 'Restore Concorso', anno: 2025, stato: 'CONCLUSO' });
+
+    const bk = await backupTenant(tid);
+    // Hard-delete del tenant (cascade su tutti i dati).
+    await dbSuper.delete(tenants).where(eq(tenants.id, tid));
+    assert.equal((await dbSuper.select().from(tenants).where(eq(tenants.id, tid))).length, 0, 'tenant cancellato');
+
+    // Restore dal backup.
+    const r = await restoreTenant(bk.path);
+    assert.equal(r.tenantId, tid);
+    assert.equal(r.tableCounts.concorsi, 1);
+
+    const back = await dbSuper.select().from(tenants).where(eq(tenants.id, tid));
+    assert.equal(back.length, 1, 'tenant ripristinato');
+    assert.equal(back[0]!.slug, rslug);
+    const concs = await dbSuper.select().from(concorsi).where(eq(concorsi.tenantId, tid));
+    assert.equal(concs.length, 1, 'concorso ripristinato');
+    assert.equal(concs[0]!.nome, 'Restore Concorso');
+
+    // Restore su tenant già esistente → errore (no sovrascrittura).
+    await assert.rejects(() => restoreTenant(bk.path), /esiste già/);
+
+    // Cleanup
+    await dbSuper.delete(tenants).where(eq(tenants.id, tid));
+    await unlink(bk.path).catch(() => {});
   });
 });
