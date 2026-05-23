@@ -1,9 +1,9 @@
 # Gestimus — Audit di robustezza del codice
 
 > **Data**: 2026-05-23
-> **Commit**: branch `main` (post Analisi Finale — CI e suite test verdi)
+> **Commit**: branch `main` (post Analisi Finale R13 — CI e suite test verdi)
 > **Scope**: frontend vanilla JS (`js/`, ~20.700 LOC) + backend Fastify/Drizzle (`server/src/`, ~7.400 LOC) + 21 route REST + 15 migrazioni SQL.
-> **Contesto**: l'audit segue 5 round di bugfix (C1-C13, H1-H12, M1-M22, L1-L16, N1-N50), 5 fasi di consolidamento, quattro round di rianalisi (N51-N84 + A1/A2; N85-N94; N95-N104; N105-N114) e un'Analisi Finale a 6 agenti (N115-N181, M146-M167, L168-L181). In totale ~170 problemi di sicurezza/correttezza/performance chiusi.
+> **Contesto**: l'audit segue 5 round di bugfix (C1-C13, H1-H12, M1-M22, L1-L16, N1-N50), 5 fasi di consolidamento, quattro round di rianalisi (N51-N84 + A1/A2; N85-N94; N95-N104; N105-N114), un'Analisi Finale a 6 agenti (N115-N181, M146-M167, L168-L181) e una R13 (N182-N190, M191-M219, L220-L264). In totale ~190 problemi di sicurezza/correttezza/performance chiusi.
 
 ---
 
@@ -194,6 +194,19 @@ ondate (8 commit), ognuna con typecheck + test verdi.
 - **Falsi positivi documentati**: N116 (xmax provato empiricamente), N125/N128 (cache invalidata da auditChange a ogni mutazione), N134 (C12 blocca il superadmin cross-tenant), N135 (hard-timeout), N136 (token opaco), M146/M148 (già fatti in W1), M150 (SameSite-Lax), M153 (CSV già sanificato), M161, M165, N121, L174, L181, L170.
 
 > **Non validati in browser**: N124 e le modifiche frontend (PDF verbale/protocollo, flow update SW, import CSV, tab Risultati/podio) richiedono verifica manuale. **Differiti** (non bloccanti): L176 (CV server-side incompleto), N117 (backup streaming), N120, N122, L169/L171/L172/L173/L177/L180, N144 (semantica ammissione — decisione di prodotto).
+
+### R13 (N182-N190, M191-M219, L220-L264)
+
+Round a 6 agenti, 109 segnalazioni aperte triate; ~20 verificate come **falsi
+positivi** e documentate. Eseguita a ondate (4 commit), ognuna con typecheck +
+test verdi.
+
+- **HIGH**: N185 — enum `metodoMedia` server `'deviazione_standard'` → `'deviazione_std'` (la deviazione standard ripiegava silenziosamente su media aritmetica); N186 — posizioni nel PDF protocollo da `posizione_finale` (ex aequo corretti) invece dell'indice di riga; N182 — il job cleanup usava connessioni diverse per lock/unlock advisory di sessione (lock leak) → connessione dedicata; N188 — `presidenteCommissarioId` azzerato quando il commissario viene rimosso dalla commissione; N189 — `FOR UPDATE` su `fasi` in `assertCanEditCandidatoFase` (TOCTOU); N187 — clamp difensivo nell'encoding del tiebreak; L225 — `shutdownPools` con `allSettled`.
+- **MEDIUM**: M195 (`/uploads/` con `X-Content-Type-Options: nosniff`), M217 (cron purga le sessioni scadute), M218 (snapshot del Set nel dispatch realtime), M192 (login aggiorna `updatedAt`), M201 (cleanup file temp orfano), M203 (listBackups logga gli errori), M209/M212 (NaN in fmtVoto/KPI), M211 (presidente finale = ordine max), M214 (`attivo === true`), M215 (SW non serve JS rotto), M198 (path upload non collassa), M155 (badge strumento membri gruppo).
+- **LOW**: L221 (resume FOR UPDATE), L224 (clear cookie con attributi), L227 (timer reconnect `.unref()`), L229 (BOM CSV), L250 (computeAggregate scarta NaN), L254 (temp file randomBytes 8), L263 (import drizzle unificato).
+- **Falsi positivi documentati**: N184 (unhandledRejection log-only intenzionale; uncaughtException fa già shutdown con hard-timeout), N190 (cleanupAfterDays=0 = "mai", corretto), M207 (media esclude i non votanti), M210/M213 (già corretti), L258 (route valida `.nonnegative()`), L262 (shutdown chiama già stopRealtimeHub), L252, oltre ai ri-segnalati già chiusi (N121/N133/N135/N136/M150/M153/M164/M166/L174/L181/L170).
+
+> **Differiti — decisioni di prodotto/compliance/feature** (non bug meccanici): N183 (redazione audit_log storico su erasure GDPR — confligge con l'invariante append-only); N144 (consensus su `ammessoProssimaFase`); N117 (backup in streaming); M193 (cascade DELETE concorso — guard `?force` + coordinamento frontend); M196 (hash-chain audit); L222 (upload foto commissari); L257 (restore backup). Coda LOW cosmetica/edge documentata nei commit.
 
 ---
 
