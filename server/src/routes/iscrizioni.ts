@@ -6,6 +6,7 @@ import { candidati, categorie, concorsi, iscrizioni, sezioni } from '../db/schem
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { sendMail } from '../services/email.js';
+import { env } from '../env.js';
 
 const uuid = z.string().uuid();
 
@@ -273,9 +274,17 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
       // transazione). Best-effort: un fallimento SMTP non annulla l'iscrizione,
       // il record è salvato e l'admin può approvare manualmente. H10: il token
       // NON viene mai restituito nella risposta HTTP, in nessun ambiente.
-      const host = req.headers.host ?? '';
-      const proto = (req.headers['x-forwarded-proto'] as string) || 'https';
-      const verifyUrl = `${proto}://${host}/#/iscrizione/verify?t=${encodeURIComponent(emailToken)}`;
+      // N27: base URL da env (non spoofabile) se configurata; altrimenti
+      // fallback agli header. {tenant} → slug del tenant corrente.
+      let baseUrl: string;
+      if (env.PUBLIC_BASE_URL) {
+        baseUrl = env.PUBLIC_BASE_URL.replace(/\{tenant\}/g, req.tenant!.slug).replace(/\/$/, '');
+      } else {
+        const host = req.headers.host ?? '';
+        const proto = (req.headers['x-forwarded-proto'] as string) || 'https';
+        baseUrl = `${proto}://${host}`;
+      }
+      const verifyUrl = `${baseUrl}/#/iscrizione/verify?t=${encodeURIComponent(emailToken)}`;
       try {
         await sendMail({
           tenantId: req.tenant!.id,

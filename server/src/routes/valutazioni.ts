@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, getTableColumns, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   candidatiFase,
@@ -163,16 +163,20 @@ export const valutazioniRoutes: FastifyPluginAsync = async (app) => {
                 updatedAt: now,
               },
             })
-            .returning();
-          // distinguish create vs update by createdAt == updatedAt (single tx now)
-          const wasInsert = row!.createdAt.getTime() === row!.updatedAt.getTime();
+            // N31: distinzione insert/update affidabile via xmax. Per una riga
+            // appena inserita xmax=0; per una aggiornata xmax≠0. Prima si
+            // confrontava createdAt==updatedAt (millisecondo), fragile.
+            .returning({ ...getTableColumns(valutazioni), inserted: sql<boolean>`(xmax = 0)` });
+          const wasInsert = row!.inserted === true;
           await writeAudit(tx, req, wasInsert ? 'valutazione.create' : 'valutazione.update', {
             targetType: 'valutazione',
             targetId: row!.id,
             payload: { voto: row!.voto, criterio: parsed.data.criterio },
           });
-          if (wasInsert) return reply.code(201).send(row);
-          return row;
+          // Rimuovi il campo tecnico `inserted` dalla risposta al client.
+          const { inserted: _omit, ...rowOut } = row!;
+          if (wasInsert) return reply.code(201).send(rowOut);
+          return rowOut;
         });
       } catch (err) {
         const mapped = handlePgError(err);

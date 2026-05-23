@@ -303,6 +303,12 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
     return req.dbTx(async (tx) => {
       if (!await assertCanManageFase(tx, req, reply, id)) return;
+      // N21: valida la transizione di stato. start ammesso solo da PIANIFICATA.
+      const cur = await tx.select({ stato: fasi.stato }).from(fasi).where(eq(fasi.id, id)).limit(1);
+      if (cur.length === 0) return reply.notFound();
+      if (cur[0]!.stato !== 'PIANIFICATA') {
+        return reply.code(409).send({ error: `fase in stato ${cur[0]!.stato}: avviabile solo da PIANIFICATA` });
+      }
       const startedAt = new Date();
       const [updated] = await tx
         .update(fasi)
@@ -376,9 +382,24 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
     return req.dbTx(async (tx) => {
       if (!await assertCanManageFase(tx, req, reply, id)) return;
+      // N21: conclude ammesso solo da IN_CORSO (non da PIANIFICATA/CONCLUSA).
+      const cur = await tx.select({ stato: fasi.stato }).from(fasi).where(eq(fasi.id, id)).limit(1);
+      if (cur.length === 0) return reply.notFound();
+      if (cur[0]!.stato !== 'IN_CORSO') {
+        return reply.code(409).send({ error: `fase in stato ${cur[0]!.stato}: concludibile solo da IN_CORSO` });
+      }
+      // N30: la conclusione resetta i campi timer (restavano stali → la UI
+      // poteva mostrare un countdown attivo su una fase chiusa).
       const [updated] = await tx
         .update(fasi)
-        .set({ stato: 'CONCLUSA', updatedAt: new Date() })
+        .set({
+          stato: 'CONCLUSA',
+          timerStartedAt: null,
+          timerPausedAt: null,
+          timerBonusSeconds: 0,
+          timerStartedForCfId: null,
+          updatedAt: new Date(),
+        })
         .where(eq(fasi.id, id))
         .returning();
       if (!updated) return reply.notFound();
@@ -542,6 +563,13 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     if (!body.success) return reply.badRequest(body.error.message);
     return req.dbTx(async (tx) => {
       if (!await assertCanManageFase(tx, req, reply, id)) return;
+      // N23: il sorteggio non ha senso su una fase conclusa (riordinare una
+      // classifica chiusa). Ammesso su PIANIFICATA/IN_CORSO.
+      const cur = await tx.select({ stato: fasi.stato }).from(fasi).where(eq(fasi.id, id)).limit(1);
+      if (cur.length === 0) return reply.notFound();
+      if (cur[0]!.stato === 'CONCLUSA') {
+        return reply.code(409).send({ error: 'fase CONCLUSA: sorteggio non consentito' });
+      }
       const rows = await tx
         .select({ id: candidatiFase.id })
         .from(candidatiFase)
@@ -583,6 +611,17 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     if (!body.success) return reply.badRequest(body.error.message);
     return req.dbTx(async (tx) => {
       if (!await assertCanManageFase(tx, req, reply, id)) return;
+      // N22: il bonus ha senso solo su un timer avviato. Su fase mai avviata
+      // (timerStartedAt null) accumulare bonus è privo di significato.
+      const cur = await tx
+        .select({ startedAt: fasi.timerStartedAt })
+        .from(fasi)
+        .where(eq(fasi.id, id))
+        .limit(1);
+      if (cur.length === 0) return reply.notFound();
+      if (cur[0]!.startedAt == null) {
+        return reply.code(409).send({ error: 'timer non avviato: bonus non applicabile' });
+      }
       const [updated] = await tx
         .update(fasi)
         .set({

@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { eq } from 'drizzle-orm';
+import { eq, max, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { candidati, categorie, sezioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
@@ -111,17 +111,20 @@ export const candidatiRoutes: FastifyPluginAsync = async (app) => {
         const cat = await tx.select({ sezioneId: categorie.sezioneId }).from(categorie).where(eq(categorie.id, data.categoriaId)).limit(1);
         if (cat.length > 0) data.sezioneId = cat[0]!.sezioneId;
       }
-      // M6: numero candidato calcolato server-side se non fornito. MAX+1 nella
-      // stessa transazione; il lock FOR UPDATE sulle righe del concorso serializza
-      // creazioni concorrenti. L'unique index resta come rete di sicurezza (23505).
+      // M6 + N24: numero candidato calcolato server-side se non fornito.
+      // Usa lo STESSO advisory lock di iscrizioni.ts/approve
+      // (pg_advisory_xact_lock(hashtext(concorsoId))) così create diretto e
+      // approve iscrizione si serializzano fra loro sullo stesso lock — prima
+      // usavano meccanismi indipendenti (FOR UPDATE vs advisory) che non si
+      // bloccavano a vicenda → stesso numeroCandidato. L'unique index resta
+      // come rete di sicurezza (23505).
       if (data.numeroCandidato == null) {
-        const existing = await tx
-          .select({ numero: candidati.numeroCandidato })
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${data.concorsoId}::text))`);
+        const next = await tx
+          .select({ m: max(candidati.numeroCandidato) })
           .from(candidati)
-          .where(eq(candidati.concorsoId, data.concorsoId))
-          .for('update');
-        const maxNum = existing.reduce((m: number, r: { numero: number }) => Math.max(m, r.numero), 0);
-        data.numeroCandidato = maxNum + 1;
+          .where(eq(candidati.concorsoId, data.concorsoId));
+        data.numeroCandidato = (next[0]?.m ?? 0) + 1;
       }
       try {
         const [created] = await tx

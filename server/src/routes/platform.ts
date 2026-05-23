@@ -23,7 +23,7 @@ import { runTenantCleanup } from '../services/cleanup.js';
 import { encryptSmtp, isEncryptedSmtp } from '../services/crypto-smtp.js';
 import { invalidateTransporter } from '../services/email.js';
 import { readdir, stat as fsStat } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { env } from '../env.js';
 
 const TENANT_STATES = ['attivo', 'sospeso', 'archiviato'] as const;
@@ -153,6 +153,15 @@ async function findTenant(id: string): Promise<TenantRow | undefined> {
  * con Promise.all così la latenza è O(profondità) anziché O(numero file).
  */
 async function dirSizeBytes(path: string): Promise<number> {
+  // N38: difesa-in-profondità contro path traversal. Lo slug è validato a
+  // creazione tenant, ma se quella validazione venisse indebolita un path tipo
+  // `../../etc` sfuggirebbe da UPLOADS_DIR. Rifiutiamo qualsiasi path che, una
+  // volta risolto, non resti sotto UPLOADS_DIR.
+  const root = resolve(env.UPLOADS_DIR);
+  const resolved = resolve(path);
+  if (resolved !== root && !resolved.startsWith(root + sep)) {
+    return 0;
+  }
   let entries;
   try {
     entries = await readdir(path, { withFileTypes: true });

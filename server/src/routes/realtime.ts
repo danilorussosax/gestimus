@@ -42,20 +42,37 @@ export const realtimeRoutes: FastifyPluginAsync = async (app) => {
       'X-Accel-Buffering': 'no',
     });
 
+    // N28: backpressure. reply.raw.write() ritorna false quando il buffer del
+    // socket è pieno (client lento/bloccato). Se i write non drenano, il buffer
+    // cresce illimitato → memory leak. safeWrite chiude la connessione se il
+    // buffered amount supera la soglia; il client EventSource si riconnette.
+    const MAX_BUFFERED_BYTES = 1 << 20; // 1 MB
+    const safeWrite = (chunk: string): void => {
+      // writableLength = byte in coda non ancora flushati sul socket.
+      if (reply.raw.writableLength > MAX_BUFFERED_BYTES) {
+        close();
+        return;
+      }
+      reply.raw.write(chunk);
+    };
+
     // Comment iniziale per aprire la connessione
     reply.raw.write(': connected\n\n');
 
     const channel = faseChannel(id);
     const unsubscribe = await subscribe(channel, (payload) => {
-      reply.raw.write(`data: ${JSON.stringify(payload)}\n\n`);
+      safeWrite(`data: ${JSON.stringify(payload)}\n\n`);
     });
 
     // Keep-alive: ping ogni 25s per evitare timeout proxy
     const keepAlive = setInterval(() => {
-      reply.raw.write(': ping\n\n');
+      safeWrite(': ping\n\n');
     }, 25000);
 
+    let closed = false;
     const close = () => {
+      if (closed) return;
+      closed = true;
       clearInterval(keepAlive);
       clearTimeout(maxDuration);
       unsubscribe();

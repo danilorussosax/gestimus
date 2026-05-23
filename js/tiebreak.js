@@ -231,7 +231,11 @@ function applyCascade(group, strategy, fase, ctx) {
   for (const bucket of buckets) {
     if (bucket.length <= 1) continue;
     if (hasExAequo) {
-      const gid = exAequoGroupId();
+      // N37: id gruppo deterministico = hash degli id dei candidati ex aequo
+      // (ordinati). Riproducibile su esecuzioni separate, requisito per audit
+      // normativi dei concorsi.
+      const memberIds = bucket.map(r => r.cf?.id || r.cand?.id).filter(Boolean);
+      const gid = exAequoGroupId(memberIds);
       for (const r of bucket) {
         r.ex_aequo_group = gid;
         r.tiebreak_log = [...(r.tiebreak_log || []), {

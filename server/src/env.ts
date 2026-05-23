@@ -9,6 +9,11 @@ const schema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   SUPERADMIN_SUBDOMAIN: z.string().default('platform'),
+  // N27: base URL pubblica per i link nelle email (es. https://{slug}.gestimus.it).
+  // Se impostata, gli URL di verifica iscrizione la usano invece degli header
+  // host/x-forwarded-proto (spoofabili se un attacker bypassa il reverse proxy).
+  // Supporta il placeholder {tenant} che viene sostituito con lo slug del tenant.
+  PUBLIC_BASE_URL: z.string().optional(),
   SESSION_COOKIE_NAME: z.string().default('gestimus_session'),
   // L4: usato come secret di @fastify/cookie per firmare i cookie (es. flash,
   // futuri cookie firmati). NON è il segreto del token di sessione: quello è

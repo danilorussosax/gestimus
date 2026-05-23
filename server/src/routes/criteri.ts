@@ -15,6 +15,21 @@ const createBody = z.object({
 });
 const updateBody = createBody.partial().omit({ faseId: true });
 
+// N34+N35: replace atomico dei criteri di una fase. Il peso è 0-100 (decimale
+// ammesso in input, normalizzato dopo). Almeno 1 criterio.
+const replaceBody = z.object({
+  criteri: z
+    .array(
+      z.object({
+        nome: z.string().min(1).max(255),
+        descrizione: z.string().optional(),
+        peso: z.number().min(0).max(100),
+        ordine: z.number().int().optional(),
+      }),
+    )
+    .min(1),
+});
+
 export const criteriRoutes: FastifyPluginAsync = async (app) => {
   app.addHook('preHandler', requireAuth);
 
@@ -75,6 +90,49 @@ export const criteriRoutes: FastifyPluginAsync = async (app) => {
         payload: { nome: deleted.nome },
       });
       return reply.code(204).send();
+    });
+  });
+
+  // N35: replace atomico dei criteri di una fase in una singola transazione
+  // (delete + insert). Prima il client faceva N delete + N post separati: un
+  // fallimento a metà lasciava i criteri vecchi cancellati e i nuovi parziali.
+  // N34: i pesi vengono NORMALIZZATI a somma 100 (relative weights preservati)
+  // così lo scoring usa sempre la scala piena anche se l'admin inserisce pesi
+  // che non sommano a 100.
+  app.put('/fase/:faseId', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+    const { faseId } = z.object({ faseId: uuid }).parse(req.params);
+    const parsed = replaceBody.safeParse(req.body);
+    if (!parsed.success) return reply.badRequest(parsed.error.message);
+
+    const items = parsed.data.criteri;
+    const sum = items.reduce((s, c) => s + c.peso, 0);
+    // Normalizza a 100 (interi). Se sum è 0 (tutti pesi 0), distribuisci equo.
+    const normalized = items.map((c, i) => {
+      const pesoNorm = sum > 0 ? Math.round((c.peso / sum) * 100) : Math.round(100 / items.length);
+      return { ...c, peso: Math.max(0, Math.min(100, pesoNorm)), ordine: c.ordine ?? i };
+    });
+
+    return req.dbTx(async (tx) => {
+      await tx.delete(criteri).where(eq(criteri.faseId, faseId));
+      const rows = await tx
+        .insert(criteri)
+        .values(
+          normalized.map((c) => ({
+            tenantId: req.tenant!.id,
+            faseId,
+            nome: c.nome,
+            descrizione: c.descrizione,
+            peso: c.peso,
+            ordine: c.ordine,
+          })),
+        )
+        .returning();
+      await writeAudit(tx, req, 'criterio.replace', {
+        targetType: 'fase',
+        targetId: faseId,
+        payload: { count: rows.length },
+      });
+      return rows;
     });
   });
 };

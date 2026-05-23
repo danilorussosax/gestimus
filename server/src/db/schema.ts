@@ -238,6 +238,11 @@ export const commissari = pgTable(
     check('commissari_stato_check', sql`${t.stato} IN ('ATTIVO','INATTIVO')`),
     index('idx_commissari_tenant').on(t.tenantId),
     index('idx_commissari_concorso').on(t.concorsoId),
+    // N33: niente due commissari con la stessa email nello stesso concorso.
+    // Indice unique parziale (email NULL ammesse, multiple).
+    uniqueIndex('uniq_commissari_concorso_email')
+      .on(t.concorsoId, t.email)
+      .where(sql`${t.email} IS NOT NULL`),
   ],
 );
 

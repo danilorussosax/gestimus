@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { and, count, eq, ne } from 'drizzle-orm';
 import { z } from 'zod';
-import { accounts } from '../db/schema.js';
+import { accounts, commissari } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { hashPassword } from '../services/password.js';
@@ -118,6 +118,19 @@ export const accountsRoutes: FastifyPluginAsync = async (app) => {
     }
 
     return req.dbTx(async (tx) => {
+      // N25: se viene assegnato un commissarioId, deve appartenere al tenant
+      // corrente. La query gira sotto RLS (app.tenant_id) quindi un commissario
+      // di altro tenant non è visibile → 0 righe → rifiuto esplicito.
+      if (parsed.data.commissarioId) {
+        const cm = await tx
+          .select({ id: commissari.id })
+          .from(commissari)
+          .where(eq(commissari.id, parsed.data.commissarioId))
+          .limit(1);
+        if (cm.length === 0) {
+          return reply.badRequest('commissario non trovato nel tenant corrente');
+        }
+      }
       // L16: blocca demozione/disattivazione dell'ultimo admin del tenant.
       const demoting = parsed.data.role && parsed.data.role !== 'admin';
       const disabling = parsed.data.attivo === false;

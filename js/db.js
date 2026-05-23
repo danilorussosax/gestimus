@@ -1168,28 +1168,23 @@ export const db = {
     notify();
     return f;
   },
-  // N1: riconcilia i criteri di una fase. Strategia replace: cancella gli
-  // esistenti e ricrea da `criteri` ([{key,label,peso(0-1)}]). Aggiorna
-  // state._criteri di conseguenza. peso 0-1 → integer 0-100 per il DB.
+  // N35: riconcilia i criteri di una fase con UNA sola chiamata atomica
+  // (PUT /api/criteri/fase/:id fa delete+insert in transazione lato server).
+  // Prima erano N delete + N post separati: un fallimento a metà lasciava i
+  // criteri vecchi cancellati e i nuovi parziali. peso 0-1 → 0-100 per il DB
+  // (il server poi normalizza la somma a 100, vedi N34).
   async _syncCriteri(faseId, criteri) {
-    const existing = (state._criteri || []).filter((c) => c.faseId === faseId);
-    for (const c of existing) {
-      await api.delete(`/api/criteri/${c.id}`);
-    }
+    const payload = (criteri || [])
+      .map((c, i) => ({
+        nome: (c.label || c.key || '').trim(),
+        peso: Math.max(0, Math.min(100, Math.round((Number(c.peso) || 0) * 100))),
+        ordine: i,
+      }))
+      .filter((c) => c.nome);
+    if (payload.length === 0) return;
+    const rows = await api.put(`/api/criteri/fase/${faseId}`, { criteri: payload });
     state._criteri = (state._criteri || []).filter((c) => c.faseId !== faseId);
-    let ordine = 0;
-    for (const c of criteri) {
-      const label = (c.label || c.key || '').trim();
-      if (!label) continue;
-      const pesoInt = Math.max(0, Math.min(100, Math.round((Number(c.peso) || 0) * 100)));
-      const r = await api.post('/api/criteri', {
-        faseId,
-        nome: label,
-        peso: pesoInt,
-        ordine: ordine++,
-      });
-      (state._criteri = state._criteri || []).push(r);
-    }
+    (state._criteri = state._criteri || []).push(...(rows || []));
   },
   async deleteFase(id) {
     await api.delete(`/api/fasi/${id}`);
@@ -1514,7 +1509,21 @@ export const db = {
         const rt = await api.get(`/api/fasi/${faseId}/runtime`);
         const i = state.fasi.findIndex((x) => x.id === faseId);
         if (i >= 0) {
-          state.fasi[i] = { ...state.fasi[i], ...mapFase({ ...state.fasi[i], ...rt, id: faseId, concorsoId: state.fasi[i].concorso_id }) };
+          // N36: il runtime endpoint ritorna solo i campi timer/stato in
+          // camelCase. Mappiamo SOLO quelli sui campi snake_case esistenti,
+          // senza passare per mapFase (che, ricevendo un mix snake/camel,
+          // azzerava silenziosamente data_prevista/modo_valutazione/
+          // metodo_media/tiebreak_strategy/sezioni_ids).
+          const cur = state.fasi[i];
+          state.fasi[i] = {
+            ...cur,
+            stato: rt.stato ?? cur.stato,
+            tempo_minuti: rt.tempoMinuti ?? cur.tempo_minuti,
+            timer_started_at: rt.timerStartedAt ?? null,
+            timer_paused_at: rt.timerPausedAt ?? null,
+            timer_bonus_seconds: rt.timerBonusSeconds ?? 0,
+            timer_started_for_cf_id: rt.timerStartedForCfId ?? null,
+          };
           notify();
         }
       } catch (e) {

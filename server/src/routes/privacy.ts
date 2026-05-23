@@ -87,7 +87,7 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) return reply.badRequest(parsed.error.message);
 
     const REDACTED = '[ERASED]';
-    const touched = { commissari: 0, candidati: 0, candidatiMembri: 0, iscrizioni: 0 };
+    const touched = { commissari: 0, candidati: 0, candidatiMembri: 0, iscrizioni: 0, accounts: 0 };
 
     // N9: redaction COMPLETA di tutti i campi PII (prima ne restavano molti).
     const commissarioRedaction = {
@@ -103,8 +103,11 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
       strumento: REDACTED, foto: null, docentiPreparatori: null, programma: null,
       tutore: null, noteLibere: null, gruppoNome: null, updatedAt: new Date(),
     };
+    // L'email NON è nell'oggetto: la settiamo per-riga con un valore univoco
+    // (erased+<id>@erased.local) per non violare uniq_iscrizioni_concorso_email
+    // quando si erasano più iscrizioni dello stesso concorso.
     const iscrizioneRedaction = {
-      nome: REDACTED, cognome: REDACTED, email: 'erased@erased.local',
+      nome: REDACTED, cognome: REDACTED,
       telefono: null, dataNascita: null, nazionalita: null, luogoNascita: null,
       sesso: null, codiceFiscale: null, indirizzo: null, citta: null, cap: null,
       provincia: null, paese: null, strumento: null, anniStudio: null,
@@ -113,6 +116,8 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
       emailVerificationToken: null, gruppoNome: null, ipAddress: null,
       userAgent: null, updatedAt: new Date(),
     };
+    const erasedEmail = (tbl: { id: unknown }) =>
+      sql`'erased+' || ${tbl.id}::text || '@erased.local'`;
 
     return req.dbTx(async (tx) => {
       if (parsed.data.commissarioId) {
@@ -142,7 +147,7 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
       if (parsed.data.iscrizioneId) {
         const res = await tx
           .update(iscrizioni)
-          .set(iscrizioneRedaction)
+          .set({ ...iscrizioneRedaction, email: erasedEmail(iscrizioni) })
           .where(eq(iscrizioni.id, parsed.data.iscrizioneId))
           .returning();
         touched.iscrizioni += res.length;
@@ -152,7 +157,7 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
         const email = parsed.data.email.toLowerCase();
         const isc = await tx
           .update(iscrizioni)
-          .set(iscrizioneRedaction)
+          .set({ ...iscrizioneRedaction, email: erasedEmail(iscrizioni) })
           .where(sql`lower(${iscrizioni.email}) = ${email}`)
           .returning();
         touched.iscrizioni += isc.length;
@@ -181,6 +186,24 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
             .returning();
           touched.candidatiMembri += mem.length;
         }
+
+        // N29: l'erase via email deve anonimizzare anche l'account con quella
+        // email (prima restava in chiaro → violazione del diritto all'oblio).
+        // email → valore univoco per riga (vincolo unique tenant+email), account
+        // disattivato, segreti TOTP azzerati.
+        const acc = await tx
+          .update(accounts)
+          .set({
+            email: erasedEmail(accounts),
+            attivo: false,
+            totpSecret: null,
+            totpEnabled: false,
+            totpRecoveryCodes: null,
+            updatedAt: new Date(),
+          })
+          .where(sql`lower(${accounts.email}) = ${email}`)
+          .returning();
+        touched.accounts += acc.length;
       }
 
       await writeAudit(tx, req, 'privacy.erase', {
