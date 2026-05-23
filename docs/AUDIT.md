@@ -20,7 +20,7 @@ Questo documento descrive lo **stato attuale** della robustezza del codice. Le a
 | Test coverage | 🟢 Alto | Suite server in CI su Postgres 18 (rls/auth/crud/realtime/concorrenza/route) + unit sul core algoritmico |
 | Manutenibilità | 🟢 Alto | Type-check `checkJs` sul core logico (gate CI), separazione route/service/middleware |
 
-**Giudizio**: base solida e ben difesa su tutti gli assi. Il debito residuo è puramente **evolutivo** (split file grandi, type-check esteso a tutto il frontend, lazy-load client) più una feature di sicurezza opzionale (tamper-evidence audit, §9), non correttezza né sicurezza, e non blocca l'uso attuale.
+**Giudizio**: base solida e ben difesa su tutti gli assi. Il debito residuo è puramente **evolutivo** (split file grandi, type-check esteso a tutto il frontend, lazy-load client), non correttezza né sicurezza, e non blocca l'uso attuale.
 
 ---
 
@@ -43,7 +43,8 @@ Questo documento descrive lo **stato attuale** della robustezza del codice. Le a
 - **SQL injection**: nessuna interpolazione raw; `inArray`/parametri Drizzle. Canale SSE `LISTEN` validato con whitelist regex.
 - **Auth**: Argon2id, no JWT in localStorage, sessione invalidata su mismatch cross-tenant, rate-limit su login/verify/logout/me, tentativi di login auditati (successo/fallimento).
 - **Crittografia**: SMTP cifrato AES-GCM (no fallback plaintext), backup cifrati AES-256-GCM at-rest (derivazione chiave unica condivisa con SMTP).
-- **GDPR**: erase completo dei PII su candidati/iscrizioni/commissari/accounts; redazione dell'email anche dai payload storici dell'`audit_log` della persona; export con redaction dei segreti.
+- **GDPR**: erase completo dei PII su candidati/iscrizioni/commissari/accounts; redazione delle PII (email, ip/userAgent delle proprie azioni) anche dai payload storici dell'`audit_log` della persona, con ri-firma; export con redaction dei segreti.
+- **Tamper-evidence audit**: ogni riga di `audit_log`/`platform_audit_log` ha una firma HMAC-SHA256 del contenuto (chiave non nel DB) → una modifica via accesso diretto al database è rilevabile da `verifyAuditIntegrity`.
 - **Upload**: verifica magic bytes, estensione derivata sempre dal MIME validato (mai dal filename → no stored XSS), `X-Content-Type-Options: nosniff` sui file serviti, path-traversal guard, scrittura atomica (tmp+rename), cleanup anti-orfani; i commissari possono gestire solo la propria foto.
 - **DoS**: cap logo 1MB, cap import CSV, single-flight su `/system`, paginazione (ceiling) su tutti i list endpoint, `trustProxy: 1`.
 - **Privilege escalation**: trigger DB che vieta `role='superadmin'` fuori dal tenant platform; anti self-demote/self-disable; protezione ultimo admin; cookie cross-tenant invalidato.
@@ -110,8 +111,6 @@ Punti critici coperti, provati da test (`tests/crud/concurrency.test.ts`):
 
 | Priorità | Voce | Note |
 |:---:|---|---|
-| Media (opzionale) | **M196 — tamper-evidence audit_log** | HMAC/hash-chain per riga. Richiede: decisione sul modello di minaccia (insider con accesso DB), copertura di TUTTI i percorsi di insert, gestione righe legacy, e ri-firma nello scrub GDPR (che modifica i payload). Da fare come effort dedicato, non a metà. |
-| Bassa | **N183 — copertura scrub audit** | L'erasure redige l'email dai payload audit per l'erase **via email**; `ip`/`userAgent` e l'erase per soli id non sono ancora scrubbati. |
 | Bassa | Lazy-load client per-vista | `db.loadAll` carica tutto in memoria; ok ai volumi attesi, da rivedere per tenant molto grandi (richiede test browser). |
 | Bassa | Split file frontend > 1500 LOC | Manutenibilità. |
 | Bassa | Type-check esteso a tutto il frontend | Bug a runtime; oggi solo il core algoritmico è type-checked. |
@@ -123,6 +122,6 @@ Punti critici coperti, provati da test (`tests/crud/concurrency.test.ts`):
 
 ## 10. Conclusione
 
-Il codice è **robusto su tutti gli assi**: difesa a strati matura su sicurezza/integrità (RLS forzata, trigger di coerenza, CHECK, transazioni con lock, ownership cross-entità, limiti piano), affidabilità runtime (health-check, handler globali, shutdown ordinato, hub auto-recuperante), concorrenza provata da test, scala (paginazione + streaming export/backup) e disaster recovery (backup cifrati + restore). Suite verde in CI su Postgres reale, 0 alert Dependabot.
+Il codice è **robusto su tutti gli assi**: difesa a strati matura su sicurezza/integrità (RLS forzata, trigger di coerenza, CHECK, transazioni con lock, ownership cross-entità, limiti piano, audit firmato), affidabilità runtime (health-check, handler globali, shutdown ordinato, hub auto-recuperante), concorrenza provata da test, scala (paginazione + streaming export/backup) e disaster recovery (backup cifrati + restore). Suite verde in CI su Postgres reale, 0 alert Dependabot.
 
-Le voci aperte (§9) sono una feature di sicurezza opzionale (tamper-evidence audit) più debito evolutivo — non correttezza né sicurezza bloccante per l'uso attuale.
+Le voci aperte (§9) sono puramente **debito evolutivo** (lazy-load client, split file, type-check esteso) — non correttezza né sicurezza bloccante per l'uso attuale.
