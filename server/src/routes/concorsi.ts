@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { concorsi } from '../db/schema.js';
+import { candidati, concorsi, iscrizioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { parsePagination } from '../lib/pagination.js';
@@ -89,7 +89,23 @@ export const concorsiRoutes: FastifyPluginAsync = async (app) => {
     { preHandler: [requireAuth, requireRole('admin')] },
     async (req, reply) => {
       const { id } = z.object({ id: uuid }).parse(req.params);
+      const force = z.object({ force: z.coerce.boolean().optional() }).parse(req.query).force === true;
       return req.dbTx(async (tx) => {
+        // M193: il DELETE concorso fa CASCADE su TUTTI i dati collegati
+        // (candidati, iscrizioni, fasi, valutazioni, …). Senza ?force=true
+        // rifiutiamo la cancellazione di un concorso con dati reali → niente
+        // perdita accidentale; il client la ripete con force dopo conferma.
+        if (!force) {
+          const [cand] = await tx.select({ n: sql<number>`count(*)::int` }).from(candidati).where(eq(candidati.concorsoId, id));
+          const [isc] = await tx.select({ n: sql<number>`count(*)::int` }).from(iscrizioni).where(eq(iscrizioni.concorsoId, id));
+          if ((cand?.n ?? 0) > 0 || (isc?.n ?? 0) > 0) {
+            return reply.code(409).send({
+              error: 'concorso con dati collegati: ripeti con ?force=true per eliminare tutto',
+              candidati: cand?.n ?? 0,
+              iscrizioni: isc?.n ?? 0,
+            });
+          }
+        }
         const [deleted] = await tx.delete(concorsi).where(eq(concorsi.id, id)).returning();
         if (!deleted) return reply.notFound();
         await writeAudit(tx, req, 'concorso.delete', {

@@ -97,6 +97,26 @@ describe('Route integration (ente1)', () => {
     assert.equal(r1.stato, 'COMPLETATO');
   });
 
+  // M193: DELETE concorso con dati collegati richiede ?force=true.
+  test('M193: DELETE concorso con candidati → 409 senza force, 204 con force', async () => {
+    const concRes = await app.inject({
+      method: 'POST', url: '/api/concorsi', headers: hdrs(),
+      payload: { nome: 'Routes Test M193', anno: 2026, stato: 'ATTIVO' },
+    });
+    assert.equal(concRes.statusCode, 201, `concorso create: ${concRes.body}`);
+    const conc = concRes.json();
+    const candRes = await app.inject({
+      method: 'POST', url: '/api/candidati', headers: hdrs(),
+      payload: { concorsoId: conc.id, nome: 'M193', strumento: 'Flauto' },
+    });
+    assert.equal(candRes.statusCode, 201, `candidato create: ${candRes.body}`);
+    const no = await app.inject({ method: 'DELETE', url: `/api/concorsi/${conc.id}`, headers: hdrs(), payload: {} });
+    assert.equal(no.statusCode, 409, `delete no-force body: ${no.body}`);
+    assert.ok((no.json() as { candidati: number }).candidati >= 1);
+    const yes = await app.inject({ method: 'DELETE', url: `/api/concorsi/${conc.id}?force=true`, headers: hdrs(), payload: {} });
+    assert.equal(yes.statusCode, 204);
+  });
+
   // N34/N35: criteri batch + normalizzazione pesi
   test('N34: PUT criteri normalizza i pesi a somma 100', async () => {
     const f = await newFase();

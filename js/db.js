@@ -677,7 +677,9 @@ export const db = {
   },
 
   async deleteConcorso(id) {
-    await api.delete(`/api/concorsi/${id}`);
+    // M193: il server rifiuta il delete di un concorso con dati collegati senza
+    // force; la UI conferma già esplicitamente, quindi passiamo force=true.
+    await api.delete(`/api/concorsi/${id}?force=true`);
     state.concorsi = state.concorsi.filter((x) => x.id !== id);
     state.fasi = state.fasi.filter((f) => f.concorso_id !== id);
     state.candidati = state.candidati.filter((x) => x.concorso_id !== id);
