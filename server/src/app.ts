@@ -81,6 +81,17 @@ export async function createApp(): Promise<FastifyInstance> {
   // Servire il frontend statico dalla root del progetto (un livello sopra server/)
   // e gli uploads dal filesystem. Per dev locale comodo: tutto stesso origin.
   const projectRoot = resolve(fileURLToPath(import.meta.url), '../../..');
+  // L6: blocca path sensibili che vivono sotto projectRoot e non devono mai
+  // essere serviti come asset statici (sorgenti server, env, lockfile, .git).
+  // fastifyStatic non serve i dotfile di default, ma `server/`, `package.json`,
+  // ecc. sì — quindi li rifiutiamo esplicitamente prima dello static handler.
+  const BLOCKED_STATIC = [/^\/server\//, /^\/node_modules\//, /^\/\.git\//, /^\/package(-lock)?\.json$/i, /\.env/i, /^\/tsconfig/i];
+  app.addHook('onRequest', async (req, reply) => {
+    const path = req.url.split('?')[0]!;
+    if (BLOCKED_STATIC.some((re) => re.test(path))) {
+      return reply.code(404).send({ error: 'not found' });
+    }
+  });
   await app.register(fastifyStatic, {
     root: projectRoot,
     prefix: '/',

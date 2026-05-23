@@ -162,7 +162,9 @@ export async function backupTenant(tenantId: string): Promise<BackupResult> {
     tableCounts,
   };
 
-  const filename = `${tenantRow.slug}-${safeIsoStamp()}.json.gz.enc`;
+  // L5: suffisso random per evitare collisioni se due backup partono nello
+  // stesso millisecondo (es. cleanup + backup manuale concorrenti).
+  const filename = `${tenantRow.slug}-${safeIsoStamp()}-${randomBytes(3).toString('hex')}.json.gz.enc`;
   const filepath = join(archiveDir(), filename);
   const compressed = await gzipP(Buffer.from(JSON.stringify(manifest)));
   const iv = randomBytes(12);
@@ -194,8 +196,9 @@ export type BackupListEntry = {
  * Filename convention: `<slug>-<iso>.json.gz` dove iso = 2026-05-22T13-45-09-123Z
  * (lo slug può contenere `-`, quindi estraggo via regex sull'isoStamp).
  */
-// Match sia il vecchio formato (.json.gz) sia il nuovo cifrato (.json.gz.enc).
-const BACKUP_FILENAME_RE = /^(.+)-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)\.json\.gz(?:\.enc)?$/;
+// Match: <slug>-<iso>[-<hex>].json.gz[.enc]. Il suffisso hex (L5) è opzionale
+// per restare compatibile con i backup pre-esistenti senza suffisso.
+const BACKUP_FILENAME_RE = /^(.+)-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)(?:-[0-9a-f]{6})?\.json\.gz(?:\.enc)?$/;
 const BACKUP_EXTS = ['.json.gz', '.json.gz.enc'];
 
 function isBackupFile(name: string): boolean {

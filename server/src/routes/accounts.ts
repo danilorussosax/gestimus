@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { and, eq, ne } from 'drizzle-orm';
+import { and, count, eq, ne } from 'drizzle-orm';
 import { z } from 'zod';
 import { accounts } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
@@ -8,6 +8,18 @@ import { hashPassword } from '../services/password.js';
 import { invalidateAllSessionsForAccount } from '../services/session.js';
 
 const uuid = z.string().uuid();
+
+// L16: conta gli admin attivi del tenant DIVERSI da `excludeId`. Serve a
+// impedire la rimozione/disattivazione/demozione dell'ultimo admin (lockout
+// del tenant). La query gira sotto RLS quindi è già ristretta al tenant.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function otherActiveAdminsCount(tx: any, excludeId: string): Promise<number> {
+  const rows = await tx
+    .select({ n: count() })
+    .from(accounts)
+    .where(and(eq(accounts.role, 'admin'), eq(accounts.attivo, true), ne(accounts.id, excludeId)));
+  return Number(rows[0]?.n ?? 0);
+}
 const createBody = z.object({
   email: z.string().email(),
   password: z.string().min(8).max(200),
@@ -106,6 +118,17 @@ export const accountsRoutes: FastifyPluginAsync = async (app) => {
     }
 
     return req.dbTx(async (tx) => {
+      // L16: blocca demozione/disattivazione dell'ultimo admin del tenant.
+      const demoting = parsed.data.role && parsed.data.role !== 'admin';
+      const disabling = parsed.data.attivo === false;
+      if (demoting || disabling) {
+        const target = await tx.select({ role: accounts.role, attivo: accounts.attivo })
+          .from(accounts).where(eq(accounts.id, id)).limit(1);
+        const isActiveAdmin = target[0]?.role === 'admin' && target[0]?.attivo === true;
+        if (isActiveAdmin && (await otherActiveAdminsCount(tx, id)) === 0) {
+          return reply.code(409).send({ error: 'non puoi rimuovere l\'ultimo admin attivo del tenant' });
+        }
+      }
       const patch: Record<string, unknown> = { ...parsed.data, updatedAt: new Date() };
       if (parsed.data.email) patch.email = parsed.data.email.toLowerCase();
       const [updated] = await tx
@@ -154,6 +177,13 @@ export const accountsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(403).send({ error: 'non puoi cancellare il tuo stesso account' });
     }
     return req.dbTx(async (tx) => {
+      // L16: blocca la cancellazione dell'ultimo admin attivo del tenant.
+      const target = await tx.select({ role: accounts.role, attivo: accounts.attivo })
+        .from(accounts).where(eq(accounts.id, id)).limit(1);
+      if (target[0]?.role === 'admin' && target[0]?.attivo === true
+        && (await otherActiveAdminsCount(tx, id)) === 0) {
+        return reply.code(409).send({ error: 'non puoi cancellare l\'ultimo admin attivo del tenant' });
+      }
       const [deleted] = await tx.delete(accounts).where(eq(accounts.id, id)).returning();
       if (!deleted) return reply.notFound();
       await writeAudit(tx, req, 'account.delete', {

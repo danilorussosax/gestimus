@@ -65,15 +65,18 @@ function render() {
   const rank = { commissario: 1, admin: 2, superadmin: 3 };
   const authRank = rank[authRole] || 0;
   const allowed = (needed) => (rank[needed] || 0) <= authRank;
-  const wantsRoute = (cond) => {
-    if (cond) return false;
-    if (location.hash === '#/' || location.hash === '') { /* già su home, evita loop */ }
-    else { location.hash = '#/'; return true; }
-    return false;
+  // L14: nome esplicito. Dato `isAllowed`, se NON è permesso reindirizza a
+  // home e ritorna true (= "ho reindirizzato, il caller deve fermarsi").
+  // Se già su home non reindirizza (evita loop) e ritorna false.
+  const redirectHomeUnlessAllowed = (isAllowed) => {
+    if (isAllowed) return false;
+    if (location.hash === '#/' || location.hash === '') return false;
+    location.hash = '#/';
+    return true;
   };
-  if (route === 'superadmin' && wantsRoute(meta.role === 'superadmin' && allowed('superadmin'))) return;
-  if (route.startsWith('admin') && wantsRoute(meta.role === 'admin' && allowed('admin'))) return;
-  if (route === 'commissario' && wantsRoute(meta.role === 'commissario' && allowed('commissario'))) return;
+  if (route === 'superadmin' && redirectHomeUnlessAllowed(meta.role === 'superadmin' && allowed('superadmin'))) return;
+  if (route.startsWith('admin') && redirectHomeUnlessAllowed(meta.role === 'admin' && allowed('admin'))) return;
+  if (route === 'commissario' && redirectHomeUnlessAllowed(meta.role === 'commissario' && allowed('commissario'))) return;
 
   updateHeader();
 
@@ -369,7 +372,10 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
 
 $('#logout-btn').addEventListener('click', async () => {
   await db.logout(); // invalida la sessione server-side, poi pulisce authStore + role meta
-  location.hash = '#/';
+  // L9: replaceState invece di settare l'hash, così il back button non
+  // ritorna su rotte admin/commissario (che poi rediretterebbero a home
+  // creando voci di history inutili).
+  history.replaceState(null, '', `${location.pathname}${location.search}#/`);
   render(); // will land on login since authStore.isValid=false
 });
 

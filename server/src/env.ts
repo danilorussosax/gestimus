@@ -10,6 +10,9 @@ const schema = z.object({
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   SUPERADMIN_SUBDOMAIN: z.string().default('platform'),
   SESSION_COOKIE_NAME: z.string().default('gestimus_session'),
+  // L4: usato come secret di @fastify/cookie per firmare i cookie (es. flash,
+  // futuri cookie firmati). NON è il segreto del token di sessione: quello è
+  // un random per-sessione hashato in SHA-256 e salvato in `sessions.id`.
   SESSION_COOKIE_SECRET: z.string().min(32),
   GESTIMUS_SECRET_KEY: z.string().min(32),
   UPLOADS_DIR: z.string().default('./uploads'),

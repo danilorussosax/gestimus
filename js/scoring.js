@@ -188,7 +188,11 @@ function medianaArr(arr) {
 function deviazioneStdArr(arr, k = 2) {
   if (arr.length < 3) return aritmeticaArr(arr);
   const mean = aritmeticaArr(arr);
-  const variance = arr.reduce((s, x) => s + (x - mean) ** 2, 0) / arr.length;
+  // L11: deviazione standard CAMPIONARIA (divisione per n-1, correzione di
+  // Bessel). I voti dei commissari sono un campione, non la popolazione: con
+  // n piccolo (3-5) la versione popolazione (÷n) sottostima la dispersione e
+  // scarta voti legittimi.
+  const variance = arr.reduce((s, x) => s + (x - mean) ** 2, 0) / (arr.length - 1);
   const std = Math.sqrt(variance);
   if (std === 0) return mean;
   const filtered = arr.filter(v => Math.abs(v - mean) <= k * std);
