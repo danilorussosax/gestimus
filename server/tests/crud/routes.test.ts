@@ -77,6 +77,26 @@ describe('Route integration (ente1)', () => {
     assert.equal(res.statusCode, 409);
   });
 
+  // N144: l'ammissione è calcolata dall'aggregato lato client e applicata
+  // atomicamente al conclude tramite `admitted` (non più per-commissario).
+  test('N144: conclude con admitted setta ammessoProssimaFase atomicamente', async () => {
+    const f = await newFase();
+    await app.inject({ method: 'POST', url: `/api/fasi/${f.id}/start`, headers: hdrs(), payload: {} });
+    const c1 = (await app.inject({ method: 'POST', url: '/api/candidati', headers: hdrs(), payload: { concorsoId, nome: 'Amm1', strumento: 'Violino' } })).json();
+    const c2 = (await app.inject({ method: 'POST', url: '/api/candidati', headers: hdrs(), payload: { concorsoId, nome: 'Amm2', strumento: 'Viola' } })).json();
+    const cf1 = (await app.inject({ method: 'POST', url: '/api/candidati-fase', headers: hdrs(), payload: { faseId: f.id, candidatoId: c1.id, posizione: 1 } })).json();
+    const cf2 = (await app.inject({ method: 'POST', url: '/api/candidati-fase', headers: hdrs(), payload: { faseId: f.id, candidatoId: c2.id, posizione: 2 } })).json();
+    const res = await app.inject({ method: 'POST', url: `/api/fasi/${f.id}/conclude`, headers: hdrs(), payload: { admitted: [cf1.id] } });
+    assert.equal(res.statusCode, 200);
+    const list = (await app.inject({ method: 'GET', url: `/api/candidati-fase?faseId=${f.id}`, headers: hdrs() }))
+      .json() as Array<{ id: string; ammessoProssimaFase: boolean; stato: string }>;
+    const r1 = list.find((x) => x.id === cf1.id)!;
+    const r2 = list.find((x) => x.id === cf2.id)!;
+    assert.equal(r1.ammessoProssimaFase, true);
+    assert.equal(r2.ammessoProssimaFase, false);
+    assert.equal(r1.stato, 'COMPLETATO');
+  });
+
   // N34/N35: criteri batch + normalizzazione pesi
   test('N34: PUT criteri normalizza i pesi a somma 100', async () => {
     const f = await newFase();

@@ -5,6 +5,7 @@ import { icon } from '../icons.js';
 import {
   pesato, getPesiFor, getScala, voteStep, fmtVoto, getModoValutazione, getCriteri,
 } from '../scoring.js';
+import { computeAdmittedIds } from './admin/common.js';
 import { t } from '../i18n.js';
 
 // "Cambia ruolo" / "Torna al menu" dai pulsanti delle viste commissario:
@@ -1026,7 +1027,9 @@ function bindPresidentePanel(root, concorso) {
           return false;
         }
         try {
-          await db.concludiFase(id);
+          // N144: ammissione = top-`ammessi` della classifica, calcolata qui e
+          // applicata atomicamente al conclude.
+          await db.concludiFase(id, computeAdmittedIds(db.state.fasi.find(f => f.id === id)));
           toast(t('com.pres.phase_ended'), 'success');
           renderCommissario(root);
         } catch (e) { toast(e.message, 'error'); return false; }
@@ -1227,8 +1230,10 @@ async function doSave(root, cf, com, fase, ammesso) {
       commissario_id: com.id,
       voti: draft.voti,
       note: draft.note,
-      ammesso,
     });
+    // N144: `ammesso` qui è solo l'indicazione personale del commissario (toast
+    // informativo); l'ammissione effettiva è calcolata dall'aggregato al
+    // conclude della fase, non più salvata per-commissario.
     const verdict = ammesso ? t('com.confirm.approved') : t('com.confirm.rejected');
     toast(t('com.save.success', { verdict }), ammesso ? 'success' : 'warn');
     resetDraft(fase);

@@ -436,6 +436,13 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/:id/conclude', { preHandler: [requireAuth] }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
+    // N144: l'ammissione alla fase successiva è calcolata dall'AGGREGATO lato
+    // client (stesso motore della classifica mostrata) e applicata QUI in modo
+    // atomico — niente più last-write-wins per-commissario. `admitted` = lista
+    // dei candidatiFase ammessi. Se assente, si mantiene l'ammissione esistente
+    // (retrocompatibilità per chiamanti che non la inviano).
+    const body = z.object({ admitted: z.array(uuid).optional() }).safeParse(req.body ?? {});
+    if (!body.success) return reply.badRequest(body.error.message);
     return req.dbTx(async (tx) => {
       if (!await assertCanManageFase(tx, req, reply, id)) return;
       // N21: conclude ammesso solo da IN_CORSO (non da PIANIFICATA/CONCLUSA).
@@ -463,22 +470,44 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
       // passano a COMPLETATO. Senza questo update la view risultati legge
       // `cf.stato !== 'COMPLETATO'` e mostra "in attesa" per sempre, anche
       // dopo che la fase è chiusa e ammesso_prossima_fase è stato deciso.
-      await tx
-        .update(candidatiFase)
-        .set({
-          stato: 'COMPLETATO',
-          // N43: un candidato COMPLETATO deve avere un esito esplicito. Se
-          // ammesso_prossima_fase non è stato deciso, default false ("non
-          // promosso") → niente NULL su COMPLETATO (rispetta il CHECK).
-          ammessoProssimaFase: sql`COALESCE(${candidatiFase.ammessoProssimaFase}, false)`,
-          updatedAt: new Date(),
-        })
-        .where(
-          and(
-            eq(candidatiFase.faseId, id),
-            sql`${candidatiFase.stato} <> 'ELIMINATO'`,
-          ),
-        );
+      const concludedAt = new Date();
+      if (body.data.admitted) {
+        // N144: ammissione autoritativa dall'aggregato. Tutti i non-ELIMINATI a
+        // COMPLETATO + non ammessi di default, poi marca ammessi quelli in lista.
+        await tx
+          .update(candidatiFase)
+          .set({ stato: 'COMPLETATO', ammessoProssimaFase: false, updatedAt: concludedAt })
+          .where(and(eq(candidatiFase.faseId, id), sql`${candidatiFase.stato} <> 'ELIMINATO'`));
+        if (body.data.admitted.length > 0) {
+          await tx
+            .update(candidatiFase)
+            .set({ ammessoProssimaFase: true, updatedAt: concludedAt })
+            .where(
+              and(
+                eq(candidatiFase.faseId, id),
+                inArray(candidatiFase.id, body.data.admitted),
+                sql`${candidatiFase.stato} <> 'ELIMINATO'`,
+              ),
+            );
+        }
+      } else {
+        await tx
+          .update(candidatiFase)
+          .set({
+            stato: 'COMPLETATO',
+            // N43: un candidato COMPLETATO deve avere un esito esplicito. Se
+            // ammesso_prossima_fase non è stato deciso, default false ("non
+            // promosso") → niente NULL su COMPLETATO (rispetta il CHECK).
+            ammessoProssimaFase: sql`COALESCE(${candidatiFase.ammessoProssimaFase}, false)`,
+            updatedAt: concludedAt,
+          })
+          .where(
+            and(
+              eq(candidatiFase.faseId, id),
+              sql`${candidatiFase.stato} <> 'ELIMINATO'`,
+            ),
+          );
+      }
       await writeAudit(tx, req, 'fase.conclude', {
         targetType: 'fase',
         targetId: id,

@@ -1376,8 +1376,10 @@ export const db = {
     return f;
   },
 
-  async concludiFase(faseId) {
-    const r = await api.post(`/api/fasi/${faseId}/conclude`, {});
+  async concludiFase(faseId, admittedIds = null) {
+    // N144: l'ammissione (top-N per classifica) è calcolata dal chiamante con lo
+    // stesso motore della classifica mostrata e inviata atomicamente al server.
+    const r = await api.post(`/api/fasi/${faseId}/conclude`, Array.isArray(admittedIds) ? { admitted: admittedIds } : {});
     const f = mapFase(r);
     f.criteri = criteriForFase(f.id); // N10: mapFase non popola criteri
     const i = state.fasi.findIndex((x) => x.id === faseId);
@@ -1423,7 +1425,7 @@ export const db = {
    * Il legacy passa { voti: { criterio: voto } }; il backend nuovo accetta
    * una upsert per (cf, commissario, criterio): iteriamo i criteri.
    */
-  async saveValutazione({ candidato_fase_id, commissario_id, voti, note = '', ammesso }) {
+  async saveValutazione({ candidato_fase_id, commissario_id, voti, note = '' }) {
     if (!voti || typeof voti !== 'object') throw new Error('saveValutazione: voti richiesti');
     // H3: niente più "rimuovi prima/inserisci dopo in loop". Inviamo tutte le
     // POST in parallelo (allSettled) e committiamo SOLO i criteri salvati con
@@ -1458,16 +1460,9 @@ export const db = {
     );
     state.valutazioni.push(...saved);
 
-    if (typeof ammesso === 'boolean') {
-      try {
-        const r = await api.patch(`/api/candidati-fase/${candidato_fase_id}`, { ammessoProssimaFase: ammesso });
-        const cf = mapCandidatoFase(r);
-        const i = state.candidati_fase.findIndex((x) => x.id === candidato_fase_id);
-        if (i >= 0) state.candidati_fase[i] = cf;
-      } catch (e) {
-        errors.push({ criterio: '__ammesso', error: e });
-      }
-    }
+    // N144: la valutazione NON decide più l'ammissione (era last-write-wins tra
+    // commissari). L'ammissione è calcolata dall'aggregato e applicata al
+    // conclude della fase (vedi concludiFase + /fasi/:id/conclude).
     notify();
     if (errors.length > 0) {
       const err = new Error(`saveValutazione: ${errors.length} salvataggi falliti`);

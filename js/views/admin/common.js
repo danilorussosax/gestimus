@@ -28,6 +28,20 @@ export function rankFase(fase, cfs = null) {
   });
 }
 
+// N144: i candidatiFase ammessi alla fase successiva = i top `fase.ammessi`
+// della classifica con risoluzione pareggi (gli ex aequo al cutoff sono inclusi:
+// posizione_finale <= ammessi). Calcolato con lo STESSO motore della classifica
+// mostrata e inviato atomicamente al server al conclude (niente più
+// last-write-wins per-commissario). Ritorna null se non c'è una soglia top-N
+// (`ammessi` mancante) → il server mantiene l'ammissione esistente.
+export function computeAdmittedIds(fase) {
+  const ammessi = Number(fase?.ammessi);
+  if (!Number.isFinite(ammessi) || ammessi <= 0) return null;
+  return rankFase(fase)
+    .filter((r) => (r.posizione_finale ?? Infinity) <= ammessi)
+    .map((r) => r.cf.id);
+}
+
 /**
  * Emoji per categoria strumentale, dedotta euristicamente dal nome della
  * sezione. L'ordine è importante: pattern più specifici prima di quelli

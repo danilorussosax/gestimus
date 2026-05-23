@@ -10,7 +10,7 @@ import {
 import { fmtVoto, getScala, mediaCandidato, METODI_MEDIA, slugifyKey, suggerisciMetodo } from '../../scoring.js';
 import { icon } from '../../icons.js';
 import { t } from '../../i18n.js';
-import { iconaPerSezione, tiebreakStrategyHtml } from './common.js';
+import { iconaPerSezione, tiebreakStrategyHtml, computeAdmittedIds } from './common.js';
 
 export function renderFasi(root, concorso) {
   const fasi = db.fasiByConcorso(concorso.id);
@@ -153,7 +153,8 @@ export function renderFasi(root, concorso) {
             message: t('admin.fase.end_msg', { nome: fase.nome }) || `Concludere "${fase.nome}"? Non sarà più modificabile.`,
             onConfirm: async () => {
               try {
-                await db.concludiFase(id);
+                // N144: ammissione = top-`ammessi` della classifica, calcolata qui.
+                await db.concludiFase(id, computeAdmittedIds(fase));
                 toast(t('admin.fase.ended') || 'Fase conclusa', 'success');
                 fullRefresh();
               } catch (e) { toast(e?.message || 'Errore', 'error'); }
