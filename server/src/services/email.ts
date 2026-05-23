@@ -97,7 +97,13 @@ async function getTransporter(tenantId: string | null): Promise<{ transporter: T
 }
 
 export function invalidateTransporter(tenantId: string): void {
-  cache.delete(tenantId);
+  // N56: chiudere il transporter PRIMA di rimuoverlo dalla cache, altrimenti
+  // la connessione TCP/pool SMTP resta aperta fino al restart (resource leak).
+  const entry = cache.get(tenantId);
+  if (entry) {
+    try { entry.transporter.close(); } catch { /* best-effort */ }
+    cache.delete(tenantId);
+  }
 }
 
 export type SendMailArgs = {

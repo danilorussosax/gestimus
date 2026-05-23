@@ -89,10 +89,12 @@ export async function subscribe(channel: string, cb: Listener): Promise<() => vo
   let set = subscribers.get(channel);
   if (!set) {
     set = new Set();
-    subscribers.set(channel, set);
-    // LISTEN solo la prima volta che il canale appare. channel è già validato
-    // contro VALID_CHANNEL sopra → interpolazione sicura.
+    // N81: LISTEN PRIMA di registrare il canale nella map. Se il LISTEN fallisce
+    // (errore DB), prima il canale restava nella map con un Set vuoto e le
+    // chiamate successive saltavano il LISTEN → notifiche perse per sempre.
+    // channel è già validato contro VALID_CHANNEL → interpolazione sicura.
     await client.query(`LISTEN "${channel}"`);
+    subscribers.set(channel, set);
   }
   set.add(cb);
 

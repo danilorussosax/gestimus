@@ -31,6 +31,24 @@ const draft = {
   candidatoFaseId: null,
 };
 
+// N82: il service worker forza il reload di tutte le tab ad ogni deploy/activate.
+// Il draft (voti non ancora salvati) è solo in memoria → andrebbe perso. Lo
+// persistiamo in sessionStorage e lo ripristiniamo se, dopo il reload, è ancora
+// attivo lo stesso (faseId, candidatoFaseId).
+const DRAFT_KEY = 'gc_commissario_draft';
+function persistDraft() {
+  try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch { /* quota/private */ }
+}
+function loadPersistedDraft(faseId, candidatoFaseId) {
+  try {
+    const raw = sessionStorage.getItem(DRAFT_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    if (d && d.faseId === faseId && d.candidatoFaseId === candidatoFaseId) return d;
+  } catch { /* corrotto */ }
+  return null;
+}
+
 function defaultVoti(scala, fase) {
   const v = Math.round(scala * 0.7 * 10) / 10; // 70% della scala
   const out = {};
@@ -39,10 +57,22 @@ function defaultVoti(scala, fase) {
 }
 
 function resetDraft(fase, candidatoFaseId = null) {
+  // N82: se esiste un draft persistito per lo stesso candidato_fase (es. dopo
+  // un reload del service worker), ripristinalo invece dei default.
+  const restored = candidatoFaseId ? loadPersistedDraft(fase?.id || null, candidatoFaseId) : null;
+  if (restored) {
+    draft.voti = restored.voti || defaultVoti(getScala(fase), fase);
+    draft.note = restored.note || '';
+    draft.faseId = fase?.id || null;
+    draft.candidatoFaseId = candidatoFaseId;
+    persistDraft();
+    return;
+  }
   draft.voti = defaultVoti(getScala(fase), fase);
   draft.note = '';
   draft.faseId = fase?.id || null;
   draft.candidatoFaseId = candidatoFaseId;
+  persistDraft();
 }
 
 function getStarEmoji(level, fase) {
@@ -327,7 +357,7 @@ export function renderCommissario(root) {
   });
 
   const note = root.querySelector('#note');
-  note.addEventListener('input', () => { draft.note = note.value; });
+  note.addEventListener('input', () => { draft.note = note.value; persistDraft(); });
 
   const confermaBtn = root.querySelector('[data-action="conferma-salva"]');
   confermaBtn.addEventListener('click', () => {
@@ -1117,6 +1147,7 @@ function bindSliders(root, fase) {
       const k = input.dataset.criterio;
       const v = Number(input.value);
       draft.voti[k] = v;
+      persistDraft();
       const display = root.querySelector(`[data-display="${k}"]`);
       if (display) display.textContent = fmtVoto(v, scala);
       const tot = pesato(draft.voti, fase);
@@ -1144,6 +1175,7 @@ function bindPictogram(root, fase, scala) {
         const input = root.querySelector(`[data-criterio="${c.key}"]`);
         if (input) input.value = target;
       });
+      persistDraft();
       // Aggiorna totale
       const tot = pesato(draft.voti, fase);
       const totEl = root.querySelector('#totale');

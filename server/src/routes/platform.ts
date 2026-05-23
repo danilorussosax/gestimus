@@ -1,6 +1,6 @@
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest, preHandlerAsyncHookHandler } from 'fastify';
 import os from 'node:os';
-import { and, asc, desc, eq, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { dbSuper } from '../db/client.js';
 import {
@@ -415,13 +415,17 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
     if (current.stato !== 'attivo') {
       return reply.code(409).send({ error: `tenant in stato ${current.stato}, non sospendibile` });
     }
+    // N55: condizione stato nella WHERE → se un'altra richiesta cambia lo stato
+    // tra il SELECT e l'UPDATE, l'update non matcha (0 righe) e ritorniamo 409
+    // invece di crashare con `updated!` su undefined.
     const [updated] = await dbSuper
       .update(tenants)
       .set({ stato: 'sospeso', updatedAt: new Date() })
-      .where(eq(tenants.id, id))
+      .where(and(eq(tenants.id, id), eq(tenants.stato, 'attivo')))
       .returning();
-    await auditChange(req, 'platform.tenant.suspend', updated!, { from: current.stato });
-    return publicTenant(updated!);
+    if (!updated) return reply.code(409).send({ error: 'stato cambiato concorrentemente' });
+    await auditChange(req, 'platform.tenant.suspend', updated, { from: current.stato });
+    return publicTenant(updated);
   });
 
   /**
@@ -438,10 +442,11 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
     const [updated] = await dbSuper
       .update(tenants)
       .set({ stato: 'attivo', updatedAt: new Date() })
-      .where(eq(tenants.id, id))
+      .where(and(eq(tenants.id, id), eq(tenants.stato, 'sospeso')))
       .returning();
-    await auditChange(req, 'platform.tenant.reactivate', updated!, { from: current.stato });
-    return publicTenant(updated!);
+    if (!updated) return reply.code(409).send({ error: 'stato cambiato concorrentemente' });
+    await auditChange(req, 'platform.tenant.reactivate', updated, { from: current.stato });
+    return publicTenant(updated);
   });
 
   /**
@@ -474,15 +479,17 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
         cleanupScheduledAt,
         updatedAt: archiviatoAt,
       })
-      .where(eq(tenants.id, id))
+      // N55: non archiviare se nel frattempo è già stato archiviato.
+      .where(and(eq(tenants.id, id), ne(tenants.stato, 'archiviato')))
       .returning();
+    if (!updated) return reply.code(409).send({ error: 'stato cambiato concorrentemente' });
 
-    await auditChange(req, 'platform.tenant.archive', updated!, {
+    await auditChange(req, 'platform.tenant.archive', updated, {
       from: current.stato,
       cleanupAfterDays: cleanupDays,
       cleanupScheduledAt,
     });
-    return publicTenant(updated!);
+    return publicTenant(updated);
   });
 
   /**
@@ -505,8 +512,9 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
       })
       .where(and(eq(tenants.id, id), eq(tenants.stato, 'archiviato')))
       .returning();
-    await auditChange(req, 'platform.tenant.restore', updated!, { from: current.stato });
-    return publicTenant(updated!);
+    if (!updated) return reply.code(409).send({ error: 'stato cambiato concorrentemente' });
+    await auditChange(req, 'platform.tenant.restore', updated, { from: current.stato });
+    return publicTenant(updated);
   });
 
   /**
