@@ -1,6 +1,6 @@
 import { db } from '../db.js';
 import { pb } from '../pb.js';
-import { escapeHtml, toast, modal, confirmDialog, ageFromDate, displayName, fmtDate } from '../utils.js';
+import { escapeHtml, safeUrl, toast, modal, confirmDialog, ageFromDate, displayName, fmtDate } from '../utils.js';
 import { icon } from '../icons.js';
 import {
   pesato, getPesiFor, getScala, voteStep, fmtVoto, getModoValutazione, getCriteri,
@@ -20,10 +20,15 @@ function leaveCommissarioView() {
   location.hash = '#/';
 }
 
-// Local working state for the current candidato (in-memory only, not yet saved)
+// Local working state for the current candidato (in-memory only, not yet saved).
+// H4: il draft è tracciato per (fase, candidatoFase) — se la vista si rerenderizza
+// per una fase/candidato diverso, viene resettato. Senza questo, valori draft
+// vecchi possono finire in un POST sbagliato (es. dopo cambio commissione).
 const draft = {
   voti: {},
   note: '',
+  faseId: null,
+  candidatoFaseId: null,
 };
 
 function defaultVoti(scala, fase) {
@@ -33,9 +38,11 @@ function defaultVoti(scala, fase) {
   return out;
 }
 
-function resetDraft(fase) {
+function resetDraft(fase, candidatoFaseId = null) {
   draft.voti = defaultVoti(getScala(fase), fase);
   draft.note = '';
+  draft.faseId = fase?.id || null;
+  draft.candidatoFaseId = candidatoFaseId;
 }
 
 function getStarEmoji(level, fase) {
@@ -117,10 +124,13 @@ export function renderCommissario(root) {
   const scala = getScala(faseAttiva);
   const modo = getModoValutazione(faseAttiva);
   const faseCriteri = getCriteri(faseAttiva);
-  // Initialize draft if missing or stale (criteri set may have changed)
+  // Initialize draft if missing or stale (criteri set may have changed,
+  // fase è cambiata, oppure è la prima render).
   const draftKeys = Object.keys(draft.voti).sort().join(',');
   const expectedKeys = faseCriteri.map(c => c.key).sort().join(',');
-  if (draftKeys !== expectedKeys) draft.voti = defaultVoti(scala, faseAttiva);
+  if (draftKeys !== expectedKeys || draft.faseId !== faseAttiva.id) {
+    resetDraft(faseAttiva);
+  }
 
   // Determine commissari assigned to this fase (preset all or subset).
   const assignedIds = db.getFaseCommissariIds(faseAttiva);
@@ -187,6 +197,9 @@ export function renderCommissario(root) {
     return renderAllDone(root, concorso, faseAttiva, com, myEvaluated, isPresidenteFase ? fasiPresidente : null);
   }
 
+  // Reset draft se è cambiato il candidato_fase nel frattempo (es. nuovo
+  // candidato dopo "Skip" o avanzamento del presidente in modalità sincrona).
+  if (draft.candidatoFaseId !== current.id) resetDraft(faseAttiva, current.id);
   const cand = db.state.candidati.find(c => c.id === current.candidato_id);
   const eta = ageFromDate(cand?.data_nascita) ?? cand?.eta;
   const totale = pesato(draft.voti, faseAttiva);
@@ -246,7 +259,7 @@ export function renderCommissario(root) {
                 </div>
                 ${concorso.anonimo ? '' : `
                 <div class="w-20 h-20 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 overflow-hidden flex items-center justify-center text-3xl text-slate-400 shrink-0 ring-4 ring-white shadow-md">
-                  ${cand?.foto ? `<img src="${cand.foto}" alt="" class="w-full h-full object-cover" />` : '👤'}
+                  ${cand?.foto && safeUrl(cand.foto) ? `<img src="${safeUrl(cand.foto)}" alt="" class="w-full h-full object-cover" />` : '👤'}
                 </div>`}
                 <div class="min-w-0">
                   ${concorso.anonimo
@@ -316,7 +329,13 @@ export function renderCommissario(root) {
   const note = root.querySelector('#note');
   note.addEventListener('input', () => { draft.note = note.value; });
 
-  root.querySelector('[data-action="conferma-salva"]').addEventListener('click', () => {
+  const confermaBtn = root.querySelector('[data-action="conferma-salva"]');
+  confermaBtn.addEventListener('click', () => {
+    // H5: disabilita il bottone subito per prevenire doppi click → doppio
+    // showCountdownAlert. Il riabilito è gestito da doSave (success) o dal
+    // dismiss del countdown.
+    if (confermaBtn.disabled) return;
+    confermaBtn.disabled = true;
     const tot = pesato(draft.voti, faseAttiva);
     const norm = scala ? tot / scala : 0;
     const ammesso = faseAttiva.ordine === 1 ? norm >= 0.65 : norm >= 0.70;
@@ -327,6 +346,7 @@ export function renderCommissario(root) {
       totale: tot,
       scala,
       onConfirm: () => doSave(root, current, com, faseAttiva, ammesso),
+      onCancel: () => { confermaBtn.disabled = false; },
     });
   });
 
@@ -973,7 +993,7 @@ function bindPresidentePanel(root, concorso) {
 }
 
 // 5-second cancelable countdown before saving the evaluation.
-function showCountdownAlert({ cand, anonimo = false, ammesso, totale, scala, onConfirm }) {
+function showCountdownAlert({ cand, anonimo = false, ammesso, totale, scala, onConfirm, onCancel }) {
   const verdictText = ammesso ? t('com.confirm.approved') : t('com.confirm.rejected');
   const headerCls = ammesso
     ? 'bg-gradient-to-br from-emerald-500 to-emerald-700'
@@ -1038,6 +1058,7 @@ function showCountdownAlert({ cand, anonimo = false, ammesso, totale, scala, onC
   overlay.querySelector('[data-cd-cancel]').addEventListener('click', () => {
     cancelled = true;
     cleanup();
+    onCancel?.();
   });
   // Esc to cancel
   const onKey = (e) => {
@@ -1045,6 +1066,7 @@ function showCountdownAlert({ cand, anonimo = false, ammesso, totale, scala, onC
       cancelled = true;
       cleanup();
       window.removeEventListener('keydown', onKey);
+      onCancel?.();
     }
   };
   window.addEventListener('keydown', onKey);
@@ -1185,7 +1207,7 @@ function historyCardHtml(cf, fase, commissarioId, anonimo = false) {
       <div class="flex items-center justify-between gap-2">
         <div class="flex items-center gap-2 min-w-0">
           ${anonimo ? '' : `<div class="w-7 h-7 rounded-full bg-slate-100 overflow-hidden flex items-center justify-center text-sm text-slate-400 shrink-0">
-            ${cand?.foto ? `<img src="${cand.foto}" alt="" class="w-full h-full object-cover" />` : '👤'}
+            ${cand?.foto && safeUrl(cand.foto) ? `<img src="${safeUrl(cand.foto)}" alt="" class="w-full h-full object-cover" />` : '👤'}
           </div>`}
           <div class="font-mono text-xs text-slate-500">#${String(cand?.numero_candidato || '').padStart(3,'0')}</div>
         </div>
@@ -1257,7 +1279,7 @@ function renderWaiting(root, concorso, fase, com, cf, allCommissariIds, fasiPres
             ${String(cand?.numero_candidato || '').padStart(3,'0')}
           </div>
           ${concorso.anonimo ? '' : `<div class="w-12 h-12 rounded-full bg-slate-100 overflow-hidden flex items-center justify-center text-2xl text-slate-400 shrink-0 ring-2 ring-white">
-            ${cand?.foto ? `<img src="${cand.foto}" alt="" class="w-full h-full object-cover" />` : '👤'}
+            ${cand?.foto && safeUrl(cand.foto) ? `<img src="${safeUrl(cand.foto)}" alt="" class="w-full h-full object-cover" />` : '👤'}
           </div>`}
           <div class="min-w-0 flex-1">
             ${concorso.anonimo
@@ -1284,7 +1306,7 @@ function renderWaiting(root, concorso, fase, com, cf, allCommissariIds, fasiPres
                 <div class="flex items-center justify-between bg-white border ${v ? 'border-emerald-200' : 'border-slate-200'} rounded-lg px-3 py-2">
                   <div class="flex items-center gap-2 min-w-0">
                     <div class="w-7 h-7 rounded-full bg-slate-100 overflow-hidden flex items-center justify-center text-sm shrink-0">
-                      ${c.foto ? `<img src="${c.foto}" alt="" class="w-full h-full object-cover" />` : '🧑‍⚖️'}
+                      ${c.foto && safeUrl(c.foto) ? `<img src="${safeUrl(c.foto)}" alt="" class="w-full h-full object-cover" />` : '🧑‍⚖️'}
                     </div>
                     <span class="text-sm truncate ${isMe ? 'font-semibold text-slate-900' : 'text-slate-700'}">${escapeHtml(displayName(c))}${isMe ? escapeHtml(t('com.you_suffix')) : ''}</span>
                   </div>

@@ -15,6 +15,22 @@ export function escapeHtml(s) {
     .replaceAll("'",'&#39;');
 }
 
+// H12: URL sicuro per attributi src/href. Consente solo path relativi,
+// http(s) e data:image/*. Tutto il resto (javascript:, data:text/html, ecc.)
+// → stringa vuota. Il valore va comunque passato in un attributo quotato
+// (es. src="${safeUrl(x)}") perché qui NON facciamo l'escape dei quote.
+export function safeUrl(u) {
+  if (u == null) return '';
+  const s = String(u).trim();
+  if (s === '') return '';
+  // Path relativo o assoluto same-origin
+  if (s.startsWith('/') || s.startsWith('./') || s.startsWith('../')) return escapeHtml(s);
+  // Schemi consentiti
+  if (/^https?:\/\//i.test(s)) return escapeHtml(s);
+  if (/^data:image\/(png|jpe?g|webp|gif);base64,/i.test(s)) return escapeHtml(s);
+  return '';
+}
+
 export function fmtDate(iso) {
   if (!iso) return '—';
   try {

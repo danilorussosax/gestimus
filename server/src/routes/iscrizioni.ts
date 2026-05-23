@@ -5,6 +5,7 @@ import { z } from 'zod';
 import { candidati, categorie, concorsi, iscrizioni, sezioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
+import { sendMail } from '../services/email.js';
 
 const uuid = z.string().uuid();
 
@@ -219,8 +220,8 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
       }
 
       const emailToken = generateToken();
-      return req.dbTx(async (tx) => {
-        const [created] = await tx
+      const created = await req.dbTx(async (tx) => {
+        const [row] = await tx
           .insert(iscrizioni)
           .values({
             tenantId: req.tenant!.id,
@@ -262,27 +263,50 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
 
         await writeAudit(tx, req, 'iscrizione.create_public', {
           targetType: 'iscrizione',
-          targetId: created!.id,
-          payload: { email: created!.email },
+          targetId: row!.id,
+          payload: { email: row!.email },
         });
-
-        // TODO: inviare email di conferma con link /verify?token=...
-        // (sendMail({ tenantId, to: data.email, subject: ..., text: link }))
-        // Per ora ritorniamo il token in dev (in prod va via email).
-        return reply.code(201).send({
-          ok: true,
-          iscrizioneId: created!.id,
-          emailVerificationToken:
-            process.env.NODE_ENV === 'development' ? emailToken : undefined,
-        });
+        return row!;
       });
+
+      // H11: invia email di verifica DOPO il commit (niente SMTP I/O dentro la
+      // transazione). Best-effort: un fallimento SMTP non annulla l'iscrizione,
+      // il record è salvato e l'admin può approvare manualmente. H10: il token
+      // NON viene mai restituito nella risposta HTTP, in nessun ambiente.
+      const host = req.headers.host ?? '';
+      const proto = (req.headers['x-forwarded-proto'] as string) || 'https';
+      const verifyUrl = `${proto}://${host}/#/iscrizione/verify?t=${encodeURIComponent(emailToken)}`;
+      try {
+        await sendMail({
+          tenantId: req.tenant!.id,
+          to: created.email,
+          subject: 'Conferma la tua iscrizione',
+          text: `Grazie per la tua iscrizione.\n\nConferma il tuo indirizzo email aprendo questo link:\n${verifyUrl}\n\nSe non hai richiesto questa iscrizione, ignora questo messaggio.`,
+          html: `<p>Grazie per la tua iscrizione.</p><p>Conferma il tuo indirizzo email cliccando il link qui sotto:</p><p><a href="${verifyUrl}">Conferma iscrizione</a></p><p style="color:#888;font-size:12px">Se non hai richiesto questa iscrizione, ignora questo messaggio.</p>`,
+        });
+      } catch (e) {
+        req.log.warn({ err: e, iscrizioneId: created.id }, 'email send failed (iscrizione verify)');
+      }
+
+      return reply.code(201).send({ ok: true, iscrizioneId: created.id });
     },
   );
 
   /**
    * GET /public/iscrizioni/:token/verify — verifica email tramite link.
    */
-  app.get('/iscrizioni/:token/verify', async (req, reply) => {
+  app.get('/iscrizioni/:token/verify', {
+    // H2: rate limit brute-force token (20 tentativi/15 min/IP). Token a 40 hex
+    // sono già praticamente immuni, il limite ne smorza solo la pesantezza in
+    // caso di scan automatico.
+    config: {
+      rateLimit: {
+        max: 20,
+        timeWindow: '15 minutes',
+        errorResponseBuilder: () => ({ error: 'troppi tentativi, riprova più tardi' }),
+      },
+    },
+  }, async (req, reply) => {
     if (!req.tenant) return reply.code(400).send({ error: 'tenant context richiesto' });
     const { token } = z.object({ token: z.string().min(8).max(128) }).parse(req.params);
     return req.dbTx(async (tx) => {

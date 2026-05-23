@@ -368,52 +368,59 @@ async function loadAll() {
   state._criteri = criteri || []; // tenuti raw, non usati direttamente dalle view core
   state.ente = mapEnte(ente);
 
-  // Carica candidati_fase per ogni fase (no endpoint cumulativo)
+  // H6: carica candidati_fase + valutazioni + membri-gruppo IN PARALLELO
+  // invece che N+M+K richieste sequenziali. Per 5 fasi × 50 candidati la
+  // differenza è ~50x sul tempo totale (gli HTTP RTT non si sommano più).
   state.candidati_fase = [];
   const cfFailures = [];
-  for (const f of state.fasi) {
-    try {
-      const list = await api.get('/api/candidati-fase', { faseId: f.id });
-      state.candidati_fase.push(...(list || []).map(mapCandidatoFase));
-    } catch (e) {
-      cfFailures.push(f.id);
-      console.warn('candidati-fase load failed for fase', f.id, e?.message);
+  const cfResults = await Promise.allSettled(
+    state.fasi.map((f) => api.get('/api/candidati-fase', { faseId: f.id })),
+  );
+  cfResults.forEach((r, i) => {
+    if (r.status === 'fulfilled') {
+      state.candidati_fase.push(...(r.value || []).map(mapCandidatoFase));
+    } else {
+      cfFailures.push(state.fasi[i].id);
+      console.warn('candidati-fase load failed for fase', state.fasi[i].id, r.reason?.message);
     }
-  }
+  });
   if (cfFailures.length > 0) {
     state.meta._loadErrors = state.meta._loadErrors || [];
     state.meta._loadErrors.push(`candidati_fase non caricati per ${cfFailures.length} fasi`);
   }
 
-  // Carica valutazioni per ogni candidato_fase
   state.valutazioni = [];
   const valFailures = [];
-  for (const cf of state.candidati_fase) {
-    try {
-      const list = await api.get('/api/valutazioni', { candidatoFaseId: cf.id });
-      state.valutazioni.push(...(list || []).map(mapValutazione));
-    } catch (e) {
-      valFailures.push(cf.id);
-      console.warn('valutazioni load failed for cf', cf.id, e?.message);
+  const valResults = await Promise.allSettled(
+    state.candidati_fase.map((cf) => api.get('/api/valutazioni', { candidatoFaseId: cf.id })),
+  );
+  valResults.forEach((r, i) => {
+    if (r.status === 'fulfilled') {
+      state.valutazioni.push(...(r.value || []).map(mapValutazione));
+    } else {
+      valFailures.push(state.candidati_fase[i].id);
+      console.warn('valutazioni load failed for cf', state.candidati_fase[i].id, r.reason?.message);
     }
-  }
+  });
   if (valFailures.length > 0) {
     state.meta._loadErrors = state.meta._loadErrors || [];
     state.meta._loadErrors.push(`valutazioni non caricate per ${valFailures.length} candidati`);
   }
 
-  // Membri gruppo (candidati_gruppo) — alias storico
   state.candidati_gruppo = [];
   const mgFailures = [];
-  for (const c of state.candidati.filter((x) => x.is_gruppo)) {
-    try {
-      const list = await api.get('/api/membri-gruppo', { candidatoId: c.id });
-      state.candidati_gruppo.push(...(list || []).map(mapMembroGruppo));
-    } catch (e) {
-      mgFailures.push(c.id);
-      console.warn('membri-gruppo load failed for candidato', c.id, e?.message);
+  const gruppi = state.candidati.filter((x) => x.is_gruppo);
+  const mgResults = await Promise.allSettled(
+    gruppi.map((c) => api.get('/api/membri-gruppo', { candidatoId: c.id })),
+  );
+  mgResults.forEach((r, i) => {
+    if (r.status === 'fulfilled') {
+      state.candidati_gruppo.push(...(r.value || []).map(mapMembroGruppo));
+    } else {
+      mgFailures.push(gruppi[i].id);
+      console.warn('membri-gruppo load failed for candidato', gruppi[i].id, r.reason?.message);
     }
-  }
+  });
   if (mgFailures.length > 0) {
     state.meta._loadErrors = state.meta._loadErrors || [];
     state.meta._loadErrors.push(`membri-gruppo non caricati per ${mgFailures.length} gruppi`);
@@ -1288,32 +1295,55 @@ export const db = {
    */
   async saveValutazione({ candidato_fase_id, commissario_id, voti, note = '', ammesso }) {
     if (!voti || typeof voti !== 'object') throw new Error('saveValutazione: voti richiesti');
-    const saved = [];
-    for (const [criterio, voto] of Object.entries(voti)) {
-      if (voto == null || voto === '') continue;
-      const r = await api.post('/api/valutazioni', {
+    // H3: niente più "rimuovi prima/inserisci dopo in loop". Inviamo tutte le
+    // POST in parallelo (allSettled) e committiamo SOLO i criteri salvati con
+    // successo. I criteri falliti restano nello stato precedente: nessuna
+    // perdita di voti già esistenti se un singolo POST fallisce a metà.
+    const entries = Object.entries(voti).filter(([, v]) => v != null && v !== '');
+    const results = await Promise.allSettled(entries.map(([criterio, voto]) =>
+      api.post('/api/valutazioni', {
         candidatoFaseId: candidato_fase_id,
         commissarioId: commissario_id,
         criterio,
         voto: Number(voto),
         note: note || undefined,
-      });
-      saved.push(mapValutazione(r));
+      }),
+    ));
+    const saved = [];
+    const savedCriteri = new Set();
+    const errors = [];
+    for (let i = 0; i < results.length; i++) {
+      const [criterio] = entries[i];
+      const r = results[i];
+      if (r.status === 'fulfilled') {
+        saved.push(mapValutazione(r.value));
+        savedCriteri.add(criterio);
+      } else {
+        errors.push({ criterio, error: r.reason });
+      }
     }
-    // Aggiorna lo state delle valutazioni
+    // Sostituisce solo le valutazioni con criterio in savedCriteri.
     state.valutazioni = state.valutazioni.filter(
-      (v) => !(v.candidato_fase_id === candidato_fase_id && v.commissario_id === commissario_id && voti[v.criterio] !== undefined),
+      (v) => !(v.candidato_fase_id === candidato_fase_id && v.commissario_id === commissario_id && savedCriteri.has(v.criterio)),
     );
     state.valutazioni.push(...saved);
 
-    // Flag ammesso opzionale (settato sul candidato_fase)
     if (typeof ammesso === 'boolean') {
-      const r = await api.patch(`/api/candidati-fase/${candidato_fase_id}`, { ammessoProssimaFase: ammesso });
-      const cf = mapCandidatoFase(r);
-      const i = state.candidati_fase.findIndex((x) => x.id === candidato_fase_id);
-      if (i >= 0) state.candidati_fase[i] = cf;
+      try {
+        const r = await api.patch(`/api/candidati-fase/${candidato_fase_id}`, { ammessoProssimaFase: ammesso });
+        const cf = mapCandidatoFase(r);
+        const i = state.candidati_fase.findIndex((x) => x.id === candidato_fase_id);
+        if (i >= 0) state.candidati_fase[i] = cf;
+      } catch (e) {
+        errors.push({ criterio: '__ammesso', error: e });
+      }
     }
     notify();
+    if (errors.length > 0) {
+      const err = new Error(`saveValutazione: ${errors.length} salvataggi falliti`);
+      err.partial = { saved, errors };
+      throw err;
+    }
     return saved;
   },
 

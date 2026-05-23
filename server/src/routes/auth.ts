@@ -18,7 +18,16 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
    * Body: { email, password }
    * Risolve l'account nel tenant corrente (o globalmente se subdomain = platform).
    */
-  app.post('/login', async (req, reply) => {
+  app.post('/login', {
+    // H2: rate limit brute-force credenziali. 10 tentativi/15 min/IP.
+    config: {
+      rateLimit: {
+        max: 10,
+        timeWindow: '15 minutes',
+        errorResponseBuilder: () => ({ error: 'troppi tentativi di login, riprova tra qualche minuto' }),
+      },
+    },
+  }, async (req, reply) => {
     const parsed = loginBody.safeParse(req.body);
     if (!parsed.success) {
       return reply.badRequest('email/password non validi');

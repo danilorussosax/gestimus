@@ -335,3 +335,34 @@ CREATE TRIGGER trg_fase_no_resurrection
   BEFORE UPDATE ON fasi
   FOR EACH ROW
   EXECUTE FUNCTION freeze_fase_state_transition();
+
+-- =====================================================================
+-- 7. H9: role='superadmin' consentito solo nel tenant piattaforma (slug
+--    'platform'). Senza questo, un admin di tenant con accesso al pool app
+--    (o via SQL injection) potrebbe creare un account superadmin nel proprio
+--    tenant e ottenere privilegi platform-wide. Il CHECK di colonna permette
+--    il valore in astratto; questo trigger lo lega al tenant corretto.
+-- =====================================================================
+
+CREATE OR REPLACE FUNCTION enforce_superadmin_tenant()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  tenant_slug text;
+BEGIN
+  IF NEW.role = 'superadmin' THEN
+    SELECT slug INTO tenant_slug FROM tenants WHERE id = NEW.tenant_id;
+    IF tenant_slug IS DISTINCT FROM 'platform' THEN
+      RAISE EXCEPTION 'role superadmin consentito solo nel tenant platform (tenant slug: %)', tenant_slug
+        USING ERRCODE = 'check_violation';
+    END IF;
+  END IF;
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_enforce_superadmin_tenant ON accounts;
+CREATE TRIGGER trg_enforce_superadmin_tenant
+  BEFORE INSERT OR UPDATE ON accounts
+  FOR EACH ROW
+  EXECUTE FUNCTION enforce_superadmin_tenant();

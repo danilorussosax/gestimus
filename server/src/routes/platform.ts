@@ -15,6 +15,7 @@ import {
   tenants,
 } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
+import { invalidateTenantCache } from '../middleware/tenant.js';
 import { hashPassword } from '../services/password.js';
 import { writePlatformAudit } from '../services/audit.js';
 import { listBackups } from '../services/backup.js';
@@ -183,6 +184,10 @@ async function auditChange(
   tenant: TenantRow,
   payload?: Record<string, unknown>,
 ): Promise<void> {
+  // H7: ogni mutation su un tenant invalida la cache di risoluzione subdomain,
+  // così sospensioni/archiviazioni/rinomine prendono effetto immediato senza
+  // attendere il TTL di 60s.
+  invalidateTenantCache(tenant.slug);
   await writePlatformAudit(req, action, {
     targetTenantId: tenant.id,
     targetTenantSlug: tenant.slug,

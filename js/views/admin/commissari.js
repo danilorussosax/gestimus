@@ -3,7 +3,7 @@
 
 import { db } from '../../db.js';
 import {
-  escapeHtml, modal, toast, confirmDialog, displayName, ageFromDate,
+  escapeHtml, safeUrl, modal, toast, confirmDialog, displayName, ageFromDate,
   readImageResized, readFileAsDataURL, NATIONALITIES,
 } from '../../utils.js';
 import { t } from '../../i18n.js';
@@ -109,7 +109,7 @@ function commissarioCardHtml(c) {
   return `
     <div class="bg-white border ${cardCls} rounded-2xl p-4 flex items-start gap-3 hover:border-slate-300 transition">
       <div class="w-14 h-14 rounded-full bg-gradient-to-br from-amber-100 to-orange-100 overflow-hidden flex items-center justify-center text-2xl text-amber-700 shrink-0 ${ringCls} shadow-soft">
-        ${c.foto ? `<img src="${c.foto}" alt="" class="w-full h-full object-cover" />` : '🧑‍⚖️'}
+        ${c.foto && safeUrl(c.foto) ? `<img src="${safeUrl(c.foto)}" alt="" class="w-full h-full object-cover" />` : '🧑‍⚖️'}
       </div>
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2 flex-wrap">
@@ -703,7 +703,7 @@ function archivioCardHtml(c, concorso, concorsoMap, presentInConcorso) {
     <div class="bg-white border ${inThis ? 'border-emerald-200 bg-emerald-50/30' : 'border-slate-200'} rounded-2xl p-4 flex flex-col gap-3 hover:border-brand-300 transition">
       <div class="flex items-start gap-3">
         <div class="w-14 h-14 rounded-full bg-gradient-to-br from-amber-100 to-orange-100 overflow-hidden flex items-center justify-center text-2xl text-amber-700 shrink-0 ring-2 ring-white shadow-soft">
-          ${c.foto ? `<img src="${c.foto}" alt="" class="w-full h-full object-cover" />` : '🧑‍⚖️'}
+          ${c.foto && safeUrl(c.foto) ? `<img src="${safeUrl(c.foto)}" alt="" class="w-full h-full object-cover" />` : '🧑‍⚖️'}
         </div>
         <div class="flex-1 min-w-0">
           <h4 class="font-semibold text-slate-900 truncate">${escapeHtml(displayName(c))}</h4>

@@ -3,7 +3,7 @@
 
 import { db } from '../../db.js';
 import {
-  escapeHtml, modal, toast, confirmDialog, displayName, fmtDate, fmtBytes,
+  escapeHtml, safeUrl, modal, toast, confirmDialog, displayName, fmtDate, fmtBytes,
   ageFromDate, readImageResized, NATIONALITIES,
 } from '../../utils.js';
 import { t } from '../../i18n.js';
@@ -265,7 +265,7 @@ function candidatoCardHtml(c) {
   return `
     <div class="bg-white border ${isGruppo ? 'border-purple-200 bg-purple-50/30' : 'border-slate-200'} rounded-2xl p-4 flex items-start gap-3 hover:border-slate-300 transition">
       <div class="w-14 h-14 rounded-full ${isGruppo ? 'bg-purple-100' : 'bg-slate-100'} overflow-hidden flex items-center justify-center text-2xl text-slate-400 shrink-0 ring-2 ring-white shadow-soft">
-        ${c.foto ? `<img src="${c.foto}" alt="" class="w-full h-full object-cover" />` : (isGruppo ? gruppoIcon : '👤')}
+        ${c.foto && safeUrl(c.foto) ? `<img src="${safeUrl(c.foto)}" alt="" class="w-full h-full object-cover" />` : (isGruppo ? gruppoIcon : '👤')}
       </div>
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2">
