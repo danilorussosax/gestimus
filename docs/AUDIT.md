@@ -1,9 +1,9 @@
 # Gestimus — Audit di robustezza del codice
 
 > **Data**: 2026-05-23
-> **Commit**: branch `main` (post Rianalisi 9 — CI e suite test verdi)
+> **Commit**: branch `main` (post Rianalisi 10 — CI e suite test verdi)
 > **Scope**: frontend vanilla JS (`js/`, ~20.700 LOC) + backend Fastify/Drizzle (`server/src/`, ~7.400 LOC) + 21 route REST + 14 migrazioni SQL.
-> **Contesto**: l'audit segue 5 round di bugfix (C1-C13, H1-H12, M1-M22, L1-L16, N1-N50), 5 fasi di consolidamento e tre round di rianalisi (N51-N84 + A1/A2; N85-N94; N95-N104). In totale ~130 problemi di sicurezza/correttezza/performance chiusi.
+> **Contesto**: l'audit segue 5 round di bugfix (C1-C13, H1-H12, M1-M22, L1-L16, N1-N50), 5 fasi di consolidamento e quattro round di rianalisi (N51-N84 + A1/A2; N85-N94; N95-N104; N105-N114). In totale ~140 problemi di sicurezza/correttezza/performance chiusi.
 
 ---
 
@@ -172,6 +172,13 @@ Nessun rischio residuo Alto o Medio: i precedenti (A1 paginazione, A2 streaming,
 - **Robustezza**: il tiebreak per età scarta le date di nascita future — un'età negativa non fa più "vincere" il candidato sbagliato (N101); l'upload mappa il superamento di `limits.fileSize` a 413 invece di 500 (la RAM era già protetta dal limite di `@fastify/multipart`) (N99); il privacy export distrugge il socket se la write fallisce dopo l'`hijack`, evitando eccezioni non catchate (N104).
 - **Pulizia**: rimosso il guard `ALLOWED_RESOURCES` irraggiungibile in upload (lo z.enum è già esaustivo) (N98).
 - **Falsi positivi / non-azioni motivate**: N95 (premessa errata — l'indice unique parziale esiste già, nessun duplicato viene creato); N100 (il confronto lessicografico su colonna `date` ISO è corretto; il fix proposto `.toISOString()` romperebbe sulle stringhe); N103 (il reorder su concorso vuoto ritorna già 400 per `ids.min(1)` + check membership; il fix richiederebbe lock coordinato anche sulla create, con rischio deadlock per beneficio nullo).
+
+### Round 10 (rianalisi N105-N114)
+- **Isolamento tenant (HIGH)**: POST commissari (N105) e POST commissioni (N106) validano ora che `concorsoId` appartenga al tenant corrente — la FK verso `concorsi` non è soggetta a RLS, quindi un payload con un id di un altro tenant veniva accettato; sotto RLS la SELECT di verifica ritorna 0 righe se cross-tenant.
+- **Concorrenza (TOCTOU)**: `FOR UPDATE` aggiunto dove mancava — presidente in `assertCanManageFase` (N107), `candidatiFase`+`fasi` in `assertCanEvaluateCandidatoFase` (N108), `fasi_sezioni` durante l'auto-popolazione allo start fase (N109).
+- **Integrità tenant a livello DB**: estesa `check_junction_tenant_coherence` con trigger anche su `valutazioni` (parent `candidati_fase`, N113) e `candidati_fase` (parent `fasi`+`candidati`, N114) — prima coperte solo le 4 junction; chiude la scrittura cross-tenant via `dbSuper`.
+- **Correttezza/robustezza**: reject di un'iscrizione `APPROVATA` bloccato con 409, niente candidato orfano (N111); `fmtBytes` importato in `import.js`, era un ReferenceError al caricamento di un CSV (N110); advisory lock `numeroCandidato` portato a `hashtextextended` 64-bit in entrambi i punti, coerente, per azzerare le collisioni (N112).
+- **Ri-segnalati risolti alla radice (anti-churn)**: indice unique parziale `uniq_iscrizioni_concorso_email_active` portato in `schema.ts` oltre che nella migrazione (N95); confronto scadenze reso TZ-aware con helper `lib/date.ts` `todayISODate()` Europe/Rome (N100); `FOR UPDATE` sul concorso in reorder e create fasi (N103). N102 era già risolto nel Round 9 (transazione unica).
 
 ---
 
