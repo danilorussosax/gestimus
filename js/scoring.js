@@ -214,9 +214,12 @@ export function computeAggregate(values, metodo = 'aritmetica') {
 // Resolve the score scale (max value of an individual vote) of a fase.
 // Default 10. Backward compatible: if fase has no .scala, return 10.
 export function getScala(faseOrScala) {
+  // N83: una scala negativa è truthy in JS (`-5 || 10` → -5) e si propagherebbe
+  // in suggestEliminatoria (media/scala negativa). Clamp al minimo valido (2).
   if (faseOrScala == null) return 10;
-  if (typeof faseOrScala === 'number') return faseOrScala || 10;
-  return Number(faseOrScala.scala) || 10;
+  const raw = typeof faseOrScala === 'number' ? faseOrScala : Number(faseOrScala.scala);
+  const n = Number(raw) || 10;
+  return Math.max(2, n);
 }
 
 export function voteStep(scala) {

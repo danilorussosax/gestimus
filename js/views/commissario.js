@@ -1015,7 +1015,7 @@ function showCountdownAlert({ cand, anonimo = false, ammesso, totale, scala, onC
       </div>
       <div class="p-6 text-center">
         <div class="text-7xl font-black ${numCls} tabular-nums" data-cd-num>5</div>
-        <p class="text-sm text-slate-600 mt-3">${t('com.confirm.autosave', { seconds: escapeHtml(initialSecondsLabel) })}</p>
+        <p class="text-sm text-slate-600 mt-3" data-cd-text>${t('com.confirm.autosave', { seconds: escapeHtml(initialSecondsLabel) })}</p>
         <div class="w-full h-2 bg-slate-200 rounded-full mt-4 overflow-hidden">
           <div data-cd-bar class="h-full ${barCls} transition-all" style="width:100%"></div>
         </div>
@@ -1043,11 +1043,17 @@ function showCountdownAlert({ cand, anonimo = false, ammesso, totale, scala, onC
     const elapsedMs = Date.now() - start;
     const remainingMs = Math.max(0, totalSec * 1000 - elapsedMs);
     const remainingSec = Math.ceil(remainingMs / 1000);
-    numEl.textContent = remainingSec;
-    txtEl.textContent = remainingSec === 1
-      ? t('com.confirm.seconds_one', { n: remainingSec })
-      : t('com.confirm.seconds_other', { n: remainingSec });
-    barEl.style.width = `${(remainingMs / (totalSec * 1000)) * 100}%`;
+    if (numEl) numEl.textContent = String(remainingSec);
+    // N79: l'elemento [data-cd-text] ora esiste nel DOM (prima mancava →
+    // txtEl null → TypeError ad ogni tick → auto-save mai eseguito). Guard
+    // difensivo comunque.
+    if (txtEl) {
+      const secLabel = remainingSec === 1
+        ? t('com.confirm.seconds_one', { n: remainingSec })
+        : t('com.confirm.seconds_other', { n: remainingSec });
+      txtEl.textContent = t('com.confirm.autosave', { seconds: secLabel });
+    }
+    if (barEl) barEl.style.width = `${(remainingMs / (totalSec * 1000)) * 100}%`;
     if (remainingMs <= 0) {
       cleanup();
       onConfirm();

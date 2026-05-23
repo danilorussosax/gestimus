@@ -53,7 +53,24 @@ let initialized = false;
 
 const subscribers = new Set();
 export function subscribe(fn) { subscribers.add(fn); return () => subscribers.delete(fn); }
-function notify() { subscribers.forEach((fn) => fn(state)); }
+// N71: guard anti-recursione. Se un subscriber muta lo stato e ri-chiama
+// notify(), evitiamo la ricorsione infinita: marchiamo "notifying" e, se una
+// notifica arriva durante un'altra, la rimandiamo a fine ciclo.
+let notifying = false;
+let notifyPending = false;
+function notify() {
+  if (notifying) { notifyPending = true; return; }
+  notifying = true;
+  try {
+    do {
+      notifyPending = false;
+      // copia per tollerare unsubscribe durante l'iterazione
+      for (const fn of [...subscribers]) fn(state);
+    } while (notifyPending);
+  } finally {
+    notifying = false;
+  }
+}
 
 function loadMeta() {
   try { return JSON.parse(localStorage.getItem(META_KEY) || '{}'); } catch { return {}; }
@@ -1185,6 +1202,7 @@ export const db = {
     const rows = await api.put(`/api/criteri/fase/${faseId}`, { criteri: payload });
     state._criteri = (state._criteri || []).filter((c) => c.faseId !== faseId);
     (state._criteri = state._criteri || []).push(...(rows || []));
+    notify(); // N74: notifica esplicita (non affidarsi solo al caller)
   },
   async deleteFase(id) {
     await api.delete(`/api/fasi/${id}`);

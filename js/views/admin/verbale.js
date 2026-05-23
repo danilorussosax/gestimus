@@ -627,7 +627,9 @@ async function exportProgrammaPdf(concorso, fase) {
       if (membri.length > 0) {
         y += 12;
         doc.setFontSize(7);
-        doc.text(membri.map(m => `${m.candidato?.nome || ''} ${m.candidato?.cognome || ''}`).join(' | '), cols[1].x + 4, y + 8);
+        // N80: i membri gruppo sono oggetti flat ({nome,cognome,...}), non
+        // {candidato:{...}}. m.candidato?.nome era sempre undefined → nomi vuoti.
+        doc.text(membri.map(m => `${m.nome || ''} ${m.cognome || ''}`.trim()).filter(Boolean).join(' | '), cols[1].x + 4, y + 8);
         doc.setFontSize(9);
         y -= 12;
       }

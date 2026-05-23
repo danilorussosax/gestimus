@@ -583,6 +583,10 @@ function validate(d) {
 }
 
 async function submit(root, state) {
+  // N75: guard anti doppio-submit all'ENTRY. Prima il flag submitting veniva
+  // settato dopo la validazione → due click rapidi passavano entrambi e
+  // sparavano createIscrizione due volte.
+  if (state.submitting) return;
   const d = state.draft;
   const errs = validate(d);
   if (errs.length > 0) {
