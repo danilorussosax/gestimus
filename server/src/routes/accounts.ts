@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { and, count, eq, ne } from 'drizzle-orm';
 import { z } from 'zod';
+import { parsePagination } from '../lib/pagination.js';
 import { accounts, commissari } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
@@ -56,8 +57,9 @@ export const accountsRoutes: FastifyPluginAsync = async (app) => {
 
   // GET /accounts → solo admin
   app.get('/', { preHandler: [requireRole('admin')] }, async (req) => {
+    const { limit, offset } = parsePagination(req.query);
     return req.dbTx(async (tx) => {
-      const rows = await tx.select().from(accounts);
+      const rows = await tx.select().from(accounts).limit(limit).offset(offset);
       return rows.map(publicAccount);
     });
   });

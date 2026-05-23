@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { parsePagination } from '../lib/pagination.js';
 import { commissari } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
@@ -30,11 +31,11 @@ export const commissariRoutes: FastifyPluginAsync = async (app) => {
   // GET /commissari?concorsoId=...
   app.get('/', async (req) => {
     const q = z.object({ concorsoId: uuid.optional() }).parse(req.query);
+    const { limit, offset } = parsePagination(req.query);
     return req.dbTx(async (tx) => {
-      const rows = q.concorsoId
-        ? await tx.select().from(commissari).where(eq(commissari.concorsoId, q.concorsoId))
-        : await tx.select().from(commissari);
-      return rows;
+      const base = tx.select().from(commissari).$dynamic();
+      const filtered = q.concorsoId ? base.where(eq(commissari.concorsoId, q.concorsoId)) : base;
+      return filtered.limit(limit).offset(offset);
     });
   });
 

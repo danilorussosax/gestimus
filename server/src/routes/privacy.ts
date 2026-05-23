@@ -32,48 +32,63 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
    * Esporta tutti i dati del tenant in JSON (right to data portability, GDPR art. 20).
    * L'admin del tenant può scaricare per i propri utenti finali.
    */
-  app.post('/export', async (req) => {
-    return req.dbTx(async (tx) => {
-      const [accountsList, commissariList, candidatiList, membriList, iscrizioniList] =
-        await Promise.all([
-          tx.select().from(accounts),
-          tx.select().from(commissari),
-          tx.select().from(candidati),
-          tx.select().from(candidatiMembri),
-          tx.select().from(iscrizioni),
-        ]);
-
-      await writeAudit(tx, req, 'privacy.export', {
-        payload: {
-          accounts: accountsList.length,
-          commissari: commissariList.length,
-          candidati: candidatiList.length,
-          iscrizioni: iscrizioniList.length,
-        },
-      });
-
-      return {
-        exportedAt: new Date().toISOString(),
-        tenant: { id: req.tenant!.id, slug: req.tenant!.slug, nome: req.tenant!.nome },
-        accounts: accountsList.map((a) => ({
+  app.post('/export', async (req, reply) => {
+    // A2: streaming. Prima un Promise.all caricava TUTTE e 5 le tabelle in
+    // memoria contemporaneamente (rischio OOM su tenant grandi). Ora scriviamo
+    // la risposta JSON in modo incrementale, interrogando una tabella per
+    // volta: il picco di memoria è la singola tabella più grande, non la somma.
+    reply.hijack();
+    const raw = reply.raw;
+    raw.writeHead(200, {
+      'Content-Type': 'application/json; charset=utf-8',
+      'Content-Disposition': 'attachment; filename="gestimus-export.json"',
+    });
+    raw.write(`{"exportedAt":${JSON.stringify(new Date().toISOString())}`);
+    raw.write(`,"tenant":${JSON.stringify({ id: req.tenant!.id, slug: req.tenant!.slug, nome: req.tenant!.nome })}`);
+    try {
+      await req.dbTx(async (tx) => {
+        const accountsList = await tx.select().from(accounts);
+        raw.write(`,"accounts":${JSON.stringify(accountsList.map((a) => ({
           ...a,
           passwordHash: '[REDACTED]',
           totpSecret: a.totpSecret ? '[REDACTED]' : null,
           totpRecoveryCodes: a.totpRecoveryCodes ? '[REDACTED]' : null,
-        })),
-        commissari: commissariList,
-        candidati: candidatiList,
-        candidatiMembri: membriList,
-        // N4: il token di verifica email è un segreto operativo (consente di
-        // confermare l'iscrizione). Va redatto dall'export GDPR come gli altri
-        // secret (passwordHash/totp), coerente col fix H10 che lo aveva già
-        // rimosso dalle response API.
-        iscrizioni: iscrizioniList.map((i) => ({
+        })))}`);
+
+        const commissariList = await tx.select().from(commissari);
+        raw.write(`,"commissari":${JSON.stringify(commissariList)}`);
+
+        const candidatiList = await tx.select().from(candidati);
+        raw.write(`,"candidati":${JSON.stringify(candidatiList)}`);
+
+        const membriList = await tx.select().from(candidatiMembri);
+        raw.write(`,"candidatiMembri":${JSON.stringify(membriList)}`);
+
+        // N4: emailVerificationToken redatto (segreto operativo).
+        const iscrizioniList = await tx.select().from(iscrizioni);
+        raw.write(`,"iscrizioni":${JSON.stringify(iscrizioniList.map((i) => ({
           ...i,
           emailVerificationToken: i.emailVerificationToken ? '[REDACTED]' : null,
-        })),
-      };
-    });
+        })))}`);
+
+        await writeAudit(tx, req, 'privacy.export', {
+          payload: {
+            accounts: accountsList.length,
+            commissari: commissariList.length,
+            candidati: candidatiList.length,
+            iscrizioni: iscrizioniList.length,
+          },
+        });
+      });
+      raw.write('}');
+      raw.end();
+    } catch (err) {
+      req.log.error({ err }, 'privacy.export: errore durante lo streaming');
+      // Header già inviati: non possiamo cambiare status. Chiudiamo con un
+      // marcatore di errore nel JSON così il client rileva l'export incompleto.
+      raw.write(',"_error":"export interrotto"}');
+      raw.end();
+    }
   });
 
   /**

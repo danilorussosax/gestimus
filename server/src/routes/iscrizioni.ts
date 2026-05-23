@@ -7,6 +7,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { sendMail } from '../services/email.js';
 import { env } from '../env.js';
+import { parsePagination } from '../lib/pagination.js';
 
 const uuid = z.string().uuid();
 
@@ -387,14 +388,15 @@ export const iscrizioniAdminRoutes: FastifyPluginAsync = async (app) => {
     const q = z
       .object({ concorsoId: uuid.optional(), stato: z.string().optional() })
       .parse(req.query);
+    const { limit, offset } = parsePagination(req.query);
     return req.dbTx(async (tx) => {
       const conditions = [];
       if (q.concorsoId) conditions.push(eq(iscrizioni.concorsoId, q.concorsoId));
       if (q.stato) conditions.push(eq(iscrizioni.stato, q.stato));
       const where = conditions.length ? and(...conditions) : undefined;
-      return where
-        ? await tx.select().from(iscrizioni).where(where).orderBy(desc(iscrizioni.createdAt))
-        : await tx.select().from(iscrizioni).orderBy(desc(iscrizioni.createdAt));
+      const base = tx.select().from(iscrizioni).$dynamic();
+      const withWhere = where ? base.where(where) : base;
+      return withWhere.orderBy(desc(iscrizioni.createdAt)).limit(limit).offset(offset);
     });
   });
 
