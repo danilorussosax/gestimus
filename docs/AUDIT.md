@@ -1,9 +1,9 @@
 # Gestimus — Audit di robustezza del codice
 
 > **Data**: 2026-05-23
-> **Commit**: branch `main` (post Rianalisi 8 — CI e suite test verdi)
-> **Scope**: frontend vanilla JS (`js/`, ~20.700 LOC) + backend Fastify/Drizzle (`server/src/`, ~7.400 LOC) + 21 route REST + 13 migrazioni SQL.
-> **Contesto**: l'audit segue 5 round di bugfix (C1-C13, H1-H12, M1-M22, L1-L16, N1-N50), 5 fasi di consolidamento e due round di rianalisi (N51-N84 + A1/A2; N85-N94). In totale ~120 problemi di sicurezza/correttezza/performance chiusi.
+> **Commit**: branch `main` (post Rianalisi 9 — CI e suite test verdi)
+> **Scope**: frontend vanilla JS (`js/`, ~20.700 LOC) + backend Fastify/Drizzle (`server/src/`, ~7.400 LOC) + 21 route REST + 14 migrazioni SQL.
+> **Contesto**: l'audit segue 5 round di bugfix (C1-C13, H1-H12, M1-M22, L1-L16, N1-N50), 5 fasi di consolidamento e tre round di rianalisi (N51-N84 + A1/A2; N85-N94; N95-N104). In totale ~130 problemi di sicurezza/correttezza/performance chiusi.
 
 ---
 
@@ -165,6 +165,13 @@ Nessun rischio residuo Alto o Medio: i precedenti (A1 paginazione, A2 streaming,
 - **Concorrenza**: `assertCanEvaluateCandidatoFase` lockka la membership commissione con `FOR UPDATE` → un admin non può rimuovere il commissario tra il check e l'upsert valutazione (N88).
 - **Correttezza**: in modalità sincrona il gruppo avanza solo quando ogni commissario ha votato *tutti* i criteri (prima bastava una valutazione qualsiasi) (N89); `loadAll` usa `Promise.allSettled` con stato parziale + toast, invece di abbattere l'app al primo endpoint in errore (N90); anti-bot `startedAt` non penalizza più i client con orologio avanti — clock skew (N92); cache tenant resa LRU reale (era FIFO: `Map.set` non aggiorna l'ordine di inserzione) (N94).
 - **Pulizia**: rimosso il check `consensiGdpr` irraggiungibile (già garantito dallo schema Zod) (N91). N93 (presunto typo `x-forwarded-proxy`) verificato **falso positivo**: il codice usa già `x-forwarded-proto`.
+
+### Round 9 (rianalisi N95-N104)
+- **Sicurezza/validazione**: POST commissione valida il presidente come commissario dello stesso concorso, come già il PATCH (N96); intervallo età categorie `etaMin <= etaMax` via refine Zod su create/update + CHECK `chk_categorie_eta_range` a livello DB (N97).
+- **Concorrenza/integrità**: il POST pubblico iscrizioni esegue ora tutti i check e l'INSERT in **una sola transazione** con `FOR UPDATE` sul concorso → chiude la TOCTOU "concorso chiuso tra check e insert" (N102) e serializza i duplicati stessa email/concorso, rendendo il 409 deterministico oltre all'indice unique parziale già esistente (N95).
+- **Robustezza**: il tiebreak per età scarta le date di nascita future — un'età negativa non fa più "vincere" il candidato sbagliato (N101); l'upload mappa il superamento di `limits.fileSize` a 413 invece di 500 (la RAM era già protetta dal limite di `@fastify/multipart`) (N99); il privacy export distrugge il socket se la write fallisce dopo l'`hijack`, evitando eccezioni non catchate (N104).
+- **Pulizia**: rimosso il guard `ALLOWED_RESOURCES` irraggiungibile in upload (lo z.enum è già esaustivo) (N98).
+- **Falsi positivi / non-azioni motivate**: N95 (premessa errata — l'indice unique parziale esiste già, nessun duplicato viene creato); N100 (il confronto lessicografico su colonna `date` ISO è corretto; il fix proposto `.toISOString()` romperebbe sulle stringhe); N103 (il reorder su concorso vuoto ritorna già 400 per `ids.min(1)` + check membership; il fix richiederebbe lock coordinato anche sulla create, con rischio deadlock per beneficio nullo).
 
 ---
 
