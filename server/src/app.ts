@@ -107,6 +107,10 @@ export async function createApp(): Promise<FastifyInstance> {
     root: resolve(env.UPLOADS_DIR),
     prefix: '/uploads/',
     decorateReply: false,
+    // M195: i file caricati sono serviti con nosniff → il browser non
+    // MIME-sniffa (difesa in profondità oltre a magic-bytes + estensione
+    // derivata dal MIME, N131).
+    setHeaders: (res) => { res.setHeader('X-Content-Type-Options', 'nosniff'); },
   });
 
   await registerTenantMiddleware(app);

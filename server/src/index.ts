@@ -4,6 +4,7 @@ import { env } from './env.js';
 import { shutdownPools } from './db/client.js';
 import { stopRealtimeHub } from './realtime/hub.js';
 import { runTenantCleanup } from './services/cleanup.js';
+import { cleanupExpiredSessions } from './services/session.js';
 
 const app = await createApp();
 
@@ -28,6 +29,14 @@ async function start() {
             app.log.info({ result: r }, 'cron: cleanup completato');
           } catch (err) {
             app.log.error({ err }, 'cron: errore durante cleanup');
+          }
+          // M217: purga le sessioni scadute (altrimenti la tabella cresce senza
+          // limite — sono già invalide al lookup, ma vanno rimosse).
+          try {
+            const purged = await cleanupExpiredSessions();
+            if (purged > 0) app.log.info({ purged }, 'cron: sessioni scadute rimosse');
+          } catch (err) {
+            app.log.error({ err }, 'cron: errore pulizia sessioni');
           }
         });
         app.log.info(

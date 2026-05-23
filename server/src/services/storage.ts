@@ -128,7 +128,13 @@ export async function saveFile(args: {
   // finale (rename è atomico sullo stesso filesystem).
   const tmpPath = `${absPath}.tmp-${randomBytes(4).toString('hex')}`;
   await writeFile(tmpPath, args.buffer);
-  await rename(tmpPath, absPath);
+  try {
+    await rename(tmpPath, absPath);
+  } catch (err) {
+    // M201: se il rename fallisce, rimuovi il file temporaneo per non lasciarlo orfano.
+    await rm(tmpPath, { force: true }).catch(() => {});
+    throw err;
+  }
 
   return {
     filename,

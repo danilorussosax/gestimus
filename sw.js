@@ -95,8 +95,13 @@ self.addEventListener('fetch', (event) => {
       caches.open(STATIC_CACHE).then(async (cache) => {
         try {
           const res = await fetch(req);
-          if (res.ok) cache.put(req, res.clone());
-          return res;
+          if (res.ok) {
+            cache.put(req, res.clone());
+            return res;
+          }
+          // M215: risposta non-ok (es. 500/404 HTML) → preferisci la versione in
+          // cache invece di servire un bundle JS rotto; se non c'è, ritorna res.
+          return (await cache.match(req)) || res;
         } catch {
           return (await cache.match(req)) || Response.error();
         }

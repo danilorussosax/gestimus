@@ -140,7 +140,7 @@ export function openMembriGruppoModal(concorso, gruppo, onSaved) {
                 <div class="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
                   <div class="flex items-center gap-2 min-w-0">
                     <span class="font-medium text-slate-800 text-sm truncate">${escapeHtml(displayName(m))}</span>
-                    ${m.strumento_gruppo ? `<span class="text-[10px] px-1.5 py-0.5 bg-purple-50 text-purple-700 rounded-full">${escapeHtml(m.strumento_gruppo)}</span>` : ''}
+                    ${m.strumento ? `<span class="text-[10px] px-1.5 py-0.5 bg-purple-50 text-purple-700 rounded-full">${escapeHtml(m.strumento)}</span>` : ''}
                   </div>
                   <button data-remove-member="${m.candidato_id}" class="text-xs text-rose-600 hover:bg-rose-50 px-2 py-1 rounded-lg font-medium shrink-0">${escapeHtml(t('common.delete'))}</button>
                 </div>
@@ -277,7 +277,7 @@ function candidatoCardHtml(c) {
         <p class="text-xs text-slate-600 truncate">${escapeHtml(c.strumento || '—')}${!isGruppo && eta ? ` · ${escapeHtml(t('admin.candidati.years', { n: eta }))}` : ''}</p>
         ${isGruppo && membri.length > 0 ? `
           <div class="mt-1.5 flex items-center gap-1 flex-wrap">
-            ${membri.map(m => `<span class="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded-full font-medium">${escapeHtml(m.nome || '')} ${escapeHtml(m.cognome || '')}${m.strumento_gruppo ? ' · ' + escapeHtml(m.strumento_gruppo) : ''}</span>`).join('')}
+            ${membri.map(m => `<span class="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded-full font-medium">${escapeHtml(m.nome || '')} ${escapeHtml(m.cognome || '')}${m.strumento ? ' · ' + escapeHtml(m.strumento) : ''}</span>`).join('')}
           </div>
         ` : ''}
         ${membri.length > 0 ? `<p class="text-[10px] text-purple-600 mt-0.5 font-medium">${escapeHtml(t('admin.candidati.members_count', { n: membri.length }))}</p>` : ''}

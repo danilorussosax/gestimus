@@ -95,7 +95,8 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     const { token, expiresAt } = await createSession(account.id, account.tenantId);
     setSessionCookie(reply, token, expiresAt);
 
-    await dbSuper.update(accounts).set({ lastLoginAt: new Date() }).where(eq(accounts.id, account.id));
+    // M192: aggiorna anche updatedAt per coerenza (lastLoginAt è una mutazione).
+    await dbSuper.update(accounts).set({ lastLoginAt: new Date(), updatedAt: new Date() }).where(eq(accounts.id, account.id));
     await auditLogin(req, 'auth.login', normalizedEmail, account.id);
 
     return {

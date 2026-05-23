@@ -41,7 +41,9 @@ async function connect(): Promise<void> {
     } catch {
       // payload non-JSON: lasciamo la stringa raw
     }
-    for (const cb of subs) {
+    // M218: itera uno snapshot — un subscriber che si disiscrive nel callback
+    // muterebbe il Set durante il for...of, facendo saltare altri subscriber.
+    for (const cb of [...subs]) {
       try {
         cb(parsed);
       } catch (err) {

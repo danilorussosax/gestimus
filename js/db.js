@@ -581,7 +581,7 @@ export const db = {
       id: me.id,
       email: me.email,
       role: me.role,
-      attivo: me.attivo !== false,
+      attivo: me.attivo === true,
       commissario: me.commissarioId || null,
       tenantId: me.tenantId,
     };
@@ -1027,8 +1027,9 @@ export const db = {
   getPresidenteForFinale(concorso_id) {
     const fasi = state.fasi.filter((f) => f.concorso_id === concorso_id);
     if (fasi.length === 0) return null;
-    const finale = fasi.find((f) => f.ordine === fasi.length);
-    if (!finale) return null;
+    // M211: la fase finale è quella con ordine MASSIMO, non `ordine === length`
+    // (gli ordini possono avere buchi dopo cancellazioni di fasi).
+    const finale = fasi.reduce((mx, f) => (f.ordine > mx.ordine ? f : mx), fasi[0]);
     return this.getPresidenteForFase(finale);
   },
 

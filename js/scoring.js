@@ -256,7 +256,9 @@ export function fmtVoto(v, scala) {
   // M162: su scala >10 i voti individuali sono interi (voteStep=1), ma le MEDIE
   // possono essere frazionarie (es. 7.5). Mantieni 1 decimale per i non interi,
   // altrimenti 7.5 verrebbe mostrato come "8".
-  const x = Number(v || 0);
+  // M209: input non numerico → 0 invece di "NaN".
+  const n = Number(v);
+  const x = Number.isFinite(n) ? n : 0;
   const decimals = (Number(scala) || 10) <= 10 ? 1 : (Number.isInteger(x) ? 0 : 1);
   return x.toFixed(decimals);
 }
