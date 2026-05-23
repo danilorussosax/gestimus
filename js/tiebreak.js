@@ -80,18 +80,22 @@ export function votoPresidente(valutazioni, fase, presidenteId) {
 }
 
 // Età (in anni decimali) di un candidato a una data di riferimento.
-// Per i gruppi/orchestre (con `membri` popolato): media delle età dei membri.
-// Se mancano date, ritorna null e la regola eta cade alla successiva.
-export function etaCandidato(cand, refDate, allCandidati = []) {
+// Per gruppi/orchestre: media delle età dei membri. I membri NON sono nel
+// record candidato (cand.membri non esiste, è una proprietà mai popolata) ma
+// nella tabella candidati_gruppo letta da db.membriGruppo(). Il caller passa
+// `getMembri` (di solito `db.membriGruppo`). Se non passato, gruppi → null.
+export function etaCandidato(cand, refDate, _allCandidati = [], getMembri = null) {
   const ref = refDate ? new Date(refDate) : new Date();
   if (!cand) return null;
   if (cand.tipo === 'gruppo' || cand.tipo === 'orchestra') {
-    const membriIds = Array.isArray(cand.membri) ? cand.membri : [];
-    if (membriIds.length === 0) return null;
-    const eta = membriIds
-      .map(id => allCandidati.find(c => c.id === id))
-      .filter(c => c && c.data_nascita)
-      .map(c => yearsBetween(c.data_nascita, ref));
+    if (typeof getMembri !== 'function') return null;
+    let membri;
+    try { membri = getMembri(cand.id) || []; } catch { membri = []; }
+    if (!Array.isArray(membri) || membri.length === 0) return null;
+    const eta = membri
+      .filter(m => m && m.data_nascita)
+      .map(m => yearsBetween(m.data_nascita, ref))
+      .filter(n => n != null);
     if (eta.length === 0) return null;
     return eta.reduce((s, x) => s + x, 0) / eta.length;
   }
@@ -99,15 +103,28 @@ export function etaCandidato(cand, refDate, allCandidati = []) {
   return yearsBetween(cand.data_nascita, ref);
 }
 
+// Età in giorni interi → anni interi. Confronto floating-point puro produce
+// parità spurie per nati con pochi giorni di differenza intorno a un'epoch.
 function yearsBetween(birth, ref) {
   const d = new Date(birth);
   if (isNaN(d.getTime())) return null;
-  return (ref.getTime() - d.getTime()) / (1000 * 60 * 60 * 24 * 365.2425);
+  const days = Math.floor((ref.getTime() - d.getTime()) / 86_400_000);
+  // 365.2425 giorni medi/anno (calendario gregoriano).
+  return days / 365.2425;
 }
 
-// Genera un id breve per identificare un gruppo di ex aequo (no crypto, basta
-// che sia univoco nella scope della fase).
-function exAequoGroupId() {
+// Genera un id breve per identificare un gruppo di ex aequo. Riproducibile:
+// hash deterministico dell'insieme degli id ex aequo, così l'audit normativo
+// può riprodurre la stessa label da uno stesso input.
+function exAequoGroupId(memberIds = null) {
+  if (Array.isArray(memberIds) && memberIds.length) {
+    const sorted = [...memberIds].sort().join('|');
+    let h = 5381;
+    for (let i = 0; i < sorted.length; i++) h = ((h << 5) + h + sorted.charCodeAt(i)) >>> 0;
+    return 'ea_' + h.toString(36);
+  }
+  // Fallback non riproducibile (vecchio comportamento) per chiamanti che non
+  // hanno ancora l'array dei membri.
   return 'ea_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
 }
 
@@ -130,6 +147,7 @@ export function rankWithTieBreak(rows, fase, ctx = {}) {
   const presidenteId = ctx.presidenteId || null;
   const refDate = ctx.refDate || fase?.data_prevista || new Date().toISOString();
   const allCandidati = ctx.allCandidati || [];
+  const getMembri = typeof ctx.getMembri === 'function' ? ctx.getMembri : null;
 
   // Ordino in modo deterministico per partenza (media desc, poi fingerprint
   // ASCII del nome candidato per tiebreak finale stabile).
@@ -158,7 +176,7 @@ export function rankWithTieBreak(rows, fase, ctx = {}) {
     }
     // Ogni candidato del gruppo accumula il log dei passi tentati.
     const enriched = g.map(r => ({ ...r, tiebreak_log: [{ step: 'pari_su_media', valore: round2(r.media), motivazione: `Stessa media aggregata ${round2(r.media)}` }] }));
-    const ordered = applyCascade(enriched, strategy, fase, { presidenteId, refDate, allCandidati });
+    const ordered = applyCascade(enriched, strategy, fase, { presidenteId, refDate, allCandidati, getMembri });
     for (const r of ordered) resolved.push(r);
   }
 
@@ -290,7 +308,7 @@ function stepScore(row, stepKey, fase, ctx) {
     return v == null ? null : v;
   }
   if (stepKey === 'eta') {
-    const e = etaCandidato(row.cand, ctx.refDate, ctx.allCandidati);
+    const e = etaCandidato(row.cand, ctx.refDate, ctx.allCandidati, ctx.getMembri);
     if (e == null) return null;
     // Più giovane vince → età minore vince → restituisco -età così "massimo".
     return -e;
@@ -304,7 +322,9 @@ function stepScore(row, stepKey, fase, ctx) {
 // chiave per il sub-grouping. La comparazione tra stringhe è equivalente alla
 // comparazione lessicografica degli array (numero per numero).
 function scomposizioneCompositeScore(row, fase) {
-  const criteri = (fase?.criteri || []).slice().sort((a, b) => (b.peso || 0) - (a.peso || 0));
+  // I criteri vivono in state._criteri (e sono restituiti da getCriteri()),
+  // NON in fase.criteri (proprietà inesistente sul record mappato).
+  const criteri = (getCriteri(fase) || []).slice().sort((a, b) => (b.peso || 0) - (a.peso || 0));
   if (criteri.length === 0) return null;
   const parts = criteri.map(c => {
     const v = mediaCandidatoSuCriterio(row.valutazioni || [], fase, c.key);

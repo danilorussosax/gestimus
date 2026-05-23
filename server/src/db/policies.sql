@@ -241,6 +241,20 @@ REVOKE UPDATE, DELETE ON audit_log FROM gestimus_app;
 REVOKE UPDATE, DELETE ON platform_audit_log FROM gestimus_app;
 
 -- =====================================================================
+-- 5.b Tenant platform tables: niente accesso dal ruolo applicativo.
+--    Il blocco § 1 ha eseguito `GRANT ... ON ALL TABLES IN SCHEMA public TO
+--    gestimus_app`, che include tabelle senza RLS (tenants, platform_config,
+--    platform_audit_log). REVOKE esplicito per limitare la blast radius in
+--    caso di SQL injection o compromissione delle credenziali applicative.
+--    Le route che lavorano su queste tabelle usano `dbSuper` (gestimus_super
+--    con BYPASSRLS), non il pool applicativo.
+-- =====================================================================
+
+REVOKE ALL ON tenants FROM gestimus_app;
+REVOKE ALL ON platform_config FROM gestimus_app;
+REVOKE ALL ON platform_audit_log FROM gestimus_app;
+
+-- =====================================================================
 -- 6. Trigger DB: clamp voto e freeze fase CONCLUSA
 --    Sostituiscono la logica applicativa: anche un client che bypassa
 --    le route HTTP non può inserire voti fuori range o modificare

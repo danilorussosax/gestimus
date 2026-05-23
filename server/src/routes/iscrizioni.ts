@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { and, desc, eq, gte, max, sql } from 'drizzle-orm';
+import { and, desc, eq, gte, inArray, max, sql } from 'drizzle-orm';
 import { randomBytes } from 'node:crypto';
 import { z } from 'zod';
 import { candidati, categorie, concorsi, iscrizioni, sezioni } from '../db/schema.js';
@@ -105,9 +105,7 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
       const sez = await tx.select().from(sezioni).where(eq(sezioni.concorsoId, id));
       const sezIds = sez.map((s) => s.id);
       const cats = sezIds.length
-        ? await tx.select().from(categorie).where(
-            sql`${categorie.sezioneId} = ANY (${sql.raw(`ARRAY[${sezIds.map((id) => `'${id}'::uuid`).join(',')}]`)})`,
-          )
+        ? await tx.select().from(categorie).where(inArray(categorie.sezioneId, sezIds))
         : [];
       return {
         id: c[0]!.id,

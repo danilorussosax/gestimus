@@ -1,6 +1,11 @@
-import type { FastifyInstance, FastifyReply, FastifyRequest, preHandlerAsyncHookHandler } from 'fastify';
+import type { FastifyInstance, FastifyReply, preHandlerAsyncHookHandler } from 'fastify';
 import { env } from '../env.js';
-import { validateSessionToken, type AccountRecord, type SessionRecord } from '../services/session.js';
+import {
+  invalidateSession,
+  validateSessionToken,
+  type AccountRecord,
+  type SessionRecord,
+} from '../services/session.js';
 
 export type AuthRole = 'admin' | 'commissario' | 'superadmin';
 
@@ -43,7 +48,13 @@ export const requireAuth: preHandlerAsyncHookHandler = async (req, reply) => {
     return reply.code(401).send({ error: 'autenticazione richiesta' });
   }
   if (req.tenant && req.session.tenantId !== req.tenant.id) {
-    // Sessione di un altro tenant → invalida la richiesta (non l'auth in sé)
+    // C12: cookie firmato per tenant A presentato su tenant B → invalida la
+    // sessione (DB-side) e cancella il cookie. Senza questo, un cookie rubato
+    // poteva essere usato per sondare infiniti tenant senza penalità.
+    try { await invalidateSession(req.session.id); } catch { /* best-effort */ }
+    req.account = null;
+    req.session = null;
+    clearSessionCookie(reply);
     return reply.code(403).send({ error: 'sessione di altro tenant' });
   }
   if (req.isSuperadmin && req.account.role !== 'superadmin') {

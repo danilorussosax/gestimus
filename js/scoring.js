@@ -231,15 +231,17 @@ export function fmtVoto(v, scala) {
 }
 
 // Eliminatoria suggested admission: thresholds RELATIVE to scala.
-// Spec defaults (scala=10): media >= 6.5, OR media >= 6.8 with max 1-2 votes < 6.
-// Generalized: norm = media/scala; ammesso se norm >= 0.65 (oppure norm >= 0.68 con max 2 voti normalizzati < 0.60).
+// Spec defaults (scala=10):
+//   - media >= 6.5  → ammesso (STANDARD), MERITO se >= 8.0;
+//   - media 6.0–6.5 e al più 2 voti sotto 6 → ammesso con tolleranza (STANDARD).
+// Generalized: norm = media/scala. Soglie 0.65 / 0.80 / 0.60.
 export function suggestEliminatoria({ media, voti, scala = 10 }) {
   const s = Number(scala) || 10;
   const norm = s ? media / s : 0;
   if (norm >= 0.65) return { ammesso: true, fascia: norm >= 0.80 ? 'MERITO' : 'STANDARD' };
   if (norm >= 0.60) {
-    const sotto = voti.filter(v => (v / s) < 0.60).length;
-    if (norm >= 0.68 && sotto <= 2) return { ammesso: true, fascia: 'STANDARD' };
+    const sotto = (voti || []).filter(v => (v / s) < 0.60).length;
+    if (sotto <= 2) return { ammesso: true, fascia: 'STANDARD' };
   }
   return { ammesso: false, fascia: 'ELIMINATO' };
 }

@@ -3,6 +3,7 @@ import { gzip } from 'node:zlib';
 import { promisify } from 'node:util';
 import { mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
+import { createCipheriv, createHash, randomBytes } from 'node:crypto';
 import { dbSuper } from '../db/client.js';
 import {
   accounts,
@@ -36,8 +37,24 @@ const gzipP = promisify(gzip);
 /**
  * Versione del formato di backup. Bump quando lo schema cambia in modo non
  * retro-compatibile (serve per il restore futuro).
+ *
+ * v2 (2026-05-23): backup cifrati AES-256-GCM at-rest.
+ *   Layout file: `[1 byte version=2][12-byte IV][16-byte tag][ciphertext]`.
+ *   Il ciphertext è il vecchio payload gzip (`gzip(JSON.stringify(manifest))`).
+ *   Decrypt = chiunque abbia `GESTIMUS_SECRET_KEY`. v1 (gzip plain) resta
+ *   leggibile dal restore per compatibilità, ma non viene più scritto.
  */
-const BACKUP_FORMAT_VERSION = 1;
+const BACKUP_FORMAT_VERSION = 2;
+const ENC_VERSION_BYTE = 0x02;
+const AES_ALGO = 'aes-256-gcm';
+
+function backupEncKey(): Buffer {
+  // Stessa derivazione di crypto-smtp.ts: hex 64 → 32 byte raw, altrimenti
+  // SHA-256 della stringa. Riusa env già importato in fondo al file.
+  const hex = env.GESTIMUS_SECRET_KEY;
+  if (/^[0-9a-fA-F]{64}$/.test(hex)) return Buffer.from(hex, 'hex');
+  return createHash('sha256').update(hex).digest();
+}
 
 /**
  * Tabelle che vivono dentro un tenant (tutte cascade-deleted con il tenant).
@@ -128,10 +145,9 @@ export async function backupTenant(tenantId: string): Promise<BackupResult> {
     (typeof TENANT_TABLES)[TenantTableName],
   ][]) {
     // Tutte le tabelle qui hanno una colonna tenantId (cascade-deleted con tenant)
-    const rows = await dbSuper
-      .select()
-      .from(table)
-      .where(eq((table as unknown as { tenantId: { name: string } }).tenantId, tenantId));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const tenantIdCol = (table as any).tenantId;
+    const rows = await dbSuper.select().from(table).where(eq(tenantIdCol, tenantId));
     tables[name] = rows;
     tableCounts[name] = rows.length;
   }
@@ -146,10 +162,15 @@ export async function backupTenant(tenantId: string): Promise<BackupResult> {
     tableCounts,
   };
 
-  const filename = `${tenantRow.slug}-${safeIsoStamp()}.json.gz`;
+  const filename = `${tenantRow.slug}-${safeIsoStamp()}.json.gz.enc`;
   const filepath = join(archiveDir(), filename);
   const compressed = await gzipP(Buffer.from(JSON.stringify(manifest)));
-  await writeFile(filepath, compressed);
+  const iv = randomBytes(12);
+  const cipher = createCipheriv(AES_ALGO, backupEncKey(), iv);
+  const ciphertext = Buffer.concat([cipher.update(compressed), cipher.final()]);
+  const tag = cipher.getAuthTag();
+  const fileBuffer = Buffer.concat([Buffer.from([ENC_VERSION_BYTE]), iv, tag, ciphertext]);
+  await writeFile(filepath, fileBuffer);
   const st = await stat(filepath);
 
   return {
@@ -173,7 +194,13 @@ export type BackupListEntry = {
  * Filename convention: `<slug>-<iso>.json.gz` dove iso = 2026-05-22T13-45-09-123Z
  * (lo slug può contenere `-`, quindi estraggo via regex sull'isoStamp).
  */
-const BACKUP_FILENAME_RE = /^(.+)-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)\.json\.gz$/;
+// Match sia il vecchio formato (.json.gz) sia il nuovo cifrato (.json.gz.enc).
+const BACKUP_FILENAME_RE = /^(.+)-(\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}-\d{3}Z)\.json\.gz(?:\.enc)?$/;
+const BACKUP_EXTS = ['.json.gz', '.json.gz.enc'];
+
+function isBackupFile(name: string): boolean {
+  return BACKUP_EXTS.some((ext) => name.endsWith(ext));
+}
 
 export async function listBackups(): Promise<BackupListEntry[]> {
   try {
@@ -181,7 +208,7 @@ export async function listBackups(): Promise<BackupListEntry[]> {
     const files = await readdir(archiveDir());
     const entries: BackupListEntry[] = [];
     for (const f of files) {
-      if (!f.endsWith('.json.gz')) continue;
+      if (!isBackupFile(f)) continue;
       const st = await stat(join(archiveDir(), f));
       const m = BACKUP_FILENAME_RE.exec(f);
       const slug = m?.[1] ?? 'unknown';
@@ -209,7 +236,7 @@ export async function pruneOldBackups(retentionDays: number): Promise<{ deleted:
   let deleted = 0;
   const files = await readdir(archiveDir());
   for (const f of files) {
-    if (!f.endsWith('.json.gz')) continue;
+    if (!isBackupFile(f)) continue;
     const full = join(archiveDir(), f);
     const st = await stat(full);
     if (st.mtimeMs < cutoff) {

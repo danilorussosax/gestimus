@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { eq } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { dbSuper } from '../db/client.js';
 import { tenants } from '../db/schema.js';
@@ -56,16 +56,16 @@ export const enteRoutes: FastifyPluginAsync = async (app) => {
   app.patch('/', { preHandler: [requireAuth, requireRole('admin')] }, async (req, reply) => {
     const parsed = enteBody.safeParse(req.body);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
-    const existing = await dbSuper
-      .select({ enteSettings: tenants.enteSettings })
-      .from(tenants)
-      .where(eq(tenants.id, req.tenant!.id))
-      .limit(1);
-    const current = (existing[0]?.enteSettings as Record<string, unknown> | null) ?? {};
-    const merged = { ...current, ...parsed.data };
+    // Merge JSONB lato server con `||`: atomico vs read-merge-write applicativo.
+    // Due PATCH concorrenti producono il merge sequenziale corretto (last-write
+    // wins per chiave, mai dropout cieco di campi).
+    const patch = JSON.stringify(parsed.data);
     await dbSuper
       .update(tenants)
-      .set({ enteSettings: merged, updatedAt: new Date() })
+      .set({
+        enteSettings: sql`COALESCE(${tenants.enteSettings}, '{}'::jsonb) || ${patch}::jsonb`,
+        updatedAt: new Date(),
+      })
       .where(eq(tenants.id, req.tenant!.id));
     await req.dbTx(async (tx) => {
       await writeAudit(tx, req, 'ente.update', { targetType: 'tenant', targetId: req.tenant!.id });
@@ -96,16 +96,13 @@ export const enteRoutes: FastifyPluginAsync = async (app) => {
   app.patch('/branding', { preHandler: [requireAuth, requireRole('admin')] }, async (req, reply) => {
     const parsed = brandingBody.safeParse(req.body);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
-    const existing = await dbSuper
-      .select({ brandingPublic: tenants.brandingPublic })
-      .from(tenants)
-      .where(eq(tenants.id, req.tenant!.id))
-      .limit(1);
-    const current = (existing[0]?.brandingPublic as Record<string, unknown> | null) ?? {};
-    const merged = { ...current, ...parsed.data };
+    const patch = JSON.stringify(parsed.data);
     await dbSuper
       .update(tenants)
-      .set({ brandingPublic: merged, updatedAt: new Date() })
+      .set({
+        brandingPublic: sql`COALESCE(${tenants.brandingPublic}, '{}'::jsonb) || ${patch}::jsonb`,
+        updatedAt: new Date(),
+      })
       .where(eq(tenants.id, req.tenant!.id));
     await req.dbTx(async (tx) => {
       await writeAudit(tx, req, 'branding.update', {

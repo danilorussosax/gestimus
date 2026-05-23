@@ -11,60 +11,56 @@ import { writeAudit } from '../services/audit.js';
 //     (caso tipico: ogni commissario salva il proprio "voto di ammissione"
 //     insieme alla valutazione → il flag riflette la decisione collegiale)
 // Se la fase non ha commissione assegnata, solo admin può modificarlo.
-async function assertCanEditCandidatoFase(req: FastifyRequest, reply: FastifyReply, cfId: string): Promise<{ ok: boolean }> {
+// Esegue tutte le SELECT nella stessa transazione del caller con SELECT … FOR
+// UPDATE sulla riga candidatiFase per evitare TOCTOU (cambio assegnazione
+// commissione tra check e write).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function assertCanEditCandidatoFase(tx: any, req: FastifyRequest, reply: FastifyReply, cfId: string): Promise<boolean> {
   const role = req.account?.role;
-  if (role === 'admin' || role === 'superadmin') return { ok: true };
+  if (role === 'admin' || role === 'superadmin') return true;
   if (role !== 'commissario') {
     reply.code(403).send({ error: 'ruolo richiesto: admin o commissario membro della commissione' });
-    return { ok: false };
+    return false;
   }
   const commissarioId = req.account?.commissarioId;
   if (!commissarioId) {
     reply.code(403).send({ error: 'commissario senza profilo' });
-    return { ok: false };
+    return false;
   }
-  const rows = await req.dbTx(async (tx) =>
-    tx
-      .select({ faseId: candidatiFase.faseId })
-      .from(candidatiFase)
-      .where(eq(candidatiFase.id, cfId))
-      .limit(1),
-  );
-  if (rows.length === 0) { reply.notFound(); return { ok: false }; }
+  const rows = await tx
+    .select({ faseId: candidatiFase.faseId })
+    .from(candidatiFase)
+    .where(eq(candidatiFase.id, cfId))
+    .for('update')
+    .limit(1);
+  if (rows.length === 0) { reply.notFound(); return false; }
   const faseId = rows[0]!.faseId;
-  const faseRows = await req.dbTx(async (tx) =>
-    tx
-      .select({ commissioneId: fasi.commissioneId })
-      .from(fasi)
-      .where(eq(fasi.id, faseId))
-      .limit(1),
-  );
+  const faseRows = await tx
+    .select({ commissioneId: fasi.commissioneId })
+    .from(fasi)
+    .where(eq(fasi.id, faseId))
+    .limit(1);
   const commissioneId = faseRows[0]?.commissioneId;
   if (!commissioneId) {
     reply.code(403).send({ error: 'fase senza commissione assegnata: modifica admin-only' });
-    return { ok: false };
+    return false;
   }
-  const memberRows = await req.dbTx(async (tx) =>
-    tx
-      .select({ id: commissioniCommissari.commissarioId })
-      .from(commissioniCommissari)
-      .where(
-        and(
-          eq(commissioniCommissari.commissioneId, commissioneId),
-          eq(commissioniCommissari.commissarioId, commissarioId),
-        ),
-      )
-      .limit(1),
-  );
+  const memberRows = await tx
+    .select({ id: commissioniCommissari.commissarioId })
+    .from(commissioniCommissari)
+    .where(
+      and(
+        eq(commissioniCommissari.commissioneId, commissioneId),
+        eq(commissioniCommissari.commissarioId, commissarioId),
+      ),
+    )
+    .limit(1);
   if (memberRows.length === 0) {
     reply.code(403).send({ error: 'solo i membri della commissione assegnata possono modificare questo candidato' });
-    return { ok: false };
+    return false;
   }
-  // Suppress unused import warning per `commissioni` (lo importiamo per
-  // coerenza con i futuri check su attributi della commissione, e per
-  // documentazione del modello).
   void commissioni;
-  return { ok: true };
+  return true;
 }
 
 const uuid = z.string().uuid();
@@ -118,11 +114,10 @@ export const candidatiFaseRoutes: FastifyPluginAsync = async (app) => {
 
   app.patch('/:id', { preHandler: [requireAuth] }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
-    const perm = await assertCanEditCandidatoFase(req, reply, id);
-    if (!perm.ok) return reply;
     const parsed = updateBody.safeParse(req.body);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
     return req.dbTx(async (tx) => {
+      if (!await assertCanEditCandidatoFase(tx, req, reply, id)) return;
       const [updated] = await tx
         .update(candidatiFase)
         .set({ ...parsed.data, updatedAt: new Date() })

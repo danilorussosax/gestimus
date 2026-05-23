@@ -1,7 +1,13 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { valutazioni } from '../db/schema.js';
+import {
+  candidatiFase,
+  commissioni,
+  commissioniCommissari,
+  fasi,
+  valutazioni,
+} from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 
@@ -34,6 +40,66 @@ function handlePgError(err: unknown): { code: number; body: { error: string } } 
   return null;
 }
 
+// C6: un commissario può inserire/modificare valutazioni SOLO se è membro della
+// commissione assegnata alla fase del candidatoFase. Admin/superadmin bypassano.
+// Esegue il check nella stessa transazione del caller (no TOCTOU).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function assertCanEvaluateCandidatoFase(
+  tx: any,
+  req: FastifyRequest,
+  reply: FastifyReply,
+  candidatoFaseId: string,
+  commissarioIdParam: string,
+): Promise<boolean> {
+  const role = req.account?.role;
+  if (role === 'admin' || role === 'superadmin') return true;
+  if (role !== 'commissario') {
+    reply.code(403).send({ error: 'ruolo richiesto: admin o commissario membro della commissione' });
+    return false;
+  }
+  const accountCommissarioId = req.account?.commissarioId;
+  if (!accountCommissarioId) {
+    reply.code(403).send({ error: 'commissario senza profilo' });
+    return false;
+  }
+  if (accountCommissarioId !== commissarioIdParam) {
+    reply.code(403).send({ error: 'un commissario può inserire voti solo a proprio nome' });
+    return false;
+  }
+  const cfRows = await tx
+    .select({ faseId: candidatiFase.faseId })
+    .from(candidatiFase)
+    .where(eq(candidatiFase.id, candidatoFaseId))
+    .limit(1);
+  if (cfRows.length === 0) { reply.notFound(); return false; }
+  const faseRows = await tx
+    .select({ commissioneId: fasi.commissioneId })
+    .from(fasi)
+    .where(eq(fasi.id, cfRows[0]!.faseId))
+    .limit(1);
+  const commissioneId = faseRows[0]?.commissioneId;
+  if (!commissioneId) {
+    reply.code(403).send({ error: 'fase senza commissione assegnata' });
+    return false;
+  }
+  const memberRows = await tx
+    .select({ id: commissioniCommissari.commissarioId })
+    .from(commissioniCommissari)
+    .where(
+      and(
+        eq(commissioniCommissari.commissioneId, commissioneId),
+        eq(commissioniCommissari.commissarioId, accountCommissarioId),
+      ),
+    )
+    .limit(1);
+  if (memberRows.length === 0) {
+    reply.code(403).send({ error: 'solo i membri della commissione assegnata possono valutare' });
+    return false;
+  }
+  void commissioni;
+  return true;
+}
+
 export const valutazioniRoutes: FastifyPluginAsync = async (app) => {
   app.addHook('preHandler', requireAuth);
 
@@ -59,6 +125,8 @@ export const valutazioniRoutes: FastifyPluginAsync = async (app) => {
   });
 
   // POST upsert: clamp voto e freeze fase CONCLUSA sono gestiti dai trigger DB.
+  // Concurrency: ON CONFLICT DO UPDATE sull'unique index `uniq_valutazioni`
+  // (candidato_fase, commissario, criterio) → niente TOCTOU su upsert concorrenti.
   app.post(
     '/',
     { preHandler: [requireRole('admin', 'commissario')] },
@@ -67,38 +135,11 @@ export const valutazioniRoutes: FastifyPluginAsync = async (app) => {
       if (!parsed.success) return reply.badRequest(parsed.error.message);
       try {
         return await req.dbTx(async (tx) => {
-          const existing = await tx
-            .select()
-            .from(valutazioni)
-            .where(
-              and(
-                eq(valutazioni.candidatoFaseId, parsed.data.candidatoFaseId),
-                eq(valutazioni.commissarioId, parsed.data.commissarioId),
-                eq(valutazioni.criterio, parsed.data.criterio),
-              ),
-            )
-            .limit(1);
-
-          if (existing.length > 0) {
-            const [updated] = await tx
-              .update(valutazioni)
-              .set({
-                voto: parsed.data.voto,
-                note: parsed.data.note,
-                timestamp: new Date(),
-                updatedAt: new Date(),
-              })
-              .where(eq(valutazioni.id, existing[0]!.id))
-              .returning();
-            await writeAudit(tx, req, 'valutazione.update', {
-              targetType: 'valutazione',
-              targetId: updated!.id,
-              payload: { voto: updated!.voto, criterio: parsed.data.criterio },
-            });
-            return updated;
-          }
-
-          const [created] = await tx
+          if (!await assertCanEvaluateCandidatoFase(
+            tx, req, reply, parsed.data.candidatoFaseId, parsed.data.commissarioId,
+          )) return;
+          const now = new Date();
+          const [row] = await tx
             .insert(valutazioni)
             .values({
               tenantId: req.tenant!.id,
@@ -108,13 +149,25 @@ export const valutazioniRoutes: FastifyPluginAsync = async (app) => {
               voto: parsed.data.voto,
               note: parsed.data.note,
             })
+            .onConflictDoUpdate({
+              target: [valutazioni.candidatoFaseId, valutazioni.commissarioId, valutazioni.criterio],
+              set: {
+                voto: parsed.data.voto,
+                note: parsed.data.note,
+                timestamp: now,
+                updatedAt: now,
+              },
+            })
             .returning();
-          await writeAudit(tx, req, 'valutazione.create', {
+          // distinguish create vs update by createdAt == updatedAt (single tx now)
+          const wasInsert = row!.createdAt.getTime() === row!.updatedAt.getTime();
+          await writeAudit(tx, req, wasInsert ? 'valutazione.create' : 'valutazione.update', {
             targetType: 'valutazione',
-            targetId: created!.id,
-            payload: { voto: created!.voto, criterio: parsed.data.criterio },
+            targetId: row!.id,
+            payload: { voto: row!.voto, criterio: parsed.data.criterio },
           });
-          return reply.code(201).send(created);
+          if (wasInsert) return reply.code(201).send(row);
+          return row;
         });
       } catch (err) {
         const mapped = handlePgError(err);
@@ -133,6 +186,16 @@ export const valutazioniRoutes: FastifyPluginAsync = async (app) => {
       if (!parsed.success) return reply.badRequest(parsed.error.message);
       try {
         return await req.dbTx(async (tx) => {
+          const existing = await tx
+            .select({ cfId: valutazioni.candidatoFaseId, commId: valutazioni.commissarioId })
+            .from(valutazioni)
+            .where(eq(valutazioni.id, id))
+            .for('update')
+            .limit(1);
+          if (existing.length === 0) return reply.notFound();
+          if (!await assertCanEvaluateCandidatoFase(
+            tx, req, reply, existing[0]!.cfId, existing[0]!.commId,
+          )) return;
           const patch: Record<string, unknown> = {
             ...parsed.data,
             updatedAt: new Date(),
