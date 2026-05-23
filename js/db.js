@@ -1150,6 +1150,17 @@ export const db = {
   async deleteCandidato(id) {
     await api.delete(`/api/candidati/${id}`);
     state.candidati = state.candidati.filter((c) => c.id !== id);
+    // N119: il server fa CASCADE; allineiamo lo stato in memoria per non lasciare
+    // candidati_fase/valutazioni/membri orfani (che apparirebbero finché non si
+    // ricarica).
+    const cfIds = new Set(
+      state.candidati_fase.filter((cf) => cf.candidato_id === id).map((cf) => cf.id),
+    );
+    state.candidati_fase = state.candidati_fase.filter((cf) => cf.candidato_id !== id);
+    state.valutazioni = state.valutazioni.filter((v) => !cfIds.has(v.candidato_fase_id));
+    if (Array.isArray(state.candidati_gruppo)) {
+      state.candidati_gruppo = state.candidati_gruppo.filter((m) => m.candidato_id !== id);
+    }
     notify();
   },
 

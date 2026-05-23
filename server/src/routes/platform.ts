@@ -181,21 +181,23 @@ async function dirSizeBytes(path: string): Promise<number> {
   } catch {
     return 0;
   }
-  const sizes = await Promise.all(
-    entries.map(async (e) => {
-      const full = join(path, e.name);
-      if (e.isDirectory()) return dirSizeBytes(full);
-      if (e.isFile()) {
-        try {
-          return (await fsStat(full)).size;
-        } catch {
-          return 0;
-        }
+  // N123: scansione sequenziale invece di Promise.all su tutte le entry → niente
+  // fan-out illimitato di stat()/readdir() concorrenti (FD exhaustion su dir con
+  // molti file). È un endpoint di stats admin, la latenza extra è accettabile.
+  let total = 0;
+  for (const e of entries) {
+    const full = join(path, e.name);
+    if (e.isDirectory()) {
+      total += await dirSizeBytes(full);
+    } else if (e.isFile()) {
+      try {
+        total += (await fsStat(full)).size;
+      } catch {
+        /* file sparito tra readdir e stat: ignora */
       }
-      return 0;
-    }),
-  );
-  return sizes.reduce((a, b) => a + b, 0);
+    }
+  }
+  return total;
 }
 
 function guardPlatformTenant(t: TenantRow, reply: FastifyReply): boolean {

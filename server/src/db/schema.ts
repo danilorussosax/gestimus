@@ -85,6 +85,11 @@ export const accounts = pgTable(
   (t) => [
     check('accounts_role_check', sql`${t.role} IN ('admin','commissario','superadmin')`),
     uniqueIndex('uniq_accounts_tenant_email').on(t.tenantId, t.email),
+    // N118: al più UN account per commissario (indice unique parziale: gli
+    // account admin/superadmin hanno commissario_id NULL e sono esclusi).
+    uniqueIndex('uniq_accounts_commissario')
+      .on(t.commissarioId)
+      .where(sql`${t.commissarioId} IS NOT NULL`),
     index('idx_accounts_tenant').on(t.tenantId),
   ],
 );

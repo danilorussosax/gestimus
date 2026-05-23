@@ -318,14 +318,18 @@ function renderKPI(main) {
   // esplicita per non confondere con la "CPU del processo".
   const sys = systemSnapshot;
   const rssMb = sys ? (sys.memory.rss / (1024 * 1024)) : null;
+  // L175: sys.cpu potrebbe mancare anche quando sys esiste (snapshot parziale) →
+  // optional chaining per non far crashare l'intera vista superadmin.
+  const cpuPct = sys?.cpu?.processPct;
+  const cores = sys?.cpu?.cores ?? 0;
   const sysValue = sys
-    ? `${rssMb < 1024 ? rssMb.toFixed(0) + ' MB' : (rssMb / 1024).toFixed(2) + ' GB'} · CPU ${sys.cpu.processPct.toFixed(1)}%`
+    ? `${rssMb < 1024 ? rssMb.toFixed(0) + ' MB' : (rssMb / 1024).toFixed(2) + ' GB'} · CPU ${typeof cpuPct === 'number' ? cpuPct.toFixed(1) : '—'}%`
     : 'n/d';
-  const loadAvgSysPct = sys && sys.cpu.cores > 0
-    ? Math.round((sys.cpu.loadAvg1 / sys.cpu.cores) * 100)
+  const loadAvgSysPct = cores > 0
+    ? Math.round((sys.cpu.loadAvg1 / cores) * 100)
     : null;
   const sysSub = sys
-    ? `heap ${(sys.memory.heapUsed / (1024 * 1024)).toFixed(0)}/${(sys.memory.heapTotal / (1024 * 1024)).toFixed(0)} MB · ${sys.cpu.cores} core · load sistema ${loadAvgSysPct}% (media 60s) · up ${fmtUptime(sys.uptimeSec)}`
+    ? `heap ${(sys.memory.heapUsed / (1024 * 1024)).toFixed(0)}/${(sys.memory.heapTotal / (1024 * 1024)).toFixed(0)} MB · ${cores} core · load sistema ${loadAvgSysPct ?? '—'}% (media 60s) · up ${fmtUptime(sys.uptimeSec)}`
     : 'dati di sistema non disponibili';
 
   const kpi = main.querySelector('#sa-kpi');
