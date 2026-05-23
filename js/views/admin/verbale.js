@@ -167,6 +167,9 @@ function buildVerbaleContext(concorso, fase = null) {
   const presidente = presidentiInfo.length === 1
     ? presidentiInfo[0].presidente
     : null;
+  // N138: commissario.is_presidente è sempre false (non è più una colonna). Il
+  // presidente si ricava dalle commissioni → set di id presidenti del concorso.
+  const presidenteIds = new Set(presidentiInfo.map((p) => p.presidente?.id).filter(Boolean));
   const presidentiInline = presidentiInfo
     .map((p) => displayName(p.presidente))
     .join(', ');
@@ -174,7 +177,7 @@ function buildVerbaleContext(concorso, fase = null) {
   const candidati = db.candidatiByConcorso(concorso.id);
   const fasi = db.fasiByConcorso(concorso.id);
 
-  const commissariNoPres = commissari.filter(c => !c.is_presidente);
+  const commissariNoPres = commissari.filter(c => !presidenteIds.has(c.id));
   const commissariList = commissariNoPres.map(c => `· ${displayName(c)}`).join('\n');
   const commissariInline = commissariNoPres.map(c => displayName(c)).join(', ');
   const fasiList = fasi.map(f => `${f.ordine}. ${f.nome}`).join('\n');
@@ -232,7 +235,9 @@ function buildVerbaleContext(concorso, fase = null) {
     if (faseProvidence) ctx.presidente = displayName(faseProvidence);
     const faseCommIds = db.getFaseCommissariIds(fase) || [];
     const faseCommissari = faseCommIds.map(id => db.state.commissari.find(c => c.id === id)).filter(Boolean);
-    const faseCommissariNoPres = faseCommissari.filter(c => !c.is_presidente);
+    // N138: escludi il presidente della commissione di QUESTA fase per id.
+    const fasePresId = faseProvidence?.id ?? null;
+    const faseCommissariNoPres = faseCommissari.filter(c => c.id !== fasePresId);
     const faseCommissioneList = faseCommissariNoPres.map(c => `· ${displayName(c)}`).join('\n');
     const faseCommissariInline = faseCommissariNoPres.map(c => displayName(c)).join(', ');
     const cfsCount = db.candidatiFaseList(fase.id).length;
@@ -490,8 +495,10 @@ async function exportVerbalePdf(concorso, fase, template) {
   const firmatari = templateHasSignTag && faseHasCommissione
     ? faseCommIds.map(id => db.state.commissari.find(c => c.id === id)).filter(Boolean)
     : [];
-  // Presidente in cima
-  firmatari.sort((a, b) => (b.is_presidente ? 1 : 0) - (a.is_presidente ? 1 : 0));
+  // N138: il presidente si ricava dalla commissione della fase (is_presidente
+  // sul commissario è sempre false). Presidente in cima alle firme.
+  const fasePresId = fase ? (db.getPresidenteForFase(fase)?.id ?? null) : null;
+  firmatari.sort((a, b) => (b.id === fasePresId ? 1 : 0) - (a.id === fasePresId ? 1 : 0));
 
   if (firmatari.length > 0) {
     const cols = 2;
@@ -526,7 +533,7 @@ async function exportVerbalePdf(concorso, fase, template) {
         doc.setDrawColor(165, 163, 174);
         doc.line(x, lineY, x + colW - 12, lineY);
 
-        const role = c.is_presidente ? ` (${t('admin.risultati.verbale.role_presidente')})` : '';
+        const role = c.id === fasePresId ? ` (${t('admin.risultati.verbale.role_presidente')})` : '';
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(10);
         doc.setTextColor(46, 38, 61);

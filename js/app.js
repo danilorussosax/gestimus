@@ -368,6 +368,16 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
       console.warn('SW registration failed:', err?.message);
     });
   });
+  // N142: il SW non forza più il reload (perdita di form non salvati). Quando
+  // una nuova versione si attiva ci invia 'SW_UPDATED' → avviso non bloccante,
+  // l'utente ricarica quando ha salvato. Il nuovo JS è già servito network-first.
+  let swUpdateNotified = false;
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data?.type === 'SW_UPDATED' && !swUpdateNotified) {
+      swUpdateNotified = true;
+      toast('Nuova versione disponibile: ricarica la pagina per aggiornare.', 'info', 15000);
+    }
+  });
 }
 
 $('#logout-btn').addEventListener('click', async () => {

@@ -48,19 +48,18 @@ function sanitize(raw) {
 // di quel criterio, poi applica il metodo della fase (aritmetica/olimpica/...).
 export function mediaCandidatoSuCriterio(valutazioni, fase, criterioKey) {
   const metodo = getMetodoMedia(fase);
+  // N143: includere TUTTI i commissari che hanno valutato il candidato (coerente
+  // con mediaCandidato in scoring.js); un criterio non votato da un commissario
+  // conta 0 invece di escluderlo dal set. Prima si filtravano i soli commissari
+  // con voto su QUESTO criterio → il set "effettivo" differiva dalla media
+  // principale e il tiebreak poteva non corrispondere logicamente allo score.
   const byCom = new Map();
   for (const v of valutazioni) {
-    if (v.criterio !== criterioKey) continue;
-    const arr = byCom.get(v.commissario_id) || [];
-    arr.push(Number(v.voto) || 0);
-    byCom.set(v.commissario_id, arr);
+    if (!byCom.has(v.commissario_id)) byCom.set(v.commissario_id, 0);
+    // Ultimo voto vince (come saveValutazione) se ci sono duplicati sullo stesso criterio.
+    if (v.criterio === criterioKey) byCom.set(v.commissario_id, Number(v.voto) || 0);
   }
-  const totals = [];
-  for (const voti of byCom.values()) {
-    // Se ci sono più voti dello stesso commissario per lo stesso criterio
-    // (non dovrebbe succedere) prendi l'ultimo: è il behaviour di saveValutazione.
-    totals.push(voti[voti.length - 1]);
-  }
+  const totals = [...byCom.values()];
   if (totals.length === 0) return 0;
   return computeAggregate(totals, metodo);
 }

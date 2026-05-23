@@ -38,11 +38,13 @@ self.addEventListener('activate', (event) => {
     const keys = await caches.keys();
     await Promise.all(keys.filter(k => k !== STATIC_CACHE).map(k => caches.delete(k)));
     await self.clients.claim();
-    // Forza il reload delle tab attive così l'utente vede subito la nuova versione
-    // del JS senza dover fare hard-refresh manuale.
+    // N142: NON forzare il reload (c.navigate) — farebbe perdere form non
+    // salvati (candidato, import CSV, verbale, voti). Notifichiamo le tab; il
+    // client mostra un avviso non bloccante e l'utente ricarica quando ha
+    // salvato. Il nuovo JS è comunque servito network-first al prossimo refresh.
     const clients = await self.clients.matchAll({ type: 'window' });
     for (const c of clients) {
-      try { c.navigate(c.url); } catch { /* alcune origin non lo permettono */ }
+      try { c.postMessage({ type: 'SW_UPDATED', version: VERSION }); } catch { /* noop */ }
     }
   })());
 });

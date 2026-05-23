@@ -471,8 +471,12 @@ export function openImportModal(concorso, kind, onSaved) {
           } else {
             // Nuovo modello: l'import popola l'anagrafica per-tenant. Se richiesto,
             // la stessa transazione lo assegna al concorso corrente.
+            // N139: db.createCommissario destruttura `concorso_id` (singolare),
+            // non `concorsi_ids` → prima il campo era ignorato e la create
+            // falliva ("concorso_id richiesto"). L'API richiede un concorsoId,
+            // quindi assegniamo al concorso corrente quando il checkbox è attivo.
             const created = await db.createCommissario({
-              concorsi_ids: assignToConcorso ? [concorso.id] : [],
+              concorso_id: assignToConcorso ? concorso.id : null,
               ...p.data,
             });
             void created;
