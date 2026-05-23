@@ -87,6 +87,60 @@ jobs:
         run: npm run lint
 
   # ---------------------------------------------------------------------------
+  # 3b) Test server (integrazione): Postgres 18 reale → bootstrap + setup +
+  #     seed + suite completa (rls/auth/crud/realtime). uuidv7() richiede PG18.
+  # ---------------------------------------------------------------------------
+  server-tests:
+    name: Server tests (Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL_BOOTSTRAP: postgres://postgres:postgres@localhost:5432/postgres
+      DATABASE_URL_APP: postgres://gestimus_app:devpassword@localhost:5432/gestimus
+      DATABASE_URL_SUPER: postgres://gestimus_super:devpassword@localhost:5432/gestimus
+      SESSION_COOKIE_SECRET: ci-secret-min-32-chars-long-aaaaaaaaaaaa
+      GESTIMUS_SECRET_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      NODE_ENV: test
+      LOG_LEVEL: error
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: server/package-lock.json
+      - name: Install deps
+        working-directory: server
+        run: npm ci
+      - name: Bootstrap DB (ruoli + database)
+        working-directory: server
+        run: npm run db:bootstrap
+      - name: Setup schema + policies RLS
+        working-directory: server
+        # stdin da /dev/null: drizzle-kit push non resta in attesa di conferma
+        # interattiva su un DB vuoto (nessun prompt atteso, ma è difensivo).
+        run: npm run db:setup < /dev/null
+      - name: Seed dati demo
+        working-directory: server
+        run: npm run db:seed
+      - name: Run test suite
+        working-directory: server
+        run: npm test
+
+  # ---------------------------------------------------------------------------
   # 4) Migrazioni SQL incrementali: pattern + ordine progressivo
   # ---------------------------------------------------------------------------
   validate-migrations:

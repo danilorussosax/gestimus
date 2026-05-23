@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import type { FastifyInstance } from 'fastify';
 import { readFile, stat, unlink, utimes, writeFile, readdir, mkdir } from 'node:fs/promises';
 import { gunzipSync } from 'node:zlib';
+import { createDecipheriv, createHash } from 'node:crypto';
 import { resolve, join } from 'node:path';
 import { eq, like } from 'drizzle-orm';
 import { createApp } from '../../src/app.js';
@@ -97,17 +98,30 @@ describe('Cleanup tenant + backup pre-hard-delete (Fase 6 traccia B)', () => {
     await app.close();
   });
 
-  test('backupTenant produce un file gzip parsabile con i dati attesi', async () => {
+  test('backupTenant produce un file cifrato AES-256-GCM decifrabile coi dati attesi', async () => {
     const result = await backupTenant(tenantId);
-    assert.ok(result.path.endsWith('.json.gz'), 'estensione corretta');
+    // C13: il backup è cifrato → estensione .json.gz.enc, format 2.
+    assert.ok(result.path.endsWith('.json.gz.enc'), 'estensione cifrata corretta');
     const st = await stat(result.path);
     assert.ok(st.size > 0, 'file non vuoto');
     assert.equal(result.tableCounts.accounts, 1, 'backup contiene il singolo account');
     assert.equal(result.tableCounts.concorsi, 1, 'backup contiene il singolo concorso');
 
+    // Decifra: [1 byte version][12 IV][16 tag][ciphertext = gzip(json)].
+    const hex = process.env.GESTIMUS_SECRET_KEY!;
+    const key = /^[0-9a-fA-F]{64}$/.test(hex)
+      ? Buffer.from(hex, 'hex')
+      : createHash('sha256').update(hex).digest();
     const buf = await readFile(result.path);
-    const json = JSON.parse(gunzipSync(buf).toString('utf8'));
-    assert.equal(json.format, 1);
+    assert.equal(buf[0], 0x02, 'version byte = 2');
+    const iv = buf.subarray(1, 13);
+    const tag = buf.subarray(13, 29);
+    const ciphertext = buf.subarray(29);
+    const decipher = createDecipheriv('aes-256-gcm', key, iv);
+    decipher.setAuthTag(tag);
+    const gz = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+    const json = JSON.parse(gunzipSync(gz).toString('utf8'));
+    assert.equal(json.format, 2);
     assert.equal(json.tenantSlug, slug);
     assert.ok(Array.isArray(json.tables.accounts));
     assert.equal(json.tables.accounts.length, 1);

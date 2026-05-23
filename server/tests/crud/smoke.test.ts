@@ -125,7 +125,9 @@ describe('CRUD smoke (ente1)', () => {
     assert.equal(cf.statusCode, 201);
     const candidatoFase = cf.json();
 
-    // Valutazione (clamp test: voto > scala viene clampato a 100)
+    // Valutazione (clamp test: voto entro zod-max ma > scala → clampato a 100).
+    // N15: 9999 sarebbe rifiutato dall'API (max 1000); usiamo 1000 che passa la
+    // validazione ma viene clampato dal trigger alla scala della fase (100).
     const v = await app.inject({
       method: 'POST',
       url: '/api/valutazioni',
@@ -134,7 +136,7 @@ describe('CRUD smoke (ente1)', () => {
         candidatoFaseId: candidatoFase.id,
         commissarioId: commissario.id,
         criterio: 'Tecnica',
-        voto: 9999,
+        voto: 1000,
       },
     });
     assert.equal(v.statusCode, 201);

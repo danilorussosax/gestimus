@@ -598,10 +598,11 @@ export const valutazioni = pgTable(
       .notNull()
       .references(() => commissari.id, { onDelete: 'cascade' }),
     criterio: text('criterio').notNull(),
-    // numeric(5,2) per supportare voti decimali (es. mezzi punti su scala ≤10
-    // dove voteStep=0.5). mode:'number' fa sì che node-postgres deserializzi
-    // come number JS invece di string (default per numeric in pg).
-    voto: numeric('voto', { precision: 5, scale: 2, mode: 'number' }).notNull(),
+    // numeric(6,2): voti decimali (mezzi punti su scala ≤10) fino a 9999.99.
+    // precision 6 (non 5) perché la scala può arrivare a 1000 e un voto può
+    // eguagliarla → numeric(5,2) (max 999.99) andava in overflow prima del
+    // clamp trigger. mode:'number' → deserializza come number JS.
+    voto: numeric('voto', { precision: 6, scale: 2, mode: 'number' }).notNull(),
     note: text('note'),
     timestamp: timestamp('timestamp', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

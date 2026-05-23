@@ -96,28 +96,63 @@ describe('DB triggers (clamp + freeze + audit append-only)', () => {
     };
   }
 
-  test('clamp voto: 9999 → scala (100) via trigger DB', async () => {
+  // N15: l'API ora valida voto con zod .min(0).max(1000). Valori entro questo
+  // range ma oltre la scala vengono clampati dal trigger DB; valori fuori range
+  // sono rifiutati con 400 dall'API prima di toccare il DB.
+  test('clamp voto: 1000 (entro zod) > scala (100) → clampato a 100 dal trigger', async () => {
     const { commissarioId, candidatoFaseId } = await setupFlow(100);
     const v = await app.inject({
       method: 'POST',
       url: '/api/valutazioni',
       headers: hdrs(),
-      payload: { candidatoFaseId, commissarioId, criterio: 'Tecnica', voto: 9999 },
+      payload: { candidatoFaseId, commissarioId, criterio: 'Tecnica', voto: 1000 },
     });
     assert.equal(v.statusCode, 201);
     assert.equal(v.json().voto, 100);
   });
 
-  test('clamp voto: -50 → 0 via trigger DB', async () => {
+  test('N15: voto fuori range zod (9999 / -50) → 400 dall\'API', async () => {
     const { commissarioId, candidatoFaseId } = await setupFlow(100);
-    const v = await app.inject({
+    const high = await app.inject({
+      method: 'POST',
+      url: '/api/valutazioni',
+      headers: hdrs(),
+      payload: { candidatoFaseId, commissarioId, criterio: 'Tecnica', voto: 9999 },
+    });
+    assert.equal(high.statusCode, 400);
+    const low = await app.inject({
       method: 'POST',
       url: '/api/valutazioni',
       headers: hdrs(),
       payload: { candidatoFaseId, commissarioId, criterio: 'Tecnica', voto: -50 },
     });
-    assert.equal(v.statusCode, 201);
-    assert.equal(v.json().voto, 0);
+    assert.equal(low.statusCode, 400);
+  });
+
+  test('clamp trigger (defense-in-depth) su INSERT diretto bypassando l\'API', async () => {
+    const { commissarioId, candidatoFaseId } = await setupFlow(100);
+    // Insert diretto via dbSuper (bypassa zod). Il trigger clamp_voto deve
+    // normalizzare: -50 → 0, 9999 → scala (100). Il CHECK voto>=0 (N41) passa
+    // perché il trigger BEFORE INSERT clampa prima della validazione.
+    const tid = await dbSuper.execute(sql`SELECT id FROM tenants WHERE slug='ente1'`);
+    const tenantId = (tid.rows as Array<{ id: string }>)[0]!.id;
+    await dbSuper.execute(sql`
+      INSERT INTO valutazioni (tenant_id, candidato_fase_id, commissario_id, criterio, voto)
+      VALUES (${tenantId}::uuid, ${candidatoFaseId}::uuid, ${commissarioId}::uuid, 'TrigLow', -50)
+    `);
+    await dbSuper.execute(sql`
+      INSERT INTO valutazioni (tenant_id, candidato_fase_id, commissario_id, criterio, voto)
+      VALUES (${tenantId}::uuid, ${candidatoFaseId}::uuid, ${commissarioId}::uuid, 'TrigHigh', 9999)
+    `);
+    const res = await dbSuper.execute(sql`
+      SELECT criterio, voto FROM valutazioni
+      WHERE candidato_fase_id=${candidatoFaseId}::uuid AND criterio IN ('TrigLow','TrigHigh')
+    `);
+    const byCrit = Object.fromEntries(
+      (res.rows as Array<{ criterio: string; voto: string }>).map((r) => [r.criterio, Number(r.voto)]),
+    );
+    assert.equal(byCrit['TrigLow'], 0, 'trigger clampa -50 → 0');
+    assert.equal(byCrit['TrigHigh'], 100, 'trigger clampa 9999 → scala 100');
   });
 
   test('clamp voto rispetta scala diversa: scala=10, voto=20 → 10', async () => {
@@ -133,6 +168,8 @@ describe('DB triggers (clamp + freeze + audit append-only)', () => {
 
   test('freeze: dopo /fasi/:id/conclude, INSERT valutazione → 409', async () => {
     const { faseId, commissarioId, candidatoFaseId } = await setupFlow(100);
+    // N21: la fase va avviata prima di poter essere conclusa.
+    await app.inject({ method: 'POST', url: `/api/fasi/${faseId}/start`, headers: hdrs(), payload: {} });
     // Inserisce una valutazione valida
     await app.inject({
       method: 'POST',
@@ -160,6 +197,7 @@ describe('DB triggers (clamp + freeze + audit append-only)', () => {
 
   test('freeze: PATCH valutazione su fase CONCLUSA → 409', async () => {
     const { faseId, commissarioId, candidatoFaseId } = await setupFlow(100);
+    await app.inject({ method: 'POST', url: `/api/fasi/${faseId}/start`, headers: hdrs(), payload: {} });
     const v = await app.inject({
       method: 'POST',
       url: '/api/valutazioni',
@@ -184,6 +222,7 @@ describe('DB triggers (clamp + freeze + audit append-only)', () => {
 
   test('fase CONCLUSA non può tornare a IN_CORSO via /start', async () => {
     const { faseId } = await setupFlow(100);
+    await app.inject({ method: 'POST', url: `/api/fasi/${faseId}/start`, headers: hdrs(), payload: {} });
     await app.inject({
       method: 'POST',
       url: `/api/fasi/${faseId}/conclude`,
@@ -196,14 +235,21 @@ describe('DB triggers (clamp + freeze + audit append-only)', () => {
       headers: hdrs(),
       payload: {},
     });
-    // Il trigger no-resurrection solleva → 500 generic, validiamo che NON sia 200
+    // N21: /start su CONCLUSA → 409 (validazione transizione). Comunque non 200.
     assert.notEqual(res.statusCode, 200);
   });
 
+  // C7: gestimus_app non ha più grant su `tenants` → l'id tenant va risolto via
+  // dbSuper, poi passato come literal ad app_set_tenant nella tx applicativa.
+  async function ente1TenantId(): Promise<string> {
+    const r = await dbSuper.execute(sql`SELECT id FROM tenants WHERE slug='ente1'`);
+    return (r.rows as Array<{ id: string }>)[0]!.id;
+  }
+
   test('audit_log: UPDATE rifiutato dal grant', async () => {
+    const tenantId = await ente1TenantId();
     const rows = await dbApp.transaction(async (tx) => {
-      // Set tenant per RLS
-      await tx.execute(sql`SELECT app_set_tenant((SELECT id FROM tenants WHERE slug='ente1')::uuid)`);
+      await tx.execute(sql`SELECT app_set_tenant(${tenantId}::uuid)`);
       return tx.select().from(auditLog).limit(1);
     });
     if (rows.length === 0) return; // skip se vuoto
@@ -211,7 +257,7 @@ describe('DB triggers (clamp + freeze + audit append-only)', () => {
     await assert.rejects(
       async () =>
         dbApp.transaction(async (tx) => {
-          await tx.execute(sql`SELECT app_set_tenant((SELECT id FROM tenants WHERE slug='ente1')::uuid)`);
+          await tx.execute(sql`SELECT app_set_tenant(${tenantId}::uuid)`);
           await tx.execute(sql`UPDATE audit_log SET action='tampered' WHERE id=${rows[0]!.id}`);
         }),
       pgErrorMatching(/permission denied/i),
@@ -220,12 +266,13 @@ describe('DB triggers (clamp + freeze + audit append-only)', () => {
   });
 
   test('audit_log: DELETE rifiutato dal grant', async () => {
+    const tenantId = await ente1TenantId();
     const rows = await dbSuper.select().from(auditLog).limit(1);
     if (rows.length === 0) return;
     await assert.rejects(
       async () =>
         dbApp.transaction(async (tx) => {
-          await tx.execute(sql`SELECT app_set_tenant((SELECT id FROM tenants WHERE slug='ente1')::uuid)`);
+          await tx.execute(sql`SELECT app_set_tenant(${tenantId}::uuid)`);
           await tx.execute(sql`DELETE FROM audit_log WHERE id=${rows[0]!.id}`);
         }),
       pgErrorMatching(/permission denied/i),
