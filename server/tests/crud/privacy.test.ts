@@ -5,7 +5,7 @@ import { and, eq, like } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { createApp } from '../../src/app.js';
 import { dbSuper } from '../../src/db/client.js';
-import { auditLog, commissari, concorsi } from '../../src/db/schema.js';
+import { auditLog, commissari, concorsi, tenants } from '../../src/db/schema.js';
 
 describe('GDPR privacy endpoints', () => {
   let app: FastifyInstance;
@@ -97,15 +97,12 @@ describe('GDPR privacy endpoints', () => {
 
   test('N183: erase per email redige la PII (email) dai payload storici dell audit_log', async () => {
     const targetEmail = 'n183-forget@test.local';
-    // Crea un concorso per ricavare il tenantId di ente1 (via dbSuper).
-    const c = await app.inject({
-      method: 'POST', url: '/api/concorsi', headers: hdrs(),
-      payload: { nome: `Erase Test N183 ${Date.now()}`, anno: 2026 },
-    });
+    // tenantId di ente1 letto direttamente (robusto: nessuna creazione di
+    // risorse che potrebbe fallire sotto carico parallelo dei test).
     const tenantId = (await dbSuper
-      .select({ tenantId: concorsi.tenantId })
-      .from(concorsi)
-      .where(eq(concorsi.id, c.json().id)))[0]!.tenantId;
+      .select({ id: tenants.id })
+      .from(tenants)
+      .where(eq(tenants.slug, 'ente1')))[0]!.id;
 
     // Voce audit STORICA con l'email nel payload (come iscrizione.create_public).
     await dbSuper.insert(auditLog).values({
