@@ -62,6 +62,12 @@ export function tenantUploadDir(tenantSlug: string, resource: ResourceKind, id: 
   // ma normalizziamo come difesa-in-profondità
   const safeSlug = tenantSlug.replace(/[^a-z0-9-]/gi, '');
   const safeId = id.replace(/[^a-zA-Z0-9-]/g, '');
+  // M198: se dopo la sanitizzazione slug o id risultano vuoti, il path
+  // collasserebbe nella directory padre (file senza sottocartella UUID).
+  // id/slug sono già validati a monte, ma blindiamo comunque.
+  if (!safeSlug || !safeId) {
+    throw Object.assign(new Error('tenant/id non validi per il path di upload'), { code: 'INVALID_PATH' });
+  }
   return resolve(uploadsRoot(), safeSlug, resource, safeId);
 }
 

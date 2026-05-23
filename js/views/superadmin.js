@@ -325,8 +325,11 @@ function renderKPI(main) {
   const sysValue = sys
     ? `${rssMb < 1024 ? rssMb.toFixed(0) + ' MB' : (rssMb / 1024).toFixed(2) + ' GB'} · CPU ${typeof cpuPct === 'number' ? cpuPct.toFixed(1) : '—'}%`
     : 'n/d';
-  const loadAvgSysPct = cores > 0
-    ? Math.round((sys.cpu.loadAvg1 / cores) * 100)
+  // M212: guard su loadAvg1 → un valore non finito darebbe NaN, che `?? '—'`
+  // NON intercetta (?? cattura solo null/undefined).
+  const loadAvg1 = sys?.cpu?.loadAvg1;
+  const loadAvgSysPct = cores > 0 && Number.isFinite(loadAvg1)
+    ? Math.round((loadAvg1 / cores) * 100)
     : null;
   const sysSub = sys
     ? `heap ${(sys.memory.heapUsed / (1024 * 1024)).toFixed(0)}/${(sys.memory.heapTotal / (1024 * 1024)).toFixed(0)} MB · ${cores} core · load sistema ${loadAvgSysPct ?? '—'}% (media 60s) · up ${fmtUptime(sys.uptimeSec)}`

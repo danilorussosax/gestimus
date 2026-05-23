@@ -216,7 +216,10 @@ export async function listBackups(): Promise<BackupListEntry[]> {
       });
     }
     return entries.sort((a, b) => (a.modifiedAt < b.modifiedAt ? 1 : -1));
-  } catch {
+  } catch (err) {
+    // M203: non mascherare del tutto — un errore di permessi/disco va segnalato
+    // (altrimenti l'admin vede "nessun backup" invece dell'errore reale).
+    console.error('[backup] listBackups failed:', err instanceof Error ? err.message : err);
     return [];
   }
 }
