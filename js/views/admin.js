@@ -47,7 +47,7 @@ export function renderAdmin(root) {
   const commCount = db.commissioniByConcorso(concorso.id).length;
   const presidente = db.getPresidenteFor(concorso.id);
   // Reset stale activeTab (e.g., from a previous session)
-  if (!['dashboard','fasi','candidati','commissari','sezioni','commissioni','iscrizioni','risultati','audit','impostazioni-concorso'].includes(activeTab)) activeTab = 'dashboard';
+  if (!['dashboard','fasi','candidati','commissari','sezioni','commissioni','iscrizioni','calendario','risultati','audit','impostazioni-concorso'].includes(activeTab)) activeTab = 'dashboard';
 
   root.innerHTML = `
     <section class="view-fade c-page">
