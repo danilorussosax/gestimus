@@ -12,7 +12,6 @@
 // di conferma). Se l'ha smarrito può richiedere un nuovo invio.
 
 import { db } from '../db.js';
-import { pb } from '../pb.js';
 import { escapeHtml, toast } from '../utils.js';
 import { icon } from '../icons.js';
 
@@ -24,14 +23,9 @@ export async function renderPrivacy(root) {
 
   // Carica branding pubblico (per logo+nome)
   const brand = db.getEntePublic();
-  // Carica dati informativa: enti_public è limitato. Per i campi GDPR completi
-  // tentiamo una read della collection `enti` (richiede auth → fallisce per
-  // utenti anonimi → fallback su valori generici).
-  let ente = null;
-  try {
-    const r = await pb.collection('enti').getList(1, 1);
-    ente = r.items[0] || null;
-  } catch { /* anonimo: niente accesso a enti privato */ }
+  // I campi privacy estesi (titolare, DPO, retention, ecc.) non sono ancora
+  // esposti da endpoint pubblici: usiamo i fallback applicativi qui sotto.
+  const ente = null;
 
   // Calcolo "ultimo aggiornamento"
   const aggIso = ente?.privacy_aggiornata_il || null;
@@ -113,7 +107,7 @@ export async function renderPrivacy(root) {
         <ul class="ml-5 list-disc space-y-1">
           <li>Commissari di gara designati dal Titolare</li>
           <li>Personale amministrativo del Titolare</li>
-          <li>Responsabili esterni: fornitore di hosting (PocketBase su VPS IONOS), servizio email transazionale (SMTP del Titolare)</li>
+          <li>Responsabili esterni: fornitore di hosting VPS, servizio email transazionale (SMTP del Titolare)</li>
           <li>Autorità (su richiesta motivata)</li>
         </ul>
         <p class="mt-2 text-xs text-slate-600">Nessuna profilazione automatizzata, nessun trasferimento extra-UE.</p>
@@ -239,7 +233,7 @@ function renderDiritti(root) {
     const token = tokenIn.value.trim();
     if (!token || token.length < 8) { toast('Inserisci un token valido', 'error'); return; }
     try {
-      const res = await fetch(`${pb.baseUrl}/api/privacy/export?t=${encodeURIComponent(token)}`);
+      const res = await fetch(`/api/privacy/export?t=${encodeURIComponent(token)}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       // Download JSON + visualizzazione
@@ -273,7 +267,7 @@ function renderDiritti(root) {
     const typed = prompt(`Per confermare la cancellazione PERMANENTE digita esattamente:\n\n${phrase}`);
     if (typed !== phrase) { toast('Cancellazione annullata', 'info'); return; }
     try {
-      const res = await fetch(`${pb.baseUrl}/api/privacy/erase?t=${encodeURIComponent(token)}`, { method: 'DELETE' });
+      const res = await fetch(`/api/privacy/erase?t=${encodeURIComponent(token)}`, { method: 'DELETE' });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       resultEl.classList.remove('hidden');

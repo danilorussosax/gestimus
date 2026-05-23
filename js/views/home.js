@@ -1,8 +1,6 @@
 import { db } from '../db.js';
 import { escapeHtml, displayName, toast } from '../utils.js';
 import { pb, PB_URL } from '../pb.js';
-// migrate.js (legacy localStorage → PocketBase) non è più necessario nel
-// nuovo stack Postgres: la home non offre più la migrazione.
 import { icon } from '../icons.js';
 import { t } from '../i18n.js';
 import { setAdminTab } from './admin.js';

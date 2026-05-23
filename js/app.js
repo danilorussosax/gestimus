@@ -1,4 +1,4 @@
-// Main app router and state wiring (PocketBase-backed runtime).
+// Main app router and state wiring (Fastify + Postgres backend via /api).
 import { db, subscribe } from './db.js';
 import { $, $$, toast, displayName, escapeHtml } from './utils.js';
 import { pb, PB_URL } from './pb.js';

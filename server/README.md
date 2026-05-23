@@ -2,7 +2,7 @@
 
 Backend di produzione. Per il contesto strategico e il piano di migrazione storico, vedi [`../docs/MIGRATION_POSTGRES.md`](../docs/MIGRATION_POSTGRES.md).
 
-**Status:** stack stabilizzato. Migrazione completa da PocketBase. UI super-admin con metriche realtime. Schema iscrizioni esteso. Permessi per-fase granulari (admin + presidente di commissione).
+**Status:** stack stabilizzato sul nuovo backend Postgres + Fastify + Drizzle. UI super-admin con metriche realtime. Schema iscrizioni esteso. Permessi per-fase granulari (admin + presidente di commissione).
 
 ## Stack
 

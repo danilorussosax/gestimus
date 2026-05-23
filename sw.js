@@ -1,9 +1,9 @@
 // Service Worker — strategia ibrida.
 // - Asset statici (HTML/CSS/JS/immagini): cache-first con revalidate (stale-while-revalidate).
-// - API PocketBase (qualunque cosa con :8090 o /api/): network-only (mai cache — i dati sono live).
+// - API (qualunque cosa sotto /api/): network-only (mai cache — i dati sono live).
 // - Navigation fallback: serve index.html dalla cache se offline.
 
-const VERSION = 'gc-v11';
+const VERSION = 'gc-v12';
 const STATIC_CACHE = `static-${VERSION}`;
 const PRECACHE = [
   './',
@@ -11,10 +11,9 @@ const PRECACHE = [
   './css/styles.css',
   './js/app.js',
   './js/db.js',
-  './js/pb.js',
+  './js/api.js',
   './js/utils.js',
   './js/scoring.js',
-  './js/migrate.js',
   './js/palette.js',
   './js/views/home.js',
   './js/views/login.js',
@@ -49,8 +48,8 @@ self.addEventListener('activate', (event) => {
 });
 
 function isApi(url) {
-  // PocketBase è su :8090 di default; tolleriamo anche /api/ per reverse proxy futuri.
-  return url.port === '8090' || url.pathname.startsWith('/api/') || url.pathname.startsWith('/_/');
+  // Backend Fastify same-origin sotto /api/. /_/ tollerato per asset privati.
+  return url.pathname.startsWith('/api/') || url.pathname.startsWith('/_/');
 }
 
 self.addEventListener('fetch', (event) => {
@@ -58,11 +57,11 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return; // mutazioni: lasciamo fare alla rete
   const url = new URL(req.url);
 
-  // PocketBase API (anche cross-origin): mai dalla cache. La auth filtra le rule
-  // server-side, quindi servire risposte cached produrrebbe stato stale per ruolo.
+  // API: mai dalla cache. La auth filtra server-side, quindi servire risposte
+  // cached produrrebbe stato stale per ruolo.
   if (isApi(url)) return;
 
-  // Solo same-origin per assets, escludi PocketBase e CDN che vogliamo sempre freschi
+  // Solo same-origin per assets; CDN cross-origin (Tailwind/jspdf) cache-first
   if (url.origin !== self.location.origin) {
     // Tailwind/jspdf/etc da CDN: cache-first con fallback rete
     event.respondWith(

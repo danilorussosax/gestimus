@@ -222,7 +222,7 @@ export function ageFromDate(iso) {
 
 export function displayName(cand) {
   if (!cand) return '—';
-  if (cand.tipo === 'gruppo') return cand.nome || '—';
+  if (cand.tipo === 'gruppo' || cand.tipo === 'orchestra') return cand.nome || '—';
   return `${cand.nome || ''} ${cand.cognome || ''}`.trim() || '—';
 }
 

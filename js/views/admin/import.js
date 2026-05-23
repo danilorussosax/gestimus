@@ -177,9 +177,10 @@ function buildImportRow(kind, headerMap, rawRow, concorso) {
     }
   }
 
-  // Per i gruppi (kind=candidati, tipo=gruppo) il cognome e la data di nascita
-  // non sono richiesti — il "candidato" è l'ensemble nel suo complesso.
-  const requiredForRow = kind === 'candidati' && out.tipo === 'gruppo'
+  // Per i gruppi/orchestre (kind=candidati, tipo=gruppo|orchestra) il cognome
+  // e la data di nascita non sono richiesti — il "candidato" è l'ensemble nel
+  // suo complesso.
+  const requiredForRow = kind === 'candidati' && (out.tipo === 'gruppo' || out.tipo === 'orchestra')
     ? ['nome', 'strumento']
     : IMPORT_REQUIRED[kind];
   requiredForRow.forEach(f => {

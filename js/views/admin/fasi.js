@@ -622,6 +622,24 @@ function openFaseForm(concorso, fase, onSaved, defaults = null) {
             })}
           </div>
 
+          <!-- Testi custom esito (PDF protocollo + tab Risultati) -->
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+            <label class="c-field">
+              <span class="c-field__label">Testo esito "ammesso"</span>
+              <input name="testo_esito_promosso" class="c-input" maxlength="80"
+                     value="${escapeHtml(f.testo_esito_promosso || '')}"
+                     placeholder="es. AMMESSO ALLA SEMIFINALE" />
+              <span class="text-[11px] text-slate-500 mt-1 block">Testo mostrato nella colonna esito per i candidati ammessi alla fase successiva. Vuoto = default "PROMOSSO".</span>
+            </label>
+            <label class="c-field">
+              <span class="c-field__label">Testo esito "eliminato"</span>
+              <input name="testo_esito_eliminato" class="c-input" maxlength="80"
+                     value="${escapeHtml(f.testo_esito_eliminato || '')}"
+                     placeholder="es. NON AMMESSO" />
+              <span class="text-[11px] text-slate-500 mt-1 block">Testo mostrato per i non ammessi. Vuoto = default "ELIMINATO".</span>
+            </label>
+          </div>
+
           <!-- Modalità di valutazione: scelta cruciale, mostrata come due radio-card -->
           <p class="c-field__label mb-2">Modalità di valutazione</p>
           <input type="hidden" name="modo_valutazione" value="${f.modo_valutazione === 'sincrona' ? 'sincrona' : 'autonoma'}" />
@@ -821,6 +839,8 @@ function openFaseForm(concorso, fase, onSaved, defaults = null) {
         ? sezHiddenEl.value.split(',').filter(Boolean)
         : [];
       const commissione_id = body.querySelector('[name="commissione_id"]')?.value || null;
+      const testo_esito_promosso = (body.querySelector('[name="testo_esito_promosso"]')?.value || '').trim();
+      const testo_esito_eliminato = (body.querySelector('[name="testo_esito_eliminato"]')?.value || '').trim();
       if (!nome) { toast(t('admin.fase.required_nome') || 'Il nome è obbligatorio', 'error'); return false; }
 
       const criteriParsed = Array.from(body.querySelectorAll('[data-criterio-row]')).map((row, i) => {
@@ -853,7 +873,7 @@ function openFaseForm(concorso, fase, onSaved, defaults = null) {
       }
 
       try {
-        const payload = { nome, scala, tempo_minuti, ammessi, data_prevista, modo_valutazione, metodo_media, criteri: criteriParsed, sezioni_ids, commissione_id, tiebreak_strategy };
+        const payload = { nome, scala, tempo_minuti, ammessi, data_prevista, modo_valutazione, metodo_media, criteri: criteriParsed, sezioni_ids, commissione_id, tiebreak_strategy, testo_esito_promosso, testo_esito_eliminato };
         if (isEdit) {
           await db.updateFase(fase.id, payload);
           toast(t('admin.fase.updated') || 'Fase aggiornata', 'success');

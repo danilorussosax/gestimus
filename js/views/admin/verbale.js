@@ -609,7 +609,7 @@ async function exportProgrammaPdf(concorso, fase) {
       y = margin;
     }
     const cand = candById[cf.candidato_id];
-    const isGruppo = cand?.tipo === 'gruppo';
+    const isGruppo = cand?.tipo === 'gruppo' || cand?.tipo === 'orchestra';
     const nomeDisplay = isGruppo ? (cand?.nome || '—') : `${cand?.nome || '—'} ${cand?.cognome || ''}`.trim();
     const bg = i % 2 === 0 ? '#F8F9FC' : '#FFFFFF';
     doc.setFillColor(...hexToRgb(bg));

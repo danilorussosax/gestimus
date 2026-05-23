@@ -8,7 +8,7 @@ on:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # 1) Sintassi JavaScript: tutti i .js dell'app (frontend + migration + hooks)
+  # 1) Sintassi JavaScript: tutti i .js dell'app (frontend vanilla)
   # ---------------------------------------------------------------------------
   lint-js:
     name: Lint JavaScript (syntax)
@@ -17,13 +17,13 @@ jobs:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '22'
 
       - name: Check syntax di tutti i file JS
         run: |
           set -e
           FAIL=0
-          # Esclude node_modules e pocketbase/ (binari)
+          # Esclude node_modules, pocketbase/ (binari legacy), test-results, server/ (TypeScript)
           while IFS= read -r f; do
             if ! node --check "$f"; then
               echo "::error file=$f::Syntax error"
@@ -32,6 +32,7 @@ jobs:
           done < <(find . -type f -name "*.js" \
             -not -path "./node_modules/*" \
             -not -path "./pocketbase/*" \
+            -not -path "./server/node_modules/*" \
             -not -path "./test-results/*")
           exit $FAIL
 
@@ -64,61 +65,58 @@ jobs:
           shellcheck --severity=warning --exclude=SC1091,SC2086,SC2034 scripts/*.sh || exit 1
 
   # ---------------------------------------------------------------------------
-  # 3) Migrazioni PocketBase: verifica ordine + idempotenza
+  # 3) Server TypeScript: typecheck (Drizzle ORM + Fastify routes)
+  # ---------------------------------------------------------------------------
+  lint-server:
+    name: Lint server (tsc --noEmit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install deps
+        working-directory: server
+        run: npm ci
+
+      - name: Typecheck
+        working-directory: server
+        run: npm run lint
+
+  # ---------------------------------------------------------------------------
+  # 4) Migrazioni SQL incrementali: pattern + ordine progressivo
   # ---------------------------------------------------------------------------
   validate-migrations:
-    name: Validate PocketBase migrations
+    name: Validate SQL migrations
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '20'
 
-      - name: Syntax check + numerazione progressiva
+      - name: Pattern + ordine progressivo
         run: |
           set -e
-          # Le migration devono seguire il pattern 1700000NNN_*.js
-          # e ogni numero deve essere unico e progressivo.
-          PREV=0
-          for f in $(ls pb_migrations/*.js | sort); do
-            base=$(basename "$f" .js)
-            num=$(echo "$base" | grep -oE '^[0-9]+')
-            if [ -z "$num" ]; then
-              echo "::error file=$f::Migration name non rispetta il pattern <numero>_<nome>.js"
+          # Pattern: server/scripts/migrations/YYYY_MM_DD_<descr>.sql
+          # L'ordine è dato dal nome (lessicografico) ed è strettamente crescente.
+          PREV=""
+          COUNT=0
+          shopt -s nullglob
+          for f in $(ls server/scripts/migrations/*.sql 2>/dev/null | sort); do
+            base=$(basename "$f")
+            if ! echo "$base" | grep -qE '^[0-9]{4}_[0-9]{2}_[0-9]{2}_[a-z0-9_]+\.sql$'; then
+              echo "::error file=$f::Migration name non rispetta il pattern YYYY_MM_DD_<descr>.sql"
               exit 1
             fi
-            if [ "$num" -le "$PREV" ]; then
-              echo "::error file=$f::Numero ($num) <= precedente ($PREV) — le migration devono essere progressive"
+            if [ -n "$PREV" ] && [ "$base" \< "$PREV" ]; then
+              echo "::error file=$f::Migration ($base) precede $PREV — le migration devono essere progressive"
               exit 1
             fi
-            PREV=$num
-            node --check "$f" || exit 1
+            PREV=$base
+            COUNT=$((COUNT + 1))
           done
-          echo "✓ ${PREV} - $(ls pb_migrations/*.js | wc -l) migration verificate"
-
-  # ---------------------------------------------------------------------------
-  # 4) Hooks PocketBase: syntax
-  # ---------------------------------------------------------------------------
-  validate-hooks:
-    name: Validate PocketBase hooks
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '20'
-
-      - name: Syntax check pb_hooks/*.js
-        run: |
-          set -e
-          if [ -d pb_hooks ]; then
-            for f in pb_hooks/*.js; do
-              [ -e "$f" ] || continue
-              node --check "$f" || exit 1
-            done
-            echo "✓ $(ls pb_hooks/*.js 2>/dev/null | wc -l) hooks verificati"
-          fi
+          echo "✓ $COUNT migration SQL verificate"
 
   # ---------------------------------------------------------------------------
   # 5) i18n: verifica che tutte le chiavi t() usate siano definite in italiano

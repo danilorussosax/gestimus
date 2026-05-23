@@ -60,9 +60,9 @@ Gestimus distingue tre ruoli nella collezione `accounts`:
 
 ### 1.3 Architettura semplificata
 
-- **Frontend**: applicazione web vanilla JS, SPA con hash-routing (`#/`, `#/admin`, `#/commissario`, `#/iscrizione`). Lavora offline-friendly con sync verso PocketBase via WebSocket.
-- **Backend**: PocketBase 0.21.5 (binario unico, SQLite), con hook server-side in `pb_hooks/*.js` per integrità (clamp voto, fase presidente-only, anti privilege escalation, gating piano SaaS, anti-bot iscrizioni).
-- **Multitenant**: una istanza PocketBase per tenant + un PocketBase "platform" centrale che propaga il piano (vedi `multitenant.md`).
+- **Frontend**: applicazione web vanilla JS, SPA con hash-routing (`#/`, `#/admin`, `#/commissario`, `#/iscrizione`). Service worker per PWA e fallback offline; aggiornamenti realtime via Server-Sent Events.
+- **Backend**: singolo processo Node.js 22 + Fastify 5 + Drizzle ORM su PostgreSQL 16. Integrità garantita da middleware (`assertCanManageFase`, `requireAdmin`), trigger DB (`clamp_voto`, freeze fase CONCLUSA) e validazione Zod sulle route REST.
+- **Multitenant**: un solo processo Node + un solo database Postgres condiviso, con isolamento per `tenant_id` via Row-Level Security. Provisioning/sospensione/archiviazione dei tenant interamente dalla UI super-admin (vedi `docs/MIGRATION_POSTGRES.md` per i dettagli).
 
 ![Schermata di login](./screenshots/01-login.png)
 
@@ -79,7 +79,7 @@ L'accesso avviene dalla pagina pubblica con email + password. Sul lato sinistro 
 3. Cliccare *Accedi*.
 4. Il sistema indirizza automaticamente alla dashboard giusta in base al ruolo: `admin` → home con selettore concorso, `commissario` → vista commissario, `superadmin` → console superadmin.
 
-> **Primo avvio**: se non esiste ancora alcun account admin, sotto al form appare un pannello "Primo avvio" con il comando da terminale `node scripts/create-admin.js admin@esempio.it password123 Mario Rossi`. Una volta creato il primo admin, il pannello scompare.
+> **Primo avvio**: il primo super-admin si crea via Drizzle direttamente dal database (one-shot durante il provisioning), poi i super-admin successivi si creano dalla console super-admin. L'admin del singolo tenant viene creato dal super-admin tramite UI.
 
 ### 2.2 Gestione account dalla tab "Utenti"
 
@@ -93,13 +93,13 @@ Azioni disponibili per ogni riga:
 - **Reset password** (icona chiave): apre un prompt per inserire la nuova password (minimo 6 caratteri).
 - **Elimina** (icona cestino): rimuove definitivamente l'account.
 
-Per creare un nuovo utente cliccare *Aggiungi utente* in alto a destra. Il sistema impedisce di creare due account con la stessa email (pre-check via filtro PB).
+Per creare un nuovo utente cliccare *Aggiungi utente* in alto a destra. Il sistema impedisce di creare due account con la stessa email (vincolo unique su `accounts.email` lato DB).
 
 ### 2.3 Reset password — come funziona
 
 Il reset password **non passa per email**: la collezione `accounts` è gestita dall'admin del tenant, che imposta direttamente la nuova password. Operazione registrata nell'audit (`account.password_reset`).
 
-> **Avvertenza**: PocketBase 0.22 richiede `oldPassword` per la modifica via self-service. Per aggirare il vincolo, il reset eseguito dall'admin **cancella e ricrea** il record account. Se la ricreazione fallisce, Gestimus tenta un rollback automatico con password placeholder casuale e logga l'incidente (`account.password_reset_failed`).
+> **Avvertenza**: il reset password eseguito dall'admin aggiorna direttamente l'hash Argon2id sul record `accounts`, senza richiedere la password precedente. Operazione registrata in audit con `account.password_reset` (e `account.password_reset_failed` in caso di errore DB).
 
 ### 2.4 Permessi sintetici
 
@@ -462,7 +462,7 @@ Una fase passa per tre stati: `PIANIFICATA` → `IN_CORSO` → `CONCLUSA`.
 
 **Avvio (`PIANIFICATA` → `IN_CORSO`)**
 
-Solo il **presidente della commissione assegnata** alla fase può avviarla (regola garantita lato server da `pb_hooks/fasi.pb.js`). L'admin può sempre avviare da pannello, ma il presidente è il "driver" in produzione.
+Solo il **presidente della commissione assegnata** alla fase può avviarla (regola garantita lato server dal middleware `assertCanManageFase` in `server/src/routes/fasi.ts`). L'admin può sempre avviare da pannello, ma il presidente è il "driver" in produzione.
 
 All'avvio:
 
@@ -476,7 +476,7 @@ Il presidente, dal suo pannello, vede le statistiche di completamento (candidati
 
 - modale di conferma con stato avanzamento e checkbox di responsabilità ("Confermo di voler chiudere la fase e generare il verbale");
 - al confermare, la fase passa a `CONCLUSA` e il timer condiviso viene azzerato;
-- da quel momento **nessun voto può più essere modificato** (regola garantita server-side da `pb_hooks/valutazioni.pb.js`).
+- da quel momento **nessun voto può più essere modificato** (regola garantita lato DB dal trigger `freeze_valutazioni_on_fase_conclusa`).
 
 ### 7.9 Pre-flight check del presidente
 
@@ -558,7 +558,7 @@ Se `tempo_minuti > 0`, durante la fase IN_CORSO compare un **overlay flottante**
 - countdown HH:MM grande e tabulare;
 - bordo verde (in corso), giallo (in pausa), rosso lampeggiante (scaduto);
 - beep alla scadenza (Web Audio API);
-- visibile a **tutti i commissari**, sincronizzato via PocketBase realtime;
+- visibile a **tutti i commissari**, sincronizzato via Postgres `LISTEN/NOTIFY` + SSE;
 - comandi (*Pausa / Riprendi / +1 min / Reset*) visibili **solo al presidente**.
 
 Il timer si auto-avvia quando il presidente "cambia candidato" (la sua schermata avanza). Il record `fase_runtime` salva `started_at`, `paused_at`, `duration_seconds` e tutti i client lo guardano.
@@ -677,7 +677,7 @@ Per ogni iscrizione l'admin può:
 - **Rifiutare** — chiede motivo, invia email "Aggiornamento sulla tua iscrizione";
 - **Vedere dettaglio** — mostra tutti i campi raccolti, gli allegati, eventuale tutore.
 
-L'hook server `iscrizioni.pb.js` gestisce automaticamente:
+La route `POST /api/public/iscrizioni` (`server/src/routes/iscrizioni.ts`) gestisce automaticamente:
 
 - forza `stato='pending'` in creazione (ignora valori inviati dal client);
 - rigenera `token_verifica` con 40 caratteri crittografici;
@@ -747,7 +747,7 @@ Bottone *Importa*. Modale con:
 - pulsante *Scarica template* (CSV pre-compilato con header e una riga di esempio);
 - separatore auto-rilevato (virgola/tab/punto-virgola);
 - *Anteprima* tabella con check di validità per riga;
-- mappatura colonne sorgente → campi PB modificabile;
+- mappatura colonne sorgente → campi del modello candidato (modificabile);
 - importazione in batch con barra di avanzamento.
 
 Esempio template candidati *(v2.0)*:
@@ -1009,40 +1009,45 @@ Le traduzioni sono in `js/i18n.js` come dizionari per chiave (`SUPPORTED_LANGS =
 
 ## 15. Sicurezza e integrità dati
 
-Gestimus implementa diversi livelli di protezione lato server (hook PocketBase Goja). Riferimento file: `pb_hooks/`.
+Gestimus implementa più livelli di protezione lato server: middleware Fastify (autenticazione, RLS per-tenant, guard di ruolo), trigger DB, vincoli unique e validazione Zod sulle route. Riferimento codice: `server/src/routes/` + `server/src/db/policies.sql`.
 
-### 15.1 Fasi (`fasi.pb.js`)
+### 15.1 Fasi (`server/src/routes/fasi.ts`)
 
-- `onRecordBeforeUpdateRequest`: se l'utente è `commissario`, può modificare la fase **solo se è il presidente** della commissione assegnata. Senza questo controllo, un presidente di Commissione A potrebbe avviare/chiudere una fase di Commissione B con una PATCH diretta;
-- `onRecordBeforeCreateRequest`: la creazione di fasi è riservata a `admin`/`superadmin`.
+- `assertCanManageFase`: per ogni mutazione su una fase (start, stop, sorteggio, timer) verifica che l'utente sia `admin` del tenant **oppure** presidente della commissione assegnata alla fase. Senza questo controllo, un presidente di Commissione A potrebbe avviare/chiudere una fase di Commissione B con una PATCH diretta.
+- La creazione/eliminazione di fasi è riservata ad `admin`/`superadmin` (`requireAdmin`).
 
-### 15.2 Valutazioni (`valutazioni.pb.js`)
+### 15.2 Valutazioni (`server/src/routes/valutazioni.ts` + trigger DB)
 
-- **Clamp voto** in `[0, fase.scala]` (un voto malformato/negativo viene normalizzato);
-- **Blocco modifica** se la fase è `CONCLUSA`: nessun create/update di valutazioni accettato (la fase chiusa è uno "snapshot" inalterabile).
+- **Clamp voto** in `[0, fase.scala]` via trigger `clamp_voto`: un voto malformato/negativo viene normalizzato prima dell'INSERT/UPDATE.
+- **Freeze fase CONCLUSA** via trigger `freeze_valutazioni_on_fase_conclusa`: nessun create/update accettato (la fase chiusa è uno "snapshot" inalterabile).
+- **Unique index** `(candidato_fase, commissario, criterio)` garantisce un solo voto per criterio/commissario.
 
-### 15.3 Accounts (`accounts.pb.js`)
+### 15.3 Accounts (`server/src/routes/auth.ts` + `server/src/routes/admin/accounts.ts`)
 
-Anti **privilege escalation**: se un utente non-admin tenta di modificare il proprio record `accounts`, i campi sensibili (`role`, `attivo`, `commissario`, `email`, `verified`) restano immodificabili. Solo `password`, `nome`, `cognome` sono auto-modificabili.
+Anti **privilege escalation**: i campi sensibili (`role`, `attivo`, `commissario`, `email`, `verified`) sono modificabili solo da un admin del tenant (o superadmin per gli admin). Un commissario può aggiornare solo `password`, `nome`, `cognome`. La creazione di account è chiusa a `requireAdmin`: nessun endpoint pubblico crea account, niente self-signup.
 
-### 15.4 Iscrizioni (`iscrizioni.pb.js`)
+### 15.4 Iscrizioni (`server/src/routes/iscrizioni.ts`)
 
 - forza `stato='pending'` in creazione (ignora valori inviati);
-- rigenera `token_verifica` server-side con `$security.randomString(40)`;
+- rigenera `token_verifica` server-side con `crypto.randomBytes(20).toString('hex')`;
 - azzera campi gestiti solo dall'admin (`approved_*`, `candidato`, `verified_at`, `note_admin`);
 - verifica consensi GDPR obbligatori === true;
 - verifica che il concorso sia ATTIVO + iscrizioni aperte + non scaduto;
 - esige tutore_* per minori di 16 anni;
-- **anti-bot**: honeypot (`website` vuoto) + min time-on-page 5 secondi;
-- **rate-limit**: delegato a nginx (`5r/min/IP`, vedi `deploy/nginx-snippet-rl.conf`).
+- **anti-bot**: honeypot (`website` vuoto) + min time-on-page 5 secondi + rate-limit applicativo (`@fastify/rate-limit`, 3/h e 10/giorno per IP);
+- **rate-limit edge**: vedi anche `deploy/nginx-snippet-rl.conf`.
 
-### 15.5 Tenant config (`tenant_config.pb.js`)
+### 15.5 Plan gating (`server/src/services/plan-gating.ts`)
 
-Gating server-side dei limiti di piano (vedi cap. 12.6). Inoltre espone l'endpoint `POST /api/admin/apply-plan` autenticato via header `X-Gestimus-Key`: lo usa il PocketBase platform per propagare il piano al singolo tenant.
+Middleware che applica i limiti del piano (max enti, max concorsi attivi, max commissari/candidati per concorso) prima delle mutazioni. Le quote sono lette dal record tenant in `tenants.piano` ed espresse in JSONB; il super-admin le modifica dalla UI piattaforma (niente API esterna da chiamare).
 
-### 15.6 Backup
+### 15.6 Row-Level Security (`server/src/db/policies.sql`)
 
-I backup sono responsabilità del setup operativo (vedi `DEPLOY-IONOS.md`). Suggerimento: backup notturni della directory `pb_data/` (SQLite + storage allegati) con rotazione almeno settimanale.
+Ogni connessione applicativa setta `app.tenant_id` (dal sottodominio risolto dal middleware tenant). Le policy RLS filtrano automaticamente ogni `SELECT/INSERT/UPDATE/DELETE` a livello DB: un eventuale bug di route che dimenticasse il filtro `WHERE tenant_id = …` non causa data leak cross-tenant — Postgres rifiuta la query. Il super-admin usa il ruolo `gestimus_super` che bypassa RLS (sa cosa sta facendo).
+
+### 15.7 Backup
+
+Backup quotidiano del database Postgres (logico, `pg_dump`) + filesystem `uploads/<tenant_slug>/` con rotazione almeno settimanale. Vedi `docs/DEPLOY-IONOS.md` per gli script di esempio e la retention pre-hard-delete del soft-delete tenant.
 
 <!-- page-break -->
 
@@ -1083,12 +1088,12 @@ Conviene **concludere la fase corrente, eliminarla, e ricrearla** con la commiss
 
 Verificare in ordine:
 
-1. SMTP configurato nel pannello PocketBase (*Settings → Mail*);
-2. log del PocketBase: cerca `email send failed` (l'hook usa `console.warn`);
+1. SMTP configurato per il tenant dalla console super-admin (*Tenant → Impostazioni → SMTP*); le credenziali sono cifrate at-rest in AES-GCM.
+2. log del server Node (`journalctl -u gestimus -f` su systemd, o `pm2 logs`): cerca `email send failed` / `nodemailer error`;
 3. `senderAddress` non blacklistato dal mail server destinatario;
 4. cartella spam del destinatario.
 
-L'hook `iscrizioni.pb.js` non blocca la creazione dell'iscrizione se l'email fallisce: il record viene salvato comunque e l'admin può approvare manualmente.
+La route iscrizioni non blocca la creazione dell'iscrizione se l'email fallisce: il record viene salvato comunque e l'admin può approvare manualmente.
 
 ### Limite del piano raggiunto creando un concorso/iscrizione
 
@@ -1109,27 +1114,27 @@ Per le iscrizioni, il conteggio è annuale e considera le persone fisiche: un'is
 
 ### Voto fuori range / errori al salvataggio
 
-L'hook server clamp-a i voti tra 0 e `scala`. Se vedi errori, può essere:
+Il trigger DB `clamp_voto` normalizza i voti tra 0 e `scala`. Se vedi errori, può essere:
 
 - **scala non impostata** → default 10;
-- **fase CONCLUSA**: nessuna modifica accettata. Errore: `La fase è conclusa: non è possibile modificare i voti`. Per intervenire è necessario riaprire la fase (manualmente dal pannello PB admin, sconsigliato fuori da incidenti).
+- **fase CONCLUSA**: nessuna modifica accettata (trigger `freeze_valutazioni_on_fase_conclusa`). Errore: `La fase è conclusa: non è possibile modificare i voti`. Per intervenire è necessario riaprire la fase (`UPDATE fasi SET stato = 'IN_CORSO'` lato DB, sconsigliato fuori da incidenti).
 
 ### Ho eliminato per sbaglio un concorso / una fase
 
 Non c'è un cestino. L'eliminazione è cascata sul database. Soluzioni:
 
-- ripristino da backup (vedi `DEPLOY-IONOS.md` per la procedura);
-- se è recente e non c'è stato altro traffico, il superadmin può tentare il rollback puntuale di `pb_data/data.db`.
+- ripristino da backup Postgres (vedi `DEPLOY-IONOS.md` per la procedura `pg_restore`);
+- se è recente e non c'è stato altro traffico, il superadmin può ripristinare il singolo concorso da un dump puntuale (`pg_dump --table` selettivo prima dell'incidente).
 
 > **Avvertenza**: l'eliminazione di un concorso elimina tutte le sue fasi, candidati, commissari, sezioni, commissioni, valutazioni. Per i concorsi terminati conviene **archiviare** (cambiare stato ad `ARCHIVIATO`) anziché eliminare.
 
 ### Il superadmin ha cambiato piano ma le quote non si aggiornano
 
-Il piano viene propagato dal PB platform al PB tenant via `POST /api/admin/apply-plan`. Se la propagazione fallisce, il record `tenant_config` non si aggiorna e le quote restano quelle precedenti. Verifica:
+Il piano è memorizzato direttamente nella riga `tenants.piano` (JSONB): le modifiche del super-admin sono immediatamente visibili al middleware di plan gating (nessuna propagazione asincrona). Se le quote sembrano stantie:
 
-- il superadmin ha effettivamente salvato dal pannello;
-- la variabile env `GESTIMUS_SECRET_KEY` è impostata sul tenant e coincide con quella del platform;
-- log del PB tenant: cerca `apply-plan upsert failed`.
+- il super-admin ha effettivamente salvato dal pannello (controlla in `tenants` il valore di `piano`);
+- la sessione admin del tenant ha letto il piano cached (logout/login risolve);
+- log del server: cerca `plan-gating: quota exceeded` o errori di scrittura su `tenants`.
 
 ### Dove trovo il manuale dentro l'app?
 

@@ -7,6 +7,7 @@ import { db } from '../db.js';
 import { pb } from '../pb.js';
 import { escapeHtml, toast, readImageResized, readFileAsDataURL, NATIONALITIES } from '../utils.js';
 import { icon } from '../icons.js';
+import { t } from '../i18n.js';
 import { gdprBadgeFull } from './privacy.js';
 
 const DRAFT_KEY = 'iscrizione_draft_v2';
@@ -46,7 +47,7 @@ export async function renderIscrizione(root) {
     <section class="view-fade min-h-[60vh] flex items-center justify-center c-page">
       <div class="text-center">
         <div class="inline-flex items-center justify-center w-12 h-12 mb-4 text-brand-500" style="animation:spin 1.4s linear infinite">${icon('refresh', { size: 32 })}</div>
-        <p class="text-ink-900 font-medium">Caricamento iscrizioni in corso…</p>
+        <p class="text-ink-900 font-medium">${escapeHtml(t('iscr.loading'))}</p>
       </div>
     </section>`;
 
@@ -95,9 +96,9 @@ function renderClosed(root) {
     <section class="view-fade min-h-[60vh] flex items-center justify-center c-page">
       <div class="bg-white rounded-3xl shadow-soft border border-slate-200 max-w-xl w-full p-10 text-center">
         <div class="text-5xl mb-4">📭</div>
-        <h1 class="text-2xl font-bold text-ink-900 mb-2">Iscrizioni non disponibili</h1>
-        <p class="text-slate-600 leading-relaxed">Non c'è un concorso attualmente aperto alle iscrizioni su questo sito. Torna a trovarci alla prossima edizione.</p>
-        <a href="#/" class="c-btn c-btn--outline c-btn--sm mt-6">Torna alla home</a>
+        <h1 class="text-2xl font-bold text-ink-900 mb-2">${escapeHtml(t('iscr.closed.title'))}</h1>
+        <p class="text-slate-600 leading-relaxed">${escapeHtml(t('iscr.closed.subtitle'))}</p>
+        <a href="#/" class="c-btn c-btn--outline c-btn--sm mt-6">${escapeHtml(t('iscr.closed.cta'))}</a>
       </div>
     </section>`;
 }
@@ -114,10 +115,10 @@ function renderForm(root, state) {
       <header class="bg-white border border-slate-200 rounded-3xl shadow-soft p-5 mb-6 flex items-start gap-4">
         ${concorso.logo_url ? `<img src="${escapeHtml(concorso.logo_url)}" alt="" class="w-16 h-16 rounded-2xl object-contain border border-slate-100 shrink-0" />` : `<div class="w-16 h-16 rounded-2xl bg-brand-50 text-brand-700 flex items-center justify-center text-2xl shrink-0">🎼</div>`}
         <div class="min-w-0 flex-1">
-          <p class="font-mono text-[11px] uppercase tracking-[0.16em] text-brand-700 font-bold">Iscrizione</p>
+          <p class="font-mono text-[11px] uppercase tracking-[0.16em] text-brand-700 font-bold">${escapeHtml(t('iscr.header.eyebrow'))}</p>
           <h1 class="text-2xl font-black text-ink-900 leading-tight truncate">${escapeHtml(concorso.nome)}</h1>
-          <p class="text-sm text-slate-600 mt-1">Edizione ${escapeHtml(String(concorso.anno))}${concorso.data_inizio ? ` · inizio ${escapeHtml(concorso.data_inizio)}` : ''}</p>
-          ${concorso.iscrizioni_chiusura ? `<p class="text-xs text-amber-700 mt-1">⏳ Iscrizioni aperte fino al ${escapeHtml(new Date(concorso.iscrizioni_chiusura).toLocaleString('it-IT'))}</p>` : ''}
+          <p class="text-sm text-slate-600 mt-1">${escapeHtml(t('iscr.header.edition', { anno: concorso.anno }))}${concorso.data_inizio ? ` · ${escapeHtml(concorso.data_inizio)}` : ''}</p>
+          ${concorso.iscrizioni_chiusura ? `<p class="text-xs text-amber-700 mt-1">${escapeHtml(t('iscr.header.deadline', { date: new Date(concorso.iscrizioni_chiusura).toLocaleString() }))}</p>` : ''}
         </div>
         <a href="#/privacy" target="_blank" class="hidden sm:block shrink-0" title="Informativa privacy (Regolamento UE 2016/679)">
           ${gdprBadgeFull()}
@@ -127,7 +128,7 @@ function renderForm(root, state) {
       <!-- Notice GDPR + link informativa (visibile anche su mobile) -->
       <div class="sm:hidden bg-emerald-50 border border-emerald-200 rounded-2xl p-3 mb-4 flex items-center gap-3">
         ${gdprBadgeFull()}
-        <p class="text-xs text-emerald-900 leading-snug flex-1">I tuoi dati sono trattati nel rispetto del GDPR. <a href="#/privacy" class="font-bold underline">Leggi l'informativa →</a></p>
+        <p class="text-xs text-emerald-900 leading-snug flex-1">${t('iscr.gdpr.note')}</p>
       </div>
 
       <form id="frm-iscrizione" class="space-y-6" autocomplete="off">
@@ -141,7 +142,7 @@ function renderForm(root, state) {
         </div>
         <input type="hidden" name="_form_started_at" value="${Date.now()}" />
 
-        ${sectionHeader('1', 'Dati anagrafici', 'I tuoi dati personali per certificati e diplomi.')}
+        ${sectionHeader('1', t('iscr.section.1.title'), t('iscr.section.1.subtitle'))}
         <div class="bg-white border border-slate-200 rounded-3xl shadow-soft p-6" data-sec="anagrafica">
           ${anagraficaFields(d)}
           <div data-tutore-host class="${calcEta(d.data_nascita) !== null && calcEta(d.data_nascita) < 18 ? '' : 'hidden'} mt-5">
@@ -149,34 +150,36 @@ function renderForm(root, state) {
           </div>
         </div>
 
-        ${sectionHeader('2', 'Contatti', 'Useremo questi recapiti per inviarti l\'esito dell\'iscrizione.')}
+        ${sectionHeader('2', t('iscr.section.2.title'), t('iscr.section.2.subtitle'))}
         <div class="bg-white border border-slate-200 rounded-3xl shadow-soft p-6">
           ${contattiFields(d)}
         </div>
 
-        ${sectionHeader('3', 'Dati artistici', 'Strumento, sezione e docenti preparatori.')}
+        ${sectionHeader('3', t('iscr.section.3.title'), t('iscr.section.3.subtitle'))}
         <div class="bg-white border border-slate-200 rounded-3xl shadow-soft p-6">
           ${artisticiFields(d, state)}
         </div>
 
-        <div data-gruppo-host class="${d.tipo === 'gruppo' ? '' : 'hidden'}">
-          ${sectionHeader('3b', 'Composizione del gruppo', 'Nome dell\'ensemble e membri.')}
-          <div class="bg-white border border-brand-200 rounded-3xl shadow-soft p-6">
-            ${gruppoFields(d)}
+        ${(d.tipo === 'gruppo' || d.tipo === 'orchestra') ? `
+          <div data-gruppo-host>
+            ${sectionHeader('3b', gruppoSectionTitle(d.tipo), gruppoSectionSubtitle(d.tipo))}
+            <div class="bg-white border border-brand-200 rounded-3xl shadow-soft p-6">
+              ${gruppoFields(d)}
+            </div>
           </div>
-        </div>
+        ` : ''}
 
-        ${sectionHeader('4', 'Programma musicale', 'Brani che presenterai con titolo, autore e durata.')}
+        ${sectionHeader('4', t('iscr.section.4.title'), t('iscr.section.4.subtitle'))}
         <div class="bg-white border border-slate-200 rounded-3xl shadow-soft p-6">
           ${programmaFields(d)}
         </div>
 
-        ${sectionHeader('5', 'Allegati', 'Foto, documento e ricevuta pagamento.')}
+        ${sectionHeader('5', t('iscr.section.5.title'), t('iscr.section.5.subtitle'))}
         <div class="bg-white border border-slate-200 rounded-3xl shadow-soft p-6">
           ${allegatiFields(d)}
         </div>
 
-        ${sectionHeader('6', 'Privacy e consensi', 'Necessari per inviare l\'iscrizione.')}
+        ${sectionHeader('6', t('iscr.section.6.title'), t('iscr.section.6.subtitle'))}
         <div class="bg-white border border-slate-200 rounded-3xl shadow-soft p-6">
           ${consensiFields(d)}
         </div>
@@ -184,10 +187,10 @@ function renderForm(root, state) {
         <!-- Submit + status -->
         <div class="sticky bottom-0 bg-gradient-to-t from-white via-white to-transparent pt-4 pb-2 -mx-2 px-2">
           <button type="submit" class="c-btn c-btn--primary c-btn--xl w-full justify-center" data-submit ${state.submitting ? 'disabled' : ''}>
-            <span>${state.submitting ? 'Invio in corso…' : 'Invia iscrizione'}</span>
+            <span>${state.submitting ? escapeHtml(t('iscr.submit.loading')) : escapeHtml(t('iscr.submit'))}</span>
             <span class="c-btn__icon" aria-hidden="true">${icon('arrowRight', { size: 16 })}</span>
           </button>
-          <p class="text-[11px] text-center text-slate-500 mt-2">Riceverai un'email di conferma all'indirizzo che hai indicato.</p>
+          <p class="text-[11px] text-center text-slate-500 mt-2">${escapeHtml(t('iscr.submit.tip'))}</p>
         </div>
       </form>
     </section>
@@ -215,8 +218,9 @@ function anagraficaFields(d) {
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <label class="c-field"><span class="c-field__label">Tipo iscrizione *</span>
         <select name="tipo" class="c-input">
-          <option value="individuale" ${d.tipo !== 'gruppo' ? 'selected' : ''}>Individuale</option>
+          <option value="individuale" ${(d.tipo !== 'gruppo' && d.tipo !== 'orchestra') ? 'selected' : ''}>Individuale</option>
           <option value="gruppo" ${d.tipo === 'gruppo' ? 'selected' : ''}>Gruppo / Ensemble</option>
+          <option value="orchestra" ${d.tipo === 'orchestra' ? 'selected' : ''}>Orchestra</option>
         </select>
       </label>
       <label class="c-field"><span class="c-field__label">Sesso</span>
@@ -303,10 +307,20 @@ function artisticiFields(d, state) {
   `;
 }
 
-// ---------- Sezione 3b: Gruppo ----------
+// ---------- Sezione 3b: Gruppo / Orchestra ----------
+function gruppoSectionTitle(tipo) {
+  return tipo === 'orchestra' ? 'Composizione dell\'orchestra' : 'Composizione del gruppo';
+}
+function gruppoSectionSubtitle(tipo) {
+  return tipo === 'orchestra' ? 'Nome dell\'orchestra e membri.' : 'Nome dell\'ensemble e membri.';
+}
+
 function gruppoFields(d) {
+  const isOrch = d.tipo === 'orchestra';
+  const labelNome = isOrch ? 'Nome dell\'orchestra' : 'Nome del gruppo / ensemble';
+  const placeholderNome = isOrch ? 'es. Orchestra Giovanile di Milano' : 'es. Quartetto Brillante';
   return `
-    <label class="c-field"><span class="c-field__label">Nome del gruppo / ensemble</span><input name="gruppo_nome" class="c-input" value="${escapeHtml(d.gruppo_nome || '')}" placeholder="es. Quartetto Brillante" /></label>
+    <label class="c-field"><span class="c-field__label">${labelNome}</span><input name="gruppo_nome" class="c-input" value="${escapeHtml(d.gruppo_nome || '')}" placeholder="${placeholderNome}" /></label>
     <p class="text-xs text-slate-600 mt-3 mb-2">Membri (oltre al referente compilato sopra):</p>
     <div data-membri-list class="space-y-2">
       ${(d.gruppo_membri || []).map((m, i) => membroRowHtml(m, i)).join('')}
@@ -500,9 +514,13 @@ function onFieldChange(ev, state, root) {
     root.querySelector('[data-tutore-host]')?.classList.toggle('hidden', !isMinor);
     root.querySelector('[data-auth-minor-host]')?.classList.toggle('hidden', !isMinor);
   }
-  // Dipendenza: tipo=gruppo → mostra sezione gruppo
+  // Dipendenza: tipo=gruppo → blocco "Composizione del gruppo" appare solo per
+  // tipo=gruppo. Re-render dell'intero form (più affidabile del toggle CSS:
+  // garantisce che il blocco esista nel DOM solo quando serve, immune da cache).
   if (el.name === 'tipo') {
-    root.querySelector('[data-gruppo-host]')?.classList.toggle('hidden', el.value !== 'gruppo');
+    saveDraft(d); // persisti prima del re-render così il nuovo tipo è già nel draft
+    renderForm(root, state);
+    return;
   }
   // Dipendenza: sezione → ricarica le categorie disponibili (re-render parziale)
   if (el.name === 'sezione') {
@@ -587,7 +605,9 @@ async function submit(root, state) {
       ...d,
       programma: (d.programma || []).filter(p => p.titolo),
       durata_totale_min: (d.programma || []).reduce((s, p) => s + (Number(p.durata_min) || 0), 0),
-      gruppo_membri: d.tipo === 'gruppo' ? (d.gruppo_membri || []).filter(m => m.nome) : null,
+      gruppo_membri: (d.tipo === 'gruppo' || d.tipo === 'orchestra')
+        ? (d.gruppo_membri || []).filter(m => m.nome)
+        : null,
       website: honeypot,
       _form_started_at: formStartedAt,
     };

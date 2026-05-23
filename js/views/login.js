@@ -1,5 +1,4 @@
 import { db } from '../db.js';
-import { pb } from '../pb.js';
 import { escapeHtml, toast } from '../utils.js';
 import { icon } from '../icons.js';
 import { t } from '../i18n.js';
@@ -86,14 +85,14 @@ export function renderLogin(root, onSuccess) {
     </section>
   `;
 
-  // Probe asincrono "esiste almeno un admin?" via hook PB (vedi pb_hooks/setup.pb.js).
-  // L'endpoint NON espone record, solo un booleano → safe da chiamare senza auth.
+  // Probe asincrono "esiste almeno un admin?" via /api/setup/has-admin (server/src/routes/setup.ts).
+  // L'endpoint non espone record, solo un booleano → safe da chiamare senza auth.
   // Se hasAdmin=false → mostriamo il pannello "Primo avvio" aperto e ben visibile.
-  // Se hasAdmin=true (default conservativo)  → pannello nascosto.
+  // Se hasAdmin=true (default conservativo) → pannello nascosto.
   (async () => {
     let hasAdmin = true;
     try {
-      const res = await fetch(`${pb.baseUrl}/api/setup/has-admin`);
+      const res = await fetch('/api/setup/has-admin');
       if (res.ok) {
         const d = await res.json();
         hasAdmin = d.hasAdmin !== false;

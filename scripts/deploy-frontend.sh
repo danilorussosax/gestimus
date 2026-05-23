@@ -27,8 +27,7 @@ read -r -t 5 _ || true
 rsync -avz --delete \
     --exclude='node_modules' \
     --exclude='.DS_Store' \
-    --exclude='pb_data' \
-    --exclude='pocketbase' \
+    --exclude='server/' \
     --exclude='backups' \
     --exclude='test-results' \
     --exclude='.claude' \
@@ -39,7 +38,11 @@ rsync -avz --delete \
     --exclude='tests/' \
     --exclude='scripts/' \
     --exclude='deploy/' \
+    --exclude='pb_data' \
+    --exclude='pocketbase' \
     --exclude='pb_migrations/' \
+    --exclude='pb_migrations_platform/' \
+    --exclude='pb_hooks/' \
     --exclude='Schema_*.docx' \
     --exclude='screen.png' \
     --exclude='sfondo.png' \

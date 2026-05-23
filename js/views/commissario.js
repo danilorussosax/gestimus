@@ -725,7 +725,7 @@ function fasePresCardHtml(fase, concorso) {
   `;
 }
 
-// ---------- Floating timer overlay (sincronizzato via PocketBase) ----------
+// ---------- Floating timer overlay (sincronizzato via SSE LISTEN/NOTIFY) ----------
 // Pinned bottom-right. Tutti i commissari vedono lo stesso countdown.
 // Solo il presidente ha controlli (pausa, +1 min, reset). Auto-start su cambio candidato.
 

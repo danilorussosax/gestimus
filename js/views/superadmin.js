@@ -374,23 +374,23 @@ function renderSparklines(main) {
 
 function sparklineCard({ label, currentValue, sub, values, color, yMin = 0, yMax = null }) {
   const w = 300;
-  const h = 60;
-  const padding = 4;
+  const h = 140;
+  const padding = 6;
   const pathData = buildSparklinePath(values, w, h, padding, yMin, yMax);
   return `
-    <div class="bg-white border border-slate-200 rounded-xl p-3.5">
-      <div class="flex items-baseline justify-between gap-2 mb-2">
+    <div class="bg-white border border-slate-200 rounded-xl p-4">
+      <div class="flex items-baseline justify-between gap-2 mb-3">
         <p class="text-[11px] uppercase tracking-wide text-ink-500 font-medium">${escapeHtml(label)}</p>
-        <span class="text-base font-bold text-ink-900">${escapeHtml(currentValue)}</span>
+        <span class="text-xl font-bold text-ink-900">${escapeHtml(currentValue)}</span>
       </div>
-      <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" class="w-full h-12 block">
+      <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" class="w-full h-32 block">
         ${pathData ? `
           <path d="${pathData.area}" fill="${color}" fill-opacity="0.08" />
-          <path d="${pathData.line}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" />
-          <circle cx="${pathData.lastX}" cy="${pathData.lastY}" r="2.5" fill="${color}" />
-        ` : `<text x="${w / 2}" y="${h / 2}" text-anchor="middle" dominant-baseline="middle" fill="#94a3b8" font-size="11" font-family="ui-monospace,monospace">in attesa…</text>`}
+          <path d="${pathData.line}" fill="none" stroke="${color}" stroke-width="1.75" stroke-linejoin="round" stroke-linecap="round" />
+          <circle cx="${pathData.lastX}" cy="${pathData.lastY}" r="3" fill="${color}" />
+        ` : `<text x="${w / 2}" y="${h / 2}" text-anchor="middle" dominant-baseline="middle" fill="#94a3b8" font-size="12" font-family="ui-monospace,monospace">in attesa…</text>`}
       </svg>
-      <p class="text-[10px] text-ink-500 mt-1 font-mono">${escapeHtml(sub)}</p>
+      <p class="text-[10px] text-ink-500 mt-2 font-mono">${escapeHtml(sub)}</p>
     </div>
   `;
 }

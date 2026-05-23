@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Backend Postgres + Fastify + Drizzle per Gestimus (in sviluppo, sostituirà PocketBase)",
+  "description": "Backend Postgres + Fastify + Drizzle per Gestimus",
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p .",

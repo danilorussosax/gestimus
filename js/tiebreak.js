@@ -80,12 +80,12 @@ export function votoPresidente(valutazioni, fase, presidenteId) {
 }
 
 // Età (in anni decimali) di un candidato a una data di riferimento.
-// Per i gruppi (tipo === 'gruppo' con `membri` popolato): media delle età dei
-// membri. Se mancano date, ritorna null e la regola eta cade alla successiva.
+// Per i gruppi/orchestre (con `membri` popolato): media delle età dei membri.
+// Se mancano date, ritorna null e la regola eta cade alla successiva.
 export function etaCandidato(cand, refDate, allCandidati = []) {
   const ref = refDate ? new Date(refDate) : new Date();
   if (!cand) return null;
-  if (cand.tipo === 'gruppo') {
+  if (cand.tipo === 'gruppo' || cand.tipo === 'orchestra') {
     const membriIds = Array.isArray(cand.membri) ? cand.membri : [];
     if (membriIds.length === 0) return null;
     const eta = membriIds

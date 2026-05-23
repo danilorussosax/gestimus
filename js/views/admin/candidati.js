@@ -69,17 +69,63 @@ export function openStoricoCandidato(cand) {
   });
 }
 
+// Diff e applicazione dei membri inline del gruppo/orchestra dopo create/update
+// del candidato. Strategia idempotente:
+//  - Se il candidato non è più di tipo gruppo/orchestra → cancella tutti i
+//    membri originali (no-op se vuoti).
+//  - Altrimenti: elimina i record originali assenti dal nuovo elenco, aggiorna
+//    quelli con id rimasti se i campi sono cambiati, crea i nuovi (senza id).
+//  - Le righe completamente vuote (no nome) vengono scartate.
+async function syncMembriGruppo(candidatoId, isGroupLike, original, current) {
+  const sanitized = (current || [])
+    .map(m => ({
+      id: m.id || null,
+      nome: (m.nome || '').trim(),
+      cognome: (m.cognome || '').trim(),
+      strumento: (m.strumento || '').trim(),
+      data_nascita: (m.data_nascita || '').trim(),
+    }))
+    .filter(m => m.nome);
+  if (!isGroupLike) {
+    for (const o of original) {
+      await db.removeMembroGruppo(candidatoId, o.id);
+    }
+    return;
+  }
+  const keptIds = new Set(sanitized.filter(m => m.id).map(m => m.id));
+  for (const o of original) {
+    if (!keptIds.has(o.id)) {
+      await db.removeMembroGruppo(candidatoId, o.id);
+    }
+  }
+  for (const m of sanitized) {
+    if (m.id) {
+      const old = original.find(o => o.id === m.id);
+      const changed = !old
+        || (old.nome || '') !== m.nome
+        || (old.cognome || '') !== m.cognome
+        || (old.strumento || '') !== m.strumento
+        || (old.data_nascita || '') !== m.data_nascita;
+      if (changed) {
+        await db.updateMembroGruppoData(m.id, m);
+      }
+    } else {
+      await db.addMembroGruppoData(candidatoId, m);
+    }
+  }
+}
+
 // ---------- Gestione membri gruppo ----------
 export function openMembriGruppoModal(concorso, gruppo, onSaved) {
-  // Guardia: la modale ha senso solo per candidati di tipo 'gruppo'.
-  if (!gruppo || gruppo.tipo !== 'gruppo') {
+  // Guardia: la modale ha senso solo per candidati di tipo gruppo/orchestra.
+  if (!gruppo || (gruppo.tipo !== 'gruppo' && gruppo.tipo !== 'orchestra')) {
     toast(t('admin.gruppo.not_group') || 'Questo candidato non è un gruppo', 'error');
     return;
   }
   const membri = db.membriGruppo(gruppo.id);
   const membriIds = new Set(membri.map(m => m.candidato_id));
   const candidatiDisponibili = db.candidatiByConcorso(concorso.id)
-    .filter(c => c.id !== gruppo.id && c.tipo !== 'gruppo' && !membriIds.has(c.id));
+    .filter(c => c.id !== gruppo.id && c.tipo !== 'gruppo' && c.tipo !== 'orchestra' && !membriIds.has(c.id));
 
   modal({
     title: t('admin.gruppo.members_title', { nome: gruppo.nome }),
@@ -211,17 +257,20 @@ function candidatoCardHtml(c) {
   const categoria = c.categoria_id ? db.state.categorie.find(x => x.id === c.categoria_id) : null;
   const sezioni = sezione ? [sezione] : [];
   const categorie = categoria ? [categoria] : [];
-  const isGruppo = c.tipo === 'gruppo';
+  const isOrchestra = c.tipo === 'orchestra';
+  const isGruppo = c.tipo === 'gruppo' || isOrchestra;
   const membri = isGruppo ? db.membriGruppo(c.id) : [];
+  const gruppoIcon = isOrchestra ? '🎼' : '🎻';
+  const gruppoBadgeLabel = isOrchestra ? 'ORCHESTRA' : t('admin.candidati.gruppo_badge');
   return `
     <div class="bg-white border ${isGruppo ? 'border-purple-200 bg-purple-50/30' : 'border-slate-200'} rounded-2xl p-4 flex items-start gap-3 hover:border-slate-300 transition">
       <div class="w-14 h-14 rounded-full ${isGruppo ? 'bg-purple-100' : 'bg-slate-100'} overflow-hidden flex items-center justify-center text-2xl text-slate-400 shrink-0 ring-2 ring-white shadow-soft">
-        ${c.foto ? `<img src="${c.foto}" alt="" class="w-full h-full object-cover" />` : (isGruppo ? '🎻' : '👤')}
+        ${c.foto ? `<img src="${c.foto}" alt="" class="w-full h-full object-cover" />` : (isGruppo ? gruppoIcon : '👤')}
       </div>
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2">
           <span class="font-mono text-[11px] text-slate-500">#${String(c.numero_candidato).padStart(3,'0')}</span>
-          ${isGruppo ? `<span class="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded-full font-bold uppercase tracking-wider">${escapeHtml(t('admin.candidati.gruppo_badge'))}</span>` : ''}
+          ${isGruppo ? `<span class="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded-full font-bold uppercase tracking-wider">${escapeHtml(gruppoBadgeLabel)}</span>` : ''}
           ${!isGruppo && c.nazionalita ? `<span class="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded-full font-medium">${escapeHtml(c.nazionalita)}</span>` : ''}
         </div>
         <h4 class="font-semibold text-slate-900 truncate mt-0.5">${escapeHtml(displayName(c))}</h4>
@@ -308,12 +357,40 @@ function openCandidatoForm(concorso, candidato, onSaved) {
   const initData = candidato?.data_nascita || '';
   const initNaz = candidato?.nazionalita || '';
   const initDocenti = (candidato?.docenti_preparatori || []).join('\n');
+  // Anagrafica/residenza/artistici estesi (allineamento con form iscrizione pubblica)
+  const initSesso = candidato?.sesso || '';
+  const initLuogoNascita = candidato?.luogo_nascita || '';
+  const initCF = candidato?.codice_fiscale || '';
+  const initEmail = candidato?.email || '';
+  const initTelefono = candidato?.telefono || '';
+  const initIndirizzo = candidato?.indirizzo || '';
+  const initCitta = candidato?.citta || '';
+  const initCap = candidato?.cap || '';
+  const initProvincia = candidato?.provincia || '';
+  const initPaese = candidato?.paese || 'Italia';
+  const initAnniStudio = candidato?.anni_studio ?? '';
+  const initScuola = candidato?.scuola_provenienza || '';
+  const initGruppoNome = candidato?.gruppo_nome || '';
+  const initNoteLibere = candidato?.note_libere || '';
   let fotoData = candidato?.foto || null;
   const initialFoto = candidato?.foto || null;
   const todayISO = new Date().toISOString().slice(0,10);
   const initSezId = candidato?.sezione_id || '';
   const initCatId = candidato?.categoria_id || '';
   const allSezioni = db.sezioniByConcorso(concorso.id);
+  // Membri esistenti (solo in edit mode). Manteniamo lo state inline (con id
+  // per i membri persistiti); su submit calcoliamo il diff (add/remove/update).
+  const initialMembri = (isEdit && (candidato?.tipo === 'gruppo' || candidato?.tipo === 'orchestra'))
+    ? db.membriGruppo(candidato.id).map(m => ({
+        id: m.id,
+        nome: m.nome || '',
+        cognome: m.cognome || '',
+        strumento: m.strumento || '',
+        data_nascita: m.data_nascita || '',
+      }))
+    : [];
+  // Stato editabile (oggetti mutabili; index = chiave riga). Cambia solo via UI.
+  const membriState = initialMembri.map(m => ({ ...m }));
 
   const inputCls = 'mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500';
   const labelCls = 'block';
@@ -343,9 +420,10 @@ function openCandidatoForm(concorso, candidato, onSaved) {
           </label>
           <label class="${labelCls}">
             ${labelText(escapeHtml(t('admin.candidato.field_tipo')))}
-            <select name="tipo" class="${inputCls}" ${isEdit && candidato?.tipo === 'gruppo' ? '' : ''}>
-              <option value="individuale" ${(!candidato || candidato.tipo !== 'gruppo') ? 'selected' : ''}>${escapeHtml(t('admin.candidato.tipo_individuale'))}</option>
+            <select name="tipo" class="${inputCls}">
+              <option value="individuale" ${(!candidato || (candidato.tipo !== 'gruppo' && candidato.tipo !== 'orchestra')) ? 'selected' : ''}>${escapeHtml(t('admin.candidato.tipo_individuale'))}</option>
               <option value="gruppo" ${candidato?.tipo === 'gruppo' ? 'selected' : ''}>${escapeHtml(t('admin.candidato.tipo_gruppo'))}</option>
+              <option value="orchestra" ${candidato?.tipo === 'orchestra' ? 'selected' : ''}>Orchestra</option>
             </select>
           </label>
           <label class="${labelCls} sm:col-span-2">
@@ -355,6 +433,96 @@ function openCandidatoForm(concorso, candidato, onSaved) {
               ${NATIONALITIES.map(n => `<option value="${n}">`).join('')}
             </datalist>
           </label>
+          <label class="${labelCls}">
+            ${labelText('Sesso')}
+            <select name="sesso" class="${inputCls}">
+              <option value="">— Seleziona —</option>
+              <option value="M" ${initSesso === 'M' ? 'selected' : ''}>Maschio</option>
+              <option value="F" ${initSesso === 'F' ? 'selected' : ''}>Femmina</option>
+              <option value="altro" ${initSesso === 'altro' ? 'selected' : ''}>Altro / preferisco non specificare</option>
+            </select>
+          </label>
+          <label class="${labelCls}">
+            ${labelText('Luogo di nascita')}
+            <input name="luogo_nascita" value="${escapeHtml(initLuogoNascita)}" class="${inputCls}" placeholder="Città (Provincia)" />
+          </label>
+          <label class="${labelCls} sm:col-span-2">
+            ${labelText('Codice fiscale')}
+            <input name="codice_fiscale" maxlength="16" value="${escapeHtml(initCF)}" class="${inputCls} font-mono uppercase" placeholder="RSSMRA80A01H501U" />
+          </label>
+        </div>
+
+        <!-- Gruppo/Orchestra: nome + composizione (visibile solo per tipo=gruppo|orchestra) -->
+        <div class="pt-4 border-t border-slate-200 space-y-4" data-gruppo-nome-host ${(candidato?.tipo === 'gruppo' || candidato?.tipo === 'orchestra') ? '' : 'hidden'}>
+          <label class="${labelCls}">
+            <span class="text-sm font-medium text-slate-700" data-gruppo-nome-label>Nome del gruppo / ensemble</span>
+            <input name="gruppo_nome" value="${escapeHtml(initGruppoNome)}" class="${inputCls}" data-gruppo-nome-input placeholder="es. Quartetto Brillante" />
+          </label>
+          <div>
+            <div class="flex items-baseline justify-between gap-2 mb-2">
+              <span class="text-sm font-medium text-slate-700" data-membri-section-label>Membri del gruppo</span>
+              <span class="text-[11px] text-slate-500" data-membri-count>${initialMembri.length} membri</span>
+            </div>
+            <p class="text-[11px] text-slate-500 mb-2">Elenco dei componenti (nome, cognome, strumento, data di nascita). Le modifiche vengono salvate insieme al candidato.</p>
+            <div data-admin-membri-list class="space-y-2"></div>
+            <button type="button" data-admin-add-membro class="mt-2 text-xs font-medium text-brand-700 hover:text-brand-900">+ Aggiungi membro</button>
+          </div>
+        </div>
+
+        <!-- Contatti -->
+        <div class="pt-4 border-t border-slate-200">
+          <header class="mb-2">
+            <h4 class="text-sm font-semibold text-slate-700">Contatti</h4>
+            <p class="text-[11px] text-slate-500">Email e recapiti per comunicazioni dell'organizzazione.</p>
+          </header>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label class="${labelCls}">
+              ${labelText('Email')}
+              <input name="email" type="email" value="${escapeHtml(initEmail)}" class="${inputCls}" placeholder="nome@esempio.it" />
+            </label>
+            <label class="${labelCls}">
+              ${labelText('Telefono')}
+              <input name="telefono" type="tel" value="${escapeHtml(initTelefono)}" class="${inputCls}" placeholder="+39 ..." />
+            </label>
+            <label class="${labelCls} sm:col-span-2">
+              ${labelText('Indirizzo')}
+              <input name="indirizzo" value="${escapeHtml(initIndirizzo)}" class="${inputCls}" placeholder="Via, civico" />
+            </label>
+            <label class="${labelCls}">
+              ${labelText('Città')}
+              <input name="citta" value="${escapeHtml(initCitta)}" class="${inputCls}" />
+            </label>
+            <label class="${labelCls}">
+              ${labelText('CAP')}
+              <input name="cap" maxlength="10" value="${escapeHtml(initCap)}" class="${inputCls}" />
+            </label>
+            <label class="${labelCls}">
+              ${labelText('Provincia')}
+              <input name="provincia" maxlength="3" value="${escapeHtml(initProvincia)}" class="${inputCls}" placeholder="MI" />
+            </label>
+            <label class="${labelCls}">
+              ${labelText('Paese')}
+              <input name="paese" value="${escapeHtml(initPaese)}" class="${inputCls}" />
+            </label>
+          </div>
+        </div>
+
+        <!-- Dati artistici estesi -->
+        <div class="pt-4 border-t border-slate-200">
+          <header class="mb-2">
+            <h4 class="text-sm font-semibold text-slate-700">Studi musicali</h4>
+            <p class="text-[11px] text-slate-500">Esperienza e provenienza.</p>
+          </header>
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <label class="${labelCls}">
+              ${labelText('Anni di studio')}
+              <input name="anni_studio" type="number" min="0" max="80" value="${escapeHtml(String(initAnniStudio))}" class="${inputCls}" />
+            </label>
+            <label class="${labelCls} sm:col-span-2">
+              ${labelText('Scuola/Conservatorio di provenienza')}
+              <input name="scuola_provenienza" value="${escapeHtml(initScuola)}" class="${inputCls}" />
+            </label>
+          </div>
         </div>
 
         <div class="pt-4 border-t border-slate-200">
@@ -421,6 +589,14 @@ function openCandidatoForm(concorso, candidato, onSaved) {
             </div>
           `}
         </div>
+
+        <!-- Note libere -->
+        <div class="pt-4 border-t border-slate-200">
+          <label class="${labelCls}">
+            ${labelText('Note libere')} <span class="text-[11px] text-slate-500">(opzionale)</span>
+            <textarea name="note_libere" rows="2" class="${inputCls}" placeholder="Qualsiasi informazione utile all'organizzazione">${escapeHtml(initNoteLibere)}</textarea>
+          </label>
+        </div>
       </form>
     `,
     primaryLabel: isEdit ? t('admin.candidato.save_edit') : t('admin.candidato.save_create'),
@@ -451,23 +627,75 @@ function openCandidatoForm(concorso, candidato, onSaved) {
       });
       fotoClear.addEventListener('click', () => { fotoData = null; setFotoUI(); });
 
-      // Required dinamici in base al tipo: per i gruppi, cognome/data_nascita
-      // sono opzionali (l'ensemble non ha un proprio cognome o data di nascita
-      // unitari — i membri vengono gestiti via "Membri del gruppo"). Senza
-      // questa logica, form.reportValidity() bloccherebbe il submit di un
-      // gruppo con il messaggio HTML5 standard.
+      // Required dinamici in base al tipo: per i gruppi/orchestre, cognome/
+      // data_nascita sono opzionali (l'ensemble non ha un proprio cognome o
+      // data di nascita unitari — i membri sono gestiti nella sezione
+      // dedicata). Senza questa logica, form.reportValidity() bloccherebbe il
+      // submit di un gruppo con il messaggio HTML5 standard.
       const tipoSel = body.querySelector('select[name="tipo"]');
       const cognomeInput = body.querySelector('input[name="cognome"]');
       const dataInput = body.querySelector('input[name="data_nascita"]');
       const nazInput = body.querySelector('input[name="nazionalita"]');
+      const gruppoNomeHost = body.querySelector('[data-gruppo-nome-host]');
+      const gruppoNomeLabel = body.querySelector('[data-gruppo-nome-label]');
+      const gruppoNomeInput = body.querySelector('[data-gruppo-nome-input]');
+      const membriSectionLabel = body.querySelector('[data-membri-section-label]');
       const syncRequiredByTipo = () => {
-        const isGruppo = tipoSel.value === 'gruppo';
-        cognomeInput.required = !isGruppo;
-        dataInput.required = !isGruppo;
-        nazInput.required = !isGruppo;
+        const tipoVal = tipoSel.value;
+        const isGroupLike = tipoVal === 'gruppo' || tipoVal === 'orchestra';
+        cognomeInput.required = !isGroupLike;
+        dataInput.required = !isGroupLike;
+        nazInput.required = !isGroupLike;
+        if (gruppoNomeHost) gruppoNomeHost.hidden = !isGroupLike;
+        const isOrch = tipoVal === 'orchestra';
+        if (gruppoNomeLabel) gruppoNomeLabel.textContent = isOrch ? 'Nome dell\'orchestra' : 'Nome del gruppo / ensemble';
+        if (gruppoNomeInput) gruppoNomeInput.placeholder = isOrch ? 'es. Orchestra Giovanile di Milano' : 'es. Quartetto Brillante';
+        if (membriSectionLabel) membriSectionLabel.textContent = isOrch ? 'Membri dell\'orchestra' : 'Membri del gruppo';
       };
       tipoSel.addEventListener('change', syncRequiredByTipo);
       syncRequiredByTipo();
+
+      // ----- Editor inline dei membri del gruppo/orchestra -----
+      const membriList = body.querySelector('[data-admin-membri-list]');
+      const membriCount = body.querySelector('[data-membri-count]');
+      const addMembroBtn = body.querySelector('[data-admin-add-membro]');
+      const renderMembroRow = (m, i) => `
+        <div data-admin-membro-row data-idx="${i}" class="grid grid-cols-12 gap-2 items-start">
+          <input data-field="nome" class="${inputCls} col-span-3" placeholder="Nome" value="${escapeHtml(m?.nome || '')}" />
+          <input data-field="cognome" class="${inputCls} col-span-3" placeholder="Cognome" value="${escapeHtml(m?.cognome || '')}" />
+          <input data-field="strumento" class="${inputCls} col-span-3" placeholder="Strumento" value="${escapeHtml(m?.strumento || '')}" />
+          <input data-field="data_nascita" type="date" class="${inputCls} col-span-2 text-xs" value="${escapeHtml(m?.data_nascita || '')}" />
+          <button type="button" data-admin-remove-membro class="col-span-1 text-xs text-rose-600 hover:bg-rose-50 rounded-lg px-2 py-2 self-stretch font-medium" title="Rimuovi membro">−</button>
+        </div>
+      `;
+      const renderMembriList = () => {
+        membriList.innerHTML = membriState.length
+          ? membriState.map((m, i) => renderMembroRow(m, i)).join('')
+          : '<p class="text-xs text-slate-400 italic">Nessun membro inserito.</p>';
+        if (membriCount) membriCount.textContent = `${membriState.length} membri`;
+      };
+      renderMembriList();
+      membriList.addEventListener('input', (ev) => {
+        const row = ev.target.closest('[data-admin-membro-row]');
+        if (!row) return;
+        const idx = Number(row.dataset.idx);
+        const field = ev.target.dataset.field;
+        if (!field || Number.isNaN(idx) || !membriState[idx]) return;
+        membriState[idx][field] = ev.target.value;
+      });
+      membriList.addEventListener('click', (ev) => {
+        const btn = ev.target.closest('[data-admin-remove-membro]');
+        if (!btn) return;
+        const row = btn.closest('[data-admin-membro-row]');
+        const idx = Number(row?.dataset.idx);
+        if (Number.isNaN(idx)) return;
+        membriState.splice(idx, 1);
+        renderMembriList();
+      });
+      addMembroBtn?.addEventListener('click', () => {
+        membriState.push({ nome: '', cognome: '', strumento: '', data_nascita: '' });
+        renderMembriList();
+      });
 
       // Show/hide del blocco categorie in base alla sezione selezionata: la
       // categoria scelta è quella del radio group `categoria_id_<sezId>` della
@@ -523,37 +751,71 @@ function openCandidatoForm(concorso, candidato, onSaved) {
         }
       }
       const tipo = (data.tipo || 'individuale').trim() || 'individuale';
+      const isGroupLike = tipo === 'gruppo' || tipo === 'orchestra';
+      const tipoGruppo = tipo === 'orchestra' ? 'orchestra' : (tipo === 'gruppo' ? 'ensemble' : '');
+      const anniStudio = (data.anni_studio || '').trim() === '' ? null : Number(data.anni_studio);
       const baseFields = {
         nome: (data.nome || '').trim(),
         cognome: (data.cognome || '').trim(),
         strumento: (data.strumento || '').trim(),
         data_nascita: data.data_nascita,
         nazionalita: (data.nazionalita || '').trim(),
+        // Anagrafica/residenza/artistici estesi
+        sesso: (data.sesso || '').trim(),
+        luogo_nascita: (data.luogo_nascita || '').trim(),
+        codice_fiscale: (data.codice_fiscale || '').trim().toUpperCase(),
+        email: (data.email || '').trim(),
+        telefono: (data.telefono || '').trim(),
+        indirizzo: (data.indirizzo || '').trim(),
+        citta: (data.citta || '').trim(),
+        cap: (data.cap || '').trim(),
+        provincia: (data.provincia || '').trim().toUpperCase(),
+        paese: (data.paese || '').trim(),
+        anni_studio: Number.isFinite(anniStudio) ? anniStudio : null,
+        scuola_provenienza: (data.scuola_provenienza || '').trim(),
+        gruppo_nome: (data.gruppo_nome || '').trim(),
+        note_libere: (data.note_libere || '').trim(),
         docenti_preparatori: docenti,
         sezione_id: sezione_id || null,
         categoria_id: categoria_id || null,
         tipo,
+        tipo_gruppo: tipoGruppo,
       };
-      // Per gruppi, cognome e data_nascita non sono obbligatori
+      // Per gruppi/orchestre, cognome e data_nascita non sono obbligatori
       const missingIndividual = !baseFields.nome || !baseFields.cognome || !baseFields.strumento || !baseFields.data_nascita || !baseFields.nazionalita;
       const missingGruppo = !baseFields.nome || !baseFields.strumento;
-      if ((tipo === 'individuale' && missingIndividual) || (tipo === 'gruppo' && missingGruppo)) {
+      if ((tipo === 'individuale' && missingIndividual) || (isGroupLike && missingGruppo)) {
         toast(t('admin.candidato.required_missing'), 'error');
         return false;
       }
       try {
+        let candidatoId;
         if (isEdit) {
           const patch = { ...baseFields };
           if (fotoData !== initialFoto) patch.foto = fotoData;
           await db.updateCandidato(candidato.id, patch);
+          candidatoId = candidato.id;
           toast(t('admin.candidato.updated'), 'success');
         } else {
-          await db.createCandidato({
+          const created = await db.createCandidato({
             concorso_id: concorso.id,
             ...baseFields,
             foto: fotoData,
           });
+          candidatoId = created?.id;
           toast(t('admin.candidato.added'), 'success');
+        }
+        // Sync membri inline (solo per gruppo/orchestra). Diff: rimuove i
+        // membri originali non più presenti, aggiorna quelli con id rimasti,
+        // crea quelli nuovi (senza id). Best-effort: errori non bloccano il
+        // salvataggio del candidato già committato.
+        if (candidatoId) {
+          try {
+            await syncMembriGruppo(candidatoId, isGroupLike, initialMembri, membriState);
+          } catch (eMembri) {
+            console.warn('sync membri gruppo:', eMembri);
+            toast('Errore nella sincronizzazione dei membri: ' + (eMembri?.message || eMembri), 'error');
+          }
         }
         if (onSaved) onSaved();
       } catch (e) {

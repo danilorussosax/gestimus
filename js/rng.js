@@ -1,5 +1,5 @@
 // Seedable PRNG (mulberry32). Estratto da db.js per consentire l'import nei
-// test unit senza tirarsi dietro PocketBase. Usato per sorteggi riproducibili.
+// test unit senza dipendenze del data layer. Usato per sorteggi riproducibili.
 
 export function mulberry32(seed) {
   let a = seed >>> 0;

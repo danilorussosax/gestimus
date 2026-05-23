@@ -121,6 +121,8 @@ const createBody = z.object({
     .array(z.object({ key: z.string().min(1).max(50), enabled: z.boolean() }))
     .nullable()
     .optional(),
+  testoEsitoPromosso: z.preprocess(emptyToNull, z.string().max(80).nullable()).optional(),
+  testoEsitoEliminato: z.preprocess(emptyToNull, z.string().max(80).nullable()).optional(),
   // Ambito sezione della fase: array di sezioniId che restringono la fase a
   // determinate sezioni. Se omesso o array vuoto, la fase è "globale" sul
   // concorso. Lo sync della join table fasi_sezioni avviene nel POST/PATCH.

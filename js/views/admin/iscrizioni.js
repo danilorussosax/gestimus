@@ -144,6 +144,7 @@ function iscrizioneRowHtml(i) {
       <td class="px-3 py-2.5">
         <p class="font-medium text-slate-900">${escapeHtml(i.nome)} ${escapeHtml(i.cognome)}</p>
         ${i.tipo === 'gruppo' ? `<p class="text-[11px] text-purple-700">${escapeHtml(i.gruppo_nome || 'Gruppo')}</p>` : ''}
+        ${i.tipo === 'orchestra' ? `<p class="text-[11px] text-indigo-700">${escapeHtml(i.gruppo_nome || 'Orchestra')}</p>` : ''}
       </td>
       <td class="px-3 py-2.5 text-xs text-slate-600 hidden sm:table-cell">${escapeHtml(i.email || '')}</td>
       <td class="px-3 py-2.5 text-xs text-slate-700 hidden md:table-cell">${escapeHtml(i.strumento || '—')}</td>
@@ -236,9 +237,9 @@ function openIscrizioneDetail(isc, concorso, onChanged) {
           </div>
         </section>
 
-        ${isc.tipo === 'gruppo' && gruppoMembri.length > 0 ? `
+        ${(isc.tipo === 'gruppo' || isc.tipo === 'orchestra') && gruppoMembri.length > 0 ? `
         <section>
-          <h3 class="font-mono text-[10px] uppercase tracking-wider text-slate-500 mb-2">Membri del gruppo (${escapeHtml(isc.gruppo_nome || '')})</h3>
+          <h3 class="font-mono text-[10px] uppercase tracking-wider text-slate-500 mb-2">${isc.tipo === 'orchestra' ? 'Membri dell\'orchestra' : 'Membri del gruppo'} (${escapeHtml(isc.gruppo_nome || '')})</h3>
           <ul class="space-y-1 text-xs">
             ${gruppoMembri.map(m => `<li>· <strong>${escapeHtml(m.nome || '')} ${escapeHtml(m.cognome || '')}</strong> — ${escapeHtml(m.strumento || '—')}${m.data_nascita ? ` (${escapeHtml(m.data_nascita)})` : ''}</li>`).join('')}
           </ul>

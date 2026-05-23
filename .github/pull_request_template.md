@@ -21,19 +21,19 @@ Grazie per il contributo. Compila la check-list prima di chiedere review.
 - [ ] Admin ente
 - [ ] Commissario
 - [ ] Iscrizione pubblica
-- [ ] PocketBase migrations
-- [ ] PocketBase hooks
+- [ ] Schema Drizzle / migrazioni SQL
+- [ ] Route Fastify / middleware / RLS
 - [ ] Script di deploy
 - [ ] Documentazione
 
 ## Check-list
 
-- [ ] La CI passa (lint JS + bash + migration check)
-- [ ] Ho testato localmente con `./scripts/start-local-multitenant.sh`
-- [ ] Se ho toccato lo **schema PocketBase**, ho creato una **nuova migration** (non modificato quelle esistenti)
+- [ ] La CI passa (`npm run lint` server + i18n coverage)
+- [ ] Ho testato localmente con `npm run dev` nel pacchetto `server/`
+- [ ] Se ho toccato lo **schema Drizzle**, ho aggiunto una **nuova migration incrementale** in `server/scripts/migrations/` (non modificato quelle esistenti)
 - [ ] Se ho aggiunto chiavi `t('...')` ho aggiunto le traduzioni in IT (le altre lingue cadono su IT)
 - [ ] Se ho modificato gli **script di deploy**, ho aggiornato `DEPLOY-IONOS.md` di conseguenza
-- [ ] Se ho aggiunto un **hook PB**, l'ho testato in isolamento (errore non blocca la transazione del record)
+- [ ] Se ho aggiunto/modificato **policy RLS** o **trigger DB**, ho aggiornato i test in `server/tests/rls/` o `server/tests/crud/`
 
 ## Test eseguiti
 

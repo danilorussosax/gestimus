@@ -12,9 +12,13 @@ export function renderRisultati(root, concorso) {
   const fasi = db.fasiByConcorso(concorso.id);
   const finale = fasi.find(f => f.ordine === fasi.length && f.stato === 'CONCLUSA');
 
+  // Calcola la dimensione del gruppo (signature sezioni_ids) per ogni fase:
+  // se il gruppo ha una sola sotto-fase la colonna "Esito" perde di
+  // significato e viene nascosta. Passa la mappa a buildFaseSummary.
+  const groupSize = computeGroupSizes(fasi);
   root.innerHTML = `
     <div class="space-y-6">
-      ${fasi.map(f => buildFaseSummary(f)).join('')}
+      ${fasi.map(f => buildFaseSummary(f, (groupSize.get(f.id) || 1) > 1)).join('')}
       ${finale ? buildPodio(finale, concorso) : ''}
       ${buildVerbaleBlock(concorso)}
       <div class="flex justify-end gap-2">
@@ -74,6 +78,10 @@ async function exportProtocolloPdf(concorso) {
 
   let cursorY = margin + 70;
   const fasi = db.fasiByConcorso(concorso.id);
+  // Conta quante fasi condividono la "signature" sezioni_ids: se il gruppo ha
+  // più di una sotto-fase, mostriamo la colonna esito; altrimenti solo la
+  // classifica (per fasi uniche, l'esito è sempre PROMOSSO o non rilevante).
+  const groupSize = computeGroupSizes(fasi);
 
   for (const fase of fasi) {
     const cfs = db.candidatiFaseList(fase.id);
@@ -91,8 +99,6 @@ async function exportProtocolloPdf(concorso) {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(13);
     doc.setTextColor(46, 38, 61);
-    // Nome fase nel PDF include lo scope di sezione per distinguere "eliminatoria fiati"
-    // da "eliminatoria archi" senza ambiguità.
     const nomeFaseConScope = `${fase.nome}${faseScopeLabel(fase)}`;
     doc.text(t('admin.risultati.pdf_phase', { ordine: fase.ordine, nome: nomeFaseConScope }), margin, cursorY);
     doc.setFont('helvetica', 'normal');
@@ -101,28 +107,48 @@ async function exportProtocolloPdf(concorso) {
     doc.text(t('admin.risultati.pdf_phase_meta', { stato: fase.stato, scala, n: cfs.length }), margin, cursorY + 14);
     cursorY += 22;
 
-    const PROMOSSO_LABEL = t('admin.risultati.pdf_promosso');
-    const ELIMINATO_LABEL = t('admin.risultati.pdf_eliminato');
-    doc.autoTable({
-      startY: cursorY,
-      margin: { left: margin, right: margin },
-      head: [[t('admin.risultati.pdf_col_pos'), t('admin.risultati.pdf_col_num'), t('admin.risultati.pdf_col_cand'), t('admin.risultati.pdf_col_strumento'), t('admin.risultati.pdf_col_media'), t('admin.risultati.pdf_col_esito')]],
-      body: rows.map((r, i) => [
+    // Etichette esito: custom dal form fase, fallback ai default.
+    const PROMOSSO_LABEL = (fase.testo_esito_promosso || t('admin.risultati.pdf_promosso')).toUpperCase();
+    const ELIMINATO_LABEL = (fase.testo_esito_eliminato || t('admin.risultati.pdf_eliminato')).toUpperCase();
+    // Mostra colonna esito SOLO se la fase appartiene a un gruppo (sezione)
+    // con più di una sotto-fase. Singola sotto-fase = sequenza lineare senza
+    // promozione, l'esito perde significato.
+    const showEsito = (groupSize.get(fase.id) || 1) > 1;
+
+    const head = showEsito
+      ? [[t('admin.risultati.pdf_col_pos'), t('admin.risultati.pdf_col_num'), t('admin.risultati.pdf_col_cand'), t('admin.risultati.pdf_col_strumento'), t('admin.risultati.pdf_col_media'), t('admin.risultati.pdf_col_esito')]]
+      : [[t('admin.risultati.pdf_col_pos'), t('admin.risultati.pdf_col_num'), t('admin.risultati.pdf_col_cand'), t('admin.risultati.pdf_col_strumento'), t('admin.risultati.pdf_col_media')]];
+    const body = rows.map((r, i) => {
+      const baseRow = [
         i + 1,
         String(r.cand?.numero_candidato || '').padStart(3, '0'),
         r.cand ? displayName(r.cand) : '—',
         r.cand?.strumento || '',
         fmtVoto(r.media, scala),
-        r.cf.stato !== 'COMPLETATO' ? '—'
-          : r.cf.ammesso_prossima_fase ? PROMOSSO_LABEL : ELIMINATO_LABEL,
-      ]),
+      ];
+      if (showEsito) {
+        baseRow.push(
+          r.cf.stato !== 'COMPLETATO' ? '—'
+            : r.cf.ammesso_prossima_fase ? PROMOSSO_LABEL : ELIMINATO_LABEL,
+        );
+      }
+      return baseRow;
+    });
+
+    doc.autoTable({
+      startY: cursorY,
+      margin: { left: margin, right: margin },
+      head,
+      body,
       styles: { fontSize: 9, cellPadding: 5, lineColor: [231, 229, 235], textColor: [46, 38, 61] },
       headStyles: { fillColor: [115, 103, 240], textColor: 255, fontStyle: 'bold' },
       alternateRowStyles: { fillColor: [248, 247, 250] },
       didParseCell: (d) => {
-        if (d.section === 'body' && d.column.index === 5) {
-          if (d.cell.raw === PROMOSSO_LABEL) d.cell.styles.textColor = [22, 163, 74];
-          if (d.cell.raw === ELIMINATO_LABEL) d.cell.styles.textColor = [225, 29, 72];
+        // Solo i candidati AMMESSI sono evidenziati col verde emerald (#10b981).
+        // I non ammessi restano nel colore default (slate-700) — no rosso.
+        if (showEsito && d.section === 'body' && d.column.index === 5 && d.cell.raw === PROMOSSO_LABEL) {
+          d.cell.styles.textColor = [5, 150, 105];
+          d.cell.styles.fontStyle = 'bold';
         }
       },
     });
@@ -182,6 +208,23 @@ function loadImageDataURL(src) {
 // verbale / PDF, per distinguere "Eliminatoria fiati" da "Eliminatoria archi".
 // Ritorna '' per fasi globali (sezioni_ids vuoto), '· <nome>' per singola
 // sezione, '· <nome1> + <nome2>' per multi.
+// Mappa { faseId → quanti gemelli (incluso self) condividono la stessa
+// signature `sezioni_ids` nello stesso concorso }. Usata per decidere se la
+// colonna esito ha senso: per gruppi con una sola fase l'esito è ridondante.
+function computeGroupSizes(fasi) {
+  const counts = new Map();
+  const signatures = new Map(); // faseId → sig
+  for (const f of fasi) {
+    const ids = Array.isArray(f.sezioni_ids) ? [...f.sezioni_ids].sort() : [];
+    const sig = ids.length === 0 ? '__shared__' : ids.join(',');
+    signatures.set(f.id, sig);
+    counts.set(sig, (counts.get(sig) || 0) + 1);
+  }
+  const result = new Map();
+  for (const f of fasi) result.set(f.id, counts.get(signatures.get(f.id)) || 1);
+  return result;
+}
+
 function faseScopeLabel(fase) {
   const ids = Array.isArray(fase?.sezioni_ids) ? fase.sezioni_ids : [];
   if (ids.length === 0) return '';
@@ -194,8 +237,11 @@ function faseScopeLabel(fase) {
 // congelata (campo presente da migration 1700000041_tiebreak_strategy.js),
 // usiamo la classifica congelata + badge spareggio + gestione ex aequo.
 // Altrimenti (fase IN_CORSO o legacy) calcoliamo live ordinando per media.
-function buildFaseSummary(fase) {
+function buildFaseSummary(fase, showEsito = true) {
   const cfs = db.candidatiFaseList(fase.id);
+  // Etichette esito custom (default "PROMOSSO"/"ELIMINATO" se vuoti)
+  const PROMOSSO_LABEL = fase.testo_esito_promosso || t('admin.risultati.promosso');
+  const ELIMINATO_LABEL = fase.testo_esito_eliminato || t('admin.risultati.eliminato');
   const scope = faseScopeLabel(fase);
   const ic = scope ? iconaPerSezione(fase.sezioni_ids?.[0] ? db.state.sezioni.find(s => s.id === fase.sezioni_ids[0])?.nome : '') : '';
   const titleHtml = `<span class="text-slate-400 font-mono mr-1">#${fase.ordine}</span>${ic ? ic + ' ' : ''}${escapeHtml(fase.nome)}${scope ? `<span class="text-slate-500 font-normal">${escapeHtml(scope)}</span>` : `<span class="text-xs text-slate-400 italic ml-2">${escapeHtml(t('admin.risultati.fase_scope_all') || 'tutte le sezioni')}</span>`}`;
@@ -243,7 +289,7 @@ function buildFaseSummary(fase) {
               <th class="text-left py-2 pr-3">${escapeHtml(t('admin.risultati.col_pos'))}</th>
               <th class="text-left py-2 pr-3">${escapeHtml(t('admin.risultati.col_cand'))}</th>
               <th class="text-right py-2 pr-3">${escapeHtml(t('admin.risultati.col_media'))}</th>
-              <th class="text-center py-2 pr-3">${escapeHtml(t('admin.risultati.col_esito'))}</th>
+              ${showEsito ? `<th class="text-center py-2 pr-3">${escapeHtml(t('admin.risultati.col_esito'))}</th>` : ''}
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">
@@ -259,11 +305,11 @@ function buildFaseSummary(fase) {
                 <td class="py-2 pr-3 text-slate-500">${pos}${isExAequo ? '°' : ''} ${isExAequo ? `<span class="text-[10px] text-violet-700 font-bold ml-1">ex aequo</span>` : ''}</td>
                 <td class="py-2 pr-3"><span class="font-medium text-slate-900">#${String(r.cand?.numero_candidato||'').padStart(3,'0')}</span> · ${escapeHtml(displayName(r.cand))} <span class="text-slate-500 text-xs">(${escapeHtml(r.cand?.strumento || '')})</span>${hadTiebreak ? ` <span class="ml-1 text-[10px] font-bold text-amber-700" title="${escapeHtml(tbTooltip)}">⚖</span>` : ''}</td>
                 <td class="py-2 pr-3 text-right font-mono">${fmtVoto(r.media, getScala(fase))} <span class="text-[10px] text-slate-400">/${getScala(fase)}</span></td>
-                <td class="py-2 pr-3 text-center">
-                  ${r.cf.stato !== 'COMPLETATO' ? `<span class="text-xs text-amber-700">${escapeHtml(t('admin.risultati.in_attesa'))}</span>`
-                    : r.cf.ammesso_prossima_fase ? `<span class="text-xs px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full font-medium">${escapeHtml(t('admin.risultati.promosso'))}</span>`
-                    : `<span class="text-xs px-2 py-0.5 bg-rose-100 text-rose-800 rounded-full font-medium">${escapeHtml(t('admin.risultati.eliminato'))}</span>`}
-                </td>
+                ${showEsito ? `<td class="py-2 pr-3 text-center">
+                  ${r.cf.stato !== 'COMPLETATO' ? `<span class="text-xs text-slate-500">—</span>`
+                    : r.cf.ammesso_prossima_fase ? `<span class="text-xs px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full font-medium">${escapeHtml(PROMOSSO_LABEL)}</span>`
+                    : `<span class="text-xs text-slate-600">${escapeHtml(ELIMINATO_LABEL)}</span>`}
+                </td>` : ''}
               </tr>
             `;
             }).join('')}

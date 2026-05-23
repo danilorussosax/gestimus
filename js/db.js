@@ -104,14 +104,34 @@ function mapCandidato(r) {
     strumento: r.strumento || '',
     data_nascita: dateStr(r.dataNascita),
     nazionalita: r.nazionalita || '',
+    // Anagrafica/residenza/artistici estesi (allineamento candidati↔iscrizioni)
+    email: r.email || '',
+    telefono: r.telefono || '',
+    sesso: r.sesso || '',
+    luogo_nascita: r.luogoNascita || '',
+    codice_fiscale: r.codiceFiscale || '',
+    indirizzo: r.indirizzo || '',
+    citta: r.citta || '',
+    cap: r.cap || '',
+    provincia: r.provincia || '',
+    paese: r.paese || '',
+    anni_studio: r.anniStudio ?? null,
+    scuola_provenienza: r.scuolaProvenienza || '',
     foto_filename: r.foto || '',
     foto_url: r.foto || null,
     docenti_preparatori: Array.isArray(r.docentiPreparatori) ? r.docentiPreparatori : [],
+    programma: Array.isArray(r.programma) ? r.programma : (r.programma || null),
+    tutore: r.tutore || null,
+    note_libere: r.noteLibere || '',
     data_iscrizione: dateStr(r.dataIscrizione),
     sezione_id: r.sezioneId || null,
     categoria_id: r.categoriaId || null,
     is_gruppo: !!r.isGruppo,
-    tipo: r.isGruppo ? 'gruppo' : 'individuale',
+    gruppo_nome: r.gruppoNome || '',
+    tipo_gruppo: r.tipoGruppo || (r.isGruppo ? 'ensemble' : ''),
+    tipo: r.isGruppo
+      ? (r.tipoGruppo === 'orchestra' ? 'orchestra' : 'gruppo')
+      : 'individuale',
   };
 }
 
@@ -131,6 +151,10 @@ function mapFase(r) {
     tempo_minuti: r.tempoMinuti || 0,
     stato: r.stato || 'PIANIFICATA',
     tiebreak_strategy: r.tiebreakStrategy || null,
+    // Label custom per gli esiti mostrati nel PDF/UI risultati. Se null,
+    // fallback ai default "PROMOSSO"/"ELIMINATO".
+    testo_esito_promosso: r.testoEsitoPromosso || '',
+    testo_esito_eliminato: r.testoEsitoEliminato || '',
     // sezioni_ids: array di id sezioni a cui la fase è ristretta. Vuoto = fase
     // globale sul concorso. Popolato dal backend via join table fasi_sezioni.
     sezioni_ids: Array.isArray(r.sezioniIds) ? r.sezioniIds : [],
@@ -237,7 +261,10 @@ function mapIscrizione(r) {
     categoria_id: r.categoriaId || null,
     is_gruppo: !!r.isGruppo,
     // Alias per la view admin che usa nomi legacy
-    tipo: r.isGruppo ? 'gruppo' : 'individuale',
+    tipo: r.isGruppo
+      ? (r.tipoGruppo === 'orchestra' ? 'orchestra' : 'gruppo')
+      : 'individuale',
+    tipo_gruppo: r.tipoGruppo || (r.isGruppo ? 'ensemble' : ''),
     membri: Array.isArray(r.membri) ? r.membri : null,
     gruppo_membri: Array.isArray(r.membri) ? r.membri : [],
     gruppo_nome: r.gruppoNome || '',
@@ -928,7 +955,20 @@ export const db = {
   membriGruppo(gruppo_id) {
     return state.candidati_gruppo.filter((m) => m.candidato_id === gruppo_id);
   },
-  async createCandidato({ concorso_id, nome, cognome = '', strumento, data_nascita = null, nazionalita = '', foto = null, docenti_preparatori = [], sezione_id = null, categoria_id = null, tipo = 'individuale' }) {
+  async createCandidato(opts = {}) {
+    const {
+      concorso_id, nome, cognome = '', strumento, data_nascita = null, nazionalita = '',
+      foto = null, docenti_preparatori = [], sezione_id = null, categoria_id = null,
+      tipo = 'individuale',
+      // Anagrafica/residenza/artistici estesi (allineamento con iscrizioni)
+      email = '', telefono = '', sesso = '', luogo_nascita = '', codice_fiscale = '',
+      indirizzo = '', citta = '', cap = '', provincia = '', paese = '',
+      anni_studio = null, scuola_provenienza = '',
+      programma = null, tutore = null, note_libere = '', gruppo_nome = '',
+      tipo_gruppo = '',
+    } = opts;
+    const isGruppoFlag = tipo === 'gruppo' || tipo === 'orchestra';
+    const tipoGruppoNorm = tipo === 'orchestra' ? 'orchestra' : (isGruppoFlag ? (tipo_gruppo || 'ensemble') : null);
     const numero = Math.max(0, ...state.candidati.filter((c) => c.concorso_id === concorso_id).map((c) => c.numero_candidato)) + 1;
     const r = await api.post('/api/candidati', {
       concorsoId: concorso_id,
@@ -936,10 +976,27 @@ export const db = {
       nome, cognome, strumento,
       dataNascita: data_nascita || undefined,
       nazionalita,
+      email: email || undefined,
+      telefono: telefono || undefined,
+      sesso: sesso || undefined,
+      luogoNascita: luogo_nascita || undefined,
+      codiceFiscale: codice_fiscale || undefined,
+      indirizzo: indirizzo || undefined,
+      citta: citta || undefined,
+      cap: cap || undefined,
+      provincia: provincia || undefined,
+      paese: paese || undefined,
+      anniStudio: anni_studio ?? undefined,
+      scuolaProvenienza: scuola_provenienza || undefined,
       docentiPreparatori: docenti_preparatori,
+      programma: programma ?? undefined,
+      tutore: tutore ?? undefined,
+      noteLibere: note_libere || undefined,
       sezioneId: sezione_id || undefined,
       categoriaId: categoria_id || undefined,
-      isGruppo: tipo === 'gruppo',
+      isGruppo: isGruppoFlag,
+      gruppoNome: gruppo_nome || undefined,
+      tipoGruppo: tipoGruppoNorm || undefined,
     });
     const cd = mapCandidato(r);
     state.candidati.push(cd);
@@ -961,12 +1018,28 @@ export const db = {
     const keymap = {
       nome: 'nome', cognome: 'cognome', strumento: 'strumento',
       data_nascita: 'dataNascita', nazionalita: 'nazionalita',
+      email: 'email', telefono: 'telefono', sesso: 'sesso',
+      luogo_nascita: 'luogoNascita', codice_fiscale: 'codiceFiscale',
+      indirizzo: 'indirizzo', citta: 'citta', cap: 'cap',
+      provincia: 'provincia', paese: 'paese',
+      anni_studio: 'anniStudio', scuola_provenienza: 'scuolaProvenienza',
       docenti_preparatori: 'docentiPreparatori',
+      programma: 'programma', tutore: 'tutore', note_libere: 'noteLibere',
       sezione_id: 'sezioneId', categoria_id: 'categoriaId',
+      gruppo_nome: 'gruppoNome',
+      tipo_gruppo: 'tipoGruppo',
       numero_candidato: 'numeroCandidato',
     };
     for (const [k, v] of Object.entries(keymap)) {
       if (patch[k] !== undefined) body[v] = patch[k];
+    }
+    if (patch.tipo !== undefined) {
+      const isGruppoFlag = patch.tipo === 'gruppo' || patch.tipo === 'orchestra';
+      body.isGruppo = isGruppoFlag;
+      if (isGruppoFlag && body.tipoGruppo === undefined) {
+        body.tipoGruppo = patch.tipo === 'orchestra' ? 'orchestra' : 'ensemble';
+      }
+      if (!isGruppoFlag) body.tipoGruppo = null;
     }
     let updated = Object.keys(body).length > 0
       ? await api.patch(`/api/candidati/${id}`, body)
@@ -997,7 +1070,7 @@ export const db = {
   fasiByConcorso(concorso_id) {
     return state.fasi.filter((f) => f.concorso_id === concorso_id).sort((a, b) => a.ordine - b.ordine);
   },
-  async createFase({ concorso_id, nome, ammessi = null, data_prevista = null, scala = 100, modo_valutazione = 'autonoma', metodo_media = 'aritmetica', tempo_minuti = 0, pesi = null, commissione_id = null, tiebreak_strategy = null, sezioni_ids = [] }) {
+  async createFase({ concorso_id, nome, ammessi = null, data_prevista = null, scala = 100, modo_valutazione = 'autonoma', metodo_media = 'aritmetica', tempo_minuti = 0, pesi = null, commissione_id = null, tiebreak_strategy = null, sezioni_ids = [], testo_esito_promosso = '', testo_esito_eliminato = '' }) {
     const ordine = state.fasi.filter((f) => f.concorso_id === concorso_id).length + 1;
     const r = await api.post('/api/fasi', {
       concorsoId: concorso_id,
@@ -1011,6 +1084,8 @@ export const db = {
       commissioneId: commissione_id || undefined,
       tiebreakStrategy: tiebreak_strategy || undefined,
       sezioniIds: Array.isArray(sezioni_ids) && sezioni_ids.length > 0 ? sezioni_ids : undefined,
+      testoEsitoPromosso: testo_esito_promosso || undefined,
+      testoEsitoEliminato: testo_esito_eliminato || undefined,
     });
     const f = mapFase(r);
     state.fasi.push(f); notify();
@@ -1025,6 +1100,8 @@ export const db = {
       pesi: 'pesi', commissione_id: 'commissioneId',
       tiebreak_strategy: 'tiebreakStrategy', ordine: 'ordine',
       sezioni_ids: 'sezioniIds',
+      testo_esito_promosso: 'testoEsitoPromosso',
+      testo_esito_eliminato: 'testoEsitoEliminato',
     };
     for (const [k, v] of Object.entries(keymap)) {
       if (patch[k] !== undefined) body[v] = patch[k];
@@ -1356,6 +1433,41 @@ export const db = {
     notify();
   },
 
+  // Aggiunge un membro a un gruppo passando i dati piatti (nome/cognome/
+  // strumento/data_nascita/nazionalita), senza richiedere un candidato
+  // individuale esistente. Usato dal form admin "Aggiungi candidato" quando
+  // l'admin compila inline la lista membri (analogo del form iscrizione
+  // pubblica).
+  async addMembroGruppoData(gruppoId, data = {}) {
+    const r = await api.post('/api/membri-gruppo', {
+      candidatoId: gruppoId,
+      nome: (data.nome || '').trim(),
+      cognome: (data.cognome || '').trim() || undefined,
+      strumento: (data.strumento || '').trim() || undefined,
+      dataNascita: data.data_nascita || undefined,
+      nazionalita: (data.nazionalita || '').trim() || undefined,
+    });
+    const m = mapMembroGruppo(r);
+    state.candidati_gruppo.push(m);
+    notify();
+    return m;
+  },
+
+  async updateMembroGruppoData(membroId, data = {}) {
+    const body = {};
+    if (data.nome !== undefined) body.nome = (data.nome || '').trim();
+    if (data.cognome !== undefined) body.cognome = (data.cognome || '').trim();
+    if (data.strumento !== undefined) body.strumento = (data.strumento || '').trim();
+    if (data.data_nascita !== undefined) body.dataNascita = data.data_nascita || undefined;
+    if (data.nazionalita !== undefined) body.nazionalita = (data.nazionalita || '').trim();
+    const r = await api.patch(`/api/membri-gruppo/${membroId}`, body);
+    const m = mapMembroGruppo(r);
+    const i = state.candidati_gruppo.findIndex((x) => x.id === membroId);
+    if (i >= 0) state.candidati_gruppo[i] = m;
+    notify();
+    return m;
+  },
+
   // ---------- Accounts (utenti del tenant) ----------
 
   async _loadAccounts() {
@@ -1517,8 +1629,13 @@ export const db = {
       docentiPreparatori: payload.docenti_preparatori,
       sezioneId: payload.sezione_id || payload.sezione || undefined,
       categoriaId: payload.categoria_id || payload.categoria || undefined,
-      isGruppo: payload.is_gruppo != null ? !!payload.is_gruppo : payload.tipo === 'gruppo',
+      isGruppo: payload.is_gruppo != null
+        ? !!payload.is_gruppo
+        : (payload.tipo === 'gruppo' || payload.tipo === 'orchestra'),
       gruppoNome: payload.gruppo_nome || undefined,
+      tipoGruppo: payload.tipo === 'orchestra'
+        ? 'orchestra'
+        : (payload.tipo === 'gruppo' ? 'ensemble' : (payload.tipo_gruppo || undefined)),
       membri: payload.membri || payload.gruppo_membri,
       tutore,
       consensiGdpr: consensi,
