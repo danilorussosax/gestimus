@@ -4,7 +4,8 @@ import { z } from 'zod';
 import { candidati, commissari, concorsi } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
-import { deleteFile, saveFile, type ResourceKind } from '../services/storage.js';
+import { join } from 'node:path';
+import { deleteFile, saveFile, tenantUploadDir, type ResourceKind } from '../services/storage.js';
 
 const uuid = z.string().uuid();
 const ALLOWED_RESOURCES: ResourceKind[] = ['concorso', 'commissario', 'candidato'];
@@ -112,5 +113,51 @@ export const uploadRoutes: FastifyPluginAsync = async (app) => {
       await deleteFile(stored.path).catch(() => {});
       throw err;
     }
+  });
+
+  /**
+   * DELETE /:resource/:id — rimuove il file associato alla risorsa: legge l'URL
+   * corrente, azzera la colonna (logo/foto) e cancella il file dal filesystem
+   * (N61, anti file orfani). Idempotente: se non c'è file ritorna comunque 200.
+   */
+  app.delete('/:resource/:id', async (req, reply) => {
+    const params = z
+      .object({ resource: z.enum(['concorso', 'commissario', 'candidato']), id: uuid })
+      .safeParse(req.params);
+    if (!params.success) return reply.badRequest(params.error.message);
+    const { resource, id } = params.data;
+
+    const currentUrl = await req.dbTx(async (tx) => {
+      if (resource === 'concorso') {
+        const sel = await tx.select({ url: concorsi.logo }).from(concorsi).where(eq(concorsi.id, id)).limit(1);
+        if (sel.length === 0) return reply.notFound();
+        await tx.update(concorsi).set({ logo: null, updatedAt: new Date() }).where(eq(concorsi.id, id));
+        return sel[0]!.url;
+      }
+      if (resource === 'commissario') {
+        const sel = await tx.select({ url: commissari.foto }).from(commissari).where(eq(commissari.id, id)).limit(1);
+        if (sel.length === 0) return reply.notFound();
+        await tx.update(commissari).set({ foto: null, updatedAt: new Date() }).where(eq(commissari.id, id));
+        return sel[0]!.url;
+      }
+      const sel = await tx.select({ url: candidati.foto }).from(candidati).where(eq(candidati.id, id)).limit(1);
+      if (sel.length === 0) return reply.notFound();
+      await tx.update(candidati).set({ foto: null, updatedAt: new Date() }).where(eq(candidati.id, id));
+      return sel[0]!.url;
+    });
+    if (reply.sent) return reply;
+
+    // Cancella il file: l'URL è /uploads/<slug>/<resource>/<id>/<filename>.
+    if (typeof currentUrl === 'string' && currentUrl) {
+      const filename = currentUrl.split('/').pop();
+      if (filename) {
+        const dir = tenantUploadDir(req.tenant!.slug, resource as ResourceKind, id);
+        await deleteFile(join(dir, filename)).catch(() => {});
+      }
+    }
+    await req.dbTx(async (tx) => {
+      await writeAudit(tx, req, 'upload.delete', { targetType: resource, targetId: id });
+    });
+    return reply.code(200).send({ ok: true });
   });
 };

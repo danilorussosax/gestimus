@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { parsePagination } from '../lib/pagination.js';
+import { checkCommissariLimit } from '../lib/plan-limits.js';
 import { commissari } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
@@ -55,6 +56,9 @@ export const commissariRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) return reply.badRequest(parsed.error.message);
 
     return req.dbTx(async (tx) => {
+      // N57: enforce limite di piano sul numero di commissari.
+      const limitErr = await checkCommissariLimit(tx, req.tenant!.id);
+      if (limitErr) return reply.code(403).send({ error: limitErr });
       const [created] = await tx
         .insert(commissari)
         .values({

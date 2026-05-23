@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { eq, max, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { parsePagination } from '../lib/pagination.js';
+import { checkCandidatiLimit } from '../lib/plan-limits.js';
 import { candidati, categorie, sezioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
@@ -103,6 +104,9 @@ export const candidatiRoutes: FastifyPluginAsync = async (app) => {
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
     return req.dbTx(async (tx) => {
+      // N57: enforce limite di piano sul numero di candidati per concorso.
+      const limitErr = await checkCandidatiLimit(tx, req.tenant!.id, parsed.data.concorsoId);
+      if (limitErr) return reply.code(403).send({ error: limitErr });
       const scope = await validateScope(tx, parsed.data.concorsoId, parsed.data.sezioneId, parsed.data.categoriaId);
       if (!scope.ok) return reply.badRequest(scope.error);
       // Gerarchia categoria→sezione: se è stata scelta una categoria ma non

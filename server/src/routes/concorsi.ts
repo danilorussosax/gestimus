@@ -5,6 +5,7 @@ import { concorsi } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { parsePagination } from '../lib/pagination.js';
+import { checkConcorsiLimit } from '../lib/plan-limits.js';
 
 const uuid = z.string().uuid();
 const createBody = z.object({
@@ -42,6 +43,9 @@ export const concorsiRoutes: FastifyPluginAsync = async (app) => {
       const parsed = createBody.safeParse(req.body);
       if (!parsed.success) return reply.badRequest(parsed.error.message);
       return req.dbTx(async (tx) => {
+        // N57: enforce limite di piano sul numero di concorsi.
+        const limitErr = await checkConcorsiLimit(tx, req.tenant!.id);
+        if (limitErr) return reply.code(403).send({ error: limitErr });
         const [created] = await tx
           .insert(concorsi)
           .values({ tenantId: req.tenant!.id, ...parsed.data })
