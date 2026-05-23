@@ -38,21 +38,26 @@ async function login(page, baseUrl, creds) {
 test.describe('Gestimus · multitenant E2E', () => {
   test('admin ente1 può loggare e vede dati ente1', async ({ page }) => {
     await login(page, HOSTS.ente1, CREDS.admin1);
-    // Concorso seedato visibile (sezione admin/home)
-    await expect(page.locator('text=Concorso Solisti 2026')).toBeVisible({ timeout: 5000 });
+    // Concorso seedato visibile (sezione admin/home). Il nome compare in più
+    // punti (header, select commissari, tabella) → .first() evita lo strict mode.
+    await expect(page.locator('text=Concorso Solisti 2026').first()).toBeVisible({ timeout: 5000 });
   });
 
   test('admin ente2 logga separatamente e non vede dati ente1', async ({ page }) => {
     await login(page, HOSTS.ente2, CREDS.admin2);
-    await expect(page.locator('text=Rassegna Giovani 2026')).toBeVisible({ timeout: 5000 });
-    // Concorsi di ente1 NON devono essere visibili
+    await expect(page.locator('text=Rassegna Giovani 2026').first()).toBeVisible({ timeout: 5000 });
+    // Concorsi di ente1 NON devono essere visibili (isolamento tenant)
     await expect(page.locator('text=Concorso Solisti 2026')).toHaveCount(0);
   });
 
   test('super-admin vede la lista di tutti gli enti', async ({ page }) => {
     await login(page, HOSTS.platform, CREDS.superadmin);
-    await expect(page.locator('text=Conservatorio Demo Milano')).toBeVisible({ timeout: 5000 });
-    await expect(page.locator('text=Associazione Demo Roma')).toBeVisible();
+    // I nomi mostrati sono quelli dei tenant, che possono essere ribrandizzati:
+    // verifichiamo strutturalmente che la lista contenga ≥2 enti, senza
+    // dipendere da nomi specifici.
+    const enti = page.locator('[data-ente-id]');
+    await expect(enti.first()).toBeVisible({ timeout: 5000 });
+    expect(await enti.count()).toBeGreaterThanOrEqual(2);
   });
 
   test('credenziali errate → messaggio di errore', async ({ page }) => {

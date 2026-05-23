@@ -18,6 +18,10 @@ export default defineConfig({
   reporter: [['list']],
   use: {
     baseURL: 'http://ente1.gestimus.local:4000',
+    // Locale fisso: l'app sceglie la lingua da navigator.language (js/i18n.js).
+    // Pinnandolo a it-IT i test restano deterministici a prescindere dal locale
+    // della macchina/CI, su cui i selettori di testo italiani altrimenti falliscono.
+    locale: 'it-IT',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
   },
