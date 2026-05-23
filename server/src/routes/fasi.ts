@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { candidati, candidatiFase, commissioni, fasi, fasiSezioni } from '../db/schema.js';
+import { candidati, candidatiFase, commissioni, fasi, fasiSezioni, sezioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { faseChannel } from '../realtime/hub.js';
@@ -68,6 +68,19 @@ async function loadFaseSezioniMap(tx: any, faseIds: string[]): Promise<Map<strin
     map.set(r.faseId, arr);
   }
   return map;
+}
+
+// N51: tutte le sezioni indicate devono appartenere al concorso della fase.
+// La FK garantisce solo l'esistenza, non la coerenza di concorso. Ritorna true
+// se ok. La query gira sotto RLS (solo sezioni del tenant visibili).
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function sezioniAllInConcorso(tx: any, sezioniIds: string[], concorsoId: string): Promise<boolean> {
+  if (!sezioniIds || sezioniIds.length === 0) return true;
+  const rows = await tx
+    .select({ id: sezioni.id })
+    .from(sezioni)
+    .where(and(inArray(sezioni.id, sezioniIds), eq(sezioni.concorsoId, concorsoId)));
+  return rows.length === sezioniIds.length;
 }
 
 function mulberry32(seed: number): () => number {
@@ -160,6 +173,10 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     return req.dbTx(async (tx) => {
       try {
         const { sezioniIds, ...faseFields } = parsed.data;
+        // N51: le sezioni devono essere dello stesso concorso della fase.
+        if (!(await sezioniAllInConcorso(tx, sezioniIds ?? [], faseFields.concorsoId))) {
+          return reply.badRequest('una o più sezioni non appartengono al concorso della fase');
+        }
         const [created] = await tx
           .insert(fasi)
           .values({ tenantId: req.tenant!.id, ...faseFields })
@@ -265,6 +282,10 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
       // Sync della join table solo se sezioniIds è stato esplicitamente inviato
       // (undefined = "non modificare", array vuoto = "rimuovi tutte le sezioni").
       if (sezioniIds !== undefined) {
+        // N51: le sezioni devono appartenere al concorso della fase.
+        if (!(await sezioniAllInConcorso(tx, sezioniIds, updated.concorsoId))) {
+          return reply.badRequest('una o più sezioni non appartengono al concorso della fase');
+        }
         await tx.delete(fasiSezioni).where(eq(fasiSezioni.faseId, id));
         if (sezioniIds.length > 0) {
           await tx.insert(fasiSezioni).values(

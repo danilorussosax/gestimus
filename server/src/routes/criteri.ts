@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { criteri } from '../db/schema.js';
+import { criteri, fasi } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 
@@ -46,6 +46,11 @@ export const criteriRoutes: FastifyPluginAsync = async (app) => {
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
     return req.dbTx(async (tx) => {
+      // N52+N62: la fase deve esistere ed essere del tenant corrente (la query
+      // gira sotto RLS → una fase di altro tenant non è visibile → 404). Evita
+      // sia il bypass del tenant ownership sia la FK violation grezza (500).
+      const f = await tx.select({ id: fasi.id }).from(fasi).where(eq(fasi.id, parsed.data.faseId)).limit(1);
+      if (f.length === 0) return reply.code(404).send({ error: 'fase non trovata nel tenant corrente' });
       const [created] = await tx
         .insert(criteri)
         .values({ tenantId: req.tenant!.id, ...parsed.data })

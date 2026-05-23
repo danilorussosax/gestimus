@@ -79,6 +79,16 @@ export const accountsRoutes: FastifyPluginAsync = async (app) => {
 
     const passwordHash = await hashPassword(parsed.data.password);
     return req.dbTx(async (tx) => {
+      // N53: come il PATCH, valida che commissarioId appartenga al tenant
+      // (query sotto RLS → commissario di altro tenant non visibile).
+      if (parsed.data.commissarioId) {
+        const cm = await tx
+          .select({ id: commissari.id })
+          .from(commissari)
+          .where(eq(commissari.id, parsed.data.commissarioId))
+          .limit(1);
+        if (cm.length === 0) return reply.badRequest('commissario non trovato nel tenant corrente');
+      }
       try {
         const [created] = await tx
           .insert(accounts)

@@ -131,6 +131,19 @@ export const commissioniRoutes: FastifyPluginAsync = async (app) => {
     const parsed = updateBody.safeParse(req.body);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
     return req.dbTx(async (tx) => {
+      // N54: il presidente deve essere un commissario dello stesso concorso
+      // della commissione. La FK garantisce solo l'esistenza.
+      if (parsed.data.presidenteCommissarioId) {
+        const com = await tx.select({ concorsoId: commissioni.concorsoId })
+          .from(commissioni).where(eq(commissioni.id, id)).limit(1);
+        if (com.length === 0) return reply.notFound();
+        const cms = await tx.select({ concorsoId: commissari.concorsoId })
+          .from(commissari).where(eq(commissari.id, parsed.data.presidenteCommissarioId)).limit(1);
+        if (cms.length === 0) return reply.badRequest('presidente: commissario non trovato');
+        if (cms[0]!.concorsoId !== com[0]!.concorsoId) {
+          return reply.badRequest('il presidente non appartiene al concorso della commissione');
+        }
+      }
       const [updated] = await tx
         .update(commissioni)
         .set({ ...parsed.data, updatedAt: new Date() })
