@@ -573,6 +573,14 @@ export const candidatiFase = pgTable(
     index('idx_candidati_fase_fase').on(t.faseId),
     // N18: l'UPDATE del conclude filtra (fase_id, stato).
     index('idx_candidati_fase_fase_stato').on(t.faseId, t.stato),
+    // N42: query "tutte le fasi di un candidato" (scoring/risultati) molto comuni.
+    index('idx_candidati_fase_candidato').on(t.candidatoId),
+    // N43: un candidato COMPLETATO deve avere un esito esplicito (promosso/
+    // eliminato), mai NULL → niente display ambiguo "—".
+    check(
+      'candidati_fase_completato_ammesso_check',
+      sql`${t.stato} <> 'COMPLETATO' OR ${t.ammessoProssimaFase} IS NOT NULL`,
+    ),
   ],
 );
 
@@ -604,6 +612,8 @@ export const valutazioni = pgTable(
     index('idx_valutazioni_tenant').on(t.tenantId),
     index('idx_valutazioni_cf').on(t.candidatoFaseId),
     index('idx_valutazioni_commissario').on(t.commissarioId),
+    // N41: voto non negativo a livello DB (oltre al clamp trigger + zod min(0)).
+    check('valutazioni_voto_check', sql`${t.voto} >= 0`),
   ],
 );
 

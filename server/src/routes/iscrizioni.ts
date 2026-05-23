@@ -54,7 +54,15 @@ const iscrizioneCreateBody = z.object({
   tipoGruppo: z.enum(['ensemble', 'orchestra']).optional(),
   membri: z.array(z.unknown()).optional(),
   tutore: z.unknown().optional(),
-  consensiGdpr: z.unknown(),
+  // N40: i consensi obbligatori (privacy + regolamento) DEVONO essere true.
+  // Prima era z.unknown() + check `if (!data.consensiGdpr)` → un payload
+  // { consensiGdpr: { privacy: false } } passava, bypassando il consenso GDPR.
+  // `immagini` resta opzionale (consenso facoltativo all'uso immagini).
+  consensiGdpr: z.object({
+    privacy: z.literal(true),
+    regolamento: z.literal(true),
+    immagini: z.boolean().optional(),
+  }).passthrough(),
   noteLibere: z.string().max(2000).optional(),
 });
 
@@ -181,6 +189,26 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
       }
       if (!data.consensiGdpr) {
         return reply.code(400).send({ error: 'consensi GDPR mancanti' });
+      }
+
+      // N26/N32: check applicativo per iscrizione duplicata (email già iscritta
+      // a questo concorso, escluse le rifiutate). L'indice unique parziale è la
+      // rete di sicurezza; qui diamo un 409 esplicito invece di un 23505 grezzo.
+      const dupe = await req.dbTx(async (tx) =>
+        tx
+          .select({ id: iscrizioni.id })
+          .from(iscrizioni)
+          .where(
+            and(
+              eq(iscrizioni.concorsoId, data.concorsoId),
+              sql`lower(${iscrizioni.email}) = ${data.email.toLowerCase()}`,
+              sql`${iscrizioni.stato} <> 'RIFIUTATA'`,
+            ),
+          )
+          .limit(1),
+      );
+      if (dupe.length > 0) {
+        return reply.code(409).send({ error: 'esiste già un\'iscrizione con questa email per il concorso' });
       }
 
       // Gerarchia categoria→sezione + cross-concorso check anche per il form

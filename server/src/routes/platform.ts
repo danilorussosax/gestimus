@@ -32,6 +32,10 @@ const PLATFORM_SLUG = 'platform';
 
 // M4: cache breve dello snapshot /system (il campionamento CPU costa 200ms).
 let systemSnapshotCache: { data: unknown; expiresAt: number } | null = null;
+// N50: single-flight. Quando la cache scade, solo la prima richiesta calcola lo
+// snapshot (sleep 200ms per CPU sampling); le concorrenti attendono la stessa
+// promise invece di samplare anche loro → niente stampede.
+let systemSnapshotInflight: Promise<unknown> | null = null;
 
 /**
  * Guard: la route esiste solo se la richiesta arriva dal subdomain super-admin.
@@ -319,31 +323,43 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
     const adminEmail = body.adminEmail.trim().toLowerCase();
     const passwordHash = await hashPassword(body.adminPassword);
 
-    const created = await dbSuper.transaction(async (tx) => {
-      const [tenant] = await tx
-        .insert(tenants)
-        .values({
-          slug: body.slug,
-          nome: body.nome,
-          dominio: body.dominio ?? null,
-          stato: 'attivo',
-          piano: body.piano,
-          pianoScadenza: body.pianoScadenza ?? null,
-          note: body.note ?? null,
-          cleanupAfterDays: body.cleanupAfterDays ?? 30,
-          require2faAdmin: body.require2faAdmin ?? false,
-        })
-        .returning();
-      await tx.insert(accounts).values({
-        tenantId: tenant!.id,
-        email: adminEmail,
-        passwordHash,
-        role: 'admin',
-        attivo: true,
-        emailVerified: true,
+    let created;
+    try {
+      created = await dbSuper.transaction(async (tx) => {
+        const [tenant] = await tx
+          .insert(tenants)
+          .values({
+            slug: body.slug,
+            nome: body.nome,
+            dominio: body.dominio ?? null,
+            stato: 'attivo',
+            piano: body.piano,
+            pianoScadenza: body.pianoScadenza ?? null,
+            note: body.note ?? null,
+            cleanupAfterDays: body.cleanupAfterDays ?? 30,
+            require2faAdmin: body.require2faAdmin ?? false,
+          })
+          .returning();
+        await tx.insert(accounts).values({
+          tenantId: tenant!.id,
+          email: adminEmail,
+          passwordHash,
+          role: 'admin',
+          attivo: true,
+          emailVerified: true,
+        });
+        return tenant!;
       });
-      return tenant!;
-    });
+    } catch (err) {
+      // N48: la SELECT-then-INSERT non è atomica. Due create concorrenti con lo
+      // stesso slug passano entrambe la SELECT sopra, poi l'INSERT fallisce con
+      // 23505 sul vincolo unique slug. Mappiamo a 409 invece di 500.
+      const e = err as { code?: string; cause?: { code?: string } };
+      if ((e.code ?? e.cause?.code) === '23505') {
+        return reply.code(409).send({ error: `slug "${body.slug}" già in uso` });
+      }
+      throw err;
+    }
 
     await auditChange(req, 'platform.tenant.create', created, {
       piano: body.piano,
@@ -712,38 +728,46 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
     if (systemSnapshotCache && systemSnapshotCache.expiresAt > now) {
       return systemSnapshotCache.data;
     }
-    const SAMPLE_WINDOW_MS = 200;
-    const startCpu = process.cpuUsage();
-    await new Promise((resolve) => setTimeout(resolve, SAMPLE_WINDOW_MS));
-    const elapsedCpu = process.cpuUsage(startCpu); // diff in µs (user+system)
-    const cores = os.cpus().length;
-    const windowMicros = SAMPLE_WINDOW_MS * 1000;
-    const processPctRaw = ((elapsedCpu.user + elapsedCpu.system) / windowMicros) * 100;
-    const processPct = Math.min(processPctRaw, cores * 100);
+    // N50: single-flight. Se un calcolo è già in corso, attendi quello.
+    if (systemSnapshotInflight) {
+      return systemSnapshotInflight;
+    }
+    const compute = async (): Promise<unknown> => {
+      const SAMPLE_WINDOW_MS = 200;
+      const startCpu = process.cpuUsage();
+      await new Promise((resolve) => setTimeout(resolve, SAMPLE_WINDOW_MS));
+      const elapsedCpu = process.cpuUsage(startCpu); // diff in µs (user+system)
+      const cores = os.cpus().length;
+      const windowMicros = SAMPLE_WINDOW_MS * 1000;
+      const processPctRaw = ((elapsedCpu.user + elapsedCpu.system) / windowMicros) * 100;
+      const processPct = Math.min(processPctRaw, cores * 100);
 
-    const mem = process.memoryUsage();
-    const [load1, load5, load15] = os.loadavg();
-    const data = {
-      memory: {
-        rss: mem.rss,
-        heapUsed: mem.heapUsed,
-        heapTotal: mem.heapTotal,
-      },
-      cpu: {
-        cores,
-        // % CPU istantanea del processo Node (campionata su 200ms).
-        // 100% = un core saturo. Su multi-thread può salire fino a cores*100.
-        processPct: Number(processPct.toFixed(1)),
-        // Media di sistema (include altri processi e I/O wait): retro-
-        // compatibile + utile come trend.
-        loadAvg1: load1 ?? 0,
-        loadAvg5: load5 ?? 0,
-        loadAvg15: load15 ?? 0,
-      },
-      uptimeSec: Math.floor(process.uptime()),
+      const mem = process.memoryUsage();
+      const [load1, load5, load15] = os.loadavg();
+      const data = {
+        memory: {
+          rss: mem.rss,
+          heapUsed: mem.heapUsed,
+          heapTotal: mem.heapTotal,
+        },
+        cpu: {
+          cores,
+          // % CPU istantanea del processo Node (campionata su 200ms).
+          // 100% = un core saturo. Su multi-thread può salire fino a cores*100.
+          processPct: Number(processPct.toFixed(1)),
+          // Media di sistema (include altri processi e I/O wait): retro-
+          // compatibile + utile come trend.
+          loadAvg1: load1 ?? 0,
+          loadAvg5: load5 ?? 0,
+          loadAvg15: load15 ?? 0,
+        },
+        uptimeSec: Math.floor(process.uptime()),
+      };
+      systemSnapshotCache = { data, expiresAt: Date.now() + 5000 };
+      return data;
     };
-    systemSnapshotCache = { data, expiresAt: now + 5000 };
-    return data;
+    systemSnapshotInflight = compute().finally(() => { systemSnapshotInflight = null; });
+    return systemSnapshotInflight;
   });
 
   /**

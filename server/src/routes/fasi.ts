@@ -409,7 +409,14 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
       // dopo che la fase è chiusa e ammesso_prossima_fase è stato deciso.
       await tx
         .update(candidatiFase)
-        .set({ stato: 'COMPLETATO', updatedAt: new Date() })
+        .set({
+          stato: 'COMPLETATO',
+          // N43: un candidato COMPLETATO deve avere un esito esplicito. Se
+          // ammesso_prossima_fase non è stato deciso, default false ("non
+          // promosso") → niente NULL su COMPLETATO (rispetta il CHECK).
+          ammessoProssimaFase: sql`COALESCE(${candidatiFase.ammessoProssimaFase}, false)`,
+          updatedAt: new Date(),
+        })
         .where(
           and(
             eq(candidatiFase.faseId, id),

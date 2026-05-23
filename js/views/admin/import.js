@@ -355,7 +355,18 @@ export function openImportModal(concorso, kind, onSaved) {
           parsed = [];
           return;
         }
-        parsed = rows.slice(1).map((r, i) => ({
+        // N47: cap sul numero di righe importabili. Senza limite un CSV da
+        // decine di migliaia di righe freeza il browser nel parsing/preview e
+        // poi genera altrettante chiamate API sequenziali.
+        const MAX_IMPORT_ROWS = 500;
+        const dataRows = rows.slice(1);
+        if (dataRows.length > MAX_IMPORT_ROWS) {
+          summaryEl.innerHTML = `<span class="text-rose-600 font-semibold">${escapeHtml(`Troppe righe: ${dataRows.length}. Massimo ${MAX_IMPORT_ROWS} per import — suddividi il file.`)}</span>`;
+          previewWrap.classList.add('hidden');
+          parsed = [];
+          return;
+        }
+        parsed = dataRows.map((r, i) => ({
           ...buildImportRow(kind, headerMap, r, concorso),
           rawIndex: i + 2,
         }));

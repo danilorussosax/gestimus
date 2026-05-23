@@ -219,18 +219,21 @@ CREATE TRIGGER trg_junction_fs_tenant_check
 CREATE INDEX IF NOT EXISTS idx_candidati_fase_fase_stato
   ON candidati_fase(fase_id, stato);
 
--- UNIQUE per-concorso su iscrizioni: stessa email non può iscriversi 2 volte
--- allo stesso concorso. Non blocca iscrizioni a concorsi diversi dello stesso
--- ente, né cross-tenant (RLS).
+-- N26/N32: UNIQUE per-concorso su iscrizioni, PARZIALE su stato != 'RIFIUTATA'.
+-- Stessa email non può avere 2 iscrizioni attive allo stesso concorso, ma può
+-- ri-iscriversi dopo un rifiuto. Le righe erased hanno email per-riga univoca
+-- (erased+<id>@) quindi non collidono. Migrazione dal vecchio constraint full.
 DO $$
 BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
     SELECT 1 FROM pg_constraint WHERE conname = 'uniq_iscrizioni_concorso_email'
   ) THEN
-    ALTER TABLE iscrizioni
-      ADD CONSTRAINT uniq_iscrizioni_concorso_email UNIQUE (concorso_id, email);
+    ALTER TABLE iscrizioni DROP CONSTRAINT uniq_iscrizioni_concorso_email;
   END IF;
 END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS uniq_iscrizioni_concorso_email_active
+  ON iscrizioni (concorso_id, email)
+  WHERE stato <> 'RIFIUTATA';
 
 -- =====================================================================
 -- 5. Audit log append-only: revoke UPDATE e DELETE al ruolo applicativo

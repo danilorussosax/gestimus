@@ -120,10 +120,14 @@ export const smtpRoutes: FastifyPluginAsync = async (app) => {
 
     if (body.data.sendTo) {
       try {
+        // N44: il nome tenant è user-controlled. Rimuovi CR/LF (e altri control
+        // char) prima di interpolarlo nella subject, altrimenti un nome con
+        // \r\n inietterebbe header SMTP arbitrari (es. BCC spam).
+        const safeNome = (req.tenant!.nome ?? '').replace(/[\r\n\t\x00-\x1f\x7f]/g, ' ').slice(0, 120);
         const sent = await sendMail({
           tenantId: req.tenant!.id,
           to: body.data.sendTo,
-          subject: `[Gestimus] Test SMTP per ${req.tenant!.nome}`,
+          subject: `[Gestimus] Test SMTP per ${safeNome}`,
           text: 'Questa è una email di test della configurazione SMTP del tenant.',
         });
         await req.dbTx(async (tx) => {

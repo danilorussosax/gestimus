@@ -209,8 +209,13 @@ export function renderImpostazioniConcorso(root, concorso) {
     const stato = form.querySelector('[name="stato"]').value;
     const anonimo = form.querySelector('[name="anonimo"]').checked;
     const iscrizioni_aperte = form.querySelector('[name="iscrizioni_aperte"]').checked;
+    // N45: la colonna iscrizioni_scadenza è date-only. Convertire l'input
+    // datetime-local in UTC con toISOString() poteva spostare la data di un
+    // giorno vicino a mezzanotte (es. 23/05 00:30 Roma → 22/05 22:30Z → 22/05).
+    // Inviamo direttamente la DATA locale scelta dall'admin (il tempo è ignorato
+    // dalla colonna), così la scadenza coincide col giorno selezionato.
     const iscrizioniChiusuraRaw = form.querySelector('[name="iscrizioni_chiusura"]').value;
-    const iscrizioni_chiusura = iscrizioniChiusuraRaw ? new Date(iscrizioniChiusuraRaw).toISOString() : '';
+    const iscrizioni_chiusura = iscrizioniChiusuraRaw ? iscrizioniChiusuraRaw.slice(0, 10) : '';
 
     let default_tiebreak_strategy = null;
     if (tbContainer && tbContainer.dataset.tbTouched === '1') {

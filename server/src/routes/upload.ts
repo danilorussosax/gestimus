@@ -4,7 +4,7 @@ import { z } from 'zod';
 import { candidati, commissari, concorsi } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
-import { saveFile, type ResourceKind } from '../services/storage.js';
+import { deleteFile, saveFile, type ResourceKind } from '../services/storage.js';
 
 const uuid = z.string().uuid();
 const ALLOWED_RESOURCES: ResourceKind[] = ['concorso', 'commissario', 'candidato'];
@@ -55,52 +55,62 @@ export const uploadRoutes: FastifyPluginAsync = async (app) => {
       throw err;
     }
 
-    // Aggiorna la colonna corretta della risorsa
-    return req.dbTx(async (tx) => {
-      let updated;
-      switch (resource) {
-        case 'concorso': {
-          const rows = await tx
-            .update(concorsi)
-            .set({ logo: stored.publicUrl, updatedAt: new Date() })
-            .where(eq(concorsi.id, id))
-            .returning();
-          updated = rows[0];
-          break;
+    // N49: il file è già su disco. Se l'update DB fallisce (risorsa non
+    // trovata, RLS, eccezione), va rimosso per non lasciare un orfano che
+    // consuma storage. Cleanup best-effort su entrambi i percorsi di errore.
+    try {
+      return await req.dbTx(async (tx) => {
+        let updated;
+        switch (resource) {
+          case 'concorso': {
+            const rows = await tx
+              .update(concorsi)
+              .set({ logo: stored.publicUrl, updatedAt: new Date() })
+              .where(eq(concorsi.id, id))
+              .returning();
+            updated = rows[0];
+            break;
+          }
+          case 'commissario': {
+            const rows = await tx
+              .update(commissari)
+              .set({ foto: stored.publicUrl, updatedAt: new Date() })
+              .where(eq(commissari.id, id))
+              .returning();
+            updated = rows[0];
+            break;
+          }
+          case 'candidato': {
+            const rows = await tx
+              .update(candidati)
+              .set({ foto: stored.publicUrl, updatedAt: new Date() })
+              .where(eq(candidati.id, id))
+              .returning();
+            updated = rows[0];
+            break;
+          }
         }
-        case 'commissario': {
-          const rows = await tx
-            .update(commissari)
-            .set({ foto: stored.publicUrl, updatedAt: new Date() })
-            .where(eq(commissari.id, id))
-            .returning();
-          updated = rows[0];
-          break;
+        if (!updated) {
+          await deleteFile(stored.path).catch(() => {});
+          return reply.notFound();
         }
-        case 'candidato': {
-          const rows = await tx
-            .update(candidati)
-            .set({ foto: stored.publicUrl, updatedAt: new Date() })
-            .where(eq(candidati.id, id))
-            .returning();
-          updated = rows[0];
-          break;
-        }
-      }
-      if (!updated) return reply.notFound();
 
-      await writeAudit(tx, req, 'upload.create', {
-        targetType: resource,
-        targetId: id,
-        payload: { filename: stored.filename, size: stored.sizeBytes, mime: stored.mimeType },
-      });
+        await writeAudit(tx, req, 'upload.create', {
+          targetType: resource,
+          targetId: id,
+          payload: { filename: stored.filename, size: stored.sizeBytes, mime: stored.mimeType },
+        });
 
-      return reply.code(201).send({
-        url: stored.publicUrl,
-        filename: stored.filename,
-        sizeBytes: stored.sizeBytes,
-        mimeType: stored.mimeType,
+        return reply.code(201).send({
+          url: stored.publicUrl,
+          filename: stored.filename,
+          sizeBytes: stored.sizeBytes,
+          mimeType: stored.mimeType,
+        });
       });
-    });
+    } catch (err) {
+      await deleteFile(stored.path).catch(() => {});
+      throw err;
+    }
   });
 };

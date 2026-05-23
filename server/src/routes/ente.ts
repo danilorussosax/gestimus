@@ -18,12 +18,16 @@ const enteBody = z.object({
   note: z.string().optional(),
 });
 
-// logoUrl può essere un dataURL base64 inline (PNG/WebP fino a qualche MB) —
-// il vecchio limite di 500 char accettava solo path. JSONB tollera testi lunghi.
+// logoUrl può essere un dataURL base64 inline (PNG/WebP) oppure un path/URL.
+// N46: branding_public è letto su OGNI richiesta non autenticata (GET
+// /ente/public per la pagina di login). Un logo da 10MB rendeva ogni
+// caricamento login una query da 10MB → DoS. Cap a ~1MB (≈750KB binari dopo
+// base64). Per loghi più grandi va usato un URL esterno.
+const MAX_LOGO_CHARS = 1_000_000;
 const brandingBody = z.object({
   nomePubblico: z.string().max(255).optional(),
   sottotitolo: z.string().max(255).optional(),
-  logoUrl: z.string().max(10_000_000).optional(),
+  logoUrl: z.string().max(MAX_LOGO_CHARS).optional(),
   coloreAccent: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
   coloreSfondo: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
 });
