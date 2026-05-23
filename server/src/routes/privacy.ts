@@ -84,10 +84,19 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
       raw.end();
     } catch (err) {
       req.log.error({ err }, 'privacy.export: errore durante lo streaming');
-      // Header già inviati: non possiamo cambiare status. Chiudiamo con un
-      // marcatore di errore nel JSON così il client rileva l'export incompleto.
-      raw.write(',"_error":"export interrotto"}');
-      raw.end();
+      // N104: header già inviati, non possiamo cambiare status. Se la
+      // connessione è ancora aperta proviamo a chiudere con un marcatore
+      // d'errore (il client rileva l'export incompleto); se la write fallisce
+      // (client disconnesso) distruggiamo il socket invece di lasciar propagare
+      // un'eccezione non catchata.
+      if (!raw.writableEnded) {
+        try {
+          raw.write(',"_error":"export interrotto"}');
+          raw.end();
+        } catch {
+          raw.destroy();
+        }
+      }
     }
   });
 

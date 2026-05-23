@@ -382,6 +382,11 @@ export const categorie = pgTable(
   (t) => [
     index('idx_categorie_tenant').on(t.tenantId),
     index('idx_categorie_sezione').on(t.sezioneId),
+    // N97: intervallo età coerente (min <= max) quando entrambi valorizzati.
+    check(
+      'chk_categorie_eta_range',
+      sql`${t.etaMin} IS NULL OR ${t.etaMax} IS NULL OR ${t.etaMin} <= ${t.etaMax}`,
+    ),
   ],
 );
 

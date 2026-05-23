@@ -188,19 +188,7 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
         }
       }
 
-      // Verifica concorso esistente + aperto
-      const concorsoCheck = await req.dbTx(async (tx) => {
-        const rows = await tx.select().from(concorsi).where(eq(concorsi.id, data.concorsoId)).limit(1);
-        if (rows.length === 0) return null;
-        const c = rows[0]!;
-        if (!c.iscrizioniAperte) return 'CHIUSE';
-        if (c.iscrizioniScadenza && String(c.iscrizioniScadenza) < new Date().toISOString().slice(0, 10)) return 'SCADUTE';
-        return 'OK';
-      });
-      if (!concorsoCheck) return reply.notFound();
-      if (concorsoCheck !== 'OK') return reply.code(403).send({ error: `iscrizioni ${concorsoCheck}` });
-
-      // GDPR: se candidato minorenne, tutore obbligatorio
+      // GDPR: se candidato minorenne, tutore obbligatorio (check puro, no DB).
       if (data.dataNascita) {
         const dob = new Date(data.dataNascita);
         const today = new Date();
@@ -216,15 +204,40 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
           return reply.code(400).send({ error: 'candidato minorenne: dati tutore (nome ed email) richiesti' });
         }
       }
-      // N91: rimosso il check `if (!data.consensiGdpr)` — irraggiungibile.
-      // consensiGdpr è uno z.object required (privacy/regolamento literal true):
-      // un payload mancante o invalido viene già respinto dal safeParse sopra.
+      // N91: nessun check `if (!data.consensiGdpr)` — irraggiungibile, lo schema
+      // Zod richiede già consensiGdpr.privacy/regolamento === true.
 
-      // N26/N32: check applicativo per iscrizione duplicata (email già iscritta
-      // a questo concorso, escluse le rifiutate). L'indice unique parziale è la
-      // rete di sicurezza; qui diamo un 409 esplicito invece di un 23505 grezzo.
-      const dupe = await req.dbTx(async (tx) =>
-        tx
+      // N102 + N95: TUTTI i check su DB e l'INSERT in UNA sola transazione, con
+      // SELECT … FOR UPDATE sulla riga del concorso:
+      //  - chiude la TOCTOU (N102): il concorso non può essere chiuso/archiviato
+      //    tra il check di apertura e l'INSERT (un UPDATE concorrente sul
+      //    concorso attende il nostro commit);
+      //  - serializza le iscrizioni con stessa email sullo stesso concorso (N95):
+      //    due richieste concorrenti contendono lo stesso row-lock, la seconda
+      //    vede l'iscrizione della prima → 409 deterministico (l'indice unique
+      //    parziale uniq_iscrizioni_concorso_email_active resta la rete finale).
+      const emailToken = generateToken();
+      const todayStr = new Date().toISOString().slice(0, 10);
+      const outcome = await req.dbTx(async (tx) => {
+        const crows = await tx
+          .select({
+            iscrizioniAperte: concorsi.iscrizioniAperte,
+            iscrizioniScadenza: concorsi.iscrizioniScadenza,
+          })
+          .from(concorsi)
+          .where(eq(concorsi.id, data.concorsoId))
+          .limit(1)
+          .for('update');
+        if (crows.length === 0) return { kind: 'notfound' as const };
+        const c = crows[0]!;
+        if (!c.iscrizioniAperte) return { kind: 'closed' as const, stato: 'CHIUSE' };
+        if (c.iscrizioniScadenza && String(c.iscrizioniScadenza) < todayStr) {
+          return { kind: 'closed' as const, stato: 'SCADUTE' };
+        }
+
+        // N26/N32: duplicato email (escluse le RIFIUTATA) — sotto il lock del
+        // concorso, quindi senza più la race tra check e INSERT.
+        const dupe = await tx
           .select({ id: iscrizioni.id })
           .from(iscrizioni)
           .where(
@@ -234,51 +247,42 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
               sql`${iscrizioni.stato} <> 'RIFIUTATA'`,
             ),
           )
-          .limit(1),
-      );
-      if (dupe.length > 0) {
-        return reply.code(409).send({ error: 'esiste già un\'iscrizione con questa email per il concorso' });
-      }
+          .limit(1);
+        if (dupe.length > 0) return { kind: 'dupe' as const };
 
-      // Gerarchia categoria→sezione + cross-concorso check anche per il form
-      // pubblico: il backend è l'ultimo guardiano (il client può manomettere il
-      // payload). Se viene scelta una categoria di un'altra sezione/concorso
-      // → 400. Se manca la sezione ma c'è la categoria → la deriviamo.
-      let sezioneId = data.sezioneId;
-      const categoriaId = data.categoriaId;
-      if (sezioneId) {
-        const checkSez = await req.dbTx(async (tx) =>
-          tx.select({ concorsoId: sezioni.concorsoId }).from(sezioni).where(eq(sezioni.id, sezioneId!)).limit(1),
-        );
-        if (checkSez.length === 0 || checkSez[0]!.concorsoId !== data.concorsoId) {
-          return reply.code(400).send({ error: 'sezione non appartenente al concorso' });
-        }
-      }
-      if (categoriaId) {
-        const checkCat = await req.dbTx(async (tx) =>
-          tx.select({ sezioneId: categorie.sezioneId }).from(categorie).where(eq(categorie.id, categoriaId)).limit(1),
-        );
-        if (checkCat.length === 0) {
-          return reply.code(400).send({ error: 'categoria non trovata' });
-        }
-        const catSezId = checkCat[0]!.sezioneId;
-        if (sezioneId && catSezId !== sezioneId) {
-          return reply.code(400).send({ error: 'la categoria non appartiene alla sezione scelta' });
-        }
-        if (!sezioneId) {
-          // Auto-derive: l'utente ha scelto solo la categoria — propaga sezione
-          sezioneId = catSezId;
-          const checkCatConcorso = await req.dbTx(async (tx) =>
-            tx.select({ concorsoId: sezioni.concorsoId }).from(sezioni).where(eq(sezioni.id, catSezId)).limit(1),
-          );
-          if (checkCatConcorso.length === 0 || checkCatConcorso[0]!.concorsoId !== data.concorsoId) {
-            return reply.code(400).send({ error: 'la categoria non appartiene al concorso' });
+        // Gerarchia categoria→sezione + cross-concorso: il backend è l'ultimo
+        // guardiano (il client può manomettere il payload). Se manca la sezione
+        // ma c'è la categoria → la deriviamo.
+        let sezioneId = data.sezioneId;
+        const categoriaId = data.categoriaId;
+        if (sezioneId) {
+          const checkSez = await tx
+            .select({ concorsoId: sezioni.concorsoId })
+            .from(sezioni).where(eq(sezioni.id, sezioneId)).limit(1);
+          if (checkSez.length === 0 || checkSez[0]!.concorsoId !== data.concorsoId) {
+            return { kind: 'badreq' as const, msg: 'sezione non appartenente al concorso' };
           }
         }
-      }
+        if (categoriaId) {
+          const checkCat = await tx
+            .select({ sezioneId: categorie.sezioneId })
+            .from(categorie).where(eq(categorie.id, categoriaId)).limit(1);
+          if (checkCat.length === 0) return { kind: 'badreq' as const, msg: 'categoria non trovata' };
+          const catSezId = checkCat[0]!.sezioneId;
+          if (sezioneId && catSezId !== sezioneId) {
+            return { kind: 'badreq' as const, msg: 'la categoria non appartiene alla sezione scelta' };
+          }
+          if (!sezioneId) {
+            sezioneId = catSezId;
+            const checkCatConcorso = await tx
+              .select({ concorsoId: sezioni.concorsoId })
+              .from(sezioni).where(eq(sezioni.id, catSezId!)).limit(1);
+            if (checkCatConcorso.length === 0 || checkCatConcorso[0]!.concorsoId !== data.concorsoId) {
+              return { kind: 'badreq' as const, msg: 'la categoria non appartiene al concorso' };
+            }
+          }
+        }
 
-      const emailToken = generateToken();
-      const created = await req.dbTx(async (tx) => {
         const [row] = await tx
           .insert(iscrizioni)
           .values({
@@ -324,8 +328,16 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
           targetId: row!.id,
           payload: { email: row!.email },
         });
-        return row!;
+        return { kind: 'ok' as const, row: row! };
       });
+
+      if (outcome.kind === 'notfound') return reply.notFound();
+      if (outcome.kind === 'closed') return reply.code(403).send({ error: `iscrizioni ${outcome.stato}` });
+      if (outcome.kind === 'badreq') return reply.code(400).send({ error: outcome.msg });
+      if (outcome.kind === 'dupe') {
+        return reply.code(409).send({ error: 'esiste già un\'iscrizione con questa email per il concorso' });
+      }
+      const created = outcome.row;
 
       // H11: invia email di verifica DOPO il commit (niente SMTP I/O dentro la
       // transazione). Best-effort: un fallimento SMTP non annulla l'iscrizione,

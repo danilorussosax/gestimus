@@ -110,6 +110,11 @@ function yearsBetween(birth, ref) {
   const d = new Date(birth);
   if (isNaN(d.getTime())) return null;
   const days = Math.floor((ref.getTime() - d.getTime()) / 86_400_000);
+  // N101: data di nascita futura (errore dati) → età negativa che farebbe
+  // "vincere" il tiebreak per età al candidato sbagliato. La scartiamo: null
+  // fa ignorare lo step età per quel candidato invece di trattarlo come il più
+  // giovane.
+  if (days < 0) return null;
   // 365.2425 giorni medi/anno (calendario gregoriano).
   return days / 365.2425;
 }

@@ -6,9 +6,9 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { join } from 'node:path';
 import { deleteFile, saveFile, tenantUploadDir, type ResourceKind } from '../services/storage.js';
+import { env } from '../env.js';
 
 const uuid = z.string().uuid();
-const ALLOWED_RESOURCES: ResourceKind[] = ['concorso', 'commissario', 'candidato'];
 
 export const uploadRoutes: FastifyPluginAsync = async (app) => {
   app.addHook('preHandler', requireAuth);
@@ -31,13 +31,23 @@ export const uploadRoutes: FastifyPluginAsync = async (app) => {
     if (!params.success) return reply.badRequest(params.error.message);
     const { resource, id } = params.data;
 
-    if (!ALLOWED_RESOURCES.includes(resource as ResourceKind)) {
-      return reply.badRequest(`resource non supportata: ${resource}`);
-    }
+    // N98: rimosso il guard `!ALLOWED_RESOURCES.includes(resource)` —
+    // irraggiungibile, lo z.enum sopra ammette già solo questi tre valori.
 
     const file = await req.file();
     if (!file) return reply.badRequest('file mancante (field "file")');
-    const buffer = await file.toBuffer();
+    // N99: @fastify/multipart è registrato con limits.fileSize (app.ts) → la RAM
+    // è già protetta (toBuffer aborta oltre il limite). Qui mappiamo solo
+    // l'errore di superamento a un 413 pulito invece di un 500 generico.
+    let buffer: Buffer;
+    try {
+      buffer = await file.toBuffer();
+    } catch (err) {
+      if ((err as { code?: string }).code === 'FST_REQ_FILE_TOO_LARGE') {
+        return reply.code(413).send({ error: `file troppo grande (max ${env.UPLOADS_MAX_FILE_SIZE_MB} MB)` });
+      }
+      throw err;
+    }
 
     let stored;
     try {

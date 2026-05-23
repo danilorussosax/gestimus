@@ -7,7 +7,7 @@ import { writeAudit } from '../services/audit.js';
 import { parsePagination } from '../lib/pagination.js';
 
 const uuid = z.string().uuid();
-const createBody = z.object({
+const baseBody = z.object({
   sezioneId: uuid,
   nome: z.string().min(1).max(255),
   descrizione: z.string().optional(),
@@ -15,7 +15,15 @@ const createBody = z.object({
   etaMax: z.number().int().min(0).max(120).optional(),
   ordine: z.number().int().optional(),
 });
-const updateBody = createBody.partial().omit({ sezioneId: true });
+// N97: etaMin non può superare etaMax (intervallo impossibile, es. 50–20).
+// Refine applicato sia su create che su update; il CHECK in schema.ts è la
+// rete di sicurezza a livello DB (copre anche il PATCH parziale su valori già
+// esistenti, che il refine sul solo body non vedrebbe).
+const etaOk = (d: { etaMin?: number; etaMax?: number }) =>
+  d.etaMin == null || d.etaMax == null || d.etaMin <= d.etaMax;
+const etaErr = { message: 'etaMin non può superare etaMax', path: ['etaMin'] };
+const createBody = baseBody.refine(etaOk, etaErr);
+const updateBody = baseBody.partial().omit({ sezioneId: true }).refine(etaOk, etaErr);
 
 export const categorieRoutes: FastifyPluginAsync = async (app) => {
   app.addHook('preHandler', requireAuth);
