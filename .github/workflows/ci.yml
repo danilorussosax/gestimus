@@ -130,9 +130,12 @@ jobs:
         run: npm run db:bootstrap
       - name: Setup schema + policies RLS
         working-directory: server
-        # stdin da /dev/null: drizzle-kit push non resta in attesa di conferma
-        # interattiva su un DB vuoto (nessun prompt atteso, ma è difensivo).
-        run: npm run db:setup < /dev/null
+        # drizzle-kit push richiede un TTY (config strict:true). In CI usiamo
+        # --force che auto-approva senza prompt; su DB vuoto non c'è comunque
+        # data-loss. Poi applichiamo policies/trigger/RLS.
+        run: |
+          npx drizzle-kit push --force
+          npm run db:policies
       - name: Seed dati demo
         working-directory: server
         run: npm run db:seed
