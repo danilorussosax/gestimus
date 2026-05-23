@@ -140,7 +140,7 @@ function renderForm(root, state) {
             <input type="text" name="website" tabindex="-1" autocomplete="off" />
           </label>
         </div>
-        <input type="hidden" name="_form_started_at" value="${Date.now()}" />
+        <input type="hidden" name="startedAt" value="${Date.now()}" />
 
         ${sectionHeader('1', t('iscr.section.1.title'), t('iscr.section.1.subtitle'))}
         <div class="bg-white border border-slate-200 rounded-3xl shadow-soft p-6" data-sec="anagrafica">
@@ -602,8 +602,11 @@ async function submit(root, state) {
 
   try {
     const form = root.querySelector('#frm-iscrizione');
-    const honeypot = form?.querySelector('[name="website"]')?.value || '';
-    const formStartedAt = Number(form?.querySelector('[name="_form_started_at"]')?.value) || 0;
+    // Anti-spam: stessi nomi end-to-end (form → API → server). `website` è
+    // l'honeypot (nome innocuo per ingannare i bot); `startedAt` è il timestamp
+    // di apertura form. Nessuna rinomina lungo la catena.
+    const website = form?.querySelector('[name="website"]')?.value || '';
+    const startedAt = Number(form?.querySelector('[name="startedAt"]')?.value) || 0;
     const payload = {
       concorso: state.concorso.id,
       ...d,
@@ -612,8 +615,8 @@ async function submit(root, state) {
       gruppo_membri: (d.tipo === 'gruppo' || d.tipo === 'orchestra')
         ? (d.gruppo_membri || []).filter(m => m.nome)
         : null,
-      website: honeypot,
-      _form_started_at: formStartedAt,
+      website,
+      startedAt,
     };
     const { id } = await db.createIscrizione(payload);
     clearDraft();

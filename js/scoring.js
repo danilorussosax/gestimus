@@ -74,10 +74,27 @@ export function getPesiFor(faseOrOrdine) {
   return out;
 }
 
+// Voto di un criterio dato l'oggetto voti di un commissario.
+// SCELTA DI DESIGN ESPLICITA: un criterio non ancora votato (chiave assente)
+// contribuisce 0 al totale pesato. Questo è VOLUTO — le valutazioni possono
+// essere parziali (il commissario è ancora in corso): un criterio mancante
+// significa "non ancora valutato", non un errore. Un voto legittimo di 0 e una
+// chiave assente coincidono intenzionalmente (entrambi → 0). Centralizzato qui
+// così l'intento è chiaro e non sembra una coercizione silenziosa accidentale.
+function votoCriterio(voti, key) {
+  const raw = voti?.[key];
+  if (raw == null) return 0; // criterio non valutato → 0 (intenzionale)
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : 0;
+}
+
 // Total weighted score for a single commissario across the fase's criteri.
+function pesatoVoti(criteri, voti) {
+  return criteri.reduce((s, c) => s + votoCriterio(voti, c.key) * (c.peso || 0), 0);
+}
+
 export function pesato(voti, faseOrOrdine) {
-  const criteri = getCriteri(faseOrOrdine);
-  return criteri.reduce((s, c) => s + (Number(voti[c.key]) || 0) * (c.peso || 0), 0);
+  return pesatoVoti(getCriteri(faseOrOrdine), voti);
 }
 
 // Aggregate per-candidato media across all commissioners' weighted totals.
@@ -89,9 +106,7 @@ export function mediaCandidato(valutazioni, faseOrOrdine) {
   valutazioni.forEach(v => {
     (byCom[v.commissario_id] ||= {})[v.criterio] = v.voto;
   });
-  const totals = Object.values(byCom).map(voti =>
-    criteri.reduce((s, c) => s + (Number(voti[c.key]) || 0) * (c.peso || 0), 0)
-  );
+  const totals = Object.values(byCom).map(voti => pesatoVoti(criteri, voti));
   if (!totals.length) return 0;
   return computeAggregate(totals, metodo);
 }

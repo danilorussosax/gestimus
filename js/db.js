@@ -1752,8 +1752,10 @@ export const db = {
     );
     const body = {
       concorsoId: payload.concorso_id || payload.concorso || payload.concorsoId,
-      honeypot: payload.honeypot || payload.website || undefined,
-      startedAt: payload.started_at || payload._form_started_at || undefined,
+      // Anti-spam: stessi nomi del form e dello schema server (no rinomina).
+      // `website` = honeypot, `startedAt` = timestamp apertura form.
+      website: payload.website || undefined,
+      startedAt: payload.startedAt || payload._form_started_at || undefined,
       nome: payload.nome,
       cognome: payload.cognome,
       email: payload.email,

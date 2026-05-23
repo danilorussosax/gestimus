@@ -13,9 +13,12 @@ const uuid = z.string().uuid();
 
 const iscrizioneCreateBody = z.object({
   concorsoId: uuid,
-  // Anti-spam
-  honeypot: z.string().max(0).optional(), // se valorizzato → bot
-  startedAt: z.number().int().optional(), // ms timestamp client al primo render
+  // Anti-spam — STESSI nomi del form pubblico (js/views/iscrizione.js) per
+  // evitare mismatch silenziosi: `website` è l'honeypot (nome innocuo che i bot
+  // tendono a compilare; se valorizzato → bot), `startedAt` è il timestamp di
+  // apertura del form (min-time-on-page).
+  website: z.string().max(0).optional(),
+  startedAt: z.coerce.number().int().optional(),
   // Anagrafica
   nome: z.string().min(1).max(255),
   cognome: z.string().max(255).optional(),
@@ -156,8 +159,8 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
       if (!parsed.success) return reply.badRequest(parsed.error.message);
       const data = parsed.data;
 
-      // Honeypot
-      if (data.honeypot && data.honeypot.length > 0) {
+      // Honeypot (campo `website`, vedi schema): se compilato → bot.
+      if (data.website && data.website.length > 0) {
         // Risponde 200 senza fare nulla → bot non insiste
         return { ok: true, queued: true };
       }
