@@ -3,6 +3,7 @@
 // Estratto da js/views/admin.js (refactoring).
 
 import { db } from '../../db.js';
+import { renderAdmin } from '../admin.js';
 import {
   escapeHtml, modal, toast, confirmDialog, displayName, fmtDate,
 } from '../../utils.js';
@@ -49,7 +50,20 @@ export function renderFasi(root, concorso) {
     openFaseForm(concorso, null, () => renderFasi(root, concorso));
   }));
 
+  // Refresh "shallow" (solo tab content): per azioni interne tipo apertura
+  // modali, edit form, drag-reorder ecc. dove sidebar e header restano coerenti.
   const refresh = () => renderFasi(root, concorso);
+  // Refresh "full" (renderAdmin completo): per azioni globali che cambiano lo
+  // stato del concorso (start/conclude/sorteggio/delete fase) e i counts in
+  // sidebar+header. Chiamiamo direttamente renderAdmin(app-root) invece di
+  // dispatchare un HashChangeEvent: più affidabile (alcuni browser non
+  // notificano l'hashchange se l'hash effettivo non cambia, lasciando la UI
+  // in stato parziale = bug grafico osservato dopo "Avvia").
+  const fullRefresh = () => {
+    const appRoot = document.getElementById('app-root');
+    if (appRoot) renderAdmin(appRoot);
+    else renderFasi(root, concorso); // fallback
+  };
 
   // Handler dei pulsanti a livello gruppo (add-fase, edit-shared, wizard, delete-group).
   root.querySelectorAll('[data-group-action]').forEach(btn => {
@@ -80,7 +94,7 @@ export function renderFasi(root, concorso) {
         const listaNomi = group.fasi
           .slice()
           .sort((a, b) => a.ordine - b.ordine)
-          .map(f => `<li class="flex items-center justify-between gap-2"><span><span class="font-mono text-slate-400">#${f.ordine}</span> ${escapeHtml(f.nome)}</span><span class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full ${f.stato === 'CONCLUSA' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}">${escapeHtml(f.stato || 'PIANIFICATA')}</span></li>`)
+          .map(f => `<li class="flex items-center justify-between gap-2"><span><span class="font-mono text-slate-400">#${f.ordine}</span> ${escapeHtml(f.nome)}</span><span class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full ${f.stato === 'CONCLUSA' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}">${escapeHtml(prettyStato(f.stato))}</span></li>`)
           .join('');
         modal({
           title: t('admin.fasi.group.delete_confirm_title') || 'Elimina gruppo di fasi',
@@ -132,7 +146,7 @@ export function renderFasi(root, concorso) {
         } else if (action === 'start') {
           await db.startFase(id);
           toast(t('admin.fase.started') || 'Fase avviata', 'success');
-          refresh();
+          fullRefresh();
         } else if (action === 'end') {
           confirmDialog({
             title: t('admin.fase.end_title') || 'Concludi fase',
@@ -141,7 +155,7 @@ export function renderFasi(root, concorso) {
               try {
                 await db.concludiFase(id);
                 toast(t('admin.fase.ended') || 'Fase conclusa', 'success');
-                refresh();
+                fullRefresh();
               } catch (e) { toast(e?.message || 'Errore', 'error'); }
             },
           });
@@ -154,7 +168,7 @@ export function renderFasi(root, concorso) {
               try {
                 const r = await db.sorteggiaFase(id);
                 toast(t('admin.fase.sorteggio_done', { seed: r?.seed }) || `Ordine sorteggiato (seed: ${r?.seed})`, 'success');
-                refresh();
+                fullRefresh();
               } catch (e) { toast(e?.message || 'Errore', 'error'); }
             },
           });
@@ -167,7 +181,7 @@ export function renderFasi(root, concorso) {
               try {
                 await db.deleteFase(id);
                 toast(t('admin.fase.deleted') || 'Fase eliminata', 'success');
-                refresh();
+                fullRefresh();
               } catch (e) { toast(e?.message || 'Errore', 'error'); }
             },
           });
@@ -248,6 +262,12 @@ function gruppoFasi(fasi, sezioni) {
     }
     return 0;
   });
+}
+
+// Label "umana" di uno stato fase: lo stato interno usa underscore per leggibilità
+// del codice (IN_CORSO), la UI lo mostra senza (IN CORSO).
+function prettyStato(stato) {
+  return String(stato || 'PIANIFICATA').replace(/_/g, ' ');
 }
 
 // Card del gruppo (fase madre = aggregazione visiva delle sotto-fasi).
@@ -377,7 +397,7 @@ function innerFaseRowHtml(f, concorso, group, indexInGroup) {
         <div class="flex items-center gap-2 flex-wrap">
           <span class="text-xs font-mono uppercase tracking-wider text-slate-400">#${f.ordine}</span>
           <h4 class="font-semibold text-slate-900 text-base">${escapeHtml(f.nome)}</h4>
-          <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${statoColors[stato] || statoColors.PIANIFICATA}">${escapeHtml(stato)}</span>
+          <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${statoColors[stato] || statoColors.PIANIFICATA}">${escapeHtml(prettyStato(stato))}</span>
           ${driftPills.length > 0 ? `<span class="text-[10px] font-medium text-amber-700 inline-flex items-center gap-1" title="${escapeHtml(t('admin.fasi.group.override_title') || 'Valori specifici di questa sotto-fase')}">▾ ${driftPills.map(p => escapeHtml(p)).join(' · ')}</span>` : ''}
         </div>
         <div class="mt-0.5 text-xs text-slate-500 flex flex-wrap gap-x-3 gap-y-0.5">
@@ -476,7 +496,7 @@ function faseCardHtml(f, concorso) {
           <div class="flex items-center gap-2 flex-wrap">
             <span class="text-xs font-mono uppercase tracking-wider text-slate-500">#${f.ordine}</span>
             <h3 class="font-bold text-slate-900 text-lg">${escapeHtml(f.nome)}</h3>
-            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${statoColors[stato] || statoColors.PIANIFICATA}">${escapeHtml(stato)}</span>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border ${statoColors[stato] || statoColors.PIANIFICATA}">${escapeHtml(prettyStato(stato))}</span>
             ${f.modo_valutazione === 'sincrona' ? `<span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-purple-100 text-purple-800 border border-purple-200">sincrona</span>` : ''}
           </div>
           ${scopeSezioni.length > 0 || commAssegnata ? `

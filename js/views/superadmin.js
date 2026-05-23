@@ -8,6 +8,76 @@ import { icon } from '../icons.js';
 import { escapeHtml, fmtDate, fmtBytes, toast, modal, confirmDialog } from '../utils.js';
 import { PIANI, PIANO_KEYS, getPianoOrDefault, pianoPriceLabel } from '../piani.js';
 
+// Snapshot risorse del processo node + host (mem, CPU load). Aggiornato in
+// loadAll così la card "Sistema" non rimane vuota dopo il primo render.
+let systemSnapshot = null;
+
+// Ring buffer history per le sparkline (Fase 1). 5 minuti @ 5s polling = 60
+// punti. Niente persistence: si svuota al reload della pagina (è una metrica
+// "real-time corrente", non storico).
+const HIST_MAX = 60;
+const history = {
+  rssMb: [],   // memoria RSS del processo, MB
+  cpuPct: [],  // CPU processo, %
+  ts: [],      // timestamp ms (per tooltip)
+};
+
+// Runtime per-tenant (Fase 2): mappa { tenantId → { reqCountMin, p50, p95, ... } }
+// Aggiornata insieme al snapshot di sistema via /api/platform/runtime.
+let runtimeByTenant = {};
+
+// Handle del polling: lo conserviamo per fermarlo quando si lascia la dashboard
+// (cambio tab "Configurazione" o uscita dal route #/superadmin).
+let pollHandle = null;
+const POLL_MS = 5000;
+
+function startPolling(main) {
+  stopPolling();
+  pollHandle = setInterval(async () => {
+    try {
+      const [sys, runtime] = await Promise.all([
+        api.get('/api/platform/system'),
+        api.get('/api/platform/runtime').catch(() => ({ tenants: {} })),
+      ]);
+      systemSnapshot = sys;
+      runtimeByTenant = runtime?.tenants || {};
+      pushHistory(sys);
+      renderKPI(main);
+      renderSparklines(main);
+      // Re-render della lista per aggiornare le colonne runtime per-tenant
+      // (req/min + latency). renderList è poco costoso e non perde lo stato
+      // di filtri/scroll.
+      renderList(main);
+    } catch {
+      // network down / unauth: lascia stare, retry al prossimo tick
+    }
+  }, POLL_MS);
+}
+
+function stopPolling() {
+  if (pollHandle) {
+    clearInterval(pollHandle);
+    pollHandle = null;
+  }
+}
+
+// Quando il route cambia (l'utente esce dal super-admin) fermiamo il polling.
+if (typeof window !== 'undefined') {
+  window.addEventListener('hashchange', () => {
+    if (!location.hash.includes('superadmin')) stopPolling();
+  });
+}
+
+function pushHistory(sys) {
+  if (!sys) return;
+  history.rssMb.push(sys.memory.rss / (1024 * 1024));
+  history.cpuPct.push(sys.cpu.processPct ?? 0);
+  history.ts.push(Date.now());
+  if (history.rssMb.length > HIST_MAX) history.rssMb.shift();
+  if (history.cpuPct.length > HIST_MAX) history.cpuPct.shift();
+  if (history.ts.length > HIST_MAX) history.ts.shift();
+}
+
 const state = {
   view: 'dashboard', // 'dashboard' | 'config'
   enti: [],
@@ -87,6 +157,9 @@ async function renderDashboard(main) {
       <!-- KPI strip placeholder -->
       <div id="sa-kpi" class="grid grid-cols-2 md:grid-cols-5 gap-3"></div>
 
+      <!-- Sparkline strip: memoria + CPU realtime (polling 5s) -->
+      <div id="sa-sparklines" class="grid grid-cols-1 md:grid-cols-2 gap-3"></div>
+
       <!-- Toolbar -->
       <div class="bg-white border border-slate-200 rounded-xl p-3 flex flex-wrap items-center gap-3" id="sa-toolbar">
         <div class="relative flex-1 min-w-[200px]">
@@ -140,6 +213,10 @@ async function renderDashboard(main) {
   updateLayoutToggle(main);
 
   await loadAll(main);
+  // Avvia polling realtime: dopo il primo loadAll abbiamo già il punto iniziale
+  // della sparkline (pushHistory viene chiamato in loadAll dopo lo snapshot
+  // iniziale di system); il setInterval aggiunge un punto ogni 5s e ri-renderizza.
+  startPolling(main);
 }
 
 function updateLayoutToggle(main) {
@@ -182,6 +259,20 @@ async function loadAll(main) {
       failures.push({ slug: t.slug, err });
     }
   }));
+  // Snapshot risorse server + runtime per-tenant (non bloccante: se gli
+  // endpoint falliscono, le card mostrano "n/d" e i tenant restano senza riga
+  // attività).
+  try {
+    const [sys, runtime] = await Promise.all([
+      api.get('/api/platform/system'),
+      api.get('/api/platform/runtime').catch(() => ({ tenants: {} })),
+    ]);
+    systemSnapshot = sys;
+    runtimeByTenant = runtime?.tenants || {};
+    pushHistory(sys);
+  } catch {
+    systemSnapshot = null;
+  }
   if (failures.length > 0) {
     toast(
       `Stats/SMTP non caricate per ${failures.length} ente${failures.length > 1 ? 'i' : ''} (${failures.map((f) => f.slug).join(', ')})`,
@@ -190,6 +281,7 @@ async function loadAll(main) {
     );
   }
   renderKPI(main);
+  renderSparklines(main);
   renderList(main);
 }
 
@@ -204,14 +296,12 @@ function renderKPI(main) {
   const archiviati = state.enti.filter((t) => t.stato === 'archiviato').length;
 
   let totConcorsi = 0;
-  let totIscrizioni = 0;
   let totDisk = 0;
   let revenue = 0;
   for (const t of state.enti) {
     const s = state.enteStats.get(t.id);
     if (s) {
       totConcorsi += s.concorsi || 0;
-      totIscrizioni += s.iscrizioni || 0;
       totDisk += s.diskUsageBytes || 0;
     }
     if (t.stato === 'attivo' && !PIANI[t.piano]?.is_ppe) {
@@ -219,14 +309,127 @@ function renderKPI(main) {
     }
   }
 
+  // Card "Sistema": consumo memoria del processo Node + CPU istantanea.
+  // `processPct` è campionato server-side su una finestra di 200ms (vedi
+  // /api/platform/system): è il consumo CPU del solo processo Node,
+  // normalizzato a 1 core (100% = un core saturo).
+  // `loadAvg1` resta come metrica complementare di sistema (media 60s,
+  // include I/O wait e altri processi) — mostrata nel sub con etichetta
+  // esplicita per non confondere con la "CPU del processo".
+  const sys = systemSnapshot;
+  const rssMb = sys ? (sys.memory.rss / (1024 * 1024)) : null;
+  const sysValue = sys
+    ? `${rssMb < 1024 ? rssMb.toFixed(0) + ' MB' : (rssMb / 1024).toFixed(2) + ' GB'} · CPU ${sys.cpu.processPct.toFixed(1)}%`
+    : 'n/d';
+  const loadAvgSysPct = sys && sys.cpu.cores > 0
+    ? Math.round((sys.cpu.loadAvg1 / sys.cpu.cores) * 100)
+    : null;
+  const sysSub = sys
+    ? `heap ${(sys.memory.heapUsed / (1024 * 1024)).toFixed(0)}/${(sys.memory.heapTotal / (1024 * 1024)).toFixed(0)} MB · ${sys.cpu.cores} core · load sistema ${loadAvgSysPct}% (media 60s) · up ${fmtUptime(sys.uptimeSec)}`
+    : 'dati di sistema non disponibili';
+
   const kpi = main.querySelector('#sa-kpi');
   kpi.innerHTML = `
-    ${kpiCard('Enti totali', tot, `${attivi} attivi · ${sospesi} sospesi · ${archiviati} archiviati`, 'building', 'brand')}
+    ${kpiCard('Enti totali', tot, `${attivi} attivi · ${sospesi} sospesi · ${archiviati} archiviati`, 'graduation', 'brand')}
     ${kpiCard('Concorsi gestiti', totConcorsi, 'somma su tutti i tenant', 'trophy', 'amber')}
-    ${kpiCard('Iscrizioni totali', totIscrizioni, 'tutte le edizioni', 'users', 'sky')}
+    ${kpiCard('Sistema', sysValue, sysSub, 'chart', 'sky')}
     ${kpiCard('Storage uploads', fmtBytes(totDisk), 'allegati iscrizioni/foto', 'folder', 'slate')}
     ${kpiCard('Revenue stimato', '€' + revenue.toLocaleString('it-IT'), 'piani attivi/anno', 'star', 'emerald')}
   `;
+}
+
+// ============================================================================
+// Sparkline realtime (Fase 1)
+// ============================================================================
+
+function renderSparklines(main) {
+  const host = main.querySelector('#sa-sparklines');
+  if (!host) return;
+  const rssMb = history.rssMb;
+  const cpuPct = history.cpuPct;
+  const currentRss = rssMb[rssMb.length - 1];
+  const currentCpu = cpuPct[cpuPct.length - 1];
+  const peakRss = rssMb.length ? Math.max(...rssMb) : 0;
+  const peakCpu = cpuPct.length ? Math.max(...cpuPct) : 0;
+  host.innerHTML = `
+    ${sparklineCard({
+      label: 'Memoria processo (RSS)',
+      currentValue: currentRss != null ? formatMb(currentRss) : 'n/d',
+      sub: rssMb.length > 0 ? `peak ${formatMb(peakRss)} · ${rssMb.length} pt · finestra ${Math.ceil(rssMb.length * POLL_MS / 60000)} min` : 'in attesa di campionamento…',
+      values: rssMb,
+      color: '#0ea5e9',  // sky-500
+      yMin: 0,
+    })}
+    ${sparklineCard({
+      label: 'CPU processo Node',
+      currentValue: currentCpu != null ? `${currentCpu.toFixed(1)}%` : 'n/d',
+      sub: cpuPct.length > 0 ? `peak ${peakCpu.toFixed(1)}% · campionamento ogni ${POLL_MS / 1000}s` : 'in attesa di campionamento…',
+      values: cpuPct,
+      color: '#10b981',  // emerald-500
+      yMin: 0,
+      yMax: Math.max(100, peakCpu * 1.1), // scala dinamica fino a 100% o oltre se sforato
+    })}
+  `;
+}
+
+function sparklineCard({ label, currentValue, sub, values, color, yMin = 0, yMax = null }) {
+  const w = 300;
+  const h = 60;
+  const padding = 4;
+  const pathData = buildSparklinePath(values, w, h, padding, yMin, yMax);
+  return `
+    <div class="bg-white border border-slate-200 rounded-xl p-3.5">
+      <div class="flex items-baseline justify-between gap-2 mb-2">
+        <p class="text-[11px] uppercase tracking-wide text-ink-500 font-medium">${escapeHtml(label)}</p>
+        <span class="text-base font-bold text-ink-900">${escapeHtml(currentValue)}</span>
+      </div>
+      <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" class="w-full h-12 block">
+        ${pathData ? `
+          <path d="${pathData.area}" fill="${color}" fill-opacity="0.08" />
+          <path d="${pathData.line}" fill="none" stroke="${color}" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round" />
+          <circle cx="${pathData.lastX}" cy="${pathData.lastY}" r="2.5" fill="${color}" />
+        ` : `<text x="${w / 2}" y="${h / 2}" text-anchor="middle" dominant-baseline="middle" fill="#94a3b8" font-size="11" font-family="ui-monospace,monospace">in attesa…</text>`}
+      </svg>
+      <p class="text-[10px] text-ink-500 mt-1 font-mono">${escapeHtml(sub)}</p>
+    </div>
+  `;
+}
+
+function buildSparklinePath(values, w, h, padding, yMin, yMaxOverride) {
+  if (!values || values.length < 2) return null;
+  const innerW = w - padding * 2;
+  const innerH = h - padding * 2;
+  const max = yMaxOverride ?? Math.max(...values);
+  const min = Math.min(yMin, ...values);
+  const range = (max - min) || 1;
+  const stepX = innerW / Math.max(1, HIST_MAX - 1);
+  // Allinea l'ultimo punto a destra: parti da right e calcola x indietro.
+  const offsetX = padding + innerW - (values.length - 1) * stepX;
+  const points = values.map((v, i) => {
+    const x = offsetX + i * stepX;
+    const y = padding + innerH - ((v - min) / range) * innerH;
+    return { x, y };
+  });
+  const line = 'M ' + points.map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' L ');
+  const first = points[0];
+  const last = points[points.length - 1];
+  const area = `${line} L ${last.x.toFixed(1)} ${(h - padding).toFixed(1)} L ${first.x.toFixed(1)} ${(h - padding).toFixed(1)} Z`;
+  return { line, area, lastX: last.x.toFixed(1), lastY: last.y.toFixed(1) };
+}
+
+function formatMb(mb) {
+  if (mb < 1024) return `${mb.toFixed(0)} MB`;
+  return `${(mb / 1024).toFixed(2)} GB`;
+}
+
+function fmtUptime(sec) {
+  if (!Number.isFinite(sec) || sec <= 0) return '—';
+  const d = Math.floor(sec / 86400);
+  const h = Math.floor((sec % 86400) / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  if (d > 0) return `${d}g ${h}h`;
+  if (h > 0) return `${h}h ${m}m`;
+  return `${m}m`;
 }
 
 function kpiCard(label, value, sub, iconName, accent) {
@@ -368,6 +571,8 @@ function enteCard(t) {
         </span>
       </footer>
 
+      ${runtimeRowGrid(t)}
+
       ${t.stato === 'archiviato' ? `
         <div class="px-4 py-2 bg-amber-50 border-t border-amber-200 text-xs text-amber-800 flex items-center gap-1.5">
           ${icon('clock', { size: 12 })} Cleanup ${cleanupCountdown(t)}
@@ -393,6 +598,7 @@ function tableLayout(list) {
               ${sortHeader('concorsi', 'Concorsi', 'right')}
               ${sortHeader('iscrizioni', 'Iscrizioni', 'right')}
               ${sortHeader('storage', 'Storage', 'right')}
+              <th class="px-3 py-2.5 text-right text-[11px] uppercase tracking-wide font-semibold text-ink-700" title="Richieste e latenza mediana sull'ultimo minuto">Attività (60s)</th>
               ${sortHeader('createdAt', 'Creato', 'right')}
               <th class="px-3 py-2.5 text-right text-[11px] uppercase tracking-wide font-semibold text-ink-700">Azioni</th>
             </tr>
@@ -439,6 +645,7 @@ function tableRow(t) {
       </td>
       <td class="px-3 py-2.5 text-right text-ink-900">${stats?.iscrizioni ?? '·'}</td>
       <td class="px-3 py-2.5 text-right text-ink-700">${stats ? fmtBytes(stats.diskUsageBytes ?? 0) : '·'}</td>
+      <td class="px-3 py-2.5 text-right">${runtimeCellTable(t)}</td>
       <td class="px-3 py-2.5 text-right text-ink-700 text-xs">${fmtDate(t.createdAt)}</td>
       <td class="px-3 py-2.5 text-right">
         <div class="relative inline-block">
@@ -448,6 +655,35 @@ function tableRow(t) {
       </td>
     </tr>
   `;
+}
+
+// Runtime per-tenant (Fase 2): mini-info "req/min · p50 ms · err%" pescata da
+// `runtimeByTenant` aggiornato dal polling. Tenant idle (nessuna req negli
+// ultimi 60s) mostra "idle". Errori >0 evidenziati in rosso.
+function runtimeBadge(t) {
+  const m = runtimeByTenant[t.id];
+  if (!m || m.reqCountMin === 0) {
+    return `<span class="text-[10px] text-ink-500 font-mono">idle</span>`;
+  }
+  const errPct = Math.round(m.errorRate * 100);
+  const errClass = errPct > 0 ? 'text-rose-700' : 'text-ink-700';
+  return `
+    <span class="text-[10px] font-mono ${errClass}">
+      ${m.reqCountMin} req/min · p50 ${m.latencyP50Ms}ms · p95 ${m.latencyP95Ms}ms${errPct > 0 ? ` · ${errPct}% err` : ''}
+    </span>
+  `;
+}
+
+function runtimeRowGrid(t) {
+  return `
+    <div class="px-4 py-1.5 border-t border-slate-100 bg-white text-right">
+      ${runtimeBadge(t)}
+    </div>
+  `;
+}
+
+function runtimeCellTable(t) {
+  return runtimeBadge(t);
 }
 
 function miniBar(used, limit) {
@@ -1505,6 +1741,8 @@ function genPassword(len = 14) {
 // ============================================================================
 
 async function renderConfigPanel(main) {
+  // La view "Configurazione" non ha bisogno del polling realtime: stop.
+  stopPolling();
   main.innerHTML = `<div class="text-center py-10 text-ink-700 text-sm">Caricamento…</div>`;
   try {
     state.config = await api.get('/api/platform/config');

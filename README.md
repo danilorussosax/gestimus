@@ -30,36 +30,44 @@ L'architettura è **multitenant nativa**: un singolo backend ospita N enti indip
 - Configurazione SMTP **per singolo ente** (provider diversi per enti diversi), credenziali cifrate at-rest
 - Creazione admin di ente senza accesso shell al server
 - Statistiche aggregate (concorsi, commissari, candidati per ente)
+- **Metriche realtime**: card a gradient con RSS/CPU del processo Node + sparkline 5min (polling 5s); per-tenant `req/min`, `latency p50/p95`, `error rate` calcolate via hook globali Fastify (`/api/platform/system`, `/api/platform/runtime`)
 - Audit log della piattaforma separato da quello per-tenant
 
 ### 🛠 Admin ente
 - **Fasi** con 5 metodi di calcolo media (aritmetica, olimpica, winsorizzata, mediana, deviazione standard) + suggerimento automatico in base al numero di commissari
 - **Sezioni e categorie** del concorso (es. Archi → Senior/Junior) + **copia categorie tra sezioni** (un click per replicare la struttura)
-- **Candidati** individuali o gruppi (con membri multipli)
+- **Candidati** individuali o gruppi (con membri multipli), modello N:1 candidato → sezione + categoria; **auto-derive sezione** dalla categoria scelta
+- **Import CSV** candidati con template che include `tipo` (individuale/gruppo), `gruppo_nome`, `sezione`, `categoria`
 - **Commissari** con designazione presidente
-- **Commissioni** che raggruppano commissari + sezioni + categorie
-- **Restrizione fasi**: una fase può essere limitata a una sezione specifica (tracce parallele) o aperta a tutti
+- **Commissioni** che raggruppano commissari + sezioni + categorie; toggle "Includi tutte le categorie" auto-espande al salvataggio
+- **Presidente per-commissione**: ogni commissione ha il proprio presidente; non esiste più "il presidente del concorso" come ruolo unitario
+- **Permessi fase granulari**: avvio/conclusione/sorteggio/timer di una fase eseguibili sia da admin sia dal presidente della commissione assegnata (`assertCanManageFase` server-side)
+- **Restrizione fasi**: una fase può essere limitata a una o più sezioni specifiche (tracce parallele) o aperta a tutte; al `start` il backend pre-popola `candidati_fase` filtrati per quelle sezioni (idempotente)
 - **Sorteggio ordine** candidati con seed riproducibile (mulberry32)
-- **Risultati**: classifica live, podio, export CSV (RFC 4180 + BOM UTF-8, anti-formula-injection) e PDF protocollo
-- **Verbale** con template + tag dinamici (`{concorso}`, `{presidente}`, ecc.)
+- **Risultati**: classifica live, podio, export CSV (RFC 4180 + BOM UTF-8, anti-formula-injection) e PDF protocollo. Firma del presidente della **fase finale** (non del concorso).
+- **Verbale** con template + tag dinamici (`<concorso>`, `<presidente>`, `<fase_presidente>`, `<fase_classifica>`, ecc.) — le firme nel PDF si stampano solo se il template referenzia esplicitamente tag commissione/commissari E la fase ha commissione assegnata
+- **Tab Impostazioni concorso** inline (niente più modale "Modifica"): anagrafica, logo, iscrizioni pubbliche, tiebreak default + zona pericolosa con **conferma "type-to-delete"** GitHub-style
+- **Branding ente**: logo + colori + dati di contatto memorizzati in `brandingPublic`/`enteSettings` JSONB; PATCH server merge-style (non overwrite)
 - **Audit log** append-only di tutte le operazioni
 
 ### 🎼 Commissario
 - Valutazione **autonoma** (ogni commissario al proprio ritmo) o **sincrona** (tutti sullo stesso candidato, pilotata dal presidente)
 - **Timer fase** condiviso in realtime via Postgres `LISTEN/NOTIFY` + SSE
-- Voto per criterio con peso configurabile (somma = 100%)
+- Voto per criterio con peso configurabile (somma = 100%) — supporta voti decimali con `numeric(5,2)` (mezzi punti su scale ≤ 10)
 - Pittogrammi e slider per voti rapidi
 - Storico ultime valutazioni in vista
+- **Controllo sessione** presidente: KPI strip a gradient (fasi presiedute / candidati / valutati / % completamento), preflight check per avvio fase (commissione, criteri, candidati eleggibili), progress bar separate per "candidati con voto completo" e "commissari che hanno finito"
 
 ### 📝 Iscrizione pubblica
 - Form auto-service **mono-pagina** accessibile senza login
 - Sottodominio dedicato per ogni ente
-- Anagrafica, contatti, dati artistici, programma, allegati (foto/documento/ricevuta)
-- Modalità **gruppo** con composizione membri dinamica
+- Anagrafica estesa (nome, cognome, sesso, codice fiscale, luogo nascita, nazionalità), residenza (indirizzo, città, CAP, provincia, paese), dati artistici (strumento, anni di studio, scuola di provenienza, docenti, programma)
+- Selezione **sezione + categoria** con cascata: categorie filtrate per sezione, validazione cross-concorso lato server, auto-derive della sezione se l'utente sceglie solo la categoria
+- Modalità **gruppo** con composizione membri dinamica + `gruppo_nome`
 - Sezione tutore obbligatoria se candidato minorenne (validato server-side, soglia GDPR Art. 8: 16 anni)
 - **Save & resume** automatico via localStorage
 - Verifica email tramite link (token rigenerato server-side)
-- Workflow di approvazione dall'admin → genera record candidato
+- Workflow di approvazione dall'admin → genera record candidato attivo (no più stato pending)
 - Anti-spam server-side: honeypot, min-time-on-page, rate-limit per IP (3/h, 10/giorno)
 
 ### 🔒 Hardening
@@ -238,8 +246,10 @@ npm run test:e2e         # playwright (richiede server in esecuzione)
 |------|-----------|
 | [`docs/MIGRATION_POSTGRES.md`](docs/MIGRATION_POSTGRES.md) | **Architettura tecnica completa** — schema DB, policy RLS, struttura moduli backend, soft-delete tenant con cleanup configurabile, 2FA TOTP, milestone roadmap |
 | [`docs/LISTINO.md`](docs/LISTINO.md) | **Listino piani commerciali** — documento per i clienti finali |
-| [`docs/DEPLOY-IONOS.md`](docs/DEPLOY-IONOS.md) | Guida deploy storica su VPS IONOS (in aggiornamento per il nuovo stack) |
+| [`docs/DEPLOY-IONOS.md`](docs/DEPLOY-IONOS.md) | **Guida deploy IONOS** per il nuovo stack Fastify + Postgres (systemd single unit, certbot DNS-01, backup PG) |
 | [`docs/manuale-admin.md`](docs/manuale-admin.md) | **Manuale operativo per l'admin di ente** — consultabile in-app da *Admin → Manuale* (TOC sticky, stampa A4 / esportazione PDF). Le immagini referenziate vivono in `docs/screenshots/`. |
+| [`server/README.md`](server/README.md) | **Backend reference** — schema Drizzle, endpoint REST, middleware, migrations, runtime metrics |
+| [`server/scripts/migrations/`](server/scripts/migrations/) | Migrazioni SQL incrementali applicabili con `psql -f` o tramite `db:push` di drizzle-kit |
 
 ## Contributi
 

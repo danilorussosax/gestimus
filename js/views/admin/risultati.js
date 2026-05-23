@@ -233,7 +233,7 @@ function buildFaseSummary(fase) {
         <div class="flex items-center gap-2 flex-wrap">
           ${tiebreakCount > 0 ? `<span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200" title="${escapeHtml(t('admin.risultati.tiebreak_badge_title') || 'Spareggi applicati per risolvere parità di punteggio')}">⚖ ${escapeHtml((t('admin.risultati.tiebreak_badge') || '{n} spareggi').replace('{n}', tiebreakCount))}</span>` : ''}
           ${exAequoGroups.size > 0 ? `<span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-violet-100 text-violet-800 border border-violet-200">🤝 ${escapeHtml((t('admin.risultati.ex_aequo_badge') || '{n} ex aequo').replace('{n}', exAequoGroups.size))}</span>` : ''}
-          <span class="text-xs px-2 py-0.5 rounded-full ${fase.stato === 'CONCLUSA' ? 'bg-slate-200 text-slate-700' : 'bg-brand-100 text-brand-800'}">${fase.stato}</span>
+          <span class="text-xs px-2 py-0.5 rounded-full ${fase.stato === 'CONCLUSA' ? 'bg-slate-200 text-slate-700' : 'bg-brand-100 text-brand-800'}">${escapeHtml(String(fase.stato || 'PIANIFICATA').replace(/_/g, ' '))}</span>
         </div>
       </div>
       <div class="overflow-x-auto">

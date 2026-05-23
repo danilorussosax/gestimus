@@ -1,8 +1,14 @@
-# Piano di migrazione multitenant
+# Piano di migrazione multitenant *(ARCHIVED — strategia fisica abbandonata)*
 
-Documento operativo di sviluppo. Per l'analisi architetturale vedi `multitenant.md`.
+> ⚠️ **Questo documento descrive una strategia ABBANDONATA**: una istanza PocketBase per ente con multitenancy "fisica" (N processi, N porte, systemd template `pb@.service`).
+>
+> La piattaforma è stata migrata a **multitenancy logica con PostgreSQL RLS**: un singolo processo Node/Fastify + un singolo DB Postgres con `app.tenant_id` per sessione. La documentazione attuale è in [`MIGRATION_POSTGRES.md`](MIGRATION_POSTGRES.md).
+>
+> Tenuto in repo solo per riferimento storico delle decisioni di architettura.
 
 ---
+
+## Strategia originale (legacy)
 
 ## Strategia: una istanza PocketBase per ente
 

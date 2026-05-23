@@ -6,16 +6,20 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 
 const uuid = z.string().uuid();
+// Helper: il form admin manda "" quando l'utente svuota un campo; gli stessi
+// validator strict (z.string().email(), z.string().date()) rifiutano "" → 400.
+// Trasformiamo "" in null così "campo svuotato" è esplicitamente un clear.
+const emptyToNull = <T>(v: T) => (v === '' ? null : v);
 const createBody = z.object({
   concorsoId: uuid,
   nome: z.string().min(1).max(255),
   cognome: z.string().max(255).optional(),
   specialita: z.string().max(255).optional(),
-  email: z.string().email().optional(),
-  telefono: z.string().max(50).optional(),
-  dataNascita: z.string().date().optional(),
-  nazionalita: z.string().max(100).optional(),
-  bio: z.string().optional(),
+  email: z.preprocess(emptyToNull, z.string().email().nullable()).optional(),
+  telefono: z.preprocess(emptyToNull, z.string().max(50).nullable()).optional(),
+  dataNascita: z.preprocess(emptyToNull, z.string().date().nullable()).optional(),
+  nazionalita: z.preprocess(emptyToNull, z.string().max(100).nullable()).optional(),
+  bio: z.preprocess(emptyToNull, z.string().nullable()).optional(),
   stato: z.enum(['ATTIVO', 'INATTIVO']).optional(),
 });
 const updateBody = createBody.partial().omit({ concorsoId: true });

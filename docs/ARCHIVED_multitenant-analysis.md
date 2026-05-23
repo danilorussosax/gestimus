@@ -1,4 +1,10 @@
-# Deploy multi-tenant — analisi e raccomandazioni
+# Deploy multi-tenant — analisi e raccomandazioni *(ARCHIVED)*
+
+> ⚠️ **Documento archiviato.** Analisi delle opzioni di deploy multi-tenant del vecchio stack PocketBase. Le conclusioni di questo doc hanno portato all'adozione della strategia "istanza per ente" (vedi `ARCHIVED_multitenant-physical-strategy.md`), che è poi stata abbandonata in favore della multitenancy logica RLS attuale.
+>
+> Documentazione vigente: [`MIGRATION_POSTGRES.md`](MIGRATION_POSTGRES.md).
+
+---
 
 Documento di riferimento per il deploy del gestionale concorso in modalità multi-tenant, dove ogni ente organizzatore (scuola, conservatorio, associazione) ha un proprio sottodominio e un'istanza dati isolata.
 

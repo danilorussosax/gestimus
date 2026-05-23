@@ -1,4 +1,13 @@
-# PocketBase setup
+# PocketBase setup *(ARCHIVED — stack legacy)*
+
+> ⚠️ **Questo documento è archiviato e non aggiornato.** Si riferisce al vecchio backend PocketBase + SQLite. Dal maggio 2026 lo stack è stato migrato su **Fastify + PostgreSQL + Drizzle**. La documentazione attuale è in:
+> - [`../server/README.md`](../server/README.md) — backend Fastify
+> - [`MIGRATION_POSTGRES.md`](MIGRATION_POSTGRES.md) — schema DB, RLS, architettura completa
+> - [`DEPLOY-IONOS.md`](DEPLOY-IONOS.md) — guida deploy aggiornata
+>
+> Tenuto in repo solo per riferimento storico del modello di runtime PocketBase usato fino alla migrazione.
+
+---
 
 Il gestionale usa [PocketBase](https://pocketbase.io) come **backend di runtime** — un single binary Go + SQLite con admin UI integrata, API REST, file uploads, realtime SSE e hook JS server-side (Goja).
 

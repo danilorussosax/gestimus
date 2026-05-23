@@ -30,36 +30,44 @@ The architecture is **multitenant native**: a single backend hosts N independent
 - SMTP configuration **per tenant** (different providers per institution), credentials encrypted at-rest
 - Create tenant admins without server shell access
 - Aggregated stats (competitions, judges, candidates per tenant)
+- **Real-time metrics**: gradient KPI cards with Node process RSS / CPU plus 5-min sparkline (5s polling); per-tenant `req/min`, `latency p50/p95`, `error rate` from global Fastify hooks (`/api/platform/system`, `/api/platform/runtime`)
 - Platform audit log separated from per-tenant audit
 
 ### 🛠 Tenant admin
 - **Phases** with 5 average methods (arithmetic, olympic, winsorized, median, std-dev filter) + automatic suggestion based on judge count
 - **Sections and categories** (e.g. Strings → Senior/Junior) + **copy categories across sections** (one click to replicate the structure)
-- **Candidates** as solo or groups (with multiple members)
+- **Candidates** as solo or groups, N:1 model candidate → section + category; **auto-derive section** from the chosen category
+- **CSV import** with template supporting `tipo` (solo/group), `gruppo_nome`, `sezione`, `categoria`
 - **Judges** with chair designation
-- **Commissions** that group judges + sections + categories
-- **Phase scoping**: a phase can be restricted to a single section (parallel tracks) or open to everyone
+- **Commissions** that group judges + sections + categories; "Include all categories" toggle auto-expands at save
+- **Chair per-commission**: each commission has its own chair; there is no longer a single "competition chair"
+- **Granular phase permissions**: start/end/draw/timer of a phase can be executed by admin OR the chair of the assigned commission (`assertCanManageFase` server-side)
+- **Phase scoping**: a phase can be restricted to one or more sections (parallel tracks) or open to all; on `start` the backend pre-populates `candidati_fase` filtered by those sections (idempotent)
 - **Order shuffling** with reproducible seed (mulberry32)
-- **Results**: live leaderboard, podium, CSV export (RFC 4180 + UTF-8 BOM, formula-injection safe) and PDF protocol
-- **Minutes** with template + dynamic tags (`{competition}`, `{chair}`, …)
+- **Results**: live leaderboard, podium, CSV export (RFC 4180 + UTF-8 BOM, formula-injection safe) and PDF protocol. Signed by the chair of the **final phase** (not of the competition).
+- **Minutes** with template + dynamic tags (`<concorso>`, `<presidente>`, `<fase_presidente>`, `<fase_classifica>`, …) — PDF signatures only printed when the template references commission/judges tags AND the phase has a commission assigned
+- **Competition settings** tab inline (no more "Edit" modal): identity, logo, public registration, default tiebreak + danger zone with **GitHub-style type-to-delete** confirmation
+- **Tenant branding**: logo + colors + contact data stored in `brandingPublic`/`enteSettings` JSONB; server PATCH merges (no overwrite)
 - **Append-only audit log** for every operation
 
 ### 🎼 Judge
 - **Autonomous** judging (each judge at their own pace) or **synchronous** (everyone on the same candidate, piloted by the chair)
 - **Phase timer** shared in real time via Postgres `LISTEN/NOTIFY` + SSE
-- Score per criterion with configurable weights (sum = 100%)
+- Score per criterion with configurable weights (sum = 100%) — supports decimal votes via `numeric(5,2)` (half-points on ≤10 scales)
 - Pictograms and sliders for quick scoring
 - Last evaluations history visible
+- **Chair session control**: gradient KPI strip (chaired phases / candidates / fully voted / completion %), preflight check before phase start (commission, criteria, eligible candidates), separate progress bars for "candidates fully voted" and "judges who have finished"
 
 ### 📝 Public registration
 - **Single-page** self-service form, no login required
 - Dedicated subdomain per tenant
-- Demographics, contacts, artistic data, repertoire, attachments (photo/ID/payment receipt)
-- **Group mode** with dynamic member composition
+- Extended demographics (name, surname, sex, fiscal code, place of birth, nationality), residence (address, city, postal code, province, country), artistic data (instrument, years of study, school, teachers, repertoire)
+- **Section + category** cascading selection: categories filtered by section, server-side cross-competition validation, auto-derived section if the user picks only the category
+- **Group mode** with dynamic member composition + `gruppo_nome`
 - Guardian section required if candidate is under 16 (server-side, GDPR Art. 8)
 - Automatic **save & resume** via localStorage
 - Email verification link (token regenerated server-side)
-- Admin approval workflow → generates candidate record
+- Admin approval workflow → generates active candidate record (no pending state)
 - Server-side anti-spam: honeypot, min-time-on-page, IP rate-limit (3/h, 10/day)
 
 ### 🔒 Hardening
@@ -238,8 +246,10 @@ npm run test:e2e         # playwright (requires running server)
 |------|---------|
 | [`docs/MIGRATION_POSTGRES.md`](docs/MIGRATION_POSTGRES.md) | **Full technical architecture** — DB schema, RLS policies, backend module layout, tenant soft-delete with configurable cleanup, TOTP 2FA, roadmap milestones (Italian) |
 | [`docs/LISTINO.md`](docs/LISTINO.md) | **Commercial plan listing** — customer-facing pricing doc (Italian) |
-| [`docs/DEPLOY-IONOS.md`](docs/DEPLOY-IONOS.md) | Historical IONOS VPS deploy guide (being updated for the new stack, Italian) |
+| [`docs/DEPLOY-IONOS.md`](docs/DEPLOY-IONOS.md) | **IONOS VPS deploy guide** for the new Fastify + Postgres stack (Italian) — single systemd unit, certbot DNS-01, automated PG backups |
 | [`docs/manuale-admin.md`](docs/manuale-admin.md) | **Tenant-admin operational manual** (Italian) — also reachable in-app from *Admin → Manuale*. Screenshots live in `docs/screenshots/`. |
+| [`server/README.md`](server/README.md) | **Backend reference** — Drizzle schema, REST endpoints, middleware, migrations, runtime metrics |
+| [`server/scripts/migrations/`](server/scripts/migrations/) | Incremental SQL migrations applied with `psql -f` or drizzle-kit `db:push` |
 
 ## Contributing
 

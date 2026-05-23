@@ -1,24 +1,34 @@
 # Deploy Gestimus su VPS IONOS — dominio `gestimus.it`
 
-Guida pratica per pubblicare **Gestimus** su un VPS IONOS, con il dominio **`gestimus.it`** già configurato come default in tutti gli script. Tempo stimato: **~30-40 minuti** dalla VPS appena creata.
+Guida pratica per pubblicare **Gestimus** (stack Fastify + Postgres + Drizzle) su un VPS IONOS. Il dominio **`gestimus.it`** è il default; sostituiscilo se diverso. Tempo stimato: **~25-35 minuti** dalla VPS appena creata.
 
 ## Architettura finale
 
 ```
                         ┌─────────────────────────┐
                         │   nginx (porta 443/80)  │  ← Let's Encrypt wildcard
-                        │   *.gestimus.it          │
+                        │   *.gestimus.it          │     (DNS-01 IONOS)
                         └──┬──────────────────────┘
-            ┌──────────────┼─────────────────────┬────────────┐
-            ▼              ▼                     ▼            ▼
-   platform.gestimus.it  ente1.gestimus.it   ente2.gestimus.it  ente3.…
-       :8093                :8091                :8092            :809…
-   pb@platform          pb@ente1              pb@ente2          pb@ente3
-   (super admin)        (Liceo musicale)      (Conservatorio)   …
+                           │  proxy_pass http://127.0.0.1:4000
+                           ▼
+                  ┌────────────────────────────┐
+                  │  gestimus.service          │  systemd · single unit
+                  │  Node 22 + Fastify 5       │  TypeScript strict
+                  │  TCP :4000 (localhost)     │  Drizzle ORM
+                  └─────┬──────────────────────┘
+                        │  resolve subdomain → tenant_id
+                        ▼
+                  ┌────────────────────────────┐
+                  │  PostgreSQL 16             │  RLS per tabella
+                  │  database "gestimus"       │  app.tenant_id per sessione
+                  │  socket /var/run/postgresql│  LISTEN/NOTIFY → SSE
+                  └────────────────────────────┘
 ```
 
-- **`platform.gestimus.it`** → pannello super admin (gestione enti, SMTP, branding)
+- **`platform.gestimus.it`** → pannello super admin (gestione enti, SMTP, branding, metriche realtime)
 - **`<slug>.gestimus.it`** → app cliente (admin + commissari + form iscrizione)
+
+**Multitenancy logica**: un solo processo Node + un solo database. L'isolamento avviene a livello DB via Row-Level Security: il middleware Fastify legge il sottodominio dal `Host:` header, risolve il `tenant_id`, e setta `app.tenant_id` nella sessione PG (`SELECT app_set_tenant(...)` per ogni request). Le policy RLS rifiutano ogni cross-tenant read/write.
 
 ## Prerequisiti
 
@@ -68,28 +78,49 @@ Per il certificato **wildcard** TLS:
 1. Vai su [developer.hosting.ionos.it/keys](https://developer.hosting.ionos.it/keys)
 2. Crea API key → annota **prefix** e **secret**
 
-## Step 3 — Setup VPS
+## Step 3 — Setup VPS (Ubuntu 24.04)
 
 ```bash
 ssh root@<IP-VPS>
 
-git clone <repo-gestimus-url> /opt/gestimus
-cd /opt/gestimus
+# Pacchetti di sistema
+apt update && apt upgrade -y
+apt install -y nginx certbot python3-certbot-dns-ionos \
+  postgresql-16 postgresql-contrib \
+  fail2ban ufw git curl ca-certificates
 
-# Tutto il default è su gestimus.it grazie a deploy/gestimus.env
-sudo bash scripts/setup-server.sh
+# Node 22 LTS (NodeSource)
+curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
+apt install -y nodejs
+
+# Firewall
+ufw allow 22/tcp && ufw allow 80/tcp && ufw allow 443/tcp
+ufw --force enable
+
+# Utente di servizio non-root
+useradd -m -s /bin/bash gestimus
+mkdir -p /opt/gestimus /etc/gestimus /var/log/gestimus
+chown gestimus:gestimus /opt/gestimus /var/log/gestimus
+
+# Clone del repo
+sudo -u gestimus git clone <repo-gestimus-url> /opt/gestimus
+cd /opt/gestimus/server
+sudo -u gestimus npm ci --omit=dev
+sudo -u gestimus npm run build   # compila TS in dist/
 ```
 
-Lo script (~3-5 min):
-- Crea utenti `gestimus` (sudo) + `pb` (system)
-- Installa: nginx, certbot, plugin DNS IONOS, fail2ban, ufw, nodejs, jq, sqlite3
-- Configura firewall (SSH/HTTP/HTTPS)
-- Hardening SSH (no root login, no password)
-- Scarica PocketBase v0.22.27 in `/srv/pb/`
-- Installa systemd template `pb@.service`
-- Prepara `/srv/pb/{data,pb_migrations,pb_hooks,archive}` + `/etc/pb`
-- Genera **`GESTIMUS_SECRET_KEY`** (32 byte hex via `openssl rand -hex 32`) in `/etc/pb/platform.env` — usata da `pb_hooks/tenants.pb.js` per cifrare le SMTP password dei tenant. **Salvala in un password manager**: cambiarla rende illeggibili le password cifrate precedentemente.
-- Installa lo snippet rate-limit nginx (`deploy/nginx-snippet-rl.conf` → `/etc/nginx/conf.d/gestimus-rl.conf`): zone `iscrizioni_rl` (5r/min) e `auth_rl` (10r/min).
+**Hardening SSH** (consigliato):
+```bash
+sed -i 's/^#*PermitRootLogin.*/PermitRootLogin no/' /etc/ssh/sshd_config
+sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication no/' /etc/ssh/sshd_config
+systemctl restart sshd
+```
+
+**Snippet rate-limit nginx**:
+```bash
+cp /opt/gestimus/deploy/nginx-snippet-rl.conf /etc/nginx/conf.d/gestimus-rl.conf
+# Zone: iscrizioni_rl (5r/min) + auth_rl (10r/min). Caricate prima dei server block.
+```
 
 ## Step 4 — Credenziali IONOS
 
@@ -126,187 +157,323 @@ Certificate is saved at: /etc/letsencrypt/live/gestimus.it/fullchain.pem
 
 > **Rinnovo automatico**: certbot installa già una cron che rinnova entro 30 giorni dalla scadenza. Verifica: `sudo certbot renew --dry-run`.
 
-## Step 6 — Deploy del codice
+## Step 6 — PostgreSQL + bootstrap del database
 
 ```bash
-# Frontend statico in /var/www/gestimus
-sudo rsync -av --exclude=node_modules --exclude=.git --exclude=pocketbase --exclude='pb_data*' \
-  /opt/gestimus/ /var/www/gestimus/
+# Postgres 16 è già installato + avviato dall'apt step. Verifica:
+systemctl status postgresql
 
-# Migrations + hooks in /srv/pb/
-sudo cp -v /opt/gestimus/pb_migrations/* /srv/pb/pb_migrations/
-sudo cp -v /opt/gestimus/pb_hooks/* /srv/pb/pb_hooks/
-sudo chown -R pb:pb /srv/pb
+# Bootstrap ruoli + DB gestimus
+sudo -u postgres psql <<SQL
+CREATE ROLE gestimus_super LOGIN PASSWORD '$(openssl rand -hex 16)' BYPASSRLS CREATEDB;
+CREATE ROLE gestimus_app LOGIN PASSWORD '$(openssl rand -hex 16)';
+CREATE DATABASE gestimus OWNER gestimus_super;
+SQL
+# Annota le password generate, le useremo in /etc/gestimus/server.env
 ```
 
-## Step 7 — Provisiona il super admin
+Configura le variabili d'ambiente:
 
 ```bash
-sudo /opt/gestimus/scripts/provision-tenant.sh platform
+cat >/etc/gestimus/server.env <<EOF
+NODE_ENV=production
+PORT=4000
+HOST=127.0.0.1
+
+# Connessioni DB (sostituisci <pwd_super> / <pwd_app> con quelle generate sopra)
+DATABASE_URL_SUPER=postgres://gestimus_super:<pwd_super>@localhost:5432/gestimus
+DATABASE_URL_APP=postgres://gestimus_app:<pwd_app>@localhost:5432/gestimus
+
+# Secret cookie sessione (32+ char random)
+SESSION_COOKIE_SECRET=$(openssl rand -hex 32)
+SESSION_COOKIE_NAME=gestimus_session
+SESSION_TTL_HOURS=72
+
+# Secret per cifrare le SMTP password dei tenant (AES-GCM)
+# IMPORTANTE: salvala in un password manager. Cambiarla rende illeggibili le
+# password SMTP già cifrate at-rest.
+GESTIMUS_SECRET_KEY=$(openssl rand -hex 32)
+
+# Subdomain del super-admin (resto dei subdomain = enti)
+SUPERADMIN_SUBDOMAIN=platform
+
+# Uploads
+UPLOADS_DIR=/var/lib/gestimus/uploads
+UPLOADS_MAX_FILE_SIZE_MB=5
+EOF
+
+chown gestimus:gestimus /etc/gestimus/server.env
+chmod 600 /etc/gestimus/server.env
+
+# Crea la dir uploads
+mkdir -p /var/lib/gestimus/uploads
+chown gestimus:gestimus /var/lib/gestimus/uploads
 ```
 
-Lo slug `platform` viene riconosciuto come speciale → dominio `platform.gestimus.it`, porta `8093`. Lo script ti chiederà email + password del super admin.
-
-A fine procedura:
-```
-URL:     https://platform.gestimus.it
-Admin:   https://platform.gestimus.it/_/
-```
-
-## Step 8 — Primo ente cliente
-
-Per ogni cliente assegna uno **slug univoco** (ASCII minuscolo, no spazi):
+Applica schema + policy RLS + migrations incrementali:
 
 ```bash
-sudo /opt/gestimus/scripts/provision-tenant.sh liceo-musicale-milano
+cd /opt/gestimus/server
+sudo -u gestimus -i bash -c "cd /opt/gestimus/server && \
+  set -a && source /etc/gestimus/server.env && set +a && \
+  npm run db:setup"
+# db:setup = drizzle-kit push (crea tabelle dallo schema.ts) + apply-policies.ts (RLS + grants)
+
+# Migrazioni ALTER TABLE incrementali (solo se il DB ha già lo schema base)
+for f in /opt/gestimus/server/scripts/migrations/*.sql; do
+  sudo -u postgres psql -d gestimus -f "$f"
+done
 ```
 
-Risultato: `https://liceo-musicale-milano.gestimus.it`. La porta è auto-assegnata (prima libera dal 8091). Per default la **admin UI** (`/_/`) del PocketBase del tenant è raggiungibile solo da `127.0.0.1`.
-
-### Aprire `/_/` a IP specifici (ufficio, VPN)
+## Step 7 — systemd unit
 
 ```bash
-ADMIN_ALLOW_IPS="1.2.3.4,5.6.7.0/24" \
-  sudo -E /opt/gestimus/scripts/provision-tenant.sh liceo-musicale-milano
+cat >/etc/systemd/system/gestimus.service <<'EOF'
+[Unit]
+Description=Gestimus backend (Fastify + Postgres)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=gestimus
+Group=gestimus
+WorkingDirectory=/opt/gestimus/server
+EnvironmentFile=/etc/gestimus/server.env
+ExecStart=/usr/bin/node /opt/gestimus/server/dist/index.js
+Restart=on-failure
+RestartSec=5
+StandardOutput=append:/var/log/gestimus/server.log
+StandardError=append:/var/log/gestimus/server.err
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/gestimus /var/log/gestimus
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable --now gestimus
+systemctl status gestimus
 ```
 
-### Accesso temporaneo via SSH tunnel (consigliato)
+## Step 8 — Configurazione nginx
+
+Un singolo virtual host gestisce `*.gestimus.it` (wildcard) + `gestimus.it` (root). Tutto il traffico viene proxied a `127.0.0.1:4000`.
 
 ```bash
-# Sul tuo laptop (porta locale 8091 → porta remota 8091 del PB del tenant):
-ssh -L 8091:127.0.0.1:8091 gestimus@<IP-VPS>
-# Apri: http://localhost:8091/_/
+cat >/etc/nginx/sites-available/gestimus.conf <<'EOF'
+server {
+  listen 80;
+  listen [::]:80;
+  server_name gestimus.it *.gestimus.it;
+  return 301 https://$host$request_uri;
+}
+
+server {
+  listen 443 ssl http2;
+  listen [::]:443 ssl http2;
+  server_name gestimus.it *.gestimus.it;
+
+  ssl_certificate     /etc/letsencrypt/live/gestimus.it/fullchain.pem;
+  ssl_certificate_key /etc/letsencrypt/live/gestimus.it/privkey.pem;
+  include /etc/letsencrypt/options-ssl-nginx.conf;
+  ssl_dhparam /etc/letsencrypt/ssl-dhparams.pem;
+
+  # Body limit per upload (foto candidato/concorso + ricevuta iscrizione)
+  client_max_body_size 8m;
+
+  # SSE per il timer fase ha bisogno di buffering off + timeout lunghi
+  location /api/realtime/ {
+    proxy_pass http://127.0.0.1:4000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_buffering off;
+    proxy_cache off;
+    proxy_read_timeout 24h;
+  }
+
+  # Rate-limit applicato dal snippet gestimus-rl.conf
+  location /auth/login { limit_req zone=auth_rl burst=5 nodelay; try_files $uri @app; }
+  location /api/public/iscrizioni { limit_req zone=iscrizioni_rl burst=2 nodelay; try_files $uri @app; }
+
+  location / { try_files $uri @app; }
+  location @app {
+    proxy_pass http://127.0.0.1:4000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+  }
+}
+EOF
+
+ln -sf /etc/nginx/sites-available/gestimus.conf /etc/nginx/sites-enabled/gestimus.conf
+rm -f /etc/nginx/sites-enabled/default
+nginx -t && systemctl reload nginx
 ```
 
-> **Tip**: l'admin dell'ente può anche essere creato DOPO via super admin → "Gestione Enti" → icona chiave 🔓 sulla card. È più rapido se hai molti enti da provisionare in serie senza interagire con il prompt password.
+## Step 9 — Provisioning del super-admin
 
-## Step 9 — Test finale
+A differenza del vecchio stack PocketBase, **non c'è uno script shell** per creare il super-admin: il primo super-admin si crea via Drizzle direttamente dal DB (one-shot, poi nuovi super-admin si creano dalla UI).
+
+```bash
+# Genera password hash Argon2id offline
+sudo -u gestimus -i bash -c "cd /opt/gestimus/server && \
+  set -a && source /etc/gestimus/server.env && set +a && \
+  node -e \"
+    import('./dist/services/password.js').then(async ({ hashPassword }) => {
+      const h = await hashPassword('TUA_PASSWORD_FORTE');
+      console.log(h);
+    });
+  \""
+# Output: \$argon2id\$v=19\$...
+```
+
+Inserisci il record nel DB (super-admin non ha un tenant — è uno special "tenant null"):
+
+```sql
+INSERT INTO accounts (id, tenant_id, email, password_hash, role, attivo, email_verified)
+VALUES (
+  uuidv7(),
+  NULL,  -- super-admin → niente tenant
+  'super@gestimus.it',
+  '<hash_argon2_dal_comando_sopra>',
+  'superadmin',
+  true,
+  true
+);
+```
+
+> Login: `https://platform.gestimus.it` con quelle credenziali. Da lì puoi creare nuovi super-admin, gli enti, gli admin di ente, e configurare SMTP — tutto da UI, senza accesso shell.
+
+## Step 10 — Primo ente cliente
+
+**Dalla UI super-admin** (`https://platform.gestimus.it` → "Gestione Enti" → "Nuovo ente"):
+1. Slug univoco (es. `liceo-musicale-milano` → ASCII minuscolo, no spazi)
+2. Nome esteso ("Liceo Musicale Milano")
+3. Piano SaaS (trial/starter/pro/ultra/ppe)
+4. Email admin → l'admin riceverà password temporanea (richiede SMTP configurato sul tenant; in alternativa la copia il super-admin manualmente)
+
+Risultato automatico:
+- Record `tenants` con `slug=liceo-musicale-milano`, `stato=attivo`
+- Account `admin@<ente>` con `role=admin`, `tenant_id=<id>`
+- L'app è subito raggiungibile su `https://liceo-musicale-milano.gestimus.it` (il wildcard nginx + middleware tenant resolver fanno il resto)
+
+## Step 11 — Test finale
 
 | URL | Cosa testare |
 |-----|--------------|
-| `https://platform.gestimus.it` | Login super admin → Gestione Enti |
-| `https://liceo-musicale-milano.gestimus.it` | Login admin dell'ente |
-| `https://liceo-musicale-milano.gestimus.it/#/iscrizione` | Form iscrizione pubblico (se il concorso è aperto) |
-| `https://liceo-musicale-milano.gestimus.it/_/` | UI admin PocketBase — **403** se non sei in allowlist (atteso: usa SSH tunnel) |
+| `https://platform.gestimus.it` | Login super admin → Gestione Enti → metriche realtime (RSS/CPU + sparkline) |
+| `https://liceo-musicale-milano.gestimus.it` | Login admin dell'ente, crea concorso/sezione/categoria/fase |
+| `https://liceo-musicale-milano.gestimus.it/#/iscrizione` | Form iscrizione pubblico (richiede `iscrizioni_aperte=true` sul concorso) |
+| `curl https://gestimus.it/healthz` | `{ok:true, ts:"..."}` — sanity check |
 
 ## Comandi quotidiani
 
 ### Aggiungere un nuovo ente
-```bash
-sudo /opt/gestimus/scripts/provision-tenant.sh conservatorio-roma
-# Crea automaticamente:
-# - data dir /srv/pb/data/conservatorio-roma
-# - systemd unit pb@conservatorio-roma + start
-# - config nginx /etc/nginx/sites-available/conservatorio-roma.conf
-# - sottodominio https://conservatorio-roma.gestimus.it
-```
+**Dalla UI super-admin** (`https://platform.gestimus.it` → "Gestione Enti" → "Nuovo ente"). Tutto il provisioning è automatico: niente più script bash, niente più systemd per-tenant.
+
+Sotto il cofano: viene inserita una riga in `tenants` con il nuovo slug, e il middleware tenant-resolver risolve immediatamente il nuovo sottodominio (`<slug>.gestimus.it`) sulla stessa istanza Fastify. La policy RLS isola automaticamente i dati.
 
 ### Aggiornare il codice
 ```bash
-cd /opt/gestimus && sudo -u gestimus git pull
-sudo rsync -av --exclude=node_modules --exclude=.git --exclude=pocketbase --exclude='pb_data*' \
-  /opt/gestimus/ /var/www/gestimus/
-sudo cp -v /opt/gestimus/pb_migrations/* /srv/pb/pb_migrations/
-sudo cp -v /opt/gestimus/pb_hooks/* /srv/pb/pb_hooks/
-sudo chown -R pb:pb /srv/pb
-sudo /opt/gestimus/scripts/rolling-restart.sh
+cd /opt/gestimus
+sudo -u gestimus git pull
+
+cd server
+sudo -u gestimus npm ci --omit=dev
+sudo -u gestimus npm run build
+
+# Migrations incrementali (se sono state aggiunte nuove ALTER TABLE)
+for f in scripts/migrations/*.sql; do
+  sudo -u postgres psql -d gestimus -f "$f"
+done
+
+# Restart soft (zero-downtime non garantito su single-instance — per HA serve PM2 cluster o due VPS dietro LB)
+sudo systemctl restart gestimus
 ```
 
-### Propagare SMTP a un ente
-Dopo aver configurato SMTP dal pannello super admin:
+### Configurazione SMTP per ente
+Dalla UI super-admin: ogni ente ha la propria sezione SMTP. La password viene cifrata at-rest (AES-256-GCM) con `GESTIMUS_SECRET_KEY` di `/etc/gestimus/server.env`. **Backup-la in un password manager**: se la perdi, le SMTP password salvate diventano illeggibili e l'invio email smette di funzionare.
+
+Test SMTP via UI: bottone "Test invio" sulla riga del tenant → invia mail di prova all'indirizzo specificato.
+
+### Cleanup tenant archiviati
+La UI super-admin permette di **sospendere** o **archiviare** un tenant. Un tenant archiviato è soft-deleted: i dati restano in DB ma:
+- Il login admin/commissario è bloccato (`stato='archiviato'` → 403)
+- Il form pubblico delle iscrizioni risponde 403
+- Dopo `cleanup_after_days` giorni (default 30, configurabile per-tenant) il job `cleanup` esegue l'hard-delete (CASCADE su tutte le tabelle figlie via FK)
+
+Job cleanup:
 ```bash
-source /opt/gestimus/deploy/gestimus.env
-SUPERADMIN_PWD="<password>" \
-ENTE_ADMIN_PWD="<password admin di quell'ente>" \
-sudo -E -u gestimus /opt/gestimus/scripts/apply-ente-smtp.sh liceo-musicale-milano
-```
-
-(Le variabili `PLATFORM_URL`, `SUPERADMIN_EMAIL` arrivano da `gestimus.env`. Lo script ora rileva automaticamente le password cifrate con prefisso `enc:v1:` e chiama `POST /api/admin/tenants/:id/smtp-decrypt` per ottenerle in chiaro prima di propagarle al PB del tenant — richiede che il PB platform abbia `GESTIMUS_SECRET_KEY` impostata.)
-
-### Migrare le SMTP password legacy (in chiaro → cifrate)
-
-Se l'aggiornamento è stato fatto su un'istanza con SMTP password già configurate in chiaro, lanciale una volta per cifrarle retroattivamente:
-
-```bash
-source /opt/gestimus/deploy/gestimus.env
-SUPERADMIN_PWD="<password>" \
-sudo -E -u gestimus node /opt/gestimus/scripts/encrypt-existing-smtp.mjs
-```
-
-Lo script è idempotente: rilegge ogni tenant, riscrive il campo `smtp_password` e l'hook `pb_hooks/tenants.pb.js` lo cifra at-rest (`enc:v1:...`). I record già cifrati vengono saltati. Se `GESTIMUS_SECRET_KEY` non è impostata sul PB platform, lo script segnala "NON cifrata" e esce con codice 2.
-
-### Piani SaaS — auto-propagazione
-
-I limiti del piano (trial/starter/pro/ultra/ppe) vengono **propagati automaticamente** dal PB platform al PB di ciascun tenant quando il super admin salva il record `tenants` dalla UI.
-
-Come funziona:
-- `pb_hooks/tenants.pb.js` ha `onRecordAfterUpdate` che chiama `POST http://127.0.0.1:<porta_tenant>/api/admin/apply-plan` (vedi `pb_hooks/tenant_config.pb.js`).
-- Autenticazione via header `X-Gestimus-Key` validato contro la `GESTIMUS_SECRET_KEY` presente nell'env del PB tenant.
-- La chiave viene **replicata automaticamente** dal `provision-tenant.sh` (per nuovi enti) e da `setup-server.sh` per gli enti esistenti.
-
-Fallback manuale (solo se il PB tenant era offline al momento del save):
-```bash
-source /opt/gestimus/deploy/gestimus.env
-SUPERADMIN_PWD="<password>" \
-ENTE_ADMIN_PWD="<password admin tenant>" \
-sudo -E -u gestimus /opt/gestimus/scripts/apply-ente-plan.sh <slug>      # singolo
-sudo -E -u gestimus /opt/gestimus/scripts/apply-ente-plan.sh --all       # tutti
-```
-
-Verifica auto-propagazione:
-```bash
-sudo journalctl -u pb@platform --since "5 min ago" | grep "plan propagated"
-# Cerca riga: "plan propagated to tenant <slug> ( pro )"
-```
-
-### Rimuovere un ente
-```bash
-sudo /opt/gestimus/scripts/remove-tenant.sh ente-vecchio              # archivia dati
-sudo /opt/gestimus/scripts/remove-tenant.sh ente-vecchio --purge -y   # cancella
+# Esegue manualmente (configura una cron per il run periodico)
+sudo -u gestimus -i bash -c "cd /opt/gestimus/server && \
+  set -a && source /etc/gestimus/server.env && set +a && \
+  node dist/scripts/cleanup-tenants.js"
 ```
 
 ### Monitoraggio
 ```bash
-# Stato di tutti i PB
-sudo systemctl list-units 'pb@*.service'
+# Stato del servizio
+sudo systemctl status gestimus
 
-# Log live di un ente
-sudo journalctl -u pb@liceo-musicale-milano -f
+# Log live
+sudo journalctl -u gestimus -f
+# oppure
+sudo tail -f /var/log/gestimus/server.log
 
-# Test health di tutti gli enti
-for f in /etc/pb/*.env; do
-  port=$(grep PORT= "$f" | cut -d= -f2 | tr -d '[:space:]')
-  slug=$(basename "$f" .env)
-  code=$(curl -so /dev/null -w '%{http_code}' "http://127.0.0.1:$port/api/health")
-  echo "$slug (porta $port) → HTTP $code"
-done
+# Health check
+curl https://gestimus.it/healthz
 
-# Spazio disco residuo
-df -h /srv/pb
+# Metriche realtime (dal pannello super-admin: card "Sistema" + sparkline 5min)
+# Endpoint diretti:
+curl -b cookies.txt https://platform.gestimus.it/api/platform/system   # RSS, CPU%, uptime
+curl -b cookies.txt https://platform.gestimus.it/api/platform/runtime  # per-tenant req/min, p50, p95
 ```
 
-### Backup
+### Backup PG
+
 ```bash
-# Backup giornaliero di tutti i tenant (configura una cron)
-sudo /opt/gestimus/scripts/backup-all-tenants.sh
+# Crontab di gestimus: backup giornaliero notturno
+crontab -u gestimus -e
+# 0 3 * * * pg_dump -h localhost -U gestimus_super gestimus | gzip > /var/backups/gestimus/$(date +\%F).sql.gz
+
+# Backup off-site (consigliato): restic verso S3/B2
+restic init --repo s3:s3.amazonaws.com/bucket/gestimus
+restic --repo s3:... backup /var/backups/gestimus /var/lib/gestimus/uploads
 ```
+
+Configurazione cron suggerita:
+- **03:00 UTC**: `pg_dump` locale (~50MB compresso per ~5 enti di taglia media)
+- **03:30 UTC**: `restic backup` su S3-compatibile
+- **Domenica 04:00**: `restic forget --keep-daily 7 --keep-weekly 4 --keep-monthly 12 --prune` per retention
 
 ## Sicurezza in produzione
 
-1. **Cambia password di default** (`admin123` su seed/test) — usa quelle generate dal pannello super admin
-2. **fail2ban** è attivo per SSH (vedi `/etc/fail2ban/jail.d/`)
-3. **Aggiornamenti automatici**:
+1. **Password root SSH disabilitata** (vedi Step 3 hardening). Login solo via chiave SSH.
+2. **Firewall**: solo SSH (22) + HTTP (80) + HTTPS (443) esposti. Postgres (5432) NON è raggiungibile da remoto — solo `127.0.0.1`.
+3. **fail2ban**: attivo di default per SSH. Le regole nginx per rate-limit sono integrate in `gestimus-rl.conf`.
+4. **Aggiornamenti automatici** (sistema):
    ```bash
    sudo apt install unattended-upgrades
    sudo dpkg-reconfigure -plow unattended-upgrades
    ```
-4. **Backup off-site**: pianifica `backup-all-tenants.sh` con `restic` puntato a S3/B2
-5. **Admin UI PocketBase**: di default `/_/` è raggiungibile solo da `localhost`. Non aprirla a `0.0.0.0` — usa `ADMIN_ALLOW_IPS` o SSH tunnel (vedi Step 8).
-6. **Chiave cifratura SMTP**: `/etc/pb/platform.env` contiene `GESTIMUS_SECRET_KEY`. Backup-la in password manager. Se la cambi, le SMTP password salvate prima del cambio diventano illeggibili — re-inseriscile dal pannello super admin e propagale.
-7. **Rate-limit pubblico**: le iscrizioni hanno doppio livello:
-   - **Applicativo** (`pb_hooks/iscrizioni.pb.js`): 3/IP/ora, 10/IP/giorno + honeypot + min-time-on-page.
-   - **nginx** (`/etc/nginx/conf.d/gestimus-rl.conf`): zone `iscrizioni_rl` (5r/min) — per attivare, decommenta `limit_req zone=iscrizioni_rl burst=5 nodelay;` in `nginx-tenant.conf.template` e rigenera la conf del tenant.
-8. **Audit log immutabile**: dalla migration `1700000037`, nessun admin (compresi quelli del tenant) può cancellare record da `audit_log`. Retention via job esterno.
+5. **Chiave `GESTIMUS_SECRET_KEY`**: in `/etc/gestimus/server.env`. Cifra le password SMTP at-rest. **Salvala in password manager**: cambiarla rende illeggibili le password SMTP precedenti.
+6. **`SESSION_COOKIE_SECRET`**: stesso file. Cambiandolo invalidi tutte le sessioni attive.
+7. **Rate-limit form pubblico**: doppio livello:
+   - **Fastify** (`@fastify/rate-limit`): 3 iscrizioni/h per IP, 10/giorno per IP.
+   - **nginx** (`gestimus-rl.conf`): zone `iscrizioni_rl` (5r/min) — già integrata nel server block.
+8. **RLS**: ogni connessione applicativa setta `app.tenant_id` e le policy filtrano. Anche se un endpoint avesse un bug logico, il DB rifiuta cross-tenant.
+9. **Audit log immutabile**: `REVOKE UPDATE, DELETE ON audit_log, platform_audit_log FROM gestimus_app` (vedi `policies.sql`). Solo `gestimus_super` può cancellare (per GDPR Art. 17).
+10. **Postgres listen address**: di default è `localhost` — verifica `/etc/postgresql/16/main/postgresql.conf` e `pg_hba.conf` per assicurarti che il DB non sia raggiungibile da rete pubblica.
 
 ## Costo annuo per `gestimus.it`
 

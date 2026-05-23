@@ -58,7 +58,7 @@ Il driver è eliminare la dipendenza da **script shell SSH** per le operazioni a
 
 ### Razionale delle scelte
 
-- **PostgreSQL 18** vs MySQL: RLS nativa indispensabile per multitenancy logica sicura, `jsonb` con indici GIN per i `criteri` dinamici delle fasi, window functions complete per gli algoritmi di scoring statistici, `LISTEN/NOTIFY` come canale realtime gratis. PG18 specifico: **UUIDv7 nativo** (`uuidv7()`) = chiavi primarie time-ordered che migliorano insert performance e località cache rispetto a UUIDv4 random; **async I/O** (io_uring su Linux) per migliori throughput su VPS; **skip scan** su indici composti `(tenant_id, ...)` = query multitenant veloci anche senza index sul singolo campo aggiuntivo.
+- **PostgreSQL 16** vs MySQL: RLS nativa indispensabile per multitenancy logica sicura, `jsonb` con indici GIN per i `criteri` dinamici delle fasi, window functions complete per gli algoritmi di scoring statistici, `LISTEN/NOTIFY` come canale realtime gratis. UUIDv7 ottenuto via funzione PL/pgSQL custom `uuidv7()` (chiavi primarie time-ordered che migliorano insert performance e località cache rispetto a UUIDv4 random).
 - **Drizzle** vs Sequelize/Prisma: query SQL-like leggibili, zero overhead, integrazione naturale con `SET LOCAL` per RLS, schema TypeScript first-class, migrazioni dichiarative.
 - **Fastify** vs Express/Hono: maturità su VPS Node (Hono brilla su edge, qui non serve), ecosistema plugin (rate-limit, cookie, multipart, SSE, helmet) ufficiali e stabili.
 - **Lucia v3** vs custom: session-based con cookie HttpOnly (più sicuro di JWT per app web), integrazione Drizzle, controllo totale (no SaaS dipendency).
@@ -88,7 +88,7 @@ Il driver è eliminare la dipendenza da **script shell SSH** per le operazioni a
                                   └──────┬──────────────┘
                                          │
                                   ┌──────▼──────────────┐
-                                  │  PostgreSQL 18      │
+                                  │  PostgreSQL 16      │
                                   │  (porta 5432, local)│
                                   │  RLS su tutte le    │
                                   │  tabelle dominio    │
@@ -925,7 +925,7 @@ Decisioni già chiuse:
 - ✅ **2FA**: post-migrazione (Fase 10) con toggle UI super-admin per tenant + super-admin stesso
 - ✅ **Soft-delete tenant**: progettato in sezione 17, integrato nel piano da subito
 - ✅ **Comunicazione clienti / maintenance window**: non applicabile (no prod)
-- ✅ **Stack**: PostgreSQL 18 + Node 22 + Fastify 5 + Drizzle + Lucia v3 + TypeScript strict
+- ✅ **Stack**: PostgreSQL 16 + Node 22 + Fastify 5 + Drizzle + Lucia v3 + TypeScript strict
 
 Residue (non bloccanti per partire):
 - [ ] **Nome subdomain super-admin**: `platform.gestimus.local` per dev. In prod sarà `platform.gestimus.it` o `admin.gestimus.it`?
@@ -943,23 +943,83 @@ Residue (non bloccanti per partire):
 - PocketBase hooks attuali: `pb_hooks/*.pb.js`
 - Frontend data layer: `js/db.js` (1748 righe, da riscrivere)
 - Schema dati storico: `Schema_Gestionale_Concorso_Musicale.docx`
-- Deploy attuale: `DEPLOY-IONOS.md`, `MULTITENANT_PLAN.md`
-- Listino commerciale: `LISTINO.md`
+- Deploy attuale: [`DEPLOY-IONOS.md`](DEPLOY-IONOS.md)
+- Backend reference: [`../server/README.md`](../server/README.md)
+- Listino commerciale: [`LISTINO.md`](LISTINO.md)
+- Strategie storiche (archiviate): [`ARCHIVED_multitenant-physical-strategy.md`](ARCHIVED_multitenant-physical-strategy.md), [`ARCHIVED_multitenant-analysis.md`](ARCHIVED_multitenant-analysis.md)
 
 ---
 
-**Stato di approvazione:**
-- ✅ Stack confermato (PostgreSQL 18 + Node 22 + Fastify 5 + Drizzle + Lucia v3 + TypeScript)
-- ✅ Strategia: restart pulito su branch (contesto solo-dev, nessuna prod attiva)
-- ✅ 2FA differito a Fase 10 con toggle UI super-admin per tenant e super-admin stesso
-- ✅ Soft-delete tenant + cleanup configurabile integrati dalla Fase 1
-- ⏳ Decisioni residue (sezione 22): hanno tutte default ragionevoli, non bloccano
+## Aggiornamenti post-migrazione (2026-05)
 
-**Prossimo passo concreto:** partire dalla **Fase 0 — Setup + POC** (3 giorni)
-1. Branch `feature/postgres-migration` con repo `server/` (TypeScript + Drizzle + Fastify)
-2. Postgres locale + DB `gestimus` + ruoli `gestimus_app` / `gestimus_super`
-3. Schema iniziale: solo `tenants` + `concorsi` + `accounts` con RLS
-4. Middleware risoluzione tenant da subdomain (`ente1.gestimus.local`)
-5. 1 endpoint `GET /api/concorsi` che dimostra l'isolamento RLS
+### Schema iscrizioni esteso
 
-Se la Fase 0 valida il pattern, si procede con Fase 1 senza ulteriori conferme.
+Tabella `iscrizioni` arricchita con campi anagrafici/residenza/artistici:
+- Anagrafica: `luogo_nascita`, `sesso`, `codice_fiscale`
+- Residenza: `indirizzo`, `citta`, `cap`, `provincia`, `paese`
+- Artistici: `anni_studio`, `scuola_provenienza`
+- Gruppo: `gruppo_nome`
+- Free-form: `note_libere`
+
+Migration: `server/scripts/migrations/2026_05_22_iscrizioni_extend_fields.sql`.
+
+### Valutazioni numeric
+
+`valutazioni.voto` da `integer` a `numeric(5,2)` (precision 5, scale 2) per supportare mezzi punti su scale ≤ 10. Drizzle column con `mode: 'number'` per deserializzare come number JS invece che string.
+
+Migration: `server/scripts/migrations/2026_05_23_valutazioni_voto_numeric.sql`.
+
+### Finalizzazione candidati_fase
+
+`POST /api/fasi/:id/conclude` esegue, nella stessa transazione del cambio stato:
+
+```sql
+UPDATE candidati_fase SET stato='COMPLETATO'
+ WHERE fase_id=:id AND stato <> 'ELIMINATO';
+```
+
+Backfill per fasi già concluse prima del fix: `server/scripts/migrations/2026_05_23_backfill_candidati_fase_completato.sql`.
+
+### Branding tenant
+
+Colonne JSONB `tenants.ente_settings` e `tenants.branding_public`:
+- `ente_settings`: campi privati (email, telefono, sede, codice fiscale, PEC, sito web, note)
+- `branding_public`: campi visibili pre-login (`nomePubblico`, `logoUrl` come dataURL inline, `coloreAccent`, `coloreSfondo`, `sottotitolo`)
+
+Le PATCH `/api/ente` e `/api/ente/branding` fanno **merge** lato server (legge l'esistente, applica spread del nuovo parsed, riscrive il JSONB completo) — non più overwrite. Limite `logoUrl` portato a 10MB di stringa per accomodare dataURL PNG/WebP fino a 800px.
+
+### Permessi granulari per-fase
+
+Helper `assertCanManageFase(req, reply, faseId)` in `server/src/routes/fasi.ts`. Le route che cambiano stato fase (`start`, `conclude`, `sorteggio`, `timer/*`) usano `requireAuth + assertCanManageFase` invece di `requireRole('admin')`:
+- `admin`/`superadmin`: sempre OK
+- `commissario`: OK solo se è presidente della commissione assegnata alla fase
+- Fase senza commissione: solo admin
+
+Analogo `assertCanEditCandidatoFase` per `PATCH /api/candidati-fase/:id` (i commissari membri della commissione possono marcare `ammessoProssimaFase`).
+
+### Validazione cross-concorso candidato + gerarchia categoria→sezione
+
+In `POST /api/candidati` e `PATCH /api/candidati/:id`: helper `validateScope(tx, concorsoId, sezioneId, categoriaId)` verifica che sezione e categoria appartengano al concorso del candidato e che la categoria appartenga alla sezione scelta. Se manca la sezione ma c'è la categoria, **deriva** la sezione automaticamente (gerarchia hard).
+
+Lo stesso pattern è applicato in `POST /api/public/iscrizioni` come "ultimo guardiano" lato server.
+
+### Endpoint metriche platform
+
+| Endpoint | Cosa fa |
+|---|---|
+| `GET /api/platform/system` | Snapshot risorse del processo Node: `memory.{rss,heapUsed,heapTotal}`, `cpu.{cores,processPct,loadAvg1/5/15}`, `uptimeSec`. La CPU% del processo è campionata con `process.cpuUsage()` su finestra di 200ms (latency aggiuntiva accettabile per endpoint admin-only). |
+| `GET /api/platform/runtime` | Aggregato per-tenant sulla sliding window di 60s: `reqCountMin`, `reqPerSec`, `latencyP50Ms`, `latencyP95Ms`, `errorRate`, `lastSeenSec`. Nessuna persistence: si svuota al restart del processo. |
+
+Il middleware `server/src/middleware/runtime-metrics.ts` registra hook globali `onRequest` (`req._runtimeStart = process.hrtime.bigint()`) e `onResponse` (calcola latenza, appende a array sliding 60s). Tenant senza traffico recente non sono inclusi (la card client mostra "idle"). Costo per-request: ~5µs.
+
+Frontend super-admin: card a gradiente sopra la KPI strip standard con sparkline SVG inline (ring buffer 60 punti @ 5s polling = 5 min storico in memoria). Per-tenant: mini-badge `req/min · p50 ms · p95 ms` nella riga della tabella enti.
+
+---
+
+**Stato attuale (2026-05):**
+
+- ✅ **Fasi 0–5c**: backend completo (auth, CRUD dominio, realtime, SMTP, upload, accounts, iscrizioni pubbliche)
+- ✅ **Fase 6**: super-admin UI (gestione enti, soft-delete + cleanup, SMTP, stats, 2FA TOTP)
+- ✅ **Fase 7**: stabilizzazione — permessi per-fase granulari, schema iscrizioni esteso, candidato N:1 sezione/categoria, finalizzazione candidati_fase, doppia conferma type-to-delete, branding merge JSONB, CSV import con tipo gruppo, validazioni cross-concorso
+- ✅ **Fase 8**: metriche realtime — endpoint platform `/system` e `/runtime`, sparkline client + KPI per-tenant
+- ⏳ **Prossimi step**: invio email reale per verifica iscrizioni (SMTP tenant-aware già pronto, manca il template + sendMail al `POST /api/public/iscrizioni`).

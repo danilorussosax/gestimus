@@ -1,4 +1,5 @@
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest, preHandlerAsyncHookHandler } from 'fastify';
+import os from 'node:os';
 import { and, asc, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { dbSuper } from '../db/client.js';
@@ -657,6 +658,63 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
     const result = await runTenantCleanup();
     await writePlatformAudit(req, 'platform.jobs.cleanup_manual', { payload: result });
     return result;
+  });
+
+  /**
+   * GET /runtime → aggregato runtime per-tenant sulla sliding window di 60s.
+   * Restituisce un oggetto { [tenantId]: { reqCountMin, reqPerSec,
+   * latencyP50Ms, latencyP95Ms, errorRate, lastSeenSec } } per i soli tenant
+   * con traffico recente. Tenant assenti sottintendono "idle".
+   */
+  app.get('/runtime', { preHandler: platformGuards }, async () => {
+    const { getRuntimeMetrics } = await import('../middleware/runtime-metrics.js');
+    return { tenants: getRuntimeMetrics(), generatedAt: new Date().toISOString() };
+  });
+
+  /**
+   * GET /system → snapshot risorse del processo Node + host (memoria, CPU
+   * istantanea del processo, load medio di sistema, uptime).
+   *
+   * La CPU istantanea viene calcolata via `process.cpuUsage()` campionato due
+   * volte a distanza di SAMPLE_WINDOW_MS. Riporta il consumo del solo processo
+   * Node (non l'intero host) normalizzato a 1 core: 100% = un core saturo.
+   * Su processi multi-thread può superare 100% se più worker lavorano in
+   * parallelo (cappiamo a cores*100 per evitare numeri assurdi).
+   *
+   * `loadAvg1/5/15` resta esposto come metrica complementare di sistema
+   * (include I/O wait): la card client lo mostra come "load di sistema".
+   */
+  app.get('/system', { preHandler: platformGuards }, async () => {
+    const SAMPLE_WINDOW_MS = 200;
+    const startCpu = process.cpuUsage();
+    await new Promise((resolve) => setTimeout(resolve, SAMPLE_WINDOW_MS));
+    const elapsedCpu = process.cpuUsage(startCpu); // diff in µs (user+system)
+    const cores = os.cpus().length;
+    const windowMicros = SAMPLE_WINDOW_MS * 1000;
+    const processPctRaw = ((elapsedCpu.user + elapsedCpu.system) / windowMicros) * 100;
+    const processPct = Math.min(processPctRaw, cores * 100);
+
+    const mem = process.memoryUsage();
+    const [load1, load5, load15] = os.loadavg();
+    return {
+      memory: {
+        rss: mem.rss,
+        heapUsed: mem.heapUsed,
+        heapTotal: mem.heapTotal,
+      },
+      cpu: {
+        cores,
+        // % CPU istantanea del processo Node (campionata su 200ms).
+        // 100% = un core saturo. Su multi-thread può salire fino a cores*100.
+        processPct: Number(processPct.toFixed(1)),
+        // Media di sistema (include altri processi e I/O wait): retro-
+        // compatibile + utile come trend.
+        loadAvg1: load1 ?? 0,
+        loadAvg5: load5 ?? 0,
+        loadAvg15: load15 ?? 0,
+      },
+      uptimeSec: Math.floor(process.uptime()),
+    };
   });
 
   /**

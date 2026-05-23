@@ -1,27 +1,30 @@
 # Gestimus — Backend (Postgres + Fastify + Drizzle)
 
-Backend in sviluppo che sostituirà PocketBase. Vedi piano completo in [`../docs/MIGRATION_POSTGRES.md`](../docs/MIGRATION_POSTGRES.md).
+Backend di produzione. Per il contesto strategico e il piano di migrazione storico, vedi [`../docs/MIGRATION_POSTGRES.md`](../docs/MIGRATION_POSTGRES.md).
 
-**Status attuale:** Fase 5c — Iscrizioni pubbliche (backend + frontend). Form auto-service pre-login + workflow approvazione admin con creazione automatica del candidato.
+**Status:** stack stabilizzato. Migrazione completa da PocketBase. UI super-admin con metriche realtime. Schema iscrizioni esteso. Permessi per-fase granulari (admin + presidente di commissione).
 
 ## Stack
 
-- PostgreSQL 18 (UUIDv7 nativo, async I/O, skip scan B-tree)
+- PostgreSQL 16 (UUIDv7 via funzione `uuidv7()`)
 - Node.js 22 LTS
-- Fastify 5 + `@fastify/cookie` + `@fastify/rate-limit` + `@fastify/sensible`
+- Fastify 5 + `@fastify/cookie` + `@fastify/rate-limit` + `@fastify/sensible` + `@fastify/multipart` + `@fastify/static`
 - Drizzle ORM + drizzle-kit
 - Argon2id (`@node-rs/argon2`) + sessioni server-side con SHA-256 token hashing
 - TypeScript strict
+- Realtime: Postgres `LISTEN/NOTIFY` + Server-Sent Events
+- Storage: filesystem locale strutturato per tenant (`uploads/<tenant_slug>/<resource>/<id>/...`)
+- Metriche: hook globali Fastify `onRequest`/`onResponse` → sliding window 60s per-tenant (no persistence)
 
 ## Setup locale (prima volta)
 
-### 1. PostgreSQL 18 su macOS
+### 1. PostgreSQL 16 su macOS
 
 ```bash
-brew install postgresql@18
-brew services start postgresql@18
+brew install postgresql@16
+brew services start postgresql@16
 
-# Aggiungere al PATH (zshrc): export PATH="/opt/homebrew/opt/postgresql@18/bin:$PATH"
+# Aggiungere al PATH (zshrc): export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"
 
 # Crea il tuo utente Postgres se non c'è (su macOS Homebrew di solito è automatico):
 psql -d postgres -c "SELECT current_user;"  # deve rispondere senza errori
@@ -166,17 +169,39 @@ Tutti i path sono sotto `/api/`. Richiedono cookie di sessione. Mutazioni (POST/
 | Fase runtime | `GET /api/fasi/:id/runtime`, `POST /api/fasi/:id/timer/{start,pause,resume,reset,bonus}`, `POST /api/fasi/:id/sorteggio`, `PATCH /api/fasi/reorder` | Timer fase con stato server-side + NOTIFY SSE. Sorteggio mulberry32 seedato per ordine candidati. Reorder PATCH multi-fase. |
 | Membri gruppo | `/api/membri-gruppo?candidatoId=...` | CRUD membri di candidato gruppo (richiede `candidati.isGruppo=true`). |
 | Ente | `GET /api/ente`, `PATCH /api/ente`, `GET /api/ente/public`, `PATCH /api/ente/branding` | Settings ente del tenant + branding pubblico accessibile pre-login. |
-| Iscrizioni (pubblico) | `GET /api/public/concorsi`, `GET /api/public/concorsi/:id`, `POST /api/public/iscrizioni`, `GET /api/public/iscrizioni/:token/verify` | Form auto-service **senza auth**. Anti-spam: honeypot + min-time-on-page (3s) + rate-limit (3/h per IP). GDPR Art. 8: tutore obbligatorio sotto i 16 anni. Email verification token generato (placeholder, l'invio email reale viene effettuato quando configurato SMTP del tenant). |
+| Iscrizioni (pubblico) | `GET /api/public/concorsi`, `GET /api/public/concorsi/:id`, `POST /api/public/iscrizioni`, `GET /api/public/iscrizioni/:token/verify` | Form auto-service **senza auth**. Anti-spam: honeypot + min-time-on-page (3s) + rate-limit (3/h per IP). GDPR Art. 8: tutore obbligatorio sotto i 16 anni. Schema esteso: `luogoNascita`, `sesso`, `codiceFiscale`, `indirizzo`, `citta`, `cap`, `provincia`, `paese`, `anniStudio`, `scuolaProvenienza`, `gruppoNome`, `noteLibere`. Validazione cross-concorso + auto-derive sezione dalla categoria. Email verification token generato (placeholder, l'invio email reale viene effettuato quando configurato SMTP del tenant). |
 | Iscrizioni (admin) | `GET /api/iscrizioni`, `POST /api/iscrizioni/:id/approve`, `POST /api/iscrizioni/:id/reject` | Lista filtrabile per concorso/stato. **Approve crea automaticamente il candidato** con numero progressivo e lo collega all'iscrizione. |
+| Platform metrics | `GET /api/platform/system`, `GET /api/platform/runtime` | Solo super-admin. `system` campiona `process.cpuUsage()` su 200ms per restituire CPU% del processo + RSS/heap + uptime. `runtime` aggrega req/min, latency p50/p95, error rate per tenant su sliding window 60s (in memoria, niente persistence). |
 
 Ogni mutazione produce automaticamente una entry in `audit_log` con `actor_account_id`, `action`, `target_*`, `ip`, `user_agent`.
 
 ### Garanzie a livello DB (oltre alla validazione applicativa)
 
-- **Clamp voto**: trigger `trg_clamp_voto` su `valutazioni` forza `voto ∈ [0, fase.scala]` anche se il client bypassa la route.
+- **Clamp voto**: trigger `trg_clamp_voto` su `valutazioni` forza `voto ∈ [0, fase.scala]` anche se il client bypassa la route. La colonna `voto` è `numeric(5,2)` per supportare mezzi punti su scale ≤ 10.
 - **Freeze fase CONCLUSA**: trigger `trg_freeze_valutazioni` solleva su INSERT/UPDATE/DELETE quando la fase è in stato `CONCLUSA`.
 - **No-resurrection fase**: trigger `trg_fase_no_resurrection` impedisce transizioni `CONCLUSA → IN_CORSO/PIANIFICATA`.
 - **Audit append-only**: `REVOKE UPDATE, DELETE ON audit_log, platform_audit_log FROM gestimus_app` → solo super-admin può cancellare (per finalità GDPR).
+
+### Permessi granulari per-fase
+
+Le route che gestiscono lo stato di una fase (`/api/fasi/:id/start`, `/conclude`, `/sorteggio`, `/timer/*`) usano l'helper `assertCanManageFase(req, reply, faseId)`:
+
+- **admin/superadmin**: sempre autorizzato.
+- **commissario**: autorizzato SOLO se è presidente della commissione assegnata alla fase (`commissioni.presidenteCommissarioId === req.account.commissarioId`).
+- Se la fase non ha commissione assegnata (`commissione_id IS NULL`): solo admin/superadmin.
+
+Analogo `assertCanEditCandidatoFase` per `PATCH /api/candidati-fase/:id`: ogni commissario membro della commissione assegnata può marcare il proprio "voto di ammissione".
+
+### Finalizzazione candidati_fase
+
+`POST /api/fasi/:id/conclude` esegue, nella stessa transazione del cambio stato `fasi → CONCLUSA`:
+
+```sql
+UPDATE candidati_fase SET stato='COMPLETATO', updated_at=NOW()
+ WHERE fase_id=:id AND stato <> 'ELIMINATO';
+```
+
+Senza questo, la view risultati lato client interpreterebbe `cf.stato !== 'COMPLETATO'` come "in attesa" anche per fasi concluse.
 
 ## Reset DB durante lo sviluppo
 
@@ -205,14 +230,19 @@ server/
 │   │   ├── schema.ts       # Drizzle schema TS (24 tabelle)
 │   │   └── policies.sql    # RLS + ruoli + helper function
 │   ├── middleware/
-│   │   ├── tenant.ts       # risoluzione tenant da subdomain + req.dbTx helper
-│   │   └── auth.ts         # sessione cookie + requireAuth/requireRole
-│   ├── routes/
-│   │   ├── auth.ts         # /auth/login /auth/logout /auth/me
-│   │   └── concorsi.ts     # endpoint POC con RLS
+│   │   ├── tenant.ts             # risoluzione tenant da subdomain + req.dbTx helper
+│   │   ├── auth.ts               # sessione cookie + requireAuth/requireRole
+│   │   └── runtime-metrics.ts    # hook onRequest/onResponse → sliding window per-tenant
+│   ├── routes/                   # 18 plugin Fastify (auth + 17 risorse)
+│   ├── realtime/                 # hub SSE + bridge LISTEN/NOTIFY
 │   └── services/
 │       ├── password.ts     # Argon2id hash/verify
-│       └── session.ts      # create/validate/invalidate session
+│       ├── session.ts      # create/validate/invalidate session
+│       ├── crypto-smtp.ts  # AES-256-GCM encrypt/decrypt password SMTP
+│       ├── audit.ts        # writeAudit + writePlatformAudit
+│       ├── backup.ts       # snapshot PG → S3-like / locale
+│       ├── cleanup.ts      # job cleanup tenant archiviati
+│       └── storage.ts      # save/list/delete file per tenant
 ├── scripts/
 │   ├── bootstrap-db.ts     # crea ruoli + DB gestimus
 │   ├── apply-policies.ts   # applica policies.sql
@@ -224,18 +254,32 @@ server/
         └── login.test.ts       # 9 test login/logout/me + cross-tenant
 ```
 
-## Prossime fasi
+## Migrations recenti
 
-- ✅ **Fase 0**: scaffold + RLS + POC isolamento
-- ✅ **Fase 1**: schema completo (24 tabelle) + auth session-cookie + Argon2id
-- ✅ **Fase 2**: CRUD route per le entità dominio (10 risorse) + audit log
-- ✅ **Fase 3**: trigger DB clamp/freeze/no-resurrection + audit append-only enforced + GDPR export/erase
-- ✅ **Fase 4**: SSE realtime (LISTEN/NOTIFY) + upload multipart + SMTP tenant-aware cifrato
-- ✅ **Fase 5a**: backend completion (accounts, audit log, fase runtime, sorteggio, reorder, membri gruppo, ente)
-- ✅ **Fase 5b.1**: frontend foundation (`js/api.js`, `js/db.js` core + CRUD dominio) + static serve dal backend
-- ✅ **Fase 5b.2**: workflow fase, valutazioni, timer + SSE, gruppi, accounts
-- ✅ **Fase 5c**: iscrizioni pubbliche (form auto-service + workflow approvazione)
-- **Migrazione PocketBase → Postgres completa.** Restano operazioni di rifinitura: invio email reale per verifica iscrizioni, super-admin UI per gestione tenant, deploy su VPS.
+Le migrazioni "incrementali" (ALTER TABLE) applicate dopo `db:push` iniziale stanno in `server/scripts/migrations/`:
+
+```bash
+ls server/scripts/migrations/
+# 2026_05_22_iscrizioni_extend_fields.sql           — luogoNascita, sesso, CF, indirizzo, ecc.
+# 2026_05_23_valutazioni_voto_numeric.sql           — voto: integer → numeric(5,2)
+# 2026_05_23_backfill_candidati_fase_completato.sql — backfill stato COMPLETATO su fasi già CONCLUSE
+```
+
+Applicazione:
+
+```bash
+psql "$DATABASE_URL_SUPER" -f server/scripts/migrations/<file>.sql
+# oppure (per le ADD COLUMN, drizzle-kit fa il diff automatico)
+npm run db:push
+```
+
+## Roadmap
+
+- ✅ **Fasi 0–5c**: backend completo, RLS, auth, CRUD dominio, realtime, SMTP, upload, accounts, iscrizioni pubbliche
+- ✅ **Fase 6**: super-admin UI (gestione enti, soft-delete + cleanup, SMTP, stats, 2FA TOTP)
+- ✅ **Fase 7**: stabilizzazione — permessi per-fase granulari, schema iscrizioni esteso, candidato N:1 sezione/categoria, finalizzazione candidati_fase al conclude, doppia conferma type-to-delete, branding merge JSONB, validazioni cross-concorso, CSV import con tipo gruppo
+- ✅ **Fase 8**: metriche realtime — endpoint `/api/platform/system` (CPU sampling 200ms), `/api/platform/runtime` (sliding window 60s per-tenant), sparkline client + KPI per-tenant
+- **In corso**: invio email reale per verifica iscrizioni (SMTP tenant-aware è pronto, manca solo l'edge `sendMail({to, subject, body})` con il link verifica).
 
 ## Smoke checklist manuale (Fase 5c)
 

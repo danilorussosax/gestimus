@@ -1,6 +1,7 @@
 import { db } from '../db.js';
 import { pb } from '../pb.js';
 import { escapeHtml, toast, modal, confirmDialog, ageFromDate, displayName, fmtDate } from '../utils.js';
+import { icon } from '../icons.js';
 import {
   pesato, getPesiFor, getScala, voteStep, fmtVoto, getModoValutazione, getCriteri,
 } from '../scoring.js';
@@ -196,22 +197,35 @@ export function renderCommissario(root) {
   const docenti = cand?.docenti_preparatori || [];
 
   root.innerHTML = `
-    <section class="view-fade c-page">
+    <section class="view-fade c-page bg-gradient-to-br from-emerald-50/30 via-white to-emerald-50/20 -m-4 sm:-m-6 p-4 sm:p-6 rounded-3xl">
       ${isPresidenteFase ? presidentePanelHtml(concorso, fasiPresidente) : ''}
-      <header class="flex flex-wrap items-start justify-between gap-3 mb-5">
-        <div>
-          <div class="text-xs font-semibold text-amber-700 uppercase tracking-wider">${escapeHtml(faseAttiva.nome)} <span class="text-slate-400">· ${escapeHtml(t('com.scale_suffix', { scala }))}</span> ${modo === 'sincrona' ? `<span class="inline-flex items-center gap-1 ml-1 text-[10px] font-medium px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded normal-case">${escapeHtml(t('com.sincrona_tag'))}</span>` : ''}</div>
-          <h2 class="text-xl sm:text-2xl font-bold text-slate-900 mt-1">${escapeHtml(concorso.nome)}</h2>
-          <p class="text-sm text-slate-600 mt-0.5">${isPresidenteFase ? `<span class="text-amber-700 font-semibold">${escapeHtml(t('com.presidente_label'))}</span> · ` : `${escapeHtml(t('com.commissario_label'))}: `}<span class="font-medium">${escapeHtml(displayName(com))}</span> · ${escapeHtml(com.specialita || '')}</p>
-        </div>
-        <div class="text-right">
-          <div class="text-xs text-slate-500">${escapeHtml(t('com.progress_phase'))}</div>
-          <div class="text-lg font-bold text-slate-900">${myEvaluated.length} / ${cfs.length}</div>
-          <div class="w-32 h-1.5 bg-slate-200 rounded-full mt-1 overflow-hidden">
-            <div class="h-full bg-amber-500" style="width: ${cfs.length ? (myEvaluated.length / cfs.length * 100) : 0}%"></div>
+
+      <!-- Header valutazione: stile dashboard con KPI inline -->
+      <div class="bg-white rounded-3xl border border-slate-100 shadow-soft p-5 sm:p-6 mb-5">
+        <div class="flex flex-wrap items-start justify-between gap-4">
+          <div class="min-w-0">
+            <div class="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-50 border border-amber-200 text-xs font-bold text-amber-700 uppercase tracking-wider">
+              ${escapeHtml(faseAttiva.nome)} · ${escapeHtml(t('com.scale_suffix', { scala }))}
+              ${modo === 'sincrona' ? `<span class="inline-block text-[9px] font-bold px-1.5 py-0.5 bg-indigo-500 text-white rounded normal-case">${escapeHtml(t('com.sincrona_tag'))}</span>` : ''}
+            </div>
+            <h2 class="text-2xl sm:text-3xl font-extrabold text-slate-900 mt-3 tracking-tight truncate">${escapeHtml(concorso.nome)}</h2>
+            <p class="text-sm text-slate-600 mt-1">
+              ${isPresidenteFase
+                ? `<span class="inline-flex items-center gap-1 text-amber-700 font-bold">🎯 ${escapeHtml(t('com.presidente_label'))}</span> · `
+                : `${escapeHtml(t('com.commissario_label'))}: `}
+              <span class="font-semibold text-slate-800">${escapeHtml(displayName(com))}</span>
+              ${com.specialita ? `<span class="text-slate-500"> · ${escapeHtml(com.specialita)}</span>` : ''}
+            </p>
+          </div>
+          <div class="text-right shrink-0">
+            <div class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">${escapeHtml(t('com.progress_phase'))}</div>
+            <div class="text-2xl font-extrabold text-slate-900 leading-none mt-1">${myEvaluated.length}<span class="text-slate-400 font-medium text-base"> / ${cfs.length}</span></div>
+            <div class="w-32 h-2 bg-slate-100 rounded-full mt-2 overflow-hidden">
+              <div class="h-full bg-gradient-to-r from-amber-400 to-orange-500 rounded-full transition-all" style="width: ${cfs.length ? (myEvaluated.length / cfs.length * 100) : 0}%"></div>
+            </div>
           </div>
         </div>
-      </header>
+      </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-4 gap-5">
         <!-- 25% history sidebar -->
@@ -224,33 +238,33 @@ export function renderCommissario(root) {
 
         <!-- 75% main evaluation -->
         <div class="lg:col-span-3">
-          <div class="bg-white border border-slate-200 rounded-2xl p-6 shadow-soft">
-            <div class="flex flex-wrap items-start justify-between gap-3">
-              <div class="flex items-center gap-4">
-                <div class="text-5xl sm:text-6xl font-black tabular-nums text-brand-700 leading-none">
+          <div class="bg-white rounded-3xl border border-slate-100 p-6 sm:p-7 shadow-soft">
+            <div class="flex flex-wrap items-start justify-between gap-4 pb-5 border-b border-slate-100">
+              <div class="flex items-center gap-5 min-w-0">
+                <div class="text-5xl sm:text-6xl font-black tabular-nums bg-gradient-to-br from-brand-600 to-brand-800 bg-clip-text text-transparent leading-none shrink-0">
                   ${String(cand?.numero_candidato || '').padStart(3,'0')}
                 </div>
                 ${concorso.anonimo ? '' : `
-                <div class="w-16 h-16 rounded-full bg-slate-100 overflow-hidden flex items-center justify-center text-3xl text-slate-400 shrink-0 ring-2 ring-white shadow-soft">
+                <div class="w-20 h-20 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 overflow-hidden flex items-center justify-center text-3xl text-slate-400 shrink-0 ring-4 ring-white shadow-md">
                   ${cand?.foto ? `<img src="${cand.foto}" alt="" class="w-full h-full object-cover" />` : '👤'}
                 </div>`}
-                <div>
+                <div class="min-w-0">
                   ${concorso.anonimo
-                    ? `<div class="font-semibold text-slate-900 text-lg">${escapeHtml(t('com.candidate_anonymous'))}</div>
-                       <div class="text-sm text-slate-600">${escapeHtml(cand?.strumento || '')}</div>`
-                    : `<div class="font-semibold text-slate-900 text-lg">${escapeHtml(displayName(cand))}</div>
-                       <div class="text-sm text-slate-600">
+                    ? `<div class="font-bold text-slate-900 text-xl">${escapeHtml(t('com.candidate_anonymous'))}</div>
+                       <div class="text-sm text-slate-600 mt-0.5">${escapeHtml(cand?.strumento || '')}</div>`
+                    : `<div class="font-bold text-slate-900 text-xl truncate">${escapeHtml(displayName(cand))}</div>
+                       <div class="text-sm text-slate-600 mt-0.5">
                          ${escapeHtml(cand?.strumento || '')}${eta ? ` · ${escapeHtml(t('com.candidate_age', { eta }))}` : ''}${cand?.nazionalita ? ` · ${escapeHtml(cand.nazionalita)}` : ''}
                        </div>`}
-                  <div class="text-xs text-slate-500 mt-0.5">${escapeHtml(t('com.position_in_phase', { pos: current.posizione, stato: current.stato }))}</div>
-                  ${(!concorso.anonimo && docenti.length) ? `<div class="text-[11px] text-slate-500 mt-1 truncate" title="${escapeHtml(docenti.join(' · '))}">${escapeHtml(t('com.teachers_prefix', { names: docenti.join(' · ') }))}</div>` : ''}
+                  <div class="inline-flex items-center gap-1.5 text-[11px] text-slate-500 mt-1.5 px-2 py-0.5 rounded-full bg-slate-50 border border-slate-200">${escapeHtml(t('com.position_in_phase', { pos: current.posizione, stato: current.stato }))}</div>
+                  ${(!concorso.anonimo && docenti.length) ? `<div class="text-[11px] text-slate-500 mt-1.5 truncate" title="${escapeHtml(docenti.join(' · '))}">${escapeHtml(t('com.teachers_prefix', { names: docenti.join(' · ') }))}</div>` : ''}
                 </div>
               </div>
 
-              <div class="text-right">
-                <div class="text-xs text-slate-500 uppercase tracking-wider">${escapeHtml(t('com.weighted_total'))}</div>
-                <div id="totale" class="text-3xl font-bold ${totaleCls}">${fmtVoto(totale, scala)}<span class="text-base font-medium text-slate-400">/${scala}</span></div>
-                <div class="text-[10px] text-slate-400 mt-0.5">${escapeHtml(t('com.weights', { label: pesiLabel(faseAttiva) }))}</div>
+              <div class="text-right shrink-0">
+                <div class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">${escapeHtml(t('com.weighted_total'))}</div>
+                <div id="totale" class="text-4xl sm:text-5xl font-extrabold ${totaleCls} leading-none mt-1">${fmtVoto(totale, scala)}<span class="text-lg font-medium text-slate-300">/${scala}</span></div>
+                <div class="text-[10px] text-slate-400 mt-1.5">${escapeHtml(t('com.weights', { label: pesiLabel(faseAttiva) }))}</div>
               </div>
             </div>
 
@@ -328,11 +342,15 @@ export function renderCommissario(root) {
 }
 
 // ---------- Presidente: pannello controllo sessione ----------
+// Stima quanti candidati saranno eleggibili per la fase, usata dal preflight
+// del presidente prima di "Avvia". Modello N:1: il candidato ha `sezione_id`
+// (singolare). La fase può avere `sezioni_ids` (array da fasi_sezioni) come
+// scope: vuoto = "tutti i candidati del concorso".
 function expectedCandidatiForFase(fase) {
   const myScope = Array.isArray(fase.sezioni_ids) ? fase.sezioni_ids : [];
   const filterByScope = (cands) => myScope.length === 0
     ? cands
-    : cands.filter(c => Array.isArray(c.sezioni_ids) && c.sezioni_ids.some(s => myScope.includes(s)));
+    : cands.filter(c => c.sezione_id && myScope.includes(c.sezione_id));
   const prev = db.findPreviousFaseInChain(fase);
   if (!prev) return filterByScope(db.candidatiByConcorso(fase.concorso_id));
   const prevCfs = db.state.candidati_fase
@@ -396,42 +414,95 @@ function fasePresStats(fase) {
 }
 
 function presidentePanelHtml(concorso, fasi) {
-  const totConc = fasi.filter(f => f.stato === 'CONCLUSA').length;
-  const totPian = fasi.filter(f => f.stato === 'PIANIFICATA').length;
-  const totCorso = fasi.filter(f => f.stato === 'IN_CORSO').length;
-  // Card "controllo sessione": dimensioni più grandi (padding + titolo + spaziature)
-  // così riempie meglio la pagina quando è l'elemento principale. La griglia
-  // interna delle fasi passa a 3 colonne su XL se ci sono ≥ 3 fasi.
-  const phaseGridCols = fasi.length >= 3 ? 'md:grid-cols-2 xl:grid-cols-3' : 'md:grid-cols-2';
+  // Calcolo KPI operative del presidente:
+  //  - "Fasi presiedute": numero di fasi che lui presiede in questo concorso
+  //  - "Candidati": somma totale candidati_fase nelle fasi presiedute
+  //  - "Valutati": candidati che hanno almeno una valutazione completa (da TUTTI
+  //    i commissari assegnati a quella fase) — la metrica "fullyVoted" già usata
+  //    nelle card singole fase
+  //  - "% completamento": media delle percentuali per fase (oppure totale agg.)
+  let totCand = 0;
+  let totValutati = 0;
+  for (const f of fasi) {
+    const cfs = db.candidatiFaseList(f.id);
+    const commissariIds = db.getFaseCommissariIds(f);
+    totCand += cfs.length;
+    totValutati += cfs.filter((cf) => commissariIds.every((cid) =>
+      db.state.valutazioni.some((v) => v.candidato_fase_id === cf.id && v.commissario_id === cid),
+    )).length;
+  }
+  const pctComplete = totCand > 0 ? Math.round((totValutati / totCand) * 100) : 0;
+
   return `
-    <section class="bg-gradient-to-br from-amber-50 via-white to-orange-50 border border-amber-200/80 rounded-3xl p-6 sm:p-8 lg:p-10 mb-6 shadow-soft">
-      <header class="flex items-start justify-between gap-4 flex-wrap pb-5 sm:pb-6 border-b border-amber-200/60">
-        <div class="flex items-start gap-4 min-w-0">
-          <div class="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-500 text-white flex items-center justify-center shadow-md shrink-0 text-2xl sm:text-3xl">🎯</div>
+    <section class="rounded-3xl p-6 sm:p-10 mb-6 bg-gradient-to-br from-emerald-50/70 via-white to-emerald-50/50 border border-emerald-100">
+      <header class="flex items-start justify-between gap-6 flex-wrap mb-6">
+        <div class="flex items-start gap-5 min-w-0">
+          <div class="w-16 h-16 sm:w-20 sm:h-20 rounded-3xl bg-gradient-to-br from-amber-400 to-orange-500 text-white flex items-center justify-center shadow-lg shrink-0 text-3xl sm:text-4xl">🎯</div>
           <div class="min-w-0">
             <div class="flex items-center gap-2 flex-wrap">
-              <h3 class="font-bold text-slate-900 text-xl sm:text-2xl leading-tight">${escapeHtml(t('com.pres.session_title'))}</h3>
-              <span class="text-[10px] font-bold px-2 py-0.5 bg-amber-500 text-white rounded-full uppercase tracking-wider">${escapeHtml(t('com.pres.tag'))}</span>
+              <h3 class="font-extrabold text-slate-900 text-2xl sm:text-3xl leading-tight tracking-tight">${escapeHtml(t('com.pres.session_title'))}</h3>
+              <span class="text-[11px] font-bold px-2.5 py-0.5 bg-amber-500 text-white rounded-full uppercase tracking-wider">${escapeHtml(t('com.pres.tag'))}</span>
             </div>
-            <p class="text-sm text-slate-600 mt-1.5 leading-relaxed max-w-2xl">${escapeHtml(t('com.pres.session_desc'))}</p>
+            <p class="text-base text-slate-600 mt-2 leading-relaxed max-w-2xl">${escapeHtml(t('com.pres.session_desc'))}</p>
           </div>
         </div>
-        <div class="flex items-center gap-2 text-xs sm:text-sm">
-          <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white border border-slate-200 text-slate-700 font-medium">
-            <span class="w-2 h-2 rounded-full bg-slate-400"></span>${totPian} ${escapeHtml(t('com.pres.kpi_pianificate'))}
-          </span>
-          <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-50 border border-emerald-200 text-emerald-700 font-medium">
-            <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>${totCorso} ${escapeHtml(t('com.pres.kpi_in_corso'))}
-          </span>
-          <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-slate-100 border border-slate-200 text-slate-600 font-medium">
-            <span class="w-2 h-2 rounded-full bg-slate-400"></span>${totConc} ${escapeHtml(t('com.pres.kpi_concluse'))}
-          </span>
-        </div>
       </header>
-      <div class="mt-6 grid grid-cols-1 ${phaseGridCols} gap-4 sm:gap-5">
+
+      <!-- KPI strip a 4 card gradient con icone tonde bianche -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+        ${kpiGradientCard({
+          value: fasi.length,
+          label: 'Fasi presiedute',
+          icon: 'flag',
+          gradient: 'from-sky-400 to-cyan-500',
+        })}
+        ${kpiGradientCard({
+          value: totCand,
+          label: 'Candidati totali',
+          icon: 'graduation',
+          gradient: 'from-emerald-400 to-teal-500',
+        })}
+        ${kpiGradientCard({
+          value: totValutati,
+          label: 'Valutati',
+          icon: 'checkCircle',
+          gradient: 'from-violet-500 to-purple-600',
+        })}
+        ${kpiGradientCard({
+          value: `${pctComplete}%`,
+          label: 'Completamento',
+          icon: 'chart',
+          gradient: 'from-indigo-500 to-blue-600',
+          progress: pctComplete,
+        })}
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 sm:gap-6">
         ${fasi.map(f => fasePresCardHtml(f, concorso)).join('')}
       </div>
     </section>
+  `;
+}
+
+// KPI card a gradiente in stile dashboard: numero grande in bianco, icona tonda
+// bianca semi-trasparente, sub-label, opzionale barra di progresso.
+function kpiGradientCard({ value, label, icon: iconName, gradient, progress = null }) {
+  return `
+    <div class="relative rounded-2xl p-5 bg-gradient-to-br ${gradient} text-white shadow-md overflow-hidden">
+      <div class="flex items-start justify-between mb-3">
+        <div class="w-11 h-11 rounded-xl bg-white/95 text-slate-700 flex items-center justify-center shadow-sm">
+          ${icon(iconName, { size: 20 })}
+        </div>
+        <span class="text-white/70 cursor-pointer leading-none text-lg" title="Altre opzioni">⋯</span>
+      </div>
+      <div class="text-3xl sm:text-4xl font-extrabold leading-none mb-1.5 drop-shadow-sm">${escapeHtml(String(value))}</div>
+      <div class="text-xs sm:text-sm font-medium text-white/90 tracking-wide">${escapeHtml(label)}</div>
+      ${progress != null ? `
+        <div class="mt-3 h-1.5 bg-white/25 rounded-full overflow-hidden">
+          <div class="h-full bg-white rounded-full transition-all" style="width:${Math.max(0, Math.min(100, progress))}%"></div>
+        </div>
+      ` : ''}
+    </div>
   `;
 }
 
@@ -440,16 +511,43 @@ function fasePresCardHtml(fase, concorso) {
   const isPlanned = stato === 'PIANIFICATA';
   const isRunning = stato === 'IN_CORSO';
   const isDone = stato === 'CONCLUSA';
-  const palette = isRunning ? { ring: 'ring-emerald-300', bg: 'bg-white', tag: 'bg-emerald-100 text-emerald-800 border-emerald-200', label: t('com.pres.state_in_corso') }
-                : isDone ? { ring: 'ring-slate-200', bg: 'bg-slate-50', tag: 'bg-slate-200 text-slate-700 border-slate-300', label: t('com.pres.state_conclusa') }
-                : { ring: 'ring-slate-200', bg: 'bg-white', tag: 'bg-slate-100 text-slate-700 border-slate-200', label: t('com.pres.state_pianificata') };
+  // Palette per i 3 stati. Stile coerente con il resto dell'app: card bianca,
+  // border-slate-200, rounded-2xl, niente ring né accent border-l. Lo stato
+  // viene comunicato dal badge in alto a destra (c-tag style).
+  const palette = isRunning
+    ? { tag: 'bg-emerald-100 text-emerald-800 border-emerald-200', label: t('com.pres.state_in_corso') }
+    : isDone
+    ? { tag: 'bg-slate-200 text-slate-700 border-slate-300', label: t('com.pres.state_conclusa') }
+    : { tag: 'bg-amber-100 text-amber-800 border-amber-200', label: t('com.pres.state_pianificata') };
 
-  const sezioniNames = (() => {
-    const ids = Array.isArray(fase.sezioni_ids) ? fase.sezioni_ids : [];
-    if (ids.length === 0) return t('com.pres.scope_all');
-    const sez = db.sezioniByConcorso(fase.concorso_id);
-    return ids.map(id => sez.find(s => s.id === id)?.nome).filter(Boolean).join(', ') || t('com.pres.scope_all');
-  })();
+  // Identità della card: sezione (titolo) + categoria/e (sottotitolo).
+  // Modello: la fase ha `sezioni_ids` (scope). Le categorie sono attaccate
+  // alla commissione (commissione.categorie_ids). Cerchiamo di mostrare
+  // l'incrocio significativo "sezione → categoria/e di quella sezione".
+  const allSezioni = db.sezioniByConcorso(fase.concorso_id);
+  const sezIds = Array.isArray(fase.sezioni_ids) ? fase.sezioni_ids : [];
+  const sezioniRecord = sezIds.map((id) => allSezioni.find((s) => s.id === id)).filter(Boolean);
+  const titleSezione = sezioniRecord.length === 0
+    ? t('com.pres.scope_all')
+    : sezioniRecord.map((s) => s.nome).join(' · ');
+
+  const commissione = fase.commissione_id ? db.state.commissioni.find((c) => c.id === fase.commissione_id) : null;
+  // Categorie associate alla commissione, ristrette alle sezioni della fase
+  // (se la fase ha scope di sezione). Senza scope o senza commissione, lascia
+  // "Tutte le categorie" come sottotitolo neutro.
+  let subtitleCategoria = 'Tutte le categorie';
+  if (commissione && Array.isArray(commissione.categorie_ids) && commissione.categorie_ids.length > 0) {
+    const allCat = db.state.categorie;
+    const relevantCats = commissione.categorie_ids
+      .map((id) => allCat.find((c) => c.id === id))
+      .filter(Boolean)
+      .filter((c) => sezIds.length === 0 || sezIds.includes(c.sezione_id));
+    if (relevantCats.length === 1) {
+      subtitleCategoria = relevantCats[0].nome;
+    } else if (relevantCats.length > 1) {
+      subtitleCategoria = relevantCats.map((c) => c.nome).join(' · ');
+    }
+  }
 
   const modo = getModoValutazione(fase);
   const scala = getScala(fase);
@@ -459,39 +557,46 @@ function fasePresCardHtml(fase, concorso) {
 
   const prev = db.findPreviousFaseInChain(fase);
 
-  let actionAreaHtml = '';
   let bodyExtraHtml = '';
+  let actionAreaHtml = '';
   if (isPlanned) {
     const pf = preflightCheck(fase, prev);
     const blockers = pf.checks.filter(c => c.severity === 'block').length;
     const warnings = pf.checks.filter(c => c.severity === 'warn').length;
     const canStart = blockers === 0;
+    const summaryClass = canStart
+      ? (warnings > 0 ? 'bg-amber-50 border-amber-200 text-amber-900' : 'bg-emerald-50 border-emerald-200 text-emerald-900')
+      : 'bg-rose-50 border-rose-200 text-rose-900';
+    const summaryText = canStart
+      ? (warnings > 0 ? `⚠ ${warnings} avvisi — pronto ad avviare` : '✓ Tutti i controlli passati — pronto ad avviare')
+      : `✗ ${blockers} blocchi — risolvi prima di avviare`;
     bodyExtraHtml = `
-      <div class="mt-3 pt-3 border-t border-slate-200/80">
-        <div class="flex items-center justify-between mb-2">
-          <p class="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-semibold">${escapeHtml(t('com.pres.preflight_title'))}</p>
-          <span class="text-[10px] ${canStart ? (warnings > 0 ? 'text-amber-700' : 'text-emerald-700') : 'text-rose-700'} font-semibold">
-            ${canStart ? (warnings > 0 ? `⚠ ${warnings} ${escapeHtml(t('com.pres.warnings'))}` : `✓ ${escapeHtml(t('com.pres.all_ok'))}`) : `✗ ${blockers} ${escapeHtml(t('com.pres.blockers'))}`}
-          </span>
+      <div class="mt-5 pt-5 border-t border-slate-200">
+        <div class="flex items-baseline justify-between mb-3">
+          <h5 class="text-sm font-bold text-slate-800 uppercase tracking-wide">${escapeHtml(t('com.pres.preflight_title'))}</h5>
+          <span class="text-xs text-slate-500">${pf.checks.length} controlli</span>
         </div>
-        <ul class="space-y-1">
+        <div class="rounded-lg border ${summaryClass} px-3 py-2 mb-3 text-sm font-semibold">${escapeHtml(summaryText)}</div>
+        <ul class="grid grid-cols-1 sm:grid-cols-2 gap-2">
           ${pf.checks.map(c => {
-            const icon = c.severity === 'ok' ? '<span class="text-emerald-600">✓</span>'
-                       : c.severity === 'warn' ? '<span class="text-amber-600">⚠</span>'
-                       : '<span class="text-rose-600">✗</span>';
-            const cls = c.severity === 'ok' ? 'text-slate-700'
-                       : c.severity === 'warn' ? 'text-amber-800'
-                       : 'text-rose-800 font-medium';
-            return `<li class="flex items-start gap-2 text-xs ${cls}"><span class="shrink-0 mt-px">${icon}</span><span>${escapeHtml(c.label)}</span></li>`;
+            const meta = c.severity === 'ok' ? { iconBg: 'bg-emerald-100', iconText: 'text-emerald-700', glyph: '✓', textCls: 'text-slate-800' }
+                      : c.severity === 'warn' ? { iconBg: 'bg-amber-100', iconText: 'text-amber-700', glyph: '⚠', textCls: 'text-slate-800' }
+                      : { iconBg: 'bg-rose-100', iconText: 'text-rose-700', glyph: '✗', textCls: 'text-rose-900 font-medium' };
+            return `
+              <li class="flex items-start gap-2.5 p-2 rounded-lg bg-white border border-slate-200">
+                <span class="w-6 h-6 inline-flex items-center justify-center rounded-full ${meta.iconBg} ${meta.iconText} text-xs font-bold shrink-0">${meta.glyph}</span>
+                <span class="text-sm ${meta.textCls} leading-snug">${escapeHtml(c.label)}</span>
+              </li>
+            `;
           }).join('')}
         </ul>
       </div>
     `;
     actionAreaHtml = `
-      <div class="mt-3 pt-3 border-t border-slate-200/80 flex items-center justify-end gap-2">
+      <div class="mt-5 pt-5 border-t border-slate-200 flex items-center justify-end">
         ${canStart
-          ? `<button data-pres-action="start" data-id="${fase.id}" class="inline-flex items-center gap-1.5 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-4 py-2 rounded-lg shadow-sm transition">${escapeHtml(t('com.pres.start'))}</button>`
-          : `<button disabled class="inline-flex items-center gap-1.5 text-sm font-medium text-slate-400 bg-slate-100 cursor-not-allowed px-4 py-2 rounded-lg" title="${escapeHtml(t('com.pres.cant_start_hint'))}">${escapeHtml(t('com.pres.start'))}</button>`}
+          ? `<button data-pres-action="start" data-id="${fase.id}" class="inline-flex items-center gap-2 text-base font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-6 py-3 rounded-xl shadow-md transition-transform hover:scale-[1.02]">▶ ${escapeHtml(t('com.pres.start'))}</button>`
+          : `<button disabled class="inline-flex items-center gap-2 text-base font-medium text-slate-400 bg-slate-100 cursor-not-allowed px-6 py-3 rounded-xl" title="${escapeHtml(t('com.pres.cant_start_hint'))}">▶ ${escapeHtml(t('com.pres.start'))}</button>`}
       </div>
     `;
   } else if (isRunning) {
@@ -501,78 +606,118 @@ function fasePresCardHtml(fase, concorso) {
     const allCommittee = stats.commissariTotal > 0 && stats.commissariDone === stats.commissariTotal;
     const missingCom = Math.max(0, stats.commissariTotal - stats.commissariDone);
     bodyExtraHtml = `
-      <div class="mt-3 pt-3 border-t border-slate-200/80">
-        <div class="flex items-center justify-between mb-1.5">
-          <p class="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-semibold">${escapeHtml(t('com.pres.progress_title'))}</p>
-          <span class="text-xs font-bold text-emerald-700">${stats.fullyVoted} / ${stats.total} <span class="text-slate-500 font-normal">(${pct}%)</span></span>
+      <div class="mt-5 pt-5 border-t border-slate-200 space-y-5">
+        <div>
+          <div class="flex items-baseline justify-between mb-2">
+            <h5 class="text-sm font-bold text-slate-800 uppercase tracking-wide">${escapeHtml(t('com.pres.progress_title'))}</h5>
+            <span class="text-base font-bold text-emerald-700">${stats.fullyVoted}<span class="text-slate-400 font-normal">/${stats.total}</span> <span class="text-sm text-slate-500 font-normal">(${pct}%)</span></span>
+          </div>
+          <div class="w-full h-3 bg-slate-200 rounded-full overflow-hidden">
+            <div class="h-full bg-gradient-to-r from-emerald-500 to-emerald-600 transition-all" style="width:${pct}%"></div>
+          </div>
+          <div class="mt-2.5 grid grid-cols-3 gap-2 text-xs">
+            <div class="flex items-center gap-1.5 text-slate-700"><span class="w-2 h-2 rounded-full bg-emerald-500"></span><span class="font-semibold">${stats.fullyVoted}</span> ${escapeHtml(t('com.pres.cand_full'))}</div>
+            <div class="flex items-center gap-1.5 text-slate-700"><span class="w-2 h-2 rounded-full bg-amber-500"></span><span class="font-semibold">${stats.partial}</span> ${escapeHtml(t('com.pres.cand_partial'))}</div>
+            <div class="flex items-center gap-1.5 text-slate-700"><span class="w-2 h-2 rounded-full bg-slate-300"></span><span class="font-semibold">${Math.max(0, stats.total - stats.fullyVoted - stats.partial)}</span> ${escapeHtml(t('com.pres.cand_pending'))}</div>
+          </div>
         </div>
-        <div class="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
-          <div class="h-full bg-gradient-to-r from-emerald-500 to-emerald-600 transition-all" style="width:${pct}%"></div>
-        </div>
-        <div class="mt-2 flex items-center gap-3 text-[11px] text-slate-600">
-          <span class="inline-flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>${stats.fullyVoted} ${escapeHtml(t('com.pres.cand_full'))}</span>
-          <span class="inline-flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-amber-500"></span>${stats.partial} ${escapeHtml(t('com.pres.cand_partial'))}</span>
-          <span class="inline-flex items-center gap-1"><span class="w-1.5 h-1.5 rounded-full bg-slate-300"></span>${Math.max(0, stats.total - stats.fullyVoted - stats.partial)} ${escapeHtml(t('com.pres.cand_pending'))}</span>
-        </div>
-      </div>
-      <div class="mt-3 pt-3 border-t border-slate-200/80">
-        <div class="flex items-center justify-between mb-1.5">
-          <p class="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-semibold">${escapeHtml(t('com.pres.committee_title'))}</p>
-          <span class="text-xs font-bold ${allCommittee ? 'text-emerald-700' : 'text-amber-700'}">${stats.commissariDone} / ${stats.commissariTotal} <span class="text-slate-500 font-normal">(${comPct}%)</span></span>
-        </div>
-        <div class="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
-          <div class="h-full ${allCommittee ? 'bg-gradient-to-r from-emerald-500 to-emerald-600' : 'bg-gradient-to-r from-amber-400 to-amber-500'} transition-all" style="width:${comPct}%"></div>
-        </div>
-        <div class="mt-2 text-[11px] ${allCommittee ? 'text-emerald-700 font-semibold' : 'text-amber-700'}">
-          ${allCommittee
-            ? '✓ ' + escapeHtml(t('com.pres.committee_all_done'))
-            : escapeHtml(t('com.pres.committee_pending', { n: missingCom }))}
+
+        <div>
+          <div class="flex items-baseline justify-between mb-2">
+            <h5 class="text-sm font-bold text-slate-800 uppercase tracking-wide">${escapeHtml(t('com.pres.committee_title'))}</h5>
+            <span class="text-base font-bold ${allCommittee ? 'text-emerald-700' : 'text-amber-700'}">${stats.commissariDone}<span class="text-slate-400 font-normal">/${stats.commissariTotal}</span> <span class="text-sm text-slate-500 font-normal">(${comPct}%)</span></span>
+          </div>
+          <div class="w-full h-3 bg-slate-200 rounded-full overflow-hidden">
+            <div class="h-full ${allCommittee ? 'bg-gradient-to-r from-emerald-500 to-emerald-600' : 'bg-gradient-to-r from-amber-400 to-amber-500'} transition-all" style="width:${comPct}%"></div>
+          </div>
+          <div class="mt-2 text-sm ${allCommittee ? 'text-emerald-700 font-semibold' : 'text-amber-700'}">
+            ${allCommittee
+              ? '✓ ' + escapeHtml(t('com.pres.committee_all_done'))
+              : escapeHtml(t('com.pres.committee_pending', { n: missingCom }))}
+          </div>
         </div>
       </div>
     `;
     actionAreaHtml = `
-      <div class="mt-3 pt-3 border-t border-slate-200/80 flex items-center justify-end gap-2">
-        <button data-pres-action="end" data-id="${fase.id}" class="inline-flex items-center gap-1.5 text-sm font-bold text-white ${allCommittee ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'} px-4 py-2 rounded-lg shadow-sm transition">${escapeHtml(t('com.pres.end'))}</button>
+      <div class="mt-5 pt-5 border-t border-slate-200 flex items-center justify-end">
+        <button data-pres-action="end" data-id="${fase.id}" class="inline-flex items-center gap-2 text-base font-bold text-white ${allCommittee ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'} px-6 py-3 rounded-xl shadow-md transition-transform hover:scale-[1.02]">■ ${escapeHtml(t('com.pres.end'))}</button>
       </div>
     `;
   } else if (isDone) {
     const stats = fasePresStats(fase);
+    const passedPct = stats.total ? Math.round(stats.passed / stats.total * 100) : 0;
     bodyExtraHtml = `
-      <div class="mt-3 pt-3 border-t border-slate-200/80">
-        <p class="text-[10px] font-mono uppercase tracking-wider text-slate-500 font-semibold mb-2">${escapeHtml(t('com.pres.outcome_title'))}</p>
-        <div class="grid grid-cols-3 gap-2 text-center">
-          <div class="rounded-lg bg-white border border-slate-200 px-2 py-2">
-            <div class="text-[9px] uppercase tracking-wider text-slate-500 font-semibold">${escapeHtml(t('com.pres.outcome_total'))}</div>
-            <div class="text-lg font-bold text-slate-800 leading-tight">${stats.total}</div>
+      <div class="mt-5 pt-5 border-t border-slate-200">
+        <h5 class="text-sm font-bold text-slate-800 uppercase tracking-wide mb-3">${escapeHtml(t('com.pres.outcome_title'))}</h5>
+        <div class="grid grid-cols-3 gap-3 text-center">
+          <div class="rounded-xl bg-white border border-slate-200 p-3">
+            <div class="text-xs uppercase tracking-wider text-slate-500 font-semibold mb-1">${escapeHtml(t('com.pres.outcome_total'))}</div>
+            <div class="text-3xl font-extrabold text-slate-900 leading-none">${stats.total}</div>
           </div>
-          <div class="rounded-lg bg-emerald-50 border border-emerald-200 px-2 py-2">
-            <div class="text-[9px] uppercase tracking-wider text-emerald-700 font-semibold">${escapeHtml(t('com.pres.outcome_passed'))}</div>
-            <div class="text-lg font-bold text-emerald-800 leading-tight">${stats.passed}</div>
+          <div class="rounded-xl bg-emerald-50 border border-emerald-200 p-3">
+            <div class="text-xs uppercase tracking-wider text-emerald-700 font-semibold mb-1">${escapeHtml(t('com.pres.outcome_passed'))}</div>
+            <div class="text-3xl font-extrabold text-emerald-800 leading-none">${stats.passed}</div>
+            <div class="text-[10px] text-emerald-700 mt-1">${passedPct}%</div>
           </div>
-          <div class="rounded-lg bg-rose-50 border border-rose-200 px-2 py-2">
-            <div class="text-[9px] uppercase tracking-wider text-rose-700 font-semibold">${escapeHtml(t('com.pres.outcome_eliminated'))}</div>
-            <div class="text-lg font-bold text-rose-800 leading-tight">${Math.max(0, stats.total - stats.passed)}</div>
+          <div class="rounded-xl bg-rose-50 border border-rose-200 p-3">
+            <div class="text-xs uppercase tracking-wider text-rose-700 font-semibold mb-1">${escapeHtml(t('com.pres.outcome_eliminated'))}</div>
+            <div class="text-3xl font-extrabold text-rose-800 leading-none">${Math.max(0, stats.total - stats.passed)}</div>
+            <div class="text-[10px] text-rose-700 mt-1">${Math.max(0, 100 - passedPct)}%</div>
           </div>
         </div>
       </div>
     `;
   }
 
+  // Etichetta della fase nel banner sopra i metadati: numero + nome
+  // (es. "Fase 2 · Audizione"). Coerente con la nomenclatura usata negli
+  // altri pannelli admin (sidebar, breadcrumb, risultati).
+  const faseInline = `${t('com.pres.phase_label', { ordine: fase.ordine })} · ${fase.nome}`;
   return `
-    <article class="${palette.bg} rounded-2xl border border-slate-200 ${palette.ring} ring-1 p-5 sm:p-6 transition hover:shadow-md flex flex-col">
-      <header class="flex items-start justify-between gap-3">
+    <article class="bg-white rounded-2xl border border-slate-200 shadow-soft p-5 sm:p-6 transition hover:shadow-md flex flex-col">
+      <header class="flex items-start justify-between gap-3 pb-4 border-b border-slate-100">
         <div class="min-w-0 flex-1">
-          <div class="text-[10px] font-mono uppercase tracking-wider text-slate-500">${escapeHtml(t('com.pres.phase_label', { ordine: fase.ordine }))}</div>
-          <h4 class="font-bold text-slate-900 text-lg sm:text-xl leading-tight">${escapeHtml(fase.nome)}</h4>
+          <p class="text-[11px] font-mono uppercase tracking-[0.16em] text-ink-500 font-medium">Sezione</p>
+          <h4 class="font-bold text-ink-900 text-xl sm:text-2xl leading-tight mt-0.5 truncate">${escapeHtml(titleSezione)}</h4>
+          <p class="text-sm text-ink-700 mt-1 truncate" title="${escapeHtml(subtitleCategoria)}">${escapeHtml(subtitleCategoria)}</p>
         </div>
-        <span class="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold uppercase tracking-wider border ${palette.tag}">${escapeHtml(palette.label)}</span>
+        <span class="shrink-0 inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-bold uppercase tracking-wider border ${palette.tag}">${escapeHtml(palette.label)}</span>
       </header>
-      <dl class="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:text-sm">
-        <div class="flex items-center gap-2 text-slate-600 min-w-0"><span aria-hidden="true">📅</span><span class="truncate">${escapeHtml(dataPrev)}</span></div>
-        <div class="flex items-center gap-2 text-slate-600 min-w-0"><span aria-hidden="true">⏱</span><span class="truncate">${tempo > 0 ? escapeHtml(t('com.pres.tempo_value', { min: tempo })) : escapeHtml(t('com.pres.tempo_off'))}</span></div>
-        <div class="flex items-center gap-2 text-slate-600 min-w-0 col-span-2"><span aria-hidden="true">🎻</span><span class="truncate" title="${escapeHtml(sezioniNames)}">${escapeHtml(sezioniNames)}</span></div>
-        <div class="flex items-center gap-2 text-slate-600 min-w-0"><span aria-hidden="true">⚖️</span><span class="truncate">${modo === 'sincrona' ? escapeHtml(t('com.pres.modo_sync')) : escapeHtml(t('com.pres.modo_async'))} · ${escapeHtml(t('com.pres.scala', { scala }))}</span></div>
-        <div class="flex items-center gap-2 text-slate-600 min-w-0"><span aria-hidden="true">📋</span><span class="truncate">${escapeHtml(t('com.pres.criteri_count', { n: numCriteri }))}</span></div>
+      <div class="mt-4 flex items-center gap-2 text-xs text-ink-700 flex-wrap">
+        <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-brand-50 border border-brand-100 text-brand-700 font-medium">
+          ${icon('flag', { size: 12 })}<span>${escapeHtml(faseInline)}</span>
+        </span>
+        ${commissione ? `<span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-slate-50 border border-slate-200 text-ink-700">${icon('scale', { size: 12 })}<span class="truncate max-w-[14rem]">${escapeHtml(commissione.nome)}</span></span>` : ''}
+      </div>
+      <dl class="mt-4 grid grid-cols-2 gap-x-5 gap-y-3 text-sm">
+        <div class="flex items-center gap-2 text-ink-700 min-w-0">
+          <span class="text-ink-500 shrink-0">${icon('calendar', { size: 14 })}</span>
+          <div class="min-w-0">
+            <div class="text-[10px] uppercase tracking-wider text-ink-500 font-semibold leading-none">Data</div>
+            <div class="truncate font-medium">${escapeHtml(dataPrev)}</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 text-ink-700 min-w-0">
+          <span class="text-ink-500 shrink-0">${icon('clock', { size: 14 })}</span>
+          <div class="min-w-0">
+            <div class="text-[10px] uppercase tracking-wider text-ink-500 font-semibold leading-none">Tempo</div>
+            <div class="truncate font-medium">${tempo > 0 ? escapeHtml(t('com.pres.tempo_value', { min: tempo })) : escapeHtml(t('com.pres.tempo_off'))}</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 text-ink-700 min-w-0">
+          <span class="text-ink-500 shrink-0">${icon('scale', { size: 14 })}</span>
+          <div class="min-w-0">
+            <div class="text-[10px] uppercase tracking-wider text-ink-500 font-semibold leading-none">Valutazione</div>
+            <div class="truncate font-medium">${modo === 'sincrona' ? escapeHtml(t('com.pres.modo_sync')) : escapeHtml(t('com.pres.modo_async'))} · ${escapeHtml(t('com.pres.scala', { scala }))}</div>
+          </div>
+        </div>
+        <div class="flex items-center gap-2 text-ink-700 min-w-0">
+          <span class="text-ink-500 shrink-0">${icon('list', { size: 14 })}</span>
+          <div class="min-w-0">
+            <div class="text-[10px] uppercase tracking-wider text-ink-500 font-semibold leading-none">Criteri</div>
+            <div class="truncate font-medium">${escapeHtml(t('com.pres.criteri_count', { n: numCriteri }))}</div>
+          </div>
+        </div>
       </dl>
       ${bodyExtraHtml}
       ${actionAreaHtml}

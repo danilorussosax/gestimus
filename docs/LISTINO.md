@@ -244,7 +244,7 @@ Sì, con qualsiasi piano. Configurazione DNS gratuita (ti diamo le istruzioni pa
 Sì. CSV completo di candidati, valutazioni, classifiche; PDF dei protocolli e verbali; archivio degli allegati. Il tutto scaricabile in qualsiasi momento, anche dopo la disdetta.
 
 ### 💬 Cosa succede ai dati se sospendo il servizio?
-I dati restano custoditi per 30 giorni dopo la scadenza per un eventuale ripensamento, poi vengono **eliminati definitivamente** in conformità GDPR. Su richiesta possiamo anticipare la cancellazione.
+I dati restano custoditi per 30 giorni dopo la scadenza (configurabile per il singolo ente) per un eventuale ripensamento, poi un job di cleanup esegue **l'eliminazione definitiva** in conformità GDPR — `CASCADE` su tutte le tabelle figlie via foreign key. Su richiesta possiamo anticipare la cancellazione. Le operazioni di archiviazione/cleanup sono tracciate in un audit log append-only (`platform_audit_log`) immutabile anche per gli admin del tenant — solo il super-admin può purgare le entry per finalità GDPR.
 
 ### 💬 Offrite supporto telefonico?
 Il supporto base è via email (risposta entro 1-2 giorni lavorativi). Per esigenze specifiche (es. assistenza in giornata di gara, supporto telefonico dedicato) possiamo concordare un **add-on personalizzato** — scrivici a `info@gestimus.it`.

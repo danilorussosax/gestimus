@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { env } from './env.js';
 import { registerTenantMiddleware } from './middleware/tenant.js';
 import { registerAuthMiddleware } from './middleware/auth.js';
+import { registerRuntimeMetrics } from './middleware/runtime-metrics.js';
 import { authRoutes } from './routes/auth.js';
 import { concorsiRoutes } from './routes/concorsi.js';
 import { commissariRoutes } from './routes/commissari.js';
@@ -74,6 +75,9 @@ export async function createApp(): Promise<FastifyInstance> {
 
   await registerTenantMiddleware(app);
   await registerAuthMiddleware(app);
+  // Runtime metrics: hook onRequest/onResponse per misurare latenza per-tenant.
+  // DOPO il tenant middleware così req.tenant è già risolto.
+  registerRuntimeMetrics(app);
 
   // Avvia il realtime hub (Postgres LISTEN client dedicato)
   await startRealtimeHub();

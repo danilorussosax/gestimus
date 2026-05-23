@@ -7,6 +7,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgTable,
   primaryKey,
   text,
@@ -551,7 +552,10 @@ export const valutazioni = pgTable(
       .notNull()
       .references(() => commissari.id, { onDelete: 'cascade' }),
     criterio: text('criterio').notNull(),
-    voto: integer('voto').notNull(),
+    // numeric(5,2) per supportare voti decimali (es. mezzi punti su scala ≤10
+    // dove voteStep=0.5). mode:'number' fa sì che node-postgres deserializzi
+    // come number JS invece di string (default per numeric in pg).
+    voto: numeric('voto', { precision: 5, scale: 2, mode: 'number' }).notNull(),
     note: text('note'),
     timestamp: timestamp('timestamp', { withTimezone: true }).notNull().defaultNow(),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),

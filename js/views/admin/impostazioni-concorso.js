@@ -3,7 +3,7 @@
 // (niente più modale "Modifica") + statistiche + zona pericolosa cancellazione.
 
 import { db } from '../../db.js';
-import { escapeHtml, fmtDate, confirmDialog, toast, readImageResized } from '../../utils.js';
+import { escapeHtml, fmtDate, confirmDialog, modal, toast, readImageResized } from '../../utils.js';
 import { icon } from '../../icons.js';
 import { tiebreakStrategyHtml } from './common.js';
 
@@ -236,21 +236,84 @@ export function renderImpostazioniConcorso(root, concorso) {
 
   // ---------- Zona pericolosa ----------
 
+  // Doppia conferma: prima un warning standard (yes/no), poi un modal di
+  // type-to-delete che richiede di scrivere il nome esatto del concorso per
+  // sbloccare il bottone "Elimina definitivamente". Pattern GitHub-style:
+  // riduce drasticamente le cancellazioni accidentali.
   root.querySelector('[data-action="delete"]').addEventListener('click', () => {
     confirmDialog({
       title: `Elimina ${concorso.nome}`,
       message: `Stai per eliminare "${escapeHtml(concorso.nome)}". Verranno rimossi anche ${candidati.length} candidati, ${fasi.length} fasi e ${commissari.length} commissari. Operazione irreversibile.`,
       danger: true,
-      onConfirm: async () => {
-        try {
-          await db.deleteConcorso(concorso.id);
-          toast('Concorso eliminato', 'success');
-          db.setActiveConcorso(null);
-          window.dispatchEvent(new HashChangeEvent('hashchange'));
-        } catch (err) {
-          toast(err.message, 'error');
-        }
+      onConfirm: () => {
+        openDeleteConfirmModal(concorso, candidati.length, fasi.length, commissari.length);
       },
     });
+  });
+}
+
+function openDeleteConfirmModal(concorso, nCand, nFasi, nCom) {
+  modal({
+    title: `⚠ Conferma eliminazione definitiva`,
+    contentHtml: `
+      <div class="space-y-4">
+        <div class="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-sm text-rose-900">
+          <p class="font-semibold mb-2">Stai per cancellare <strong>${escapeHtml(concorso.nome)}</strong> dal database.</p>
+          <ul class="text-xs space-y-1 list-disc pl-5">
+            <li>${nCand} candidati e tutte le loro valutazioni</li>
+            <li>${nFasi} fasi con criteri e risultati</li>
+            <li>${nCom} commissari assegnati a questo concorso</li>
+            <li>tutte le iscrizioni pubbliche ricevute (incluse pending)</li>
+          </ul>
+          <p class="text-xs mt-3"><strong>L'operazione non è annullabile.</strong> Esegui un backup prima di procedere se hai dubbi.</p>
+        </div>
+        <label class="block">
+          <span class="text-sm font-medium text-ink-800">Per confermare, digita il nome esatto del concorso:</span>
+          <p class="font-mono text-sm bg-slate-100 border border-slate-200 rounded px-2 py-1 mt-1 mb-2 select-all">${escapeHtml(concorso.nome)}</p>
+          <input data-delete-confirm-input type="text" autocomplete="off" autocapitalize="off" spellcheck="false"
+                 class="w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-rose-500 focus:border-rose-500"
+                 placeholder="Scrivi qui il nome..." />
+        </label>
+      </div>
+    `,
+    primaryLabel: 'Elimina definitivamente',
+    secondaryLabel: 'Annulla',
+    onMount: (body) => {
+      const input = body.querySelector('[data-delete-confirm-input]');
+      // Il bottone primary del modal helper sta fuori dal body; recuperiamo
+      // tutto il modal e cerchiamo lì il primary.
+      const modalRoot = body.closest('[data-modal]') || body.parentElement;
+      const primaryBtn = modalRoot?.querySelector('.c-btn--primary') || document.querySelector('#modal-root .c-btn--primary');
+      const sync = () => {
+        const match = input.value.trim() === concorso.nome.trim();
+        if (primaryBtn) {
+          primaryBtn.disabled = !match;
+          primaryBtn.classList.toggle('opacity-50', !match);
+          primaryBtn.classList.toggle('cursor-not-allowed', !match);
+          if (match) {
+            primaryBtn.classList.add('bg-rose-600', 'hover:bg-rose-700', '!border-rose-600');
+          }
+        }
+      };
+      input.addEventListener('input', sync);
+      input.focus();
+      sync();
+    },
+    onPrimary: async (body) => {
+      const input = body.querySelector('[data-delete-confirm-input]');
+      if (input.value.trim() !== concorso.nome.trim()) {
+        toast('Il nome inserito non corrisponde. Operazione annullata.', 'error');
+        return false;
+      }
+      try {
+        await db.deleteConcorso(concorso.id);
+        toast('Concorso eliminato', 'success');
+        db.setActiveConcorso(null);
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      } catch (err) {
+        toast(err.message, 'error');
+        return false;
+      }
+    },
   });
 }

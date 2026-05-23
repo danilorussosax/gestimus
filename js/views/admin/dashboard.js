@@ -23,7 +23,12 @@ export const SIDEBAR_TABS = [
 ];
 
 export function renderDashboard(root, concorso) {
-  const presidente = db.getPresidenteFor(concorso.id);
+  // Il "presidente del concorso" non esiste più come concetto unitario nel
+  // nuovo modello (ogni commissione ha il suo). Manteniamo solo il banner di
+  // warning quando NESSUNA commissione del concorso ha un presidente: la card
+  // KPI dedicata è stata rimossa.
+  const presidentiInfo = db.presidentiFor(concorso.id);
+  const hasAnyPresidente = presidentiInfo.length > 0;
   const fasi = db.fasiByConcorso(concorso.id);
   const fasiConcluse = fasi.filter((f) => f.stato === 'CONCLUSA').length;
   const fasiInCorso = fasi.filter((f) => f.stato === 'IN_CORSO').length;
@@ -63,12 +68,11 @@ export function renderDashboard(root, concorso) {
 
   root.innerHTML = `
     <div class="space-y-6">
-      <!-- KPI strip -->
-      <section class="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <!-- KPI strip (3 card: presidente rimosso, ora per-commissione) -->
+      <section class="grid grid-cols-1 md:grid-cols-3 gap-3">
         ${kpiCard(icon('graduation', { size: 18 }), candidati.length, t('admin.dashboard.card.candidati_label') || 'Candidati', 'brand')}
         ${kpiCard(icon('judge',      { size: 18 }), commissari.length, t('admin.dashboard.card.commissari_label') || 'Commissari', 'sky')}
         ${kpiCard(icon('flag',       { size: 18 }), `${fasiConcluse}/${fasi.length}`, t('admin.dashboard.card.fasi_label') || 'Fasi concluse', fasiInCorso ? 'amber' : 'emerald')}
-        ${kpiCard(icon('star',       { size: 18 }), presidente ? escapeHtml(displayName(presidente)) : '—', t('admin.dashboard.card.presidente_label') || 'Presidente', presidente ? 'brand' : 'slate', true)}
       </section>
 
       <!-- Sezioni della sidebar come griglia di cards cliccabili -->
@@ -82,13 +86,13 @@ export function renderDashboard(root, concorso) {
         </div>
       </section>
 
-      <!-- Banner se manca il presidente -->
-      ${!presidente ? `
+      <!-- Banner se nessuna commissione ha un presidente assegnato -->
+      ${!hasAnyPresidente ? `
         <div class="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-900 flex items-start gap-2">
           ${icon('warning', { size: 18 })}
           <div>
             <strong>${escapeHtml(t('admin.header.no_president') || 'Nessun presidente designato')}.</strong>
-            ${escapeHtml(t('admin.dashboard.no_president_help') || 'Apri il tab Commissari per assegnare un presidente al concorso.')}
+            ${escapeHtml(t('admin.dashboard.no_president_help') || 'Apri il tab Commissioni per assegnare un presidente ad almeno una commissione.')}
           </div>
         </div>` : ''}
 

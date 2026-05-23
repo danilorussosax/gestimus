@@ -345,7 +345,11 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
         tempoMinuti: updated.tempoMinuti,
       });
       await tx.execute(sql`SELECT pg_notify(${faseChannel(id)}, ${payload})`);
-      return updated;
+      // Restituiamo la fase arricchita con sezioniIds: senza questo, il client
+      // mapFase legge sezioniIds=undefined → sezioni_ids=[] e la fase appare
+      // come "globale" finché non viene fatto un refresh hard (cache state).
+      const sezMap = await loadFaseSezioniMap(tx, [id]);
+      return { ...updated, sezioniIds: sezMap.get(id) ?? [] };
     });
   });
 
@@ -360,13 +364,29 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
         .where(eq(fasi.id, id))
         .returning();
       if (!updated) return reply.notFound();
+      // Finalizza i candidati_fase della fase: tutti quelli non ELIMINATI
+      // passano a COMPLETATO. Senza questo update la view risultati legge
+      // `cf.stato !== 'COMPLETATO'` e mostra "in attesa" per sempre, anche
+      // dopo che la fase è chiusa e ammesso_prossima_fase è stato deciso.
+      await tx
+        .update(candidatiFase)
+        .set({ stato: 'COMPLETATO', updatedAt: new Date() })
+        .where(
+          and(
+            eq(candidatiFase.faseId, id),
+            sql`${candidatiFase.stato} <> 'ELIMINATO'`,
+          ),
+        );
       await writeAudit(tx, req, 'fase.conclude', {
         targetType: 'fase',
         targetId: id,
       });
       const payload = JSON.stringify({ action: 'conclude', faseId: id });
       await tx.execute(sql`SELECT pg_notify(${faseChannel(id)}, ${payload})`);
-      return updated;
+      // Include sezioniIds nel response (vedi commento in /start): senza,
+      // il client perde lo scope di sezione della fase dopo il concludi.
+      const sezMap = await loadFaseSezioniMap(tx, [id]);
+      return { ...updated, sezioniIds: sezMap.get(id) ?? [] };
     });
   });
 

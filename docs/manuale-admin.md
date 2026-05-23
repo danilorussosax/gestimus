@@ -1,11 +1,21 @@
 # Manuale Amministratore — Gestimus
 
-> **Versione manuale**: 1.0
-> **Data**: 22 maggio 2026
+> **Versione manuale**: 2.0
+> **Data**: 23 maggio 2026
 > **Destinatari**: Amministratori di tenant Gestimus (conservatori, accademie, festival, enti che organizzano concorsi musicali).
 > **Lingua interfaccia**: italiano, inglese, francese, spagnolo (vedi cap. 14).
+> **Stack attuale**: Fastify 5 + PostgreSQL 16 + Drizzle ORM (migrato da PocketBase a maggio 2026).
 
-Questo manuale spiega come configurare e condurre un concorso musicale completo con Gestimus dal punto di vista dell'**amministratore di tenant** (ruolo `admin`). Non è un manuale di installazione: per setup PocketBase e deploy fare riferimento a `README.md`, `POCKETBASE.md` e `DEPLOY-IONOS.md`.
+Questo manuale spiega come configurare e condurre un concorso musicale completo con Gestimus dal punto di vista dell'**amministratore di tenant** (ruolo `admin`). Non è un manuale di installazione: per setup e deploy fare riferimento a `README.md`, `server/README.md` e `docs/DEPLOY-IONOS.md`.
+
+> **Novità v2.0** (rispetto a v1.0 PocketBase):
+> - **Presidente per-commissione**, non più per-concorso. Ogni commissione ha il proprio presidente, che può avviare/concludere/sortire le SUE fasi (oltre all'admin).
+> - **Modello candidato N:1**: un candidato appartiene a una sola sezione e una sola categoria. Selezionando una categoria, la sezione padre viene auto-derivata.
+> - **Form pubblico iscrizione esteso**: anagrafica completa (sesso, CF, luogo nascita), residenza (indirizzo, città, CAP, provincia, paese), dati artistici (anni di studio, scuola di provenienza), note libere, nome gruppo.
+> - **Tab Impostazioni concorso inline**: il pannello "Modifica concorso" è embedded nella tab Impostazioni (niente più modale). Eliminazione concorso con **doppia conferma type-to-delete** in stile GitHub.
+> - **Branding ente**: logo + colori + contatti gestiti dalla home (`Impostazioni ente`), salvati in JSONB con merge server-side.
+> - **Voti decimali**: scala ≤ 10 supporta mezzi punti (`numeric(5,2)` lato DB).
+> - **Verbale**: nuovo tag `<fase_presidente>`, firme nel PDF stampate solo se il template referenzia tag commissione/commissari E la fase ha commissione assegnata.
 
 ## Indice
 
@@ -288,11 +298,20 @@ Le commissioni sono il punto di aggancio tra le persone (commissari) e le materi
 
 ### 6.3 `include_tutte_categorie`
 
-Quando attivo, la commissione valuta **tutte le categorie** delle sezioni selezionate, anche quelle aggiunte in futuro. La card della commissione mostra le categorie effettive con icona ✨ per quelle aggiunte automaticamente e in colore neutro per quelle selezionate esplicitamente.
+Quando la checkbox "Includi automaticamente tutte le categorie delle sezioni selezionate" è attiva, **al salvataggio** le categorie vengono espanse e attaccate esplicitamente alla commissione (riga in `commissioni_categorie` per ognuna). Il flag in sé non viene persistito: ciò che conta è l'array `categorie_ids` finale. Cambiando le sezioni selezionate, il blocco categoria viene automaticamente ri-sincronizzato.
 
-### 6.4 Presidente
+### 6.4 Presidente — un presidente PER COMMISSIONE *(v2.0)*
 
-Il presidente è il commissario che ottiene il **pannello di controllo sessione** (cap. 7.7). La card della commissione mostra in alto a destra il presidente con badge 🎯 *Presidente*. Se nessuno è designato, compare un warning *Nessun presidente — modifica per assegnarne uno*: senza presidente, **nessuno potrà avviare le fasi assegnate alla commissione**.
+Ogni commissione ha **il proprio presidente**. Non esiste più un "presidente del concorso" come ruolo unitario: un commissario può essere presidente di più commissioni dello stesso concorso, oppure di una sola. La card della commissione mostra in alto a destra il presidente con badge 🎯 *Presidente*. Se nessun presidente è designato, compare un warning *Nessun presidente* sulla card.
+
+**Cosa può fare il presidente della commissione X**:
+- Avviare/concludere le fasi che hanno `commissione_id = X`
+- Gestire timer (start/pause/resume/reset/bonus)
+- Eseguire il sorteggio dell'ordine candidati
+
+L'admin del tenant può fare tutto questo per qualsiasi fase. Il presidente solo per le proprie. Le route backend (`/api/fasi/:id/start|conclude|sorteggio|timer/*`) verificano via `assertCanManageFase` che il commissario loggato sia il presidente della commissione assegnata alla fase.
+
+Se la fase NON ha commissione assegnata (`commissione_id = NULL`), solo l'admin può gestirla.
 
 ### 6.5 Eliminazione
 
@@ -622,15 +641,18 @@ Pulsanti in alto a destra:
 
 ![Form iscrizione pubblico](./screenshots/17-iscrizione-form-pubblico.png)
 
-Il candidato accede a `/#/iscrizione` (link visibile in fondo alla pagina di login). Il form è single-page e raccoglie:
+Il candidato accede a `/#/iscrizione` (link visibile in fondo alla pagina di login). Il form è single-page e raccoglie *(v2.0: schema esteso)*:
 
-- **Dati anagrafici** (nome, cognome, data nascita, luogo, codice fiscale, sesso, nazionalità);
-- **Contatti** (email, telefono, indirizzo, città, CAP);
-- **Dati artistici** (strumento, tipo individuale/gruppo, sezione, categoria, anni di studio, scuola);
-- **Programma** (lista brani con durata);
-- **Allegati** (foto, documento, ricevuta pagamento, autorizzazione minore);
-- **Tutore** (obbligatorio per minori di 16 anni — soglia GDPR);
-- **Consensi GDPR** (privacy + regolamento obbligatori, immagini opzionale).
+- **Dati anagrafici**: nome, cognome, sesso, data nascita, luogo di nascita, codice fiscale, nazionalità;
+- **Contatti**: email, telefono, indirizzo, città, CAP, provincia, paese;
+- **Dati artistici**: strumento, tipo (individuale/gruppo), **sezione → categoria** (cascata: scegli sezione, poi vedi le sue categorie; se la sezione ha categorie diventa obbligatorio sceglierne una), anni di studio, scuola di provenienza, docenti preparatori, **nome gruppo** (solo per tipo gruppo);
+- **Programma**: lista brani con titolo, autore, durata in minuti;
+- **Allegati**: foto, documento d'identità, ricevuta pagamento, autorizzazione minore (campi presenti in UI, l'upload end-to-end è ancora in via di completamento — la tabella `iscrizioni_allegati` esiste lato DB);
+- **Tutore**: obbligatorio per minori di 16 anni (soglia GDPR Art. 8), 4 campi (nome, cognome, email, telefono) aggregati in JSONB `tutore`;
+- **Consensi GDPR**: privacy + regolamento obbligatori, uso immagini opzionale. Aggregati in JSONB `consensi_gdpr`;
+- **Note libere**: textarea opzionale.
+
+**Validazione server**: gerarchia categoria→sezione e cross-concorso. Se l'utente passa solo `categoriaId` (es. da import o manipolazione), la `sezioneId` viene derivata automaticamente. Se invece passa una sezione di un altro concorso, → `400`.
 
 Il form ha protezioni anti-bot stateless:
 
@@ -700,18 +722,18 @@ In alto: contatore totale, pulsanti *Importa* e *Aggiungi*.
 Il form richiede:
 
 - **Nome**, **cognome**, **strumento**, **data di nascita**, **nazionalità** (obbligatori per candidati individuali);
-- **Tipo** (individuale/gruppo): per i gruppi solo nome+strumento sono obbligatori;
+- **Tipo** (individuale/gruppo): per i gruppi solo nome+strumento sono obbligatori — cognome e data di nascita diventano dinamicamente opzionali al cambio del select;
 - **Foto** (opzionale);
 - **Docenti preparatori** (uno per riga in textarea);
-- **Sezioni e categorie** (checkbox a due livelli: spunta una sezione e vedi le sue categorie come sub-checkbox).
+- **Sezione e categoria** *(v2.0: modello N:1)*: **radio button**, una sola sezione + una sola categoria della sezione. Selezionando una categoria, la sezione padre viene auto-selezionata (gerarchia categoria→sezione). Se la sezione ha categorie, è obbligatorio sceglierne una.
 
 Salvando, viene creato con `numero_candidato` = ultimo + 1 del concorso.
 
 ### 9.3 Candidati gruppo
 
-Per i candidati di tipo *gruppo* (es. quartetti, ensemble), il pulsante *Membri* apre una modale dove aggiungi/rimuovi membri scegliendoli fra gli **altri** candidati individuali del concorso. Ogni membro può avere uno strumento specifico nel gruppo (es. "Primo violino").
+Per i candidati di tipo *gruppo* (es. quartetti, ensemble), il pulsante *Membri* apre una modale dove inserisci i dati dei membri direttamente (nome, cognome, strumento, data nascita). I membri vengono salvati nella tabella `candidati_membri` legati al candidato-gruppo via `candidato_id`. **Non sono record candidato a sé stanti**: il "candidato" di gruppo è l'ensemble nel suo complesso.
 
-> **Nota piano SaaS**: un'iscrizione di gruppo conta come N persone fisiche (vedi `pb_hooks/tenant_config.pb.js`), quante sono nei `gruppo_membri`. Un quartetto conta come 4 iscritti del piano annuale.
+> **Nota piano SaaS**: un'iscrizione di gruppo conta come N persone fisiche, quante sono nei membri. Un quartetto conta come 4 iscritti del piano annuale.
 
 ### 9.4 Storico candidato
 
@@ -728,21 +750,24 @@ Bottone *Importa*. Modale con:
 - mappatura colonne sorgente → campi PB modificabile;
 - importazione in batch con barra di avanzamento.
 
-Esempio template candidati:
+Esempio template candidati *(v2.0)*:
 
 ```csv
-nome,cognome,strumento,data_nascita,nazionalita,docenti,sezioni,categorie
-Anna,Rossi,Pianoforte,2002-04-15,Italiana,Mario Bianchi|Lucia Verdi,Solisti,Junior
-Marco,Bianchi,Violino,15/06/2003,Italiana,Anna Neri,,
+nome,cognome,strumento,data_nascita,nazionalita,docenti,sezione,categoria,tipo,gruppo_nome
+Anna,Rossi,Pianoforte,2002-04-15,Italiana,Mario Bianchi|Lucia Verdi,Pianoforte,Junior,individuale,
+Marco,Bianchi,Violino,15/06/2003,Italiana,Anna Neri,Archi,Senior,individuale,
+Quartetto Brillante,,Quartetto d'archi,,,,Archi,Cameristica,gruppo,Quartetto Brillante
 ```
 
-Date accettate: `YYYY-MM-DD` (ISO) o `DD/MM/YYYY`. Liste multivalore separate da `|`.
+- **`sezione`** / **`categoria`** sono **singolari** (modello N:1). Se la sezione ha categorie ma non viene specificata, la sezione viene auto-derivata dalla categoria scelta.
+- **`tipo`**: `individuale` (default) o `gruppo`. Per i gruppi: `cognome` e `data_nascita` opzionali; `gruppo_nome` può essere valorizzato per dare un nome esplicito all'ensemble.
+- Date accettate: `YYYY-MM-DD` (ISO) o `DD/MM/YYYY`. Docenti separati da `|`.
 
 > **Suggerimento**: usa la stessa modalità per importare commissari (template diverso: nome, cognome, specialita, email, telefono, data_nascita, nazionalita, bio).
 
 ### 9.6 Eliminazione
 
-Conferma standard. Elimina anche `candidati_fase` e `valutazioni` collegate via cascade lato PB.
+Conferma standard. Elimina anche `candidati_fase` e `valutazioni` collegate via cascade del DB.
 
 <!-- page-break -->
 
@@ -867,13 +892,17 @@ L'audit è **best-effort**: non blocca mai l'azione di business se il log fallis
 
 <!-- page-break -->
 
-## 12. Impostazioni del tenant
+## 12. Impostazioni del tenant *(v2.0)*
 
-La tab *Impostazioni* (sidebar admin → sezione "Admin") configura il branding dell'**ente**.
+La tab *Impostazioni* (sidebar admin → sezione "Admin") configura il branding dell'**ente**. Internamente i dati sono spalmati su due colonne JSONB della tabella `tenants`:
+- `enteSettings`: dati interni (email, telefono, sede, codice fiscale, PEC, sito web, note)
+- `brandingPublic`: dati visibili pre-login (nome pubblico, logo come dataURL inline, colori, sottotitolo)
+
+Le PATCH server fanno **merge** (non overwrite): inviare solo il campo da cambiare lascia gli altri intatti.
 
 ### 12.1 Logo
 
-Caricato con il selettore file. Formati supportati: PNG, JPEG, WEBP, SVG. L'immagine viene letta come dataURL e usata immediatamente come anteprima.
+Caricato con il selettore file. Formati supportati: PNG, JPEG, WEBP. L'immagine viene ridimensionata client-side a max 800px (`readImageResized`, preserva PNG/WebP per la trasparenza, JPEG ricompresso). Salvato come dataURL inline in `brandingPublic.logoUrl`.
 
 ### 12.2 Nome e descrizione
 
@@ -885,15 +914,23 @@ Il **nome ente** è obbligatorio. Compare:
 
 ### 12.3 Contatti
 
-Email, telefono, sito web, indirizzo. Non sono pubblici (visibili solo agli admin loggati). Per dati pubblici vedi *Branding pubblico* (cap. 12.5).
+Email, telefono, sito web, indirizzo, sede, codice fiscale, PEC, note. Non sono pubblici (visibili solo agli admin loggati). Per dati pubblici vedi *Branding pubblico* (cap. 12.5).
 
 ### 12.4 Branding (colori)
 
-Due color picker per primario e secondario. Il valore viene mostrato sia con picker grafico sia come testo `#RRGGBB` modificabile. Sincronizzati: cambiando uno aggiorna l'altro.
+Due color picker per primario e secondario. Il valore viene mostrato sia con picker grafico sia come testo `#RRGGBB` modificabile. Sincronizzati: cambiando uno aggiorna l'altro. Salvati in `brandingPublic.coloreAccent` e `coloreSfondo`.
 
 ### 12.5 Branding pubblico
 
-I campi *nome*, *colore primario*, *colore secondario* e *logo* vengono replicati automaticamente nella collection `enti_public`, accessibile pre-login (senza autenticazione) per la pagina di login e l'header dell'app. Sicuro: non vengono mai esposti email/telefono/indirizzo.
+L'endpoint `GET /api/ente/public` è accessibile pre-login (senza auth, niente RLS) e restituisce solo `brandingPublic`: nome pubblico, logo, colori. Mai email/telefono/indirizzo. Usato dalla pagina di login e dall'header dell'app prima dell'autenticazione.
+
+### 12.6 Impostazioni concorso (inline) *(v2.0)*
+
+La tab *Impostazioni concorso* (sotto la sidebar del concorso, non delle Impostazioni ente) ora ha il pannello **Modifica concorso embedded inline** — niente più modale "Modifica". Modifichi nome, anno, stato, modalità anonima, iscrizioni aperte, scadenza, tiebreak default e logo concorso direttamente nella tab, con bottone "Salva impostazioni" in fondo.
+
+**Zona pericolosa — Eliminazione concorso**: doppia conferma a due step:
+1. Prima conferma generica con counts (X candidati, Y fasi, Z commissari verranno cancellati).
+2. Modal di **type-to-delete** in stile GitHub: devi digitare il nome esatto del concorso per sbloccare il bottone "Elimina definitivamente". L'operazione è transazionale e irreversibile.
 
 ### 12.6 Piano SaaS
 
@@ -912,11 +949,13 @@ Le quote sono **applicate server-side**:
 
 I messaggi di errore sono espliciti: "Limite del piano raggiunto: 50/50 iscritti..." / "Piano scaduto il 15/03/2026...".
 
-### 12.7 SMTP
+### 12.7 SMTP *(v2.0)*
 
-Le email transazionali (benvenuto iscrizione, conferma email, notifiche approvazione/rifiuto) usano l'SMTP configurato nelle impostazioni di sistema PocketBase (sezione *Settings → Mail settings* del pannello admin PB). Il `senderName` e `senderAddress` impostati lì compaiono come mittente.
+La configurazione SMTP è **per-tenant** (ogni ente può usare il proprio provider, es. SendGrid, Mailgun, server SMTP del conservatorio). Sezione gestita dal **super-admin** della piattaforma, non dall'admin di tenant: chi gestisce il provisioning vede tutti gli enti nella tab "Gestione Enti" del super-admin e configura per ognuno host/porta/user/password/from.
 
-> **Nota**: la configurazione SMTP non è nelle Impostazioni tenant di Gestimus ma nel pannello PocketBase nativo, perché è una proprietà di piattaforma.
+La password viene **cifrata at-rest** con AES-256-GCM usando `GESTIMUS_SECRET_KEY` (variabile d'ambiente del server). Il prefisso `enc:v1:` distingue i record cifrati. Per testare la config, c'è un bottone "Test invio" nella riga del tenant.
+
+> Email transazionali in arrivo (M.6): benvenuto iscrizione, conferma email, notifiche approvazione/rifiuto. Lo stack SMTP tenant-aware è pronto, manca solo il template + invio nel route `/api/public/iscrizioni`.
 
 <!-- page-break -->
 

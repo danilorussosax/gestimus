@@ -1179,6 +1179,16 @@ export const db = {
     const f = mapFase(r);
     const i = state.fasi.findIndex((x) => x.id === faseId);
     if (i >= 0) state.fasi[i] = f;
+    // Il backend finalizza i candidati_fase (IN_ATTESA → COMPLETATO) al
+    // conclude — ricarico in state così la view risultati mostra subito
+    // "promosso/eliminato" invece di "in attesa".
+    try {
+      const list = await api.get('/api/candidati-fase', { faseId });
+      state.candidati_fase = state.candidati_fase.filter((cf) => cf.fase_id !== faseId);
+      state.candidati_fase.push(...(list || []).map(mapCandidatoFase));
+    } catch (e) {
+      console.warn('reload candidati_fase after conclude failed:', e?.message);
+    }
     notify();
     return f;
   },

@@ -891,6 +891,7 @@ const dict = {
     'admin.risultati.verbale.tag_fase_num_candidati': 'Numero candidati ammessi a questa fase',
     'admin.risultati.verbale.tag_fase_commissione': 'Commissari assegnati a questa fase (uno per riga, escluso il presidente)',
     'admin.risultati.verbale.tag_fase_commissari': 'Commissari della fase, separati da virgola (escluso il presidente)',
+    'admin.risultati.verbale.tag_fase_presidente': 'Presidente della commissione assegnata a questa fase',
     'admin.risultati.verbale.tag_fase_classifica': 'Classifica completa della fase con voti ed esito',
     'admin.risultati.verbale.tag_fase_promossi': 'Solo candidati promossi alla fase successiva',
     'admin.risultati.verbale.tag_fase_eliminati': 'Solo candidati eliminati in questa fase',

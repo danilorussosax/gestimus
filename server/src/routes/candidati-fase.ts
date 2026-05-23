@@ -1,9 +1,71 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { candidatiFase } from '../db/schema.js';
+import { candidatiFase, commissioni, commissioniCommissari, fasi } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
+
+// Permesso a marcare ammessoProssimaFase / cambiare lo stato di un candidato_fase:
+//   - admin/superadmin sempre
+//   - commissario che è membro della commissione assegnata alla fase del cf
+//     (caso tipico: ogni commissario salva il proprio "voto di ammissione"
+//     insieme alla valutazione → il flag riflette la decisione collegiale)
+// Se la fase non ha commissione assegnata, solo admin può modificarlo.
+async function assertCanEditCandidatoFase(req: FastifyRequest, reply: FastifyReply, cfId: string): Promise<{ ok: boolean }> {
+  const role = req.account?.role;
+  if (role === 'admin' || role === 'superadmin') return { ok: true };
+  if (role !== 'commissario') {
+    reply.code(403).send({ error: 'ruolo richiesto: admin o commissario membro della commissione' });
+    return { ok: false };
+  }
+  const commissarioId = req.account?.commissarioId;
+  if (!commissarioId) {
+    reply.code(403).send({ error: 'commissario senza profilo' });
+    return { ok: false };
+  }
+  const rows = await req.dbTx(async (tx) =>
+    tx
+      .select({ faseId: candidatiFase.faseId })
+      .from(candidatiFase)
+      .where(eq(candidatiFase.id, cfId))
+      .limit(1),
+  );
+  if (rows.length === 0) { reply.notFound(); return { ok: false }; }
+  const faseId = rows[0]!.faseId;
+  const faseRows = await req.dbTx(async (tx) =>
+    tx
+      .select({ commissioneId: fasi.commissioneId })
+      .from(fasi)
+      .where(eq(fasi.id, faseId))
+      .limit(1),
+  );
+  const commissioneId = faseRows[0]?.commissioneId;
+  if (!commissioneId) {
+    reply.code(403).send({ error: 'fase senza commissione assegnata: modifica admin-only' });
+    return { ok: false };
+  }
+  const memberRows = await req.dbTx(async (tx) =>
+    tx
+      .select({ id: commissioniCommissari.commissarioId })
+      .from(commissioniCommissari)
+      .where(
+        and(
+          eq(commissioniCommissari.commissioneId, commissioneId),
+          eq(commissioniCommissari.commissarioId, commissarioId),
+        ),
+      )
+      .limit(1),
+  );
+  if (memberRows.length === 0) {
+    reply.code(403).send({ error: 'solo i membri della commissione assegnata possono modificare questo candidato' });
+    return { ok: false };
+  }
+  // Suppress unused import warning per `commissioni` (lo importiamo per
+  // coerenza con i futuri check su attributi della commissione, e per
+  // documentazione del modello).
+  void commissioni;
+  return { ok: true };
+}
 
 const uuid = z.string().uuid();
 const assignBody = z.object({
@@ -54,8 +116,10 @@ export const candidatiFaseRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
-  app.patch('/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {
+  app.patch('/:id', { preHandler: [requireAuth] }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
+    const perm = await assertCanEditCandidatoFase(req, reply, id);
+    if (!perm.ok) return reply;
     const parsed = updateBody.safeParse(req.body);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
     return req.dbTx(async (tx) => {

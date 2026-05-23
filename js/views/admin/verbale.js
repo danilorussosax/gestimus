@@ -65,6 +65,7 @@ const VERBALE_TAGS_FASE = [
   { tag: 'fase_num_candidati',  descKey: 'admin.risultati.verbale.tag_fase_num_candidati' },
   { tag: 'fase_commissione',    descKey: 'admin.risultati.verbale.tag_fase_commissione' },
   { tag: 'fase_commissari',     descKey: 'admin.risultati.verbale.tag_fase_commissari' },
+  { tag: 'fase_presidente',     descKey: 'admin.risultati.verbale.tag_fase_presidente' },
   { tag: 'fase_classifica',     descKey: 'admin.risultati.verbale.tag_fase_classifica' },
   { tag: 'fase_promossi',       descKey: 'admin.risultati.verbale.tag_fase_promossi' },
   { tag: 'fase_eliminati',      descKey: 'admin.risultati.verbale.tag_fase_eliminati' },
@@ -238,6 +239,11 @@ function buildVerbaleContext(concorso, fase = null) {
     const metodoKey = getMetodoMedia(fase);
     const metodoLabel = METODI_MEDIA[metodoKey]?.nome || metodoKey;
 
+    // <fase_presidente> = presidente della commissione assegnata a QUESTA fase
+    // (non un presidente "di concorso" globale: il modello è per-commissione).
+    const fasePres = db.getPresidenteForFase(fase);
+    const fasePresName = fasePres ? displayName(fasePres) : '—';
+
     Object.assign(ctx, {
       fase: fase.nome || '',
       fase_numero: String(fase.ordine ?? ''),
@@ -249,6 +255,7 @@ function buildVerbaleContext(concorso, fase = null) {
       fase_num_candidati: String(cfsCount),
       fase_commissione: faseCommissioneList || '—',
       fase_commissari: faseCommissariInline || '—',
+      fase_presidente: fasePresName,
       fase_classifica: buildFaseClassifica(fase, 'all'),
       fase_promossi: buildFaseClassifica(fase, 'promossi'),
       fase_eliminati: buildFaseClassifica(fase, 'eliminati'),
