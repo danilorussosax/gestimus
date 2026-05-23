@@ -59,7 +59,7 @@ export const sezioniRoutes: FastifyPluginAsync = async (app) => {
     return req.dbTx(async (tx) => {
       const [updated] = await tx
         .update(sezioni)
-        .set(parsed.data)
+        .set({ ...parsed.data, updatedAt: new Date() })
         .where(eq(sezioni.id, id))
         .returning();
       if (!updated) return reply.notFound();

@@ -51,7 +51,7 @@ export const criteriRoutes: FastifyPluginAsync = async (app) => {
     return req.dbTx(async (tx) => {
       const [updated] = await tx
         .update(criteri)
-        .set(parsed.data)
+        .set({ ...parsed.data, updatedAt: new Date() })
         .where(eq(criteri.id, id))
         .returning();
       if (!updated) return reply.notFound();

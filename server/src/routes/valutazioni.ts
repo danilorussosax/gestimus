@@ -12,15 +12,20 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 
 const uuid = z.string().uuid();
+// N15: bound applicativo su `voto`. Il trigger DB clamp_voto normalizza
+// comunque in [0, fase.scala], ma rifiutare a monte 999/-1 evita scoring
+// fuorviante prima del clamp e fornisce un errore chiaro. Upper bound generoso
+// (1000 = scala massima ammessa per le fasi); il clamp per-fase fa il resto.
+const VOTO_MAX = 1000;
 const upsertBody = z.object({
   candidatoFaseId: uuid,
   commissarioId: uuid,
   criterio: z.string().min(1).max(255),
-  voto: z.number(),
+  voto: z.number().min(0).max(VOTO_MAX),
   note: z.string().optional(),
 });
 const updateBody = z.object({
-  voto: z.number().optional(),
+  voto: z.number().min(0).max(VOTO_MAX).optional(),
   note: z.string().optional(),
 });
 

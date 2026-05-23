@@ -62,7 +62,7 @@ export const membriGruppoRoutes: FastifyPluginAsync = async (app) => {
     return req.dbTx(async (tx) => {
       const [updated] = await tx
         .update(candidatiMembri)
-        .set(parsed.data)
+        .set({ ...parsed.data, updatedAt: new Date() })
         .where(eq(candidatiMembri.id, id))
         .returning();
       if (!updated) return reply.notFound();

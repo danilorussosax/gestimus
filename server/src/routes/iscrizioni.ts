@@ -332,7 +332,10 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
         targetType: 'iscrizione',
         targetId: isc.id,
       });
-      return { ok: true, iscrizione: updated };
+      // N17: endpoint pubblico (non autenticato). Ritorna solo conferma minimale
+      // invece dell'intero record (che contiene email/telefono/indirizzo/...).
+      // Minimo privilegio: chi ha il token non deve ricevere tutti i PII.
+      return { ok: true, iscrizioneId: updated!.id };
     });
   });
 };

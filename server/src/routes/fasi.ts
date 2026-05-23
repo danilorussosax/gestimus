@@ -195,15 +195,30 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
       .safeParse(req.body);
     if (!body.success) return reply.badRequest(body.error.message);
     return req.dbTx(async (tx) => {
+      // N20: lock pessimistico sulle fasi del concorso per serializzare reorder
+      // concorrenti (due richieste non si sovrascrivono a metà).
       const found = await tx
         .select({ id: fasi.id })
         .from(fasi)
-        .where(eq(fasi.concorsoId, body.data.concorsoId));
+        .where(eq(fasi.concorsoId, body.data.concorsoId))
+        .for('update');
       const allowed = new Set(found.map((r) => r.id));
       for (const id of body.data.ids) {
         if (!allowed.has(id)) {
           return reply.badRequest(`fase ${id} non appartiene al concorso`);
         }
+      }
+      // N11: l'array `ids` deve contenere TUTTE le fasi del concorso. Se ne
+      // omette qualcuna, il suo `ordine` resta invariato e collide con i nuovi
+      // valori 1..N → violazione di uniq_fasi_concorso_ordine.
+      if (body.data.ids.length !== found.length) {
+        return reply.badRequest(
+          `reorder deve includere tutte le ${found.length} fasi del concorso (ricevute ${body.data.ids.length})`,
+        );
+      }
+      // Difesa contro duplicati nell'array.
+      if (new Set(body.data.ids).size !== body.data.ids.length) {
+        return reply.badRequest('ids duplicati nel reorder');
       }
       const offset = 10000;
       for (let i = 0; i < body.data.ids.length; i++) {

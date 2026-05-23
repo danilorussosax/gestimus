@@ -116,6 +116,16 @@ export const candidatiFaseRoutes: FastifyPluginAsync = async (app) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
     const parsed = updateBody.safeParse(req.body);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
+    // N13: un commissario può solo segnare ammessoProssimaFase (decisione di
+    // voto). Cambiare stato — in particolare ELIMINATO — o posizione è
+    // admin-only. Senza questo, qualunque membro della commissione poteva
+    // eliminare un candidato via PATCH diretta.
+    const role = req.account?.role;
+    if (role !== 'admin' && role !== 'superadmin') {
+      if (parsed.data.stato !== undefined || parsed.data.posizione !== undefined) {
+        return reply.code(403).send({ error: 'solo admin può modificare stato/posizione del candidato' });
+      }
+    }
     return req.dbTx(async (tx) => {
       if (!await assertCanEditCandidatoFase(tx, req, reply, id)) return;
       const [updated] = await tx

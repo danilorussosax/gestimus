@@ -682,7 +682,19 @@ export const db = {
   async deleteSezione(id) {
     await api.delete(`/api/sezioni/${id}`);
     state.sezioni = state.sezioni.filter((s) => s.id !== id);
+    const removedCatIds = new Set(state.categorie.filter((c) => c.sezione_id === id).map((c) => c.id));
     state.categorie = state.categorie.filter((c) => c.sezione_id !== id);
+    // N19: ripulisci anche lo stato derivato che referenzia la sezione/categorie
+    // rimosse, altrimenti la cache frontend resta incoerente (il server blocca
+    // la delete se fasi referenziano la sezione, ma candidati/fasi locali
+    // potrebbero puntare a id ora inesistenti).
+    state.fasi.forEach((f) => {
+      if (Array.isArray(f.sezioni_ids)) f.sezioni_ids = f.sezioni_ids.filter((sid) => sid !== id);
+    });
+    state.candidati.forEach((c) => {
+      if (c.sezione_id === id) c.sezione_id = null;
+      if (removedCatIds.has(c.categoria_id)) c.categoria_id = null;
+    });
     notify();
   },
 
@@ -1302,6 +1314,7 @@ export const db = {
   async startFase(faseId) {
     const r = await api.post(`/api/fasi/${faseId}/start`, {});
     const f = mapFase(r);
+    f.criteri = criteriForFase(f.id); // N10: mapFase non popola criteri
     const i = state.fasi.findIndex((x) => x.id === faseId);
     if (i >= 0) state.fasi[i] = f;
     // Il backend auto-popola candidati_fase se vuota — ricarico localmente
@@ -1320,6 +1333,7 @@ export const db = {
   async concludiFase(faseId) {
     const r = await api.post(`/api/fasi/${faseId}/conclude`, {});
     const f = mapFase(r);
+    f.criteri = criteriForFase(f.id); // N10: mapFase non popola criteri
     const i = state.fasi.findIndex((x) => x.id === faseId);
     if (i >= 0) state.fasi[i] = f;
     // Il backend finalizza i candidati_fase (IN_ATTESA → COMPLETATO) al
@@ -1343,10 +1357,17 @@ export const db = {
     let s = Number(seed);
     if (!Number.isFinite(s)) s = Math.floor(Math.random() * 0xffffffff);
     const res = await api.post(`/api/fasi/${faseId}/sorteggio`, { seed: Math.trunc(s) });
-    // Ricarica candidati_fase di questa fase per riflettere le nuove posizioni
-    const list = await api.get('/api/candidati-fase', { faseId });
-    state.candidati_fase = state.candidati_fase.filter((cf) => cf.fase_id !== faseId);
-    state.candidati_fase.push(...(list || []).map(mapCandidatoFase));
+    // N12: ricarica candidati_fase con la nuova lista PRIMA di toccare lo state.
+    // Se il GET fallisce, lo state precedente resta intatto (prima il filter
+    // rimuoveva i vecchi record anche quando il reload poi falliva → dati persi
+    // lato client). Pattern allineato a startFase/concludiFase.
+    try {
+      const list = await api.get('/api/candidati-fase', { faseId });
+      state.candidati_fase = state.candidati_fase.filter((cf) => cf.fase_id !== faseId);
+      state.candidati_fase.push(...(list || []).map(mapCandidatoFase));
+    } catch (e) {
+      console.warn('reload candidati_fase after sorteggio failed:', e?.message);
+    }
     notify();
     return res ?? { seed: Math.trunc(s) };
   },
@@ -1437,6 +1458,7 @@ export const db = {
   async startFaseTimer(faseId, candidatoFaseId = null) {
     const r = await api.post(`/api/fasi/${faseId}/timer/start`, candidatoFaseId ? { candidatoFaseId } : {});
     const f = mapFase(r);
+    f.criteri = criteriForFase(f.id); // N10: preserva criteri (mapFase non li popola)
     const i = state.fasi.findIndex((x) => x.id === faseId);
     if (i >= 0) state.fasi[i] = f;
     notify();
@@ -1445,6 +1467,7 @@ export const db = {
   async pauseFaseTimer(faseId) {
     const r = await api.post(`/api/fasi/${faseId}/timer/pause`, {});
     const f = mapFase(r);
+    f.criteri = criteriForFase(f.id); // N10: preserva criteri (mapFase non li popola)
     const i = state.fasi.findIndex((x) => x.id === faseId);
     if (i >= 0) state.fasi[i] = f;
     notify();
@@ -1453,6 +1476,7 @@ export const db = {
   async resumeFaseTimer(faseId) {
     const r = await api.post(`/api/fasi/${faseId}/timer/resume`, {});
     const f = mapFase(r);
+    f.criteri = criteriForFase(f.id); // N10: preserva criteri (mapFase non li popola)
     const i = state.fasi.findIndex((x) => x.id === faseId);
     if (i >= 0) state.fasi[i] = f;
     notify();
@@ -1461,6 +1485,7 @@ export const db = {
   async addFaseTimerBonus(faseId, seconds = 60) {
     const r = await api.post(`/api/fasi/${faseId}/timer/bonus`, { seconds: Math.trunc(Number(seconds)) });
     const f = mapFase(r);
+    f.criteri = criteriForFase(f.id); // N10: preserva criteri (mapFase non li popola)
     const i = state.fasi.findIndex((x) => x.id === faseId);
     if (i >= 0) state.fasi[i] = f;
     notify();
@@ -1469,6 +1494,7 @@ export const db = {
   async resetFaseTimer(faseId) {
     const r = await api.post(`/api/fasi/${faseId}/timer/reset`, {});
     const f = mapFase(r);
+    f.criteri = criteriForFase(f.id); // N10: preserva criteri (mapFase non li popola)
     const i = state.fasi.findIndex((x) => x.id === faseId);
     if (i >= 0) state.fasi[i] = f;
     notify();

@@ -87,120 +87,100 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) return reply.badRequest(parsed.error.message);
 
     const REDACTED = '[ERASED]';
-    let touched = { commissari: 0, candidati: 0, candidatiMembri: 0, iscrizioni: 0 };
+    const touched = { commissari: 0, candidati: 0, candidatiMembri: 0, iscrizioni: 0 };
+
+    // N9: redaction COMPLETA di tutti i campi PII (prima ne restavano molti).
+    const commissarioRedaction = {
+      nome: REDACTED, cognome: REDACTED, email: null, telefono: null,
+      dataNascita: null, nazionalita: null, foto: null, bio: null,
+      stato: 'INATTIVO', updatedAt: new Date(),
+    };
+    const candidatoRedaction = {
+      nome: REDACTED, cognome: REDACTED, email: null, telefono: null,
+      sesso: null, dataNascita: null, nazionalita: null, luogoNascita: null,
+      codiceFiscale: null, indirizzo: null, citta: null, cap: null,
+      provincia: null, paese: null, anniStudio: null, scuolaProvenienza: null,
+      strumento: REDACTED, foto: null, docentiPreparatori: null, programma: null,
+      tutore: null, noteLibere: null, gruppoNome: null, updatedAt: new Date(),
+    };
+    const iscrizioneRedaction = {
+      nome: REDACTED, cognome: REDACTED, email: 'erased@erased.local',
+      telefono: null, dataNascita: null, nazionalita: null, luogoNascita: null,
+      sesso: null, codiceFiscale: null, indirizzo: null, citta: null, cap: null,
+      provincia: null, paese: null, strumento: null, anniStudio: null,
+      scuolaProvenienza: null, programma: null, docentiPreparatori: null,
+      membri: null, tutore: null, consensiGdpr: null, noteLibere: null,
+      emailVerificationToken: null, gruppoNome: null, ipAddress: null,
+      userAgent: null, updatedAt: new Date(),
+    };
 
     return req.dbTx(async (tx) => {
       if (parsed.data.commissarioId) {
         const res = await tx
           .update(commissari)
-          .set({
-            nome: REDACTED,
-            cognome: REDACTED,
-            email: null,
-            telefono: null,
-            dataNascita: null,
-            nazionalita: null,
-            foto: null,
-            bio: null,
-            stato: 'INATTIVO',
-            updatedAt: new Date(),
-          })
+          .set(commissarioRedaction)
           .where(eq(commissari.id, parsed.data.commissarioId))
           .returning();
-        touched.commissari = res.length;
+        touched.commissari += res.length;
       }
 
       if (parsed.data.candidatoId) {
         const res = await tx
           .update(candidati)
-          .set({
-            nome: REDACTED,
-            cognome: REDACTED,
-            dataNascita: null,
-            nazionalita: null,
-            foto: null,
-            docentiPreparatori: null,
-            updatedAt: new Date(),
-          })
+          .set(candidatoRedaction)
           .where(eq(candidati.id, parsed.data.candidatoId))
           .returning();
-        touched.candidati = res.length;
+        touched.candidati += res.length;
         const mem = await tx
           .update(candidatiMembri)
-          .set({
-            nome: REDACTED,
-            cognome: REDACTED,
-            dataNascita: null,
-            nazionalita: null,
-          })
+          .set({ nome: REDACTED, cognome: REDACTED, dataNascita: null, nazionalita: null })
           .where(eq(candidatiMembri.candidatoId, parsed.data.candidatoId))
           .returning();
-        touched.candidatiMembri = mem.length;
+        touched.candidatiMembri += mem.length;
       }
 
       if (parsed.data.iscrizioneId) {
         const res = await tx
           .update(iscrizioni)
-          .set({
-            nome: REDACTED,
-            cognome: REDACTED,
-            email: 'erased@erased.local',
-            telefono: null,
-            dataNascita: null,
-            nazionalita: null,
-            programma: null,
-            docentiPreparatori: null,
-            membri: null,
-            tutore: null,
-            ipAddress: null,
-            userAgent: null,
-            updatedAt: new Date(),
-          })
+          .set(iscrizioneRedaction)
           .where(eq(iscrizioni.id, parsed.data.iscrizioneId))
           .returning();
-        touched.iscrizioni = res.length;
+        touched.iscrizioni += res.length;
       }
 
       if (parsed.data.email) {
         const email = parsed.data.email.toLowerCase();
         const isc = await tx
           .update(iscrizioni)
-          .set({
-            nome: REDACTED,
-            cognome: REDACTED,
-            email: 'erased@erased.local',
-            telefono: null,
-            dataNascita: null,
-            nazionalita: null,
-            programma: null,
-            docentiPreparatori: null,
-            membri: null,
-            tutore: null,
-            ipAddress: null,
-            userAgent: null,
-            updatedAt: new Date(),
-          })
+          .set(iscrizioneRedaction)
           .where(sql`lower(${iscrizioni.email}) = ${email}`)
           .returning();
         touched.iscrizioni += isc.length;
 
         const com = await tx
           .update(commissari)
-          .set({
-            nome: REDACTED,
-            cognome: REDACTED,
-            email: null,
-            telefono: null,
-            dataNascita: null,
-            nazionalita: null,
-            foto: null,
-            bio: null,
-            stato: 'INATTIVO',
-            updatedAt: new Date(),
-          })
+          .set(commissarioRedaction)
           .where(sql`lower(${commissari.email}) = ${email}`)
           .returning();
         touched.commissari += com.length;
+
+        // N16: l'erase via email deve purgare anche i record `candidati` con
+        // email corrispondente (un candidato può aver fornito PII sia via
+        // iscrizione pubblica sia via creazione admin). Redact + membri gruppo.
+        const cand = await tx
+          .update(candidati)
+          .set(candidatoRedaction)
+          .where(sql`lower(${candidati.email}) = ${email}`)
+          .returning();
+        touched.candidati += cand.length;
+        for (const c of cand) {
+          const mem = await tx
+            .update(candidatiMembri)
+            .set({ nome: REDACTED, cognome: REDACTED, dataNascita: null, nazionalita: null })
+            .where(eq(candidatiMembri.candidatoId, c.id))
+            .returning();
+          touched.candidatiMembri += mem.length;
+        }
       }
 
       await writeAudit(tx, req, 'privacy.erase', {

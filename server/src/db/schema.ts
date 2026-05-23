@@ -322,6 +322,7 @@ export const candidatiMembri = pgTable(
     dataNascita: date('data_nascita'),
     nazionalita: text('nazionalita'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index('idx_candidati_membri_tenant').on(t.tenantId),
@@ -347,6 +348,7 @@ export const sezioni = pgTable(
     descrizione: text('descrizione'),
     ordine: integer('ordine'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [index('idx_sezioni_tenant').on(t.tenantId), index('idx_sezioni_concorso').on(t.concorsoId)],
 );
@@ -367,6 +369,7 @@ export const categorie = pgTable(
     etaMax: integer('eta_max'),
     ordine: integer('ordine'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index('idx_categorie_tenant').on(t.tenantId),
@@ -389,6 +392,7 @@ export const commissioni = pgTable(
       onDelete: 'set null',
     }),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     index('idx_commissioni_tenant').on(t.tenantId),
@@ -522,6 +526,7 @@ export const criteri = pgTable(
     peso: integer('peso').notNull().default(100),
     ordine: integer('ordine'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     check('criteri_peso_check', sql`${t.peso} BETWEEN 0 AND 100`),
@@ -561,6 +566,8 @@ export const candidatiFase = pgTable(
     uniqueIndex('uniq_candidati_fase').on(t.faseId, t.candidatoId),
     index('idx_candidati_fase_tenant').on(t.tenantId),
     index('idx_candidati_fase_fase').on(t.faseId),
+    // N18: l'UPDATE del conclude filtra (fase_id, stato).
+    index('idx_candidati_fase_fase_stato').on(t.faseId, t.stato),
   ],
 );
 
