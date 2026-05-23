@@ -206,7 +206,9 @@ test verdi.
 - **LOW**: L221 (resume FOR UPDATE), L224 (clear cookie con attributi), L227 (timer reconnect `.unref()`), L229 (BOM CSV), L250 (computeAggregate scarta NaN), L254 (temp file randomBytes 8), L263 (import drizzle unificato).
 - **Falsi positivi documentati**: N184 (unhandledRejection log-only intenzionale; uncaughtException fa già shutdown con hard-timeout), N190 (cleanupAfterDays=0 = "mai", corretto), M207 (media esclude i non votanti), M210/M213 (già corretti), L258 (route valida `.nonnegative()`), L262 (shutdown chiama già stopRealtimeHub), L252, oltre ai ri-segnalati già chiusi (N121/N133/N135/N136/M150/M153/M164/M166/L174/L181/L170).
 
-> **Differiti — decisioni di prodotto/compliance/feature** (non bug meccanici): N183 (redazione audit_log storico su erasure GDPR — confligge con l'invariante append-only); N144 (consensus su `ammessoProssimaFase`); N117 (backup in streaming); M193 (cascade DELETE concorso — guard `?force` + coordinamento frontend); M196 (hash-chain audit); L222 (upload foto commissari); L257 (restore backup). Coda LOW cosmetica/edge documentata nei commit.
+- **Differiti poi RISOLTI su decisione utente**: **N144** — l'ammissione alla fase successiva è ora calcolata dall'aggregato (top-`ammessi` della classifica, stesso motore del display) e applicata **atomicamente** al conclude via `{admitted}`; `ammessoProssimaFase` è admin-only nel PATCH → eliminato il last-write-wins per-commissario (test d'integrazione dedicato). **L222** — i commissari possono auto-gestire la **propria** foto (ownership check), non più solo gli admin.
+
+> **Differiti rimanenti — decisioni di prodotto/compliance/feature** (non bug meccanici): N183 (redazione audit_log storico su erasure GDPR — confligge con l'invariante append-only); N117 (backup in streaming); M193 (cascade DELETE concorso — guard `?force` + coordinamento frontend); M196 (hash-chain audit); L257 (restore backup). Coda LOW cosmetica/edge documentata nei commit.
 
 ---
 
