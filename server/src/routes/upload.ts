@@ -1,8 +1,8 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { candidati, commissari, concorsi } from '../db/schema.js';
-import { requireAuth, requireRole } from '../middleware/auth.js';
+import { requireAuth } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { join } from 'node:path';
 import { deleteFile, saveFile, tenantUploadDir, type ResourceKind } from '../services/storage.js';
@@ -10,9 +10,16 @@ import { env } from '../env.js';
 
 const uuid = z.string().uuid();
 
+// L222: admin/superadmin gestiscono tutti gli upload; un commissario può gestire
+// SOLO la propria foto (resource 'commissario' con id === proprio commissarioId).
+function canManageUpload(req: FastifyRequest, resource: string, id: string): boolean {
+  const role = req.account?.role;
+  if (role === 'admin' || role === 'superadmin') return true;
+  return role === 'commissario' && resource === 'commissario' && id === req.account?.commissarioId;
+}
+
 export const uploadRoutes: FastifyPluginAsync = async (app) => {
   app.addHook('preHandler', requireAuth);
-  app.addHook('preHandler', requireRole('admin'));
 
   /**
    * POST /upload/:resource/:id (multipart/form-data, field "file")
@@ -33,6 +40,9 @@ export const uploadRoutes: FastifyPluginAsync = async (app) => {
 
     // N98: rimosso il guard `!ALLOWED_RESOURCES.includes(resource)` —
     // irraggiungibile, lo z.enum sopra ammette già solo questi tre valori.
+    if (!canManageUpload(req, resource, id)) {
+      return reply.code(403).send({ error: 'permesso negato per questo upload' });
+    }
 
     const file = await req.file();
     if (!file) return reply.badRequest('file mancante (field "file")');
@@ -136,6 +146,9 @@ export const uploadRoutes: FastifyPluginAsync = async (app) => {
       .safeParse(req.params);
     if (!params.success) return reply.badRequest(params.error.message);
     const { resource, id } = params.data;
+    if (!canManageUpload(req, resource, id)) {
+      return reply.code(403).send({ error: 'permesso negato per questo upload' });
+    }
 
     const currentUrl = await req.dbTx(async (tx) => {
       if (resource === 'concorso') {
