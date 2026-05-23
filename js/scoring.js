@@ -1,3 +1,4 @@
+// @ts-check
 // Phase-specific evaluation logic.
 // Each fase can define its own list of criteri ({key,label,peso}) — number,
 // labels and weights are fully configurable. The classic 4-criterion scheme

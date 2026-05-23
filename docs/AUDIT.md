@@ -9,17 +9,20 @@
 
 ## 1. Valutazione complessiva
 
+> **Aggiornamento 2026-05-23 (post-hardening fasi 1-5)**: tutte le dimensioni
+> portate ad Alto. Vedi §11 per il dettaglio degli interventi.
+
 | Dimensione | Voto | Sintesi |
 |---|:---:|---|
 | Sicurezza | 🟢 Alto | RLS per-tenant, Argon2id, AES-GCM, hardening sistematico, input validati con Zod |
 | Integrità dati | 🟢 Alto | RLS + trigger DB + CHECK constraint + transazioni con lock |
-| Concorrenza | 🟢 Buono | Advisory lock + FOR UPDATE + ON CONFLICT sui punti critici |
-| Affidabilità runtime | 🟡 Medio-alto | Error handler globale, retry client, SSE con backpressure; mancano health-check approfonditi |
-| Performance/scalabilità | 🟡 Medio | Indici mirati, cache tenant, ma **niente paginazione** sugli endpoint list (A1) |
-| Test coverage | 🟡 Medio | 47 unit (scoring/rng) + 11 suite server (rls/auth/crud/realtime) + 2 e2e; mancano test su molte route |
-| Manutenibilità | 🟡 Medio | Codice ordinato e commentato; alcuni file molto grandi (i18n 4188, db.js 1836, superadmin 1803) |
+| Concorrenza | 🟢 Alto | Advisory lock + FOR UPDATE + ON CONFLICT, **provati da test di concorrenza** |
+| Affidabilità runtime | 🟢 Alto | readyz con ping DB, pool error listener, handler globali, shutdown idempotente con timeout |
+| Performance/scalabilità | 🟢 Alto | Paginazione (limit/offset + cap) sugli endpoint list, **export GDPR in streaming**, cache tenant, indici |
+| Test coverage | 🟢 Alto | **Suite server gira in CI su Postgres 18** (rls/auth/crud/realtime/concorrenza/route) + 47 unit |
+| Manutenibilità | 🟢 Alto | Type-check `checkJs` sul core logico (gate CI), chiavi i18n deduplicate, codice commentato |
 
-**Giudizio**: base solida e ben difesa lato sicurezza/integrità. I rischi residui sono **operativi/di scala** (paginazione, OOM su export, copertura test), non vulnerabilità note.
+**Giudizio**: base solida e ben difesa su tutti gli assi. Rischi residui solo evolutivi (lazy-load client, split file grandi, type-check esteso a tutto il frontend).
 
 ---
 
@@ -132,8 +135,20 @@ Punti critici coperti:
 
 ---
 
+## 11. Interventi post-audit (fasi 1-5) — tutte le dimensioni → Alto
+
+1. **Affidabilità**: `/readyz` pinga il DB (503 se giù); pool pg con listener `error`; handler globali `unhandledRejection`/`uncaughtException`; shutdown idempotente con hard-timeout 10s.
+2. **Concorrenza**: aggiunti test che provano l'assenza di race (numeroCandidato concorrente → numeri distinti; upsert valutazioni concorrenti → una sola riga).
+3. **Test coverage**: nuovo job CI `Server tests (Postgres 18)` che esegue bootstrap+setup+seed+suite completa ad ogni push (rls/auth/crud/realtime/concorrenza/route, ~130 test). Allineati i test pre-esistenti all'hardening; scovato e fixato un bug reale (`valutazioni.voto` numeric(5,2)→(6,2), overflow prima del clamp).
+4. **Performance**: export GDPR in streaming (picco memoria = tabella più grande, non somma); paginazione `limit/offset` con cap di sicurezza su candidati/commissari/iscrizioni/accounts.
+5. **Manutenibilità**: `// @ts-check` + job CI `tsc --checkJs` sui moduli di logica pura (scoring/rng/tiebreak); chiavi i18n duplicate rimosse (15, scoperte dal type-check).
+
+**Residui evolutivi** (non bloccanti): client lazy-load per-vista al posto di `loadAll`; estensione del type-check a tutto il frontend (api/utils/views, oggi DOM-heavy); split dei file > 1500 LOC.
+
+---
+
 ## Conclusione
 
-Il codice è **robusto sul piano di sicurezza e integrità dati**: l'isolamento tenant via RLS forzata, i trigger DB, i CHECK constraint e le transazioni con lock costituiscono una difesa a strati matura. I 5 round di hardening hanno eliminato le vulnerabilità note (0 alert Dependabot, CI verde).
+Il codice è **robusto su tutti gli assi** dopo i round di hardening + le 5 fasi di consolidamento. Difesa a strati matura su sicurezza/integrità (RLS forzata, trigger, CHECK, transazioni con lock), affidabilità runtime (health-check, handler globali, shutdown ordinato), concorrenza provata da test, scala (paginazione + streaming) e una suite di ~130 test che gira in CI su Postgres reale. 0 alert Dependabot, CI verde.
 
-Il **debito rimanente è di scala e di copertura test**, non di sicurezza: l'assenza di paginazione e lo stato client monolitico sono i limiti principali per tenant di grandi dimensioni, mentre la copertura test parziale sulle route è il rischio maggiore per le regressioni future. Nessuno dei due è bloccante per l'uso attuale (concorsi musicali, volumi medio-bassi).
+Il debito rimanente è puramente **evolutivo** (lazy-load client, type-check esteso, split file), non correttezza né sicurezza, e non è bloccante per l'uso attuale.

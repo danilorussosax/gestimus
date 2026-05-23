@@ -1,3 +1,4 @@
+// @ts-check
 // Seedable PRNG (mulberry32). Estratto da db.js per consentire l'import nei
 // test unit senza dipendenze del data layer. Usato per sorteggi riproducibili.
 

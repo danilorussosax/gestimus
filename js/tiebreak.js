@@ -1,3 +1,4 @@
+// @ts-check
 // Cascata di rottura della parità per la classifica di una fase.
 // Ordine FISSO (legalmente più difendibile), ogni step è abilitabile/disabilitabile:
 //   1. scomposizione: confronta il punteggio dei criteri uno per uno, in ordine

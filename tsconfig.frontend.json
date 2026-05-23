@@ -1,0 +1,15 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "checkJs": true,
+    "allowJs": true,
+    "noEmit": true,
+    "strict": false,
+    "skipLibCheck": true,
+    "lib": ["ES2022", "DOM", "DOM.Iterable"]
+  },
+  "//": "checkJs sui moduli di logica pura (coperti da unit test). api.js/utils.js (DOM-heavy) e le view restano fuori: type-safety incrementale.",
+  "include": ["js/scoring.js", "js/rng.js", "js/tiebreak.js"]
+}
