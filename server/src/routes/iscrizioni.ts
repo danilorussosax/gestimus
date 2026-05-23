@@ -17,7 +17,11 @@ const iscrizioneCreateBody = z.object({
   // evitare mismatch silenziosi: `website` è l'honeypot (nome innocuo che i bot
   // tendono a compilare; se valorizzato → bot), `startedAt` è il timestamp di
   // apertura del form (min-time-on-page).
-  website: z.string().max(0).optional(),
+  // N85: l'honeypot NON deve usare .max(0). Una stringa non vuota va accettata
+  // da Zod e gestita dal check silenzioso (200) più sotto; con .max(0) il bot
+  // riceve un 400 rumoroso e capisce di essere stato scoperto, vanificando la
+  // trappola. Bound a 255 per evitare input non limitato.
+  website: z.string().max(255).optional(),
   startedAt: z.coerce.number().int().optional(),
   // Anagrafica
   nome: z.string().min(1).max(255),
@@ -57,7 +61,17 @@ const iscrizioneCreateBody = z.object({
   gruppoNome: z.string().max(255).optional(),
   tipoGruppo: z.enum(['ensemble', 'orchestra']).optional(),
   membri: z.array(z.unknown()).optional(),
-  tutore: z.unknown().optional(),
+  // N86: oggetto tipizzato (era z.unknown()). La presenza di contenuto reale
+  // per i minori è verificata nel business logic (un {} vuoto è truthy e
+  // bypassava `!data.tutore`).
+  tutore: z
+    .object({
+      nome: z.string().max(255).optional(),
+      cognome: z.string().max(255).optional(),
+      email: z.string().email().optional(),
+      telefono: z.string().max(50).optional(),
+    })
+    .optional(),
   // N40: i consensi obbligatori (privacy + regolamento) DEVONO essere true.
   // Prima era z.unknown() + check `if (!data.consensiGdpr)` → un payload
   // { consensiGdpr: { privacy: false } } passava, bypassando il consenso GDPR.
@@ -164,9 +178,14 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
         // Risponde 200 senza fare nulla → bot non insiste
         return { ok: true, queued: true };
       }
-      // Min time on page (anti-bot rapido)
-      if (data.startedAt && Date.now() - data.startedAt < MIN_TIME_ON_PAGE_MS) {
-        return reply.code(400).send({ error: 'invio troppo rapido' });
+      // Min time on page (anti-bot rapido). N92: è "troppo rapido" solo un
+      // elapsed in [0, MIN). Un elapsed negativo = orologio del client avanti
+      // rispetto al server (clock skew) → non bloccare l'utente legittimo.
+      if (data.startedAt) {
+        const elapsed = Date.now() - data.startedAt;
+        if (elapsed >= 0 && elapsed < MIN_TIME_ON_PAGE_MS) {
+          return reply.code(400).send({ error: 'invio troppo rapido' });
+        }
       }
 
       // Verifica concorso esistente + aperto
@@ -187,13 +206,19 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
         const today = new Date();
         const age = today.getFullYear() - dob.getFullYear() -
           (today < new Date(today.getFullYear(), dob.getMonth(), dob.getDate()) ? 1 : 0);
-        if (age < GDPR_MIN_AGE_TUTORE && !data.tutore) {
-          return reply.code(400).send({ error: 'candidato minorenne: dati tutore richiesti' });
+        // N86: {} è truthy → `!data.tutore` non bastava. Per i minori il tutore
+        // deve avere almeno nome ed email (contattabilità GDPR del genitore).
+        const tutoreOk =
+          !!data.tutore &&
+          (data.tutore.nome?.trim().length ?? 0) > 0 &&
+          (data.tutore.email?.trim().length ?? 0) > 0;
+        if (age < GDPR_MIN_AGE_TUTORE && !tutoreOk) {
+          return reply.code(400).send({ error: 'candidato minorenne: dati tutore (nome ed email) richiesti' });
         }
       }
-      if (!data.consensiGdpr) {
-        return reply.code(400).send({ error: 'consensi GDPR mancanti' });
-      }
+      // N91: rimosso il check `if (!data.consensiGdpr)` — irraggiungibile.
+      // consensiGdpr è uno z.object required (privacy/regolamento literal true):
+      // un payload mancante o invalido viene già respinto dal safeParse sopra.
 
       // N26/N32: check applicativo per iscrizione duplicata (email già iscritta
       // a questo concorso, escluse le rifiutate). L'indice unique parziale è la

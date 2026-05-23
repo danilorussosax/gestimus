@@ -195,8 +195,18 @@ export function renderCommissario(root) {
       .filter(v => v.commissario_id === com.id)
       .map(v => v.candidato_fase_id)
   );
-  const cfHasAllVotes = (cfId) => allCommissariIds.every(cid =>
-    db.state.valutazioni.some(v => v.candidato_fase_id === cfId && v.commissario_id === cid)
+  // N89: "completo" = ogni commissario attivo ha votato OGNI criterio della
+  // fase, non basta una valutazione qualsiasi. Senza questo, in modalità
+  // sincrona il gruppo avanzava al candidato successivo quando un commissario
+  // aveva votato solo alcuni criteri. Una fase senza criteri non è votabile →
+  // non considerarla mai "completa".
+  const faseCriteriKeys = getCriteri(faseAttiva).map(c => c.key);
+  const cfHasAllVotes = (cfId) => faseCriteriKeys.length > 0 && allCommissariIds.every(cid =>
+    faseCriteriKeys.every(ck =>
+      db.state.valutazioni.some(v =>
+        v.candidato_fase_id === cfId && v.commissario_id === cid && v.criterio === ck
+      )
+    )
   );
 
   // History: my last 2 already evaluated cfs in this fase (by posizione)

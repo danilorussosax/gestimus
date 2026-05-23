@@ -88,6 +88,10 @@ async function assertCanEvaluateCandidatoFase(
     reply.code(403).send({ error: 'fase senza commissione assegnata' });
     return false;
   }
+  // N88: FOR UPDATE sulla riga di membership. Questo assert gira nella stessa
+  // transazione dell'upsert valutazione (vedi POST /); bloccando la riga, un
+  // admin concorrente non può rimuovere il commissario dalla commissione tra il
+  // check e l'INSERT/UPDATE → niente valutazioni "non più autorizzate".
   const memberRows = await tx
     .select({ id: commissioniCommissari.commissarioId })
     .from(commissioniCommissari)
@@ -97,7 +101,8 @@ async function assertCanEvaluateCandidatoFase(
         eq(commissioniCommissari.commissarioId, accountCommissarioId),
       ),
     )
-    .limit(1);
+    .limit(1)
+    .for('update');
   if (memberRows.length === 0) {
     reply.code(403).send({ error: 'solo i membri della commissione assegnata possono valutare' });
     return false;

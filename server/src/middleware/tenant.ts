@@ -55,14 +55,24 @@ export function invalidateTenantCache(slug?: string): void {
 async function resolveTenantBySubdomain(subdomain: string): Promise<TenantContext | null> {
   const now = Date.now();
   const cached = tenantCache.get(subdomain);
-  if (cached && cached.expiresAt > now) return cached.row;
+  if (cached && cached.expiresAt > now) {
+    // N94: LRU reale. Map.set su una chiave esistente NON aggiorna l'ordine di
+    // inserzione (spec ES6); senza questo re-insert l'eviction sarebbe FIFO e un
+    // tenant molto acceduto ma inserito per primo verrebbe sfrattato prima di
+    // uno inserito dopo e mai più usato. Re-inserire sposta la entry in coda.
+    // (TTL invariato: la freshness non si rinnova sull'hit, solo la recency.)
+    tenantCache.delete(subdomain);
+    tenantCache.set(subdomain, cached);
+    return cached.row;
+  }
   const found = await dbSuper.query.tenants.findFirst({
     where: eq(tenants.slug, subdomain),
     columns: { id: true, slug: true, nome: true, stato: true },
   });
   const row = found ?? null;
   if (tenantCache.size >= TENANT_CACHE_MAX) {
-    // Drop entry più vecchia (Map mantiene ordine di inserimento).
+    // Eviction LRU: la prima chiave nell'ordine di iterazione è la meno
+    // recentemente usata (le hit spostano in coda, vedi sopra).
     const firstKey = tenantCache.keys().next().value;
     if (firstKey !== undefined) tenantCache.delete(firstKey);
   }

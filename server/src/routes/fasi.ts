@@ -490,6 +490,20 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
       if (!body.success) return reply.badRequest(body.error.message);
       return req.dbTx(async (tx) => {
         if (!await assertCanManageFase(tx, req, reply, id)) return;
+        // N87: il candidatoFaseId, se fornito, deve appartenere a QUESTA fase.
+        // L'UUID era validato sintatticamente ma non per appartenenza → un
+        // presidente poteva scrivere in timerStartedForCfId un id arbitrario
+        // (di un'altra fase/tenant sotto RLS), corrompendo i metadati del timer.
+        if (body.data.candidatoFaseId) {
+          const cf = await tx
+            .select({ id: candidatiFase.id })
+            .from(candidatiFase)
+            .where(and(eq(candidatiFase.id, body.data.candidatoFaseId), eq(candidatiFase.faseId, id)))
+            .limit(1);
+          if (cf.length === 0) {
+            return reply.code(400).send({ error: 'candidatoFaseId non appartiene a questa fase' });
+          }
+        }
         const now = new Date();
         const [updated] = await tx
           .update(fasi)

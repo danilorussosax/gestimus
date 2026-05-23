@@ -378,17 +378,38 @@ async function loadEntePublic() {
 }
 
 async function loadAll() {
-  const [concorsi, sezioni, categorie, commissioni, commissari, candidati, fasi, criteri, ente] = await Promise.all([
-    api.get('/api/concorsi'),
-    api.get('/api/sezioni'),
-    api.get('/api/categorie'),
-    api.get('/api/commissioni'),
-    api.get('/api/commissari'),
-    api.get('/api/candidati'),
-    api.get('/api/fasi'),
-    api.get('/api/criteri'),
-    api.get('/api/ente').catch(() => null),
-  ]);
+  // N90: allSettled invece di Promise.all → un singolo endpoint che fallisce
+  // (es. /api/criteri 500) non abbatte l'intero caricamento iniziale. Le
+  // risorse mancanti vengono segnalate via state.meta._loadErrors (toast in
+  // app.js) lasciando l'app utilizzabile con stato parziale.
+  const coreSpecs = [
+    ['concorsi', '/api/concorsi'],
+    ['sezioni', '/api/sezioni'],
+    ['categorie', '/api/categorie'],
+    ['commissioni', '/api/commissioni'],
+    ['commissari', '/api/commissari'],
+    ['candidati', '/api/candidati'],
+    ['fasi', '/api/fasi'],
+    ['criteri', '/api/criteri'],
+    ['ente', '/api/ente'],
+  ];
+  const coreResults = await Promise.allSettled(coreSpecs.map(([, url]) => api.get(url)));
+  const coreFailures = [];
+  // `ente` è opzionale: il suo fallimento è tollerato in silenzio (come prima
+  // con .catch(() => null)); le altre risorse vengono segnalate.
+  const pick = (i, optional = false) => {
+    const r = coreResults[i];
+    if (r.status === 'fulfilled') return r.value;
+    if (!optional) coreFailures.push(coreSpecs[i][0]);
+    console.warn('load failed for', coreSpecs[i][1], r.reason?.message);
+    return null;
+  };
+  const concorsi = pick(0), sezioni = pick(1), categorie = pick(2), commissioni = pick(3),
+    commissari = pick(4), candidati = pick(5), fasi = pick(6), criteri = pick(7), ente = pick(8, true);
+  if (coreFailures.length > 0) {
+    state.meta._loadErrors = state.meta._loadErrors || [];
+    state.meta._loadErrors.push(`risorse non caricate: ${coreFailures.join(', ')}`);
+  }
 
   state.concorsi = (concorsi || []).map(mapConcorso);
   state.sezioni = (sezioni || []).map(mapSezione);
