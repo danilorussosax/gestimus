@@ -130,7 +130,10 @@ const createBody = z.object({
   metodoMedia: z
     .preprocess(
       emptyToNull,
-      z.enum(['aritmetica', 'olimpica', 'winsorizzata', 'mediana', 'deviazione_standard']).nullable(),
+      // N185: 'deviazione_std' (NON 'deviazione_standard') per combaciare con le
+      // chiavi METODI_MEDIA / computeAggregate del frontend; con il valore
+      // sbagliato getMetodoMedia non lo trovava e ripiegava su media aritmetica.
+      z.enum(['aritmetica', 'olimpica', 'winsorizzata', 'mediana', 'deviazione_std']).nullable(),
     )
     .optional(),
   tempoMinuti: z.preprocess(emptyToNull, z.number().int().nonnegative().nullable()).optional(),

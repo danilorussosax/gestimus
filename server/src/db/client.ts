@@ -6,7 +6,10 @@ import * as schema from './schema.js';
 const { Pool } = pg;
 
 const appPool = new Pool({ connectionString: env.DATABASE_URL_APP });
-const superPool = new Pool({ connectionString: env.DATABASE_URL_SUPER });
+// superPool esportato: il job di cleanup ha bisogno di una connessione dedicata
+// per gli advisory lock di SESSIONE (lock/unlock devono avvenire sulla stessa
+// connessione, vedi N182).
+export const superPool = new Pool({ connectionString: env.DATABASE_URL_SUPER });
 
 // Affidabilità: un errore su un client idle del pool (es. connessione chiusa
 // dal DB) emette 'error' sul Pool. Senza listener node-postgres rilancia e
@@ -30,5 +33,7 @@ export async function pingDb(): Promise<void> {
 }
 
 export async function shutdownPools(): Promise<void> {
-  await Promise.all([appPool.end(), superPool.end()]);
+  // L225: allSettled → se la chiusura di un pool fallisce, l'altro viene chiuso
+  // comunque (Promise.all sarebbe fail-fast e lascerebbe un pool aperto).
+  await Promise.allSettled([appPool.end(), superPool.end()]);
 }

@@ -36,11 +36,14 @@ async function assertCanEditCandidatoFase(tx: any, req: FastifyRequest, reply: F
     .limit(1);
   if (rows.length === 0) { reply.notFound(); return false; }
   const faseId = rows[0]!.faseId;
+  // N189: FOR UPDATE anche su fasi → un admin non può cambiare
+  // fasi.commissioneId tra questo check e l'UPDATE del candidatoFase (TOCTOU).
   const faseRows = await tx
     .select({ commissioneId: fasi.commissioneId })
     .from(fasi)
     .where(eq(fasi.id, faseId))
-    .limit(1);
+    .limit(1)
+    .for('update');
   const commissioneId = faseRows[0]?.commissioneId;
   if (!commissioneId) {
     reply.code(403).send({ error: 'fase senza commissione assegnata: modifica admin-only' });

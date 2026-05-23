@@ -252,6 +252,12 @@ export const commissioniRoutes: FastifyPluginAsync = async (app) => {
               eq(commissioniCommissari.commissarioId, commissarioId),
             ),
           );
+        // N188: se il commissario rimosso era il presidente della commissione,
+        // azzera presidenteCommissarioId per non lasciare un riferimento dangling.
+        await tx
+          .update(commissioni)
+          .set({ presidenteCommissarioId: null, updatedAt: new Date() })
+          .where(and(eq(commissioni.id, id), eq(commissioni.presidenteCommissarioId, commissarioId)));
         await writeAudit(tx, req, 'commissione.remove_commissario', {
           targetType: 'commissione',
           targetId: id,

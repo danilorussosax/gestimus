@@ -336,8 +336,11 @@ function scomposizioneCompositeScore(row, fase) {
   const criteri = (getCriteri(fase) || []).slice().sort((a, b) => (b.peso || 0) - (a.peso || 0));
   if (criteri.length === 0) return null;
   const parts = criteri.map(c => {
-    const v = mediaCandidatoSuCriterio(row.valutazioni || [], fase, c.key);
-    // Padding a 10 cifre prima del punto + 6 dopo: serializzazione monotona.
+    // N187: i voti sono ≥ 0 (CHECK voto>=0) → v non-negativo. Clamp difensivo:
+    // toFixed(6).padStart(20,'0') su un valore negativo lascerebbe il segno '-'
+    // in mezzo agli zeri di padding, rompendo l'ordinamento lessicografico.
+    const v = Math.max(0, mediaCandidatoSuCriterio(row.valutazioni || [], fase, c.key));
+    // Larghezza fissa zero-padded → ordinamento lessicografico monotono.
     return v.toFixed(6).padStart(20, '0');
   });
   // Restituisce numero "fittizio": converto la composta in float monotono.

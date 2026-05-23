@@ -116,7 +116,7 @@ async function exportProtocolloPdf(concorso) {
       : [[t('admin.risultati.pdf_col_pos'), t('admin.risultati.pdf_col_num'), t('admin.risultati.pdf_col_cand'), t('admin.risultati.pdf_col_strumento'), t('admin.risultati.pdf_col_media')]];
     const body = rows.map((r, i) => {
       const baseRow = [
-        i + 1,
+        r.posizione_finale ?? (i + 1), // N186: posizione con tiebreak/ex aequo, non l'indice di riga
         String(r.cand?.numero_candidato || '').padStart(3, '0'),
         r.cand ? displayName(r.cand) : '—',
         r.cand?.strumento || '',

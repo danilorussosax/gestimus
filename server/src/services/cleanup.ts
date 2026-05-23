@@ -1,5 +1,5 @@
 import { and, eq, isNotNull, lte, sql } from 'drizzle-orm';
-import { dbSuper } from '../db/client.js';
+import { dbSuper, superPool } from '../db/client.js';
 import { platformAuditLog, tenants } from '../db/schema.js';
 import { backupTenant, pruneOldBackups } from './backup.js';
 import { env } from '../env.js';
@@ -39,18 +39,19 @@ export async function runTenantCleanup(): Promise<CleanupResult> {
     errors: [],
   };
 
-  // M15: prova ad acquisire il lock advisory a livello sessione. Se un'altra
-  // istanza lo detiene, saltiamo questo run (verrà ritentato al prossimo cron).
-  const lockRes = await dbSuper.execute(
-    sql`SELECT pg_try_advisory_lock(${CLEANUP_ADVISORY_LOCK_KEY}) AS acquired`,
-  );
-  const acquired = (lockRes as unknown as { rows?: Array<{ acquired: boolean }> }).rows?.[0]?.acquired
-    ?? (lockRes as unknown as Array<{ acquired: boolean }>)[0]?.acquired;
-  if (!acquired) {
-    return result; // un'altra istanza sta già eseguendo il cleanup
-  }
-
+  // M15 + N182: lock advisory di SESSIONE su una connessione DEDICATA. Acquire e
+  // unlock DEVONO avvenire sulla stessa connessione: con dbSuper (pool) l'unlock
+  // poteva finire su una connessione diversa → lock di sessione mai rilasciato.
+  const lockClient = await superPool.connect();
+  let acquired = false;
   try {
+    const lockRes = await lockClient.query<{ acquired: boolean }>(
+      'SELECT pg_try_advisory_lock($1) AS acquired',
+      [CLEANUP_ADVISORY_LOCK_KEY],
+    );
+    acquired = lockRes.rows[0]?.acquired === true;
+    if (!acquired) return result; // un'altra istanza sta già eseguendo il cleanup
+
     const candidates = await dbSuper
       .select()
       .from(tenants)
@@ -115,7 +116,12 @@ export async function runTenantCleanup(): Promise<CleanupResult> {
 
     return result;
   } finally {
-    // M15: rilascia sempre il lock advisory di sessione.
-    await dbSuper.execute(sql`SELECT pg_advisory_unlock(${CLEANUP_ADVISORY_LOCK_KEY})`);
+    // M15 + N182: unlock sulla STESSA connessione del lock, poi rilascia il client.
+    if (acquired) {
+      await lockClient
+        .query('SELECT pg_advisory_unlock($1)', [CLEANUP_ADVISORY_LOCK_KEY])
+        .catch(() => {});
+    }
+    lockClient.release();
   }
 }
