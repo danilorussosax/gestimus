@@ -1,4 +1,4 @@
-// Tab "Risultati" + export PDF/CSV + podio + protocollo.
+// Tab "Risultati" + export PDF/CSV + protocollo.
 // Estratto da js/views/admin.js (refactoring).
 
 import { db } from '../../db.js';
@@ -10,7 +10,6 @@ import { buildVerbaleBlock, bindVerbaleBlock } from './verbale.js';
 
 export function renderRisultati(root, concorso) {
   const fasi = db.fasiByConcorso(concorso.id);
-  const finale = fasi.find(f => f.ordine === fasi.length && f.stato === 'CONCLUSA');
 
   // Calcola la dimensione del gruppo (signature sezioni_ids) per ogni fase:
   // se il gruppo ha una sola sotto-fase la colonna "Esito" perde di
@@ -19,7 +18,6 @@ export function renderRisultati(root, concorso) {
   root.innerHTML = `
     <div class="space-y-6">
       ${fasi.map(f => buildFaseSummary(f, (groupSize.get(f.id) || 1) > 1)).join('')}
-      ${finale ? buildPodio(finale, concorso) : ''}
       ${buildVerbaleBlock(concorso)}
       <div class="flex justify-end gap-2">
         <button data-action="export-pdf" class="text-sm font-medium text-white bg-brand-500 hover:bg-brand-600 px-3.5 py-2 rounded-lg shadow-soft">${escapeHtml(t('admin.risultati.export_pdf'))}</button>
@@ -316,50 +314,6 @@ function buildFaseSummary(fase, showEsito = true) {
               `).join('')}
             </ul>
           </details>
-        </div>
-      ` : ''}
-    </div>
-  `;
-}
-
-function buildPodio(fase, concorso) {
-  // N124: ranking con risoluzione pareggi (on-the-fly).
-  const rows = rankFase(fase);
-  if (rows.length < 1) return '';
-
-  // Podio: tutti i candidati con posizione_finale ≤ 3 (gli ex aequo restano
-  // insieme; la posizione immediatamente successiva non viene assegnata).
-  const podiumRows = rows.filter(r => (r.posizione_finale ?? 999) <= 3);
-  const medalForPos = (pos) => pos === 1 ? '🏆' : pos === 2 ? '🥈' : pos === 3 ? '🥉' : '🎖';
-  const labelForPos = (pos) => pos === 1 ? t('admin.risultati.first_prize')
-                            : pos === 2 ? t('admin.risultati.second_prize')
-                            : pos === 3 ? t('admin.risultati.third_prize')
-                            : `${pos}° ${t('admin.risultati.podio_title') || 'posto'}`;
-  return `
-    <div class="bg-gradient-to-br from-amber-50 to-orange-100 border border-amber-200 rounded-2xl p-6">
-      <h3 class="font-bold text-slate-900 text-lg">${escapeHtml(t('admin.risultati.podio_title'))}</h3>
-      <p class="text-sm text-slate-600 mt-1">${escapeHtml(concorso.nome)}</p>
-      <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
-        ${podiumRows.map((r, i) => {
-          const pos = r.posizione_finale ?? (i + 1);
-          const isExAequo = !!r.ex_aequo_group;
-          return `
-          <div class="bg-white rounded-xl p-4 shadow-soft ${isExAequo ? 'border-2 border-violet-300' : 'border border-amber-200'}">
-            <div class="text-3xl">${medalForPos(pos)}</div>
-            <div class="text-xs text-slate-500 uppercase tracking-wider mt-2">${escapeHtml(labelForPos(pos))}${isExAequo ? ` <span class="text-violet-700 font-bold">· ex aequo</span>` : ''}</div>
-            <div class="font-semibold text-slate-900 mt-1">${escapeHtml(displayName(r.cand))}</div>
-            <div class="text-xs text-slate-500">${escapeHtml(r.cand?.strumento || '')}</div>
-            <div class="font-mono text-sm text-slate-700 mt-2">${escapeHtml(t('admin.risultati.media_label', { value: fmtVoto(r.media, getScala(fase)) }))}</div>
-          </div>
-        `;
-        }).join('')}
-      </div>
-      ${rows.length > 3 ? `
-        <div class="mt-4">
-          <h4 class="text-xs text-slate-500 uppercase tracking-wider">${escapeHtml(t('admin.risultati.menzioni'))}</h4>
-          <ul class="mt-1 text-sm text-slate-700 space-y-0.5">
-            ${rows.slice(3).map(r => `<li>· ${escapeHtml(displayName(r.cand))} <span class="text-slate-500">(${escapeHtml(r.cand?.strumento || '')}) — ${fmtVoto(r.media, getScala(fase))}</span></li>`).join('')}
-          </ul>
         </div>
       ` : ''}
     </div>
