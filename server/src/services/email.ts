@@ -14,6 +14,20 @@ type CachedTransporter = {
 const TRANSPORT_TTL_MS = 5 * 60 * 1000;
 const cache = new Map<string, CachedTransporter>();
 
+// M17: sweep periodico delle entry scadute. Senza, la Map cresce di una entry
+// per ogni tenant che invia email e le entry scadute vengono pulite solo
+// all'access. unref() evita di tenere vivo l'event loop.
+const sweepTimer = setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of cache) {
+    if (entry.expiresAt <= now) {
+      try { entry.transporter.close(); } catch { /* noop */ }
+      cache.delete(key);
+    }
+  }
+}, TRANSPORT_TTL_MS);
+sweepTimer.unref?.();
+
 function platformConfig(): SmtpConfigPlain | null {
   if (!env.PLATFORM_SMTP_HOST || !env.PLATFORM_SMTP_USER || !env.PLATFORM_SMTP_PASSWORD) {
     return null;
@@ -44,8 +58,12 @@ async function resolveTenantSmtp(tenantId: string): Promise<SmtpConfigPlain | nu
       return null;
     }
   }
-  // Compatibilità: se il campo è in chiaro (non dovrebbe succedere in prod)
-  return raw as SmtpConfigPlain;
+  // M16: niente fallback a SMTP in chiaro. Se il campo non è nel formato
+  // cifrato {v:1, iv, tag, data} lo consideriamo non valido (un breach del DB
+  // non deve esporre credenziali SMTP). Il config va riscritto via UI super-admin
+  // (che cifra con encryptSmtp).
+  console.error('[email] SMTP config non cifrato per tenant', tenantId, '— ignorato (riconfigurare via UI)');
+  return null;
 }
 
 async function getTransporter(tenantId: string | null): Promise<{ transporter: Transporter; from: string } | null> {

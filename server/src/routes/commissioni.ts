@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import {
+  commissari,
   commissioni,
   commissioniCategorie,
   commissioniCommissari,
@@ -167,6 +168,22 @@ export const commissioniRoutes: FastifyPluginAsync = async (app) => {
         .object({ id: uuid, commissarioId: uuid })
         .parse(req.params);
       return req.dbTx(async (tx) => {
+        // M11: commissario e commissione devono appartenere allo stesso concorso.
+        const com = await tx
+          .select({ concorsoId: commissioni.concorsoId })
+          .from(commissioni)
+          .where(eq(commissioni.id, id))
+          .limit(1);
+        if (com.length === 0) return reply.notFound();
+        const cms = await tx
+          .select({ concorsoId: commissari.concorsoId })
+          .from(commissari)
+          .where(eq(commissari.id, commissarioId))
+          .limit(1);
+        if (cms.length === 0) return reply.notFound();
+        if (cms[0]!.concorsoId !== com[0]!.concorsoId) {
+          return reply.badRequest('il commissario non appartiene al concorso della commissione');
+        }
         await tx
           .insert(commissioniCommissari)
           .values({ tenantId: req.tenant!.id, commissioneId: id, commissarioId })

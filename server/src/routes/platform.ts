@@ -30,6 +30,9 @@ const TENANT_STATES = ['attivo', 'sospeso', 'archiviato'] as const;
 const TENANT_PLANS = ['trial', 'starter', 'pro', 'ultra', 'ppe'] as const;
 const PLATFORM_SLUG = 'platform';
 
+// M4: cache breve dello snapshot /system (il campionamento CPU costa 200ms).
+let systemSnapshotCache: { data: unknown; expiresAt: number } | null = null;
+
 /**
  * Guard: la route esiste solo se la richiesta arriva dal subdomain super-admin.
  * Restituisce 404 per non rivelare l'esistenza dell'endpoint da altri sottodomini.
@@ -146,28 +149,31 @@ async function findTenant(id: string): Promise<TenantRow | undefined> {
 /**
  * Calcolo ricorsivo della dimensione di una directory in bytes.
  * Best-effort: se la dir non esiste o non è leggibile, ritorna 0.
+ * M13: I/O già non bloccante (fs/promises); processiamo le entry in parallelo
+ * con Promise.all così la latenza è O(profondità) anziché O(numero file).
  */
 async function dirSizeBytes(path: string): Promise<number> {
-  let total = 0;
   let entries;
   try {
     entries = await readdir(path, { withFileTypes: true });
   } catch {
     return 0;
   }
-  for (const e of entries) {
-    const full = join(path, e.name);
-    if (e.isDirectory()) {
-      total += await dirSizeBytes(full);
-    } else if (e.isFile()) {
-      try {
-        total += (await fsStat(full)).size;
-      } catch {
-        /* ignore */
+  const sizes = await Promise.all(
+    entries.map(async (e) => {
+      const full = join(path, e.name);
+      if (e.isDirectory()) return dirSizeBytes(full);
+      if (e.isFile()) {
+        try {
+          return (await fsStat(full)).size;
+        } catch {
+          return 0;
+        }
       }
-    }
-  }
-  return total;
+      return 0;
+    }),
+  );
+  return sizes.reduce((a, b) => a + b, 0);
 }
 
 function guardPlatformTenant(t: TenantRow, reply: FastifyReply): boolean {
@@ -690,6 +696,13 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
    * (include I/O wait): la card client lo mostra come "load di sistema".
    */
   app.get('/system', { preHandler: platformGuards }, async () => {
+    // M4: il campionamento CPU blocca la richiesta per 200ms. Cachiamo il
+    // risultato per 5s così richieste ravvicinate (polling dashboard ogni 5s,
+    // più tab aperti) non scommano blocchi né aprono la porta a un DoS leggero.
+    const now = Date.now();
+    if (systemSnapshotCache && systemSnapshotCache.expiresAt > now) {
+      return systemSnapshotCache.data;
+    }
     const SAMPLE_WINDOW_MS = 200;
     const startCpu = process.cpuUsage();
     await new Promise((resolve) => setTimeout(resolve, SAMPLE_WINDOW_MS));
@@ -701,7 +714,7 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
 
     const mem = process.memoryUsage();
     const [load1, load5, load15] = os.loadavg();
-    return {
+    const data = {
       memory: {
         rss: mem.rss,
         heapUsed: mem.heapUsed,
@@ -720,6 +733,8 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
       },
       uptimeSec: Math.floor(process.uptime()),
     };
+    systemSnapshotCache = { data, expiresAt: now + 5000 };
+    return data;
   });
 
   /**

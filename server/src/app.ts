@@ -1,4 +1,5 @@
 import Fastify, { type FastifyInstance } from 'fastify';
+import { ZodError } from 'zod';
 import sensible from '@fastify/sensible';
 import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
@@ -43,6 +44,24 @@ export async function createApp(): Promise<FastifyInstance> {
           : undefined,
     },
     trustProxy: true,
+  });
+
+  // M3: error handler globale. Le route usano sia .parse() (throw) sia
+  // .safeParse(); per quelle che throwano una ZodError, restituiamo un 400
+  // generico senza leakare i nomi dei campi interni dello schema. Gli errori
+  // con statusCode (es. da @fastify/sensible) sono propagati invariati.
+  app.setErrorHandler((err, req, reply) => {
+    if (err instanceof ZodError) {
+      req.log.info({ issues: err.issues }, 'validazione input fallita');
+      return reply.code(400).send({ error: 'richiesta non valida' });
+    }
+    const e = err as { statusCode?: number; message?: string };
+    const status = e.statusCode ?? 500;
+    if (status >= 500) {
+      req.log.error({ err }, 'errore interno');
+      return reply.code(status).send({ error: 'errore interno del server' });
+    }
+    return reply.code(status).send({ error: e.message ?? 'errore' });
   });
 
   await app.register(sensible);

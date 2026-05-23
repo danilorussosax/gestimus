@@ -110,6 +110,8 @@ export const sessions = pgTable(
   (t) => [
     index('idx_sessions_account').on(t.accountId),
     index('idx_sessions_expires').on(t.expiresAt),
+    // M19: l'auth middleware filtra le sessioni per tenant ad ogni richiesta.
+    index('idx_sessions_tenant').on(t.tenantId),
   ],
 );
 
@@ -136,6 +138,8 @@ export const auditLog = pgTable(
   (t) => [
     index('idx_audit_tenant_time').on(t.tenantId, t.createdAt),
     index('idx_audit_action').on(t.action),
+    // M20: query per attore (chi ha fatto cosa).
+    index('idx_audit_actor').on(t.actorAccountId),
   ],
 );
 

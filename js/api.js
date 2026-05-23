@@ -19,6 +19,14 @@ export class ApiError extends Error {
   }
 }
 
+// M9: timeout per richiesta + retry con backoff su errori transitori.
+const REQUEST_TIMEOUT_MS = 30_000;
+const MAX_RETRIES = 2; // 1 tentativo + 2 retry
+const RETRY_BASE_MS = 400;
+// Solo i metodi idempotenti vengono ritentati: ripetere una POST non-idempotente
+// rischia doppie scritture.
+const IDEMPOTENT = new Set(['GET', 'HEAD', 'PUT', 'DELETE']);
+
 async function request(method, path, { body, query, multipart } = {}) {
   let url = path.startsWith('/') ? path : `${API_BASE}/${path}`;
   if (query) {
@@ -39,12 +47,40 @@ async function request(method, path, { body, query, multipart } = {}) {
     init.body = JSON.stringify(body);
   }
 
-  const res = await fetch(url, init);
-  if (res.status === 204) return null;
-  const ct = res.headers.get('content-type') || '';
-  const payload = ct.includes('application/json') ? await res.json().catch(() => null) : await res.text();
-  if (!res.ok) throw new ApiError(res.status, payload, url);
-  return payload;
+  const canRetry = IDEMPOTENT.has(method) && !multipart;
+  let lastErr;
+  for (let attempt = 0; attempt <= (canRetry ? MAX_RETRIES : 0); attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const res = await fetch(url, { ...init, signal: controller.signal });
+      clearTimeout(timer);
+      if (res.status === 204) return null;
+      const ct = res.headers.get('content-type') || '';
+      const payload = ct.includes('application/json') ? await res.json().catch(() => null) : await res.text();
+      if (!res.ok) {
+        // Retry solo su 502/503/504 (transitori), non su 4xx (errori client).
+        if (canRetry && [502, 503, 504].includes(res.status) && attempt < MAX_RETRIES) {
+          lastErr = new ApiError(res.status, payload, url);
+          await new Promise((r) => setTimeout(r, RETRY_BASE_MS * 2 ** attempt));
+          continue;
+        }
+        throw new ApiError(res.status, payload, url);
+      }
+      return payload;
+    } catch (err) {
+      clearTimeout(timer);
+      // Errori di rete / abort (timeout) sono ritentabili sui metodi idempotenti.
+      const isNetwork = err.name === 'AbortError' || err instanceof TypeError;
+      if (canRetry && isNetwork && attempt < MAX_RETRIES) {
+        lastErr = err;
+        await new Promise((r) => setTimeout(r, RETRY_BASE_MS * 2 ** attempt));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
 }
 
 export const api = {

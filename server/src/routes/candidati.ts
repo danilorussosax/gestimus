@@ -41,7 +41,10 @@ const uuid = z.string().uuid();
 const emptyToNull = <T>(v: T) => (v === '' ? null : v);
 const createBody = z.object({
   concorsoId: uuid,
-  numeroCandidato: z.number().int().positive(),
+  // M6: opzionale. Se omesso, il server calcola MAX(numero)+1 nella transazione
+  // (con lock sulle righe del concorso) per evitare numeri duplicati su creazioni
+  // rapide concorrenti. Il client non deve più calcolarlo.
+  numeroCandidato: z.number().int().positive().optional(),
   nome: z.string().min(1).max(255),
   cognome: z.preprocess(emptyToNull, z.string().max(255).nullable()).optional(),
   strumento: z.string().min(1).max(255),
@@ -108,10 +111,22 @@ export const candidatiRoutes: FastifyPluginAsync = async (app) => {
         const cat = await tx.select({ sezioneId: categorie.sezioneId }).from(categorie).where(eq(categorie.id, data.categoriaId)).limit(1);
         if (cat.length > 0) data.sezioneId = cat[0]!.sezioneId;
       }
+      // M6: numero candidato calcolato server-side se non fornito. MAX+1 nella
+      // stessa transazione; il lock FOR UPDATE sulle righe del concorso serializza
+      // creazioni concorrenti. L'unique index resta come rete di sicurezza (23505).
+      if (data.numeroCandidato == null) {
+        const existing = await tx
+          .select({ numero: candidati.numeroCandidato })
+          .from(candidati)
+          .where(eq(candidati.concorsoId, data.concorsoId))
+          .for('update');
+        const maxNum = existing.reduce((m: number, r: { numero: number }) => Math.max(m, r.numero), 0);
+        data.numeroCandidato = maxNum + 1;
+      }
       try {
         const [created] = await tx
           .insert(candidati)
-          .values({ tenantId: req.tenant!.id, ...data })
+          .values({ tenantId: req.tenant!.id, ...data, numeroCandidato: data.numeroCandidato })
           .returning();
         await writeAudit(tx, req, 'candidato.create', {
           targetType: 'candidato',

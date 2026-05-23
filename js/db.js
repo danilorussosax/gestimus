@@ -527,15 +527,18 @@ export const db = {
     };
   },
 
-  // Sincrono per compat con il legacy app.js che chiama `db.logout()` senza await,
-  // poi fa subito `render()`. Lo state va svuotato PRIMA del return, l'HTTP è
-  // fire-and-forget (la sessione cookie verrà invalidata server-side).
-  logout() {
+  // M7: la logout ora è async e attende l'invalidazione server-side della
+  // sessione PRIMA di pulire lo stato locale. Senza l'await, un re-login
+  // immediato poteva avvenire mentre la vecchia sessione era ancora valida.
+  // Se la POST fallisce (offline), procediamo comunque a pulire il client.
+  async logout() {
+    try {
+      await api.post('/auth/logout', {});
+    } catch { /* best-effort: offline o sessione già scaduta */ }
     pb.authStore.clear();
     state = empty();
     saveMeta();
     notify();
-    api.post('/auth/logout', {}).catch(() => { /* best-effort */ });
   },
 
   // ---------- Audit log ----------
@@ -778,15 +781,20 @@ export const db = {
       await sync('sezioni', current.sezioni_ids, patch.sezioni_ids);
       await sync('categorie', current.categorie_ids, patch.categorie_ids);
     } catch (err) {
-      // Forziamo un reload del record dal server per riallineare lo state alla
-      // verità del backend, anche dopo una sync parziale.
+      // M21: dopo una sync parziale, riallineamo lo state alla verità del
+      // backend ricaricando l'INTERA collezione commissioni (non solo il
+      // record toccato: le relazioni potrebbero essere cambiate altrove).
+      // Se anche questo reload fallisce, segnaliamo lo stato potenzialmente
+      // stantio così la UI può forzare un refresh completo.
       try {
-        const refreshed = await api.get(`/api/commissioni/${id}`);
-        const c = mapCommissione(refreshed);
-        const i = state.commissioni.findIndex((x) => x.id === id);
-        if (i >= 0) state.commissioni[i] = c;
+        const list = await api.get('/api/commissioni');
+        state.commissioni = (list || []).map(mapCommissione);
         notify();
-      } catch { /* network down: state resta com'era */ }
+      } catch {
+        state.meta._loadErrors = state.meta._loadErrors || [];
+        state.meta._loadErrors.push('commissioni potenzialmente non sincronizzate (reload fallito)');
+        notify();
+      }
       throw err;
     }
 
@@ -976,10 +984,10 @@ export const db = {
     } = opts;
     const isGruppoFlag = tipo === 'gruppo' || tipo === 'orchestra';
     const tipoGruppoNorm = tipo === 'orchestra' ? 'orchestra' : (isGruppoFlag ? (tipo_gruppo || 'ensemble') : null);
-    const numero = Math.max(0, ...state.candidati.filter((c) => c.concorso_id === concorso_id).map((c) => c.numero_candidato)) + 1;
+    // M6: numeroCandidato è calcolato dal server (MAX+1 in transazione) per
+    // evitare duplicati su creazioni rapide. Non lo inviamo più dal client.
     const r = await api.post('/api/candidati', {
       concorsoId: concorso_id,
-      numeroCandidato: numero,
       nome, cognome, strumento,
       dataNascita: data_nascita || undefined,
       nazionalita,
@@ -1278,14 +1286,18 @@ export const db = {
   },
 
   async sorteggiaFase(faseId, seed) {
-    const s = Number(seed);
-    if (!Number.isFinite(s)) throw new Error('sorteggiaFase: seed numerico richiesto');
-    await api.post(`/api/fasi/${faseId}/sorteggio`, { seed: Math.trunc(s) });
+    // M8: se il chiamante non passa un seed (caso comune dal pannello fasi),
+    // ne generiamo uno casuale qui. Restituiamo {seed, count} dalla risposta
+    // server così il toast può mostrare il seed effettivo (prima era undefined).
+    let s = Number(seed);
+    if (!Number.isFinite(s)) s = Math.floor(Math.random() * 0xffffffff);
+    const res = await api.post(`/api/fasi/${faseId}/sorteggio`, { seed: Math.trunc(s) });
     // Ricarica candidati_fase di questa fase per riflettere le nuove posizioni
     const list = await api.get('/api/candidati-fase', { faseId });
     state.candidati_fase = state.candidati_fase.filter((cf) => cf.fase_id !== faseId);
     state.candidati_fase.push(...(list || []).map(mapCandidatoFase));
     notify();
+    return res ?? { seed: Math.trunc(s) };
   },
 
   /**

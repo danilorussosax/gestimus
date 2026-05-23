@@ -12,7 +12,15 @@ type ReqSample = {
 };
 
 const WINDOW_MS = 60_000;
+// M18: deque con head-pointer invece di Array.shift() (O(n)). pruneOld avanza
+// `head`; quando l'area morta in testa supera metà array, compattiamo una sola
+// volta. Ammortizzato O(1) per richiesta anche sotto carico.
 const recentRequests: ReqSample[] = [];
+let head = 0;
+
+function liveSamples(): ReqSample[] {
+  return recentRequests.slice(head);
+}
 
 // hrTime/Date.now sentinel posto sulla request dal hook onRequest, letto
 // dall'onResponse per calcolare la latenza con precisione monotonic-clock.
@@ -23,8 +31,14 @@ declare module 'fastify' {
 }
 
 function pruneOld(now: number): void {
-  while (recentRequests.length > 0 && now - recentRequests[0]!.ts > WINDOW_MS) {
-    recentRequests.shift();
+  while (head < recentRequests.length && now - recentRequests[head]!.ts > WINDOW_MS) {
+    head++;
+  }
+  // Compatta quando l'area morta in testa è grande: evita crescita illimitata
+  // dell'array sottostante mantenendo lo shift ammortizzato O(1).
+  if (head > 1024 && head * 2 > recentRequests.length) {
+    recentRequests.splice(0, head);
+    head = 0;
   }
 }
 
@@ -71,7 +85,7 @@ export function getRuntimeMetrics(): Record<string, TenantRuntimeStats> {
   const now = Date.now();
   pruneOld(now);
   const byTenant = new Map<string, ReqSample[]>();
-  for (const r of recentRequests) {
+  for (const r of liveSamples()) {
     const arr = byTenant.get(r.tenantId) ?? [];
     arr.push(r);
     byTenant.set(r.tenantId, arr);
@@ -79,8 +93,10 @@ export function getRuntimeMetrics(): Record<string, TenantRuntimeStats> {
   const out: Record<string, TenantRuntimeStats> = {};
   for (const [tid, samples] of byTenant) {
     const latencies = samples.map((s) => s.latencyMs).sort((a, b) => a - b);
-    const idx50 = Math.floor(latencies.length * 0.5);
-    const idx95 = Math.floor(latencies.length * 0.95);
+    // L3: nearest-rank con indice interpolato basso. Per len=4, p50 → idx 1.
+    const pIdx = (p: number) => Math.max(0, Math.floor((latencies.length - 1) * p));
+    const idx50 = pIdx(0.5);
+    const idx95 = pIdx(0.95);
     const errors = samples.filter((s) => s.statusCode >= 500).length;
     const lastTs = samples[samples.length - 1]!.ts;
     out[tid] = {

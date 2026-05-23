@@ -367,8 +367,8 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   });
 }
 
-$('#logout-btn').addEventListener('click', () => {
-  db.logout(); // clears authStore + role meta
+$('#logout-btn').addEventListener('click', async () => {
+  await db.logout(); // invalida la sessione server-side, poi pulisce authStore + role meta
   location.hash = '#/';
   render(); // will land on login since authStore.isValid=false
 });
