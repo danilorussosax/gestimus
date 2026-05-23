@@ -9,7 +9,7 @@
 [![CI](https://github.com/danilorussosax/gestimus/actions/workflows/ci.yml/badge.svg)](https://github.com/danilorussosax/gestimus/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/Node-22%20LTS-339933)
 ![Fastify](https://img.shields.io/badge/Fastify-5-202020)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791)
+![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-336791)
 ![Drizzle](https://img.shields.io/badge/Drizzle%20ORM-strict%20TS-c5f74f)
 ![License](https://img.shields.io/badge/license-private-lightgrey)
 
