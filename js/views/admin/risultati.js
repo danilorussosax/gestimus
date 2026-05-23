@@ -3,9 +3,9 @@
 
 import { db } from '../../db.js';
 import { escapeHtml, toast, displayName, ageFromDate } from '../../utils.js';
-import { mediaCandidato, getScala, fmtVoto } from '../../scoring.js';
+import { getScala, fmtVoto } from '../../scoring.js';
 import { t } from '../../i18n.js';
-import { iconaPerSezione } from './common.js';
+import { iconaPerSezione, rankFase } from './common.js';
 import { buildVerbaleBlock, bindVerbaleBlock } from './verbale.js';
 
 export function renderRisultati(root, concorso) {
@@ -87,12 +87,8 @@ async function exportProtocolloPdf(concorso) {
     const cfs = db.candidatiFaseList(fase.id);
     if (cfs.length === 0) continue;
     const scala = getScala(fase);
-    const rows = cfs.map(cf => {
-      const cand = db.state.candidati.find(c => c.id === cf.candidato_id);
-      const vs = db.valutazioniByCandidatoFase(cf.id);
-      const media = mediaCandidato(vs, fase);
-      return { cand, cf, media };
-    }).sort((a,b) => b.media - a.media);
+    // N124: ranking con risoluzione pareggi (anche nel PDF protocollo).
+    const rows = rankFase(fase, cfs);
 
     // Header fase
     if (cursorY > 720) { doc.addPage(); cursorY = margin; }
@@ -251,23 +247,9 @@ function buildFaseSummary(fase, showEsito = true) {
       <p class="text-sm text-slate-500 italic mt-1">${escapeHtml(t('admin.risultati.fase_not_started'))}</p>
     </div>
   `;
-  const hasFrozen = fase.stato === 'CONCLUSA' && cfs.some(cf => cf.posizione_finale != null);
-  let rows;
-  if (hasFrozen) {
-    rows = cfs.map(cf => {
-      const cand = db.state.candidati.find(c => c.id === cf.candidato_id);
-      const vs = db.valutazioniByCandidatoFase(cf.id);
-      const media = mediaCandidato(vs, fase);
-      return { cf, cand, media, posizione_finale: cf.posizione_finale ?? 999, tiebreak_log: cf.tiebreak_log || [], ex_aequo_group: cf.ex_aequo_group };
-    }).sort((a, b) => a.posizione_finale - b.posizione_finale);
-  } else {
-    rows = cfs.map(cf => {
-      const cand = db.state.candidati.find(c => c.id === cf.candidato_id);
-      const vs = db.valutazioniByCandidatoFase(cf.id);
-      const media = mediaCandidato(vs, fase);
-      return { cf, cand, media, posizione_finale: null, tiebreak_log: [], ex_aequo_group: null };
-    }).sort((a,b) => b.media - a.media);
-  }
+  // N124: ranking con risoluzione pareggi, calcolato on-the-fly per ogni fase
+  // (le fasi CONCLUSA hanno voti congelati → risultato stabile).
+  const rows = rankFase(fase, cfs);
   // Conteggio spareggi e ex aequo per il sub-header informativo.
   const tiebreakCount = rows.filter(r => Array.isArray(r.tiebreak_log) && r.tiebreak_log.length > 1).length;
   const exAequoGroups = new Set(rows.filter(r => r.ex_aequo_group).map(r => r.ex_aequo_group));
@@ -294,7 +276,7 @@ function buildFaseSummary(fase, showEsito = true) {
           </thead>
           <tbody class="divide-y divide-slate-100">
             ${rows.map((r, i) => {
-              const pos = hasFrozen ? r.posizione_finale : (i + 1);
+              const pos = r.posizione_finale ?? (i + 1);
               const isExAequo = !!r.ex_aequo_group;
               const hadTiebreak = Array.isArray(r.tiebreak_log) && r.tiebreak_log.length > 1;
               const tbTooltip = hadTiebreak
@@ -341,26 +323,13 @@ function buildFaseSummary(fase, showEsito = true) {
 }
 
 function buildPodio(fase, concorso) {
-  const cfs = db.candidatiFaseList(fase.id);
-  const hasFrozen = fase.stato === 'CONCLUSA' && cfs.some(cf => cf.posizione_finale != null);
-  const rows = cfs.map(cf => {
-    const cand = db.state.candidati.find(c => c.id === cf.candidato_id);
-    const vs = db.valutazioniByCandidatoFase(cf.id);
-    return { cand, media: mediaCandidato(vs, fase), posizione_finale: cf.posizione_finale, ex_aequo_group: cf.ex_aequo_group };
-  });
-  if (hasFrozen) {
-    rows.sort((a, b) => (a.posizione_finale ?? 999) - (b.posizione_finale ?? 999));
-  } else {
-    rows.sort((a,b) => b.media - a.media);
-  }
-
+  // N124: ranking con risoluzione pareggi (on-the-fly).
+  const rows = rankFase(fase);
   if (rows.length < 1) return '';
 
-  // Selezione podio: mostra tutti i candidati con posizione_finale ≤ 3
-  // (così gli ex aequo restano insieme). Per la vista legacy, top 3 fissi.
-  const podiumRows = hasFrozen
-    ? rows.filter(r => (r.posizione_finale ?? 999) <= 3)
-    : rows.slice(0, 3);
+  // Podio: tutti i candidati con posizione_finale ≤ 3 (gli ex aequo restano
+  // insieme; la posizione immediatamente successiva non viene assegnata).
+  const podiumRows = rows.filter(r => (r.posizione_finale ?? 999) <= 3);
   const medalForPos = (pos) => pos === 1 ? '🏆' : pos === 2 ? '🥈' : pos === 3 ? '🥉' : '🎖';
   const labelForPos = (pos) => pos === 1 ? t('admin.risultati.first_prize')
                             : pos === 2 ? t('admin.risultati.second_prize')
@@ -372,7 +341,7 @@ function buildPodio(fase, concorso) {
       <p class="text-sm text-slate-600 mt-1">${escapeHtml(concorso.nome)}</p>
       <div class="mt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
         ${podiumRows.map((r, i) => {
-          const pos = hasFrozen ? (r.posizione_finale ?? (i + 1)) : (i + 1);
+          const pos = r.posizione_finale ?? (i + 1);
           const isExAequo = !!r.ex_aequo_group;
           return `
           <div class="bg-white rounded-xl p-4 shadow-soft ${isExAequo ? 'border-2 border-violet-300' : 'border border-amber-200'}">
@@ -380,7 +349,7 @@ function buildPodio(fase, concorso) {
             <div class="text-xs text-slate-500 uppercase tracking-wider mt-2">${escapeHtml(labelForPos(pos))}${isExAequo ? ` <span class="text-violet-700 font-bold">· ex aequo</span>` : ''}</div>
             <div class="font-semibold text-slate-900 mt-1">${escapeHtml(displayName(r.cand))}</div>
             <div class="text-xs text-slate-500">${escapeHtml(r.cand?.strumento || '')}</div>
-            <div class="font-mono text-sm text-slate-700 mt-2">${escapeHtml(t('admin.risultati.media_label', { value: r.media.toFixed(2) }))}</div>
+            <div class="font-mono text-sm text-slate-700 mt-2">${escapeHtml(t('admin.risultati.media_label', { value: fmtVoto(r.media, getScala(fase)) }))}</div>
           </div>
         `;
         }).join('')}
@@ -389,7 +358,7 @@ function buildPodio(fase, concorso) {
         <div class="mt-4">
           <h4 class="text-xs text-slate-500 uppercase tracking-wider">${escapeHtml(t('admin.risultati.menzioni'))}</h4>
           <ul class="mt-1 text-sm text-slate-700 space-y-0.5">
-            ${rows.slice(3).map(r => `<li>· ${escapeHtml(displayName(r.cand))} <span class="text-slate-500">(${escapeHtml(r.cand?.strumento || '')}) — ${r.media.toFixed(2)}</span></li>`).join('')}
+            ${rows.slice(3).map(r => `<li>· ${escapeHtml(displayName(r.cand))} <span class="text-slate-500">(${escapeHtml(r.cand?.strumento || '')}) — ${fmtVoto(r.media, getScala(fase))}</span></li>`).join('')}
           </ul>
         </div>
       ` : ''}
@@ -408,11 +377,8 @@ function exportCsv(concorso) {
   const lines = ['Fase,Posizione,Numero,Nome,Cognome,Strumento,Nazionalita,Eta,Media,Esito'];
   fasi.forEach(fase => {
     const cfs = db.candidatiFaseList(fase.id);
-    const rows = cfs.map(cf => {
-      const cand = db.state.candidati.find(c => c.id === cf.candidato_id);
-      const vs = db.valutazioniByCandidatoFase(cf.id);
-      return { cf, cand, media: mediaCandidato(vs, fase) };
-    }).sort((a,b) => b.media - a.media);
+    // N124/M163: export CSV con la stessa risoluzione pareggi della UI.
+    const rows = rankFase(fase, cfs);
     rows.forEach((r, i) => {
       const esito = r.cf.stato !== 'COMPLETATO' ? 'in attesa'
         : r.cf.ammesso_prossima_fase ? 'PROMOSSO' : 'ELIMINATO';
@@ -420,7 +386,7 @@ function exportCsv(concorso) {
       const media = Number.isFinite(r.media) ? r.media.toFixed(2) : '0.00';
       lines.push([
         csvField(fase.nome),
-        i + 1,
+        r.posizione_finale ?? (i + 1),
         r.cand?.numero_candidato ?? '',
         csvField(r.cand?.nome),
         csvField(r.cand?.cognome),

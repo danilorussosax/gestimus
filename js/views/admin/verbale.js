@@ -7,6 +7,7 @@ import { escapeHtml, toast, confirmDialog, displayName } from '../../utils.js';
 import { fmtVoto, getScala, getMetodoMedia, getModoValutazione, mediaCandidato, METODI_MEDIA } from '../../scoring.js';
 import { icon } from '../../icons.js';
 import { t } from '../../i18n.js';
+import { rankFase } from './common.js';
 
 // Helper persi durante lo split di admin.js — riportati qui per evitare ReferenceError
 // in renderRisultati (usa buildVerbaleBlock) e in exportVerbalePdf.
@@ -137,11 +138,8 @@ function buildFaseClassifica(fase, mode = 'all') {
   const cfs = db.candidatiFaseList(fase.id);
   if (cfs.length === 0) return '—';
   const scala = getScala(fase);
-  const rows = cfs.map(cf => {
-    const cand = db.state.candidati.find(c => c.id === cf.candidato_id);
-    const vs = db.valutazioniByCandidatoFase(cf.id);
-    return { cf, cand, media: mediaCandidato(vs, fase) };
-  }).sort((a,b) => b.media - a.media);
+  // N124: classifica con risoluzione pareggi (coerente con la tab Risultati).
+  const rows = rankFase(fase, cfs);
   const filtered = mode === 'promossi'
     ? rows.filter(r => r.cf.stato === 'COMPLETATO' && r.cf.ammesso_prossima_fase)
     : mode === 'eliminati'
@@ -152,7 +150,7 @@ function buildFaseClassifica(fase, mode = 'all') {
     const esito = r.cf.stato !== 'COMPLETATO' ? t('admin.risultati.in_attesa')
       : r.cf.ammesso_prossima_fase ? t('admin.risultati.promosso')
       : t('admin.risultati.eliminato');
-    const base = `${i+1}. ${displayName(r.cand)} — ${fmtVoto(r.media, scala)}/${scala}`;
+    const base = `${r.posizione_finale ?? (i + 1)}. ${displayName(r.cand)} — ${fmtVoto(r.media, scala)}/${scala}`;
     return mode === 'all' ? `${base} — ${esito}` : base;
   }).join('\n');
 }

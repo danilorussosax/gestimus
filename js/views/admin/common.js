@@ -2,6 +2,31 @@
 
 import { escapeHtml } from '../../utils.js';
 import { t } from '../../i18n.js';
+import { db } from '../../db.js';
+import { mediaCandidato } from '../../scoring.js';
+import { rankWithTieBreak } from '../../tiebreak.js';
+
+// N124: ranking di una fase con risoluzione pareggi, condiviso tra la tab
+// Risultati e il Verbale. Il motore rankWithTieBreak era esportato ma mai
+// chiamato → i pareggi non venivano risolti (ordine per sola media). Calcoliamo
+// on-the-fly dai voti: le fasi CONCLUSA hanno voti congelati dal trigger DB,
+// quindi il risultato è stabile e riproducibile (niente bisogno di persistere
+// posizione_finale). Restituisce righe { cf, cand, media, valutazioni,
+// posizione_finale, tiebreak_log, ex_aequo_group } ordinate per posizione.
+export function rankFase(fase, cfs = null) {
+  const list = cfs || db.candidatiFaseList(fase.id);
+  const rows = list.map((cf) => {
+    const cand = db.state.candidati.find((c) => c.id === cf.candidato_id);
+    const vs = db.valutazioniByCandidatoFase(cf.id);
+    return { cf, cand, media: mediaCandidato(vs, fase), valutazioni: vs };
+  });
+  return rankWithTieBreak(rows, fase, {
+    presidenteId: db.getPresidenteForFase(fase)?.id || null,
+    allCandidati: db.state.candidati,
+    getMembri: (cid) => db.membriGruppo(cid),
+    strategy: fase.tiebreak_strategy,
+  });
+}
 
 /**
  * Emoji per categoria strumentale, dedotta euristicamente dal nome della
