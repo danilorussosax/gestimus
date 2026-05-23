@@ -565,6 +565,19 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
     return req.dbTx(async (tx) => {
       if (!await assertCanManageFase(tx, req, reply, id)) return;
+      // N141: non ri-mettere in pausa un timer già in pausa (o mai avviato):
+      // sovrascrivere timerPausedAt falserebbe il calcolo della durata pausa al
+      // resume, spostando timerStartedAt. FOR UPDATE per serializzare pause
+      // concorrenti.
+      const cur = await tx
+        .select({ timerStartedAt: fasi.timerStartedAt, timerPausedAt: fasi.timerPausedAt })
+        .from(fasi)
+        .where(eq(fasi.id, id))
+        .limit(1)
+        .for('update');
+      if (cur.length === 0) return reply.notFound();
+      if (!cur[0]!.timerStartedAt) return reply.code(409).send({ error: 'timer non avviato' });
+      if (cur[0]!.timerPausedAt) return reply.code(409).send({ error: 'timer già in pausa' });
       const [updated] = await tx
         .update(fasi)
         .set({ timerPausedAt: new Date(), updatedAt: new Date() })
@@ -590,7 +603,9 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
       if (!fase.timerPausedAt || !fase.timerStartedAt) {
         return reply.code(409).send({ error: 'timer non in pausa' });
       }
-      const pauseDuration = Date.now() - fase.timerPausedAt.getTime();
+      // L178: clamp a 0 — un salto NTP all'indietro darebbe pauseDuration
+      // negativo, spostando timerStartedAt indietro (timer che "guadagna" tempo).
+      const pauseDuration = Math.max(0, Date.now() - fase.timerPausedAt.getTime());
       const newStartedAt = new Date(fase.timerStartedAt.getTime() + pauseDuration);
       const [updated] = await tx
         .update(fasi)

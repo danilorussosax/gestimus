@@ -3,21 +3,35 @@ import { env } from '../env.js';
 
 type Listener = (payload: unknown) => void;
 
+const INITIAL_RECONNECT_MS = 1000;
+const MAX_RECONNECT_MS = 30_000;
+
 let client: pg.Client | null = null;
 const subscribers = new Map<string, Set<Listener>>();
 let reconnectTimer: NodeJS.Timeout | null = null;
+// N127: settato prima di smontare timer/subscribers in stopRealtimeHub, così un
+// connect() in volo (lanciato da un reconnect schedulato) sa di doversi
+// auto-chiudere invece di lasciare un client orfano dopo lo shutdown.
+let stopping = false;
+// M148: backoff esponenziale tra i tentativi di riconnessione (no thundering
+// herd a 2s fissi); resettato a INITIAL su connessione riuscita.
+let reconnectDelay = INITIAL_RECONNECT_MS;
 
 async function connect(): Promise<void> {
-  client = new pg.Client({ connectionString: env.DATABASE_URL_SUPER });
-  client.on('error', (err) => {
+  // N126: si costruisce un client LOCALE e si assegna `client` SOLO dopo una
+  // connect() riuscita. Prima `client` veniva assegnato subito: se connect()
+  // falliva restava un client disconnesso ma truthy → `if (client) return` in
+  // start/reconnect bloccava per sempre ogni nuovo tentativo (hub morto).
+  const c = new pg.Client({ connectionString: env.DATABASE_URL_SUPER });
+  c.on('error', (err) => {
     console.error('[realtime] LISTEN client error:', err.message);
     scheduleReconnect();
   });
-  client.on('end', () => {
+  c.on('end', () => {
     console.warn('[realtime] LISTEN client closed, will reconnect');
     scheduleReconnect();
   });
-  client.on('notification', (msg) => {
+  c.on('notification', (msg) => {
     if (!msg.channel) return;
     const subs = subscribers.get(msg.channel);
     if (!subs || subs.size === 0) return;
@@ -35,7 +49,15 @@ async function connect(): Promise<void> {
       }
     }
   });
-  await client.connect();
+  await c.connect();
+  // N127: se nel frattempo è stato richiesto lo stop, chiudiamo subito il client
+  // appena creato invece di pubblicarlo (resterebbe orfano dopo lo shutdown).
+  if (stopping) {
+    await c.end().catch(() => {});
+    return;
+  }
+  client = c;
+  reconnectDelay = INITIAL_RECONNECT_MS;
   // Re-LISTEN ai canali esistenti (in caso di reconnect)
   for (const channel of subscribers.keys()) {
     await client.query(`LISTEN "${channel}"`);
@@ -43,9 +65,12 @@ async function connect(): Promise<void> {
 }
 
 function scheduleReconnect() {
-  if (reconnectTimer) return;
+  if (stopping || reconnectTimer) return;
+  const delay = reconnectDelay;
+  reconnectDelay = Math.min(reconnectDelay * 2, MAX_RECONNECT_MS);
   reconnectTimer = setTimeout(async () => {
     reconnectTimer = null;
+    if (stopping) return;
     try {
       client = null;
       await connect();
@@ -53,15 +78,18 @@ function scheduleReconnect() {
       console.error('[realtime] reconnect failed:', err);
       scheduleReconnect();
     }
-  }, 2000);
+  }, delay);
 }
 
 export async function startRealtimeHub(): Promise<void> {
+  stopping = false;
+  reconnectDelay = INITIAL_RECONNECT_MS;
   if (client) return;
   await connect();
 }
 
 export async function stopRealtimeHub(): Promise<void> {
+  stopping = true;
   if (reconnectTimer) clearTimeout(reconnectTimer);
   reconnectTimer = null;
   subscribers.clear();

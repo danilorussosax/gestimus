@@ -230,8 +230,11 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
         touched.accounts += acc.length;
       }
 
+      // N137 (GDPR Art. 17): NON loggare i selettori nel payload (email,
+      // commissarioId, candidatoId, iscrizioneId) — manterrebbero l'identità
+      // della persona nell'audit dopo l'oblio. Logghiamo solo i conteggi.
       await writeAudit(tx, req, 'privacy.erase', {
-        payload: { ...parsed.data, touched },
+        payload: { touched },
       });
 
       return { ok: true, touched };

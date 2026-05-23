@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { candidatiFase, commissioni, commissioniCommissari, fasi } from '../db/schema.js';
+import { candidati, candidatiFase, commissioni, commissioniCommissari, fasi } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { parsePagination } from '../lib/pagination.js';
@@ -96,6 +96,21 @@ export const candidatiFaseRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) return reply.badRequest(parsed.error.message);
     return req.dbTx(async (tx) => {
       try {
+        // N140: fase e candidato devono appartenere al tenant (le FK non sono
+        // soggette a RLS; il trigger di coerenza N114 è la rete di sicurezza a
+        // livello DB, qui diamo un 404 pulito invece di un errore di trigger).
+        const faseOk = await tx
+          .select({ id: fasi.id })
+          .from(fasi)
+          .where(eq(fasi.id, parsed.data.faseId))
+          .limit(1);
+        if (faseOk.length === 0) return reply.badRequest('fase non trovata');
+        const candOk = await tx
+          .select({ id: candidati.id })
+          .from(candidati)
+          .where(eq(candidati.id, parsed.data.candidatoId))
+          .limit(1);
+        if (candOk.length === 0) return reply.badRequest('candidato non trovato');
         const [created] = await tx
           .insert(candidatiFase)
           .values({ tenantId: req.tenant!.id, ...parsed.data })

@@ -424,6 +424,10 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
 // =====================================================================
 export const iscrizioniAdminRoutes: FastifyPluginAsync = async (app) => {
   app.addHook('preHandler', requireAuth);
+  // N115: l'intero gruppo (lista/dettaglio inclusi) espone PII dei candidati
+  // (email, telefono, indirizzo, data nascita) → solo admin. Prima GET / e
+  // GET /:id richiedevano solo auth, quindi un commissario leggeva tutte le PII.
+  app.addHook('preHandler', requireRole('admin'));
 
   app.get('/', async (req) => {
     const q = z

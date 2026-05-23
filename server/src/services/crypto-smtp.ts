@@ -3,7 +3,10 @@ import { env } from '../env.js';
 
 const ALGO = 'aes-256-gcm';
 
-function keyBuffer(): Buffer {
+// N130: unica derivazione della chiave AES da GESTIMUS_SECRET_KEY, condivisa da
+// crypto-smtp e backup (importata da backup.ts). Avere due copie rischiava la
+// divergenza → backup illeggibili o SMTP indecifrabili.
+export function keyBuffer(): Buffer {
   // GESTIMUS_SECRET_KEY è atteso come 32-byte hex string (64 char).
   // Se più lungo o non hex valido, deriviamo via SHA-256 della stringa.
   const hex = env.GESTIMUS_SECRET_KEY;

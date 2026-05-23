@@ -1,6 +1,6 @@
 import { mkdir, rm, stat, writeFile } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
-import { extname, join, normalize, resolve } from 'node:path';
+import { join, normalize, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import { env } from '../env.js';
 
@@ -108,7 +108,12 @@ export async function saveFile(args: {
   const dir = tenantUploadDir(args.tenantSlug, args.resource, args.id);
   await mkdir(dir, { recursive: true });
 
-  const ext = EXT_FROM_MIME[args.mimeType] ?? extname(args.originalFilename) ?? '';
+  // N131: l'estensione viene SEMPRE derivata dal MIME (già validato contro
+  // ALLOWED_MIME + magic bytes), mai dal filename originale. Il vecchio fallback
+  // `extname(originalFilename)` poteva preservare un'estensione pericolosa
+  // (es. .html) per un MIME ammesso ma non mappato → stored XSS. Tutti i MIME
+  // ammessi sono in EXT_FROM_MIME; in caso contrario nessuna estensione.
+  const ext = EXT_FROM_MIME[args.mimeType] ?? '';
   const filename = `${randomBytes(8).toString('hex')}${ext}`;
   const absPath = join(dir, filename);
 

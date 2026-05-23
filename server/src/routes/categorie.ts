@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { candidati, categorie } from '../db/schema.js';
+import { candidati, categorie, sezioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { parsePagination } from '../lib/pagination.js';
@@ -51,6 +51,13 @@ export const categorieRoutes: FastifyPluginAsync = async (app) => {
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
     return req.dbTx(async (tx) => {
+      // N140: la sezioneId deve appartenere al tenant (FK non soggetta a RLS).
+      const sezOk = await tx
+        .select({ id: sezioni.id })
+        .from(sezioni)
+        .where(eq(sezioni.id, parsed.data.sezioneId))
+        .limit(1);
+      if (sezOk.length === 0) return reply.badRequest('sezione non trovata');
       const [created] = await tx
         .insert(categorie)
         .values({ tenantId: req.tenant!.id, ...parsed.data })

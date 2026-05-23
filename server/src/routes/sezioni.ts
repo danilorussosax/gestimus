@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { candidati, fasiSezioni, sezioni } from '../db/schema.js';
+import { candidati, concorsi, fasiSezioni, sezioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { parsePagination } from '../lib/pagination.js';
@@ -41,6 +41,14 @@ export const sezioniRoutes: FastifyPluginAsync = async (app) => {
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
     return req.dbTx(async (tx) => {
+      // N140: il concorsoId deve appartenere al tenant (la FK non è soggetta a
+      // RLS). Sotto RLS questa SELECT ritorna 0 righe se cross-tenant.
+      const concOk = await tx
+        .select({ id: concorsi.id })
+        .from(concorsi)
+        .where(eq(concorsi.id, parsed.data.concorsoId))
+        .limit(1);
+      if (concOk.length === 0) return reply.badRequest('concorso non trovato');
       const [created] = await tx
         .insert(sezioni)
         .values({ tenantId: req.tenant!.id, ...parsed.data })

@@ -47,6 +47,12 @@ const TENANT_CACHE_TTL_MS = 60_000;
 const TENANT_CACHE_MAX = 256;
 const tenantCache = new Map<string, { row: TenantContext | null; expiresAt: number }>();
 
+// N125 (falso positivo): NON è codice morto. È invocata centralmente da
+// `auditChange()` in routes/platform.ts, che gira a OGNI mutazione del tenant
+// (create, patch, suspend, reactivate, archive, restore, hard_delete,
+// change_plan, smtp update/delete). Quindi sospensioni/archiviazioni/rename/
+// delete invalidano sempre la cache (no finestra di 60s). Coperto anche il caso
+// N128 (ri-creazione slug): create e delete invalidano entrambi lo slug.
 export function invalidateTenantCache(slug?: string): void {
   if (slug) tenantCache.delete(slug);
   else tenantCache.clear();

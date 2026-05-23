@@ -44,7 +44,12 @@ export async function createApp(): Promise<FastifyInstance> {
           ? { target: 'pino-pretty', options: { colorize: true, translateTime: 'HH:MM:ss' } }
           : undefined,
     },
-    trustProxy: true,
+    // N129: fidarsi solo del PRIMO hop (il reverse proxy nginx davanti all'app,
+    // vedi deploy) invece di TUTTI i proxy. Con `true` un client che raggiunge
+    // direttamente il processo potrebbe spoofare x-forwarded-for/proto (falsare
+    // rate-limit per-IP e URL di verifica). Se il deploy aggiunge altri hop
+    // (es. CDN proxy) aumentare il numero di conseguenza.
+    trustProxy: 1,
   });
 
   // M3: error handler globale. Le route usano sia .parse() (throw) sia

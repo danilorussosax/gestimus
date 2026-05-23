@@ -137,6 +137,14 @@ export const criteriRoutes: FastifyPluginAsync = async (app) => {
     }));
 
     return req.dbTx(async (tx) => {
+      // N140: la fase deve appartenere al tenant (FK non soggetta a RLS).
+      // Sotto RLS questa SELECT ritorna 0 righe se la fase è di un altro tenant.
+      const faseOk = await tx
+        .select({ id: fasi.id })
+        .from(fasi)
+        .where(eq(fasi.id, faseId))
+        .limit(1);
+      if (faseOk.length === 0) return reply.notFound();
       await tx.delete(criteri).where(eq(criteri.faseId, faseId));
       const rows = await tx
         .insert(criteri)

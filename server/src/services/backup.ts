@@ -3,7 +3,8 @@ import { gzip } from 'node:zlib';
 import { promisify } from 'node:util';
 import { mkdir, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
-import { createCipheriv, createHash, randomBytes } from 'node:crypto';
+import { createCipheriv, randomBytes } from 'node:crypto';
+import { keyBuffer } from './crypto-smtp.js';
 import { dbSuper } from '../db/client.js';
 import {
   accounts,
@@ -47,14 +48,6 @@ const gzipP = promisify(gzip);
 const BACKUP_FORMAT_VERSION = 2;
 const ENC_VERSION_BYTE = 0x02;
 const AES_ALGO = 'aes-256-gcm';
-
-function backupEncKey(): Buffer {
-  // Stessa derivazione di crypto-smtp.ts: hex 64 → 32 byte raw, altrimenti
-  // SHA-256 della stringa. Riusa env già importato in fondo al file.
-  const hex = env.GESTIMUS_SECRET_KEY;
-  if (/^[0-9a-fA-F]{64}$/.test(hex)) return Buffer.from(hex, 'hex');
-  return createHash('sha256').update(hex).digest();
-}
 
 /**
  * Tabelle che vivono dentro un tenant (tutte cascade-deleted con il tenant).
@@ -168,7 +161,7 @@ export async function backupTenant(tenantId: string): Promise<BackupResult> {
   const filepath = join(archiveDir(), filename);
   const compressed = await gzipP(Buffer.from(JSON.stringify(manifest)));
   const iv = randomBytes(12);
-  const cipher = createCipheriv(AES_ALGO, backupEncKey(), iv);
+  const cipher = createCipheriv(AES_ALGO, keyBuffer(), iv);
   const ciphertext = Buffer.concat([cipher.update(compressed), cipher.final()]);
   const tag = cipher.getAuthTag();
   const fileBuffer = Buffer.concat([Buffer.from([ENC_VERSION_BYTE]), iv, tag, ciphertext]);

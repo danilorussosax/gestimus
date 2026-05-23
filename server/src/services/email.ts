@@ -96,13 +96,18 @@ async function getTransporter(tenantId: string | null): Promise<{ transporter: T
   return { transporter, from: cfg.from };
 }
 
-export function invalidateTransporter(tenantId: string): void {
+export function invalidateTransporter(tenantId?: string | null): void {
+  // N132: stessa cache key di getTransporter (`tenantId ?? '__platform__'`).
+  // Prima invalidateTransporter usava `tenantId` grezzo: per il transporter
+  // platform (tenantId null) la chiave non combaciava con '__platform__' →
+  // platform transporter mai invalidabile.
+  const cacheKey = tenantId ?? '__platform__';
   // N56: chiudere il transporter PRIMA di rimuoverlo dalla cache, altrimenti
   // la connessione TCP/pool SMTP resta aperta fino al restart (resource leak).
-  const entry = cache.get(tenantId);
+  const entry = cache.get(cacheKey);
   if (entry) {
     try { entry.transporter.close(); } catch { /* best-effort */ }
-    cache.delete(tenantId);
+    cache.delete(cacheKey);
   }
 }
 
