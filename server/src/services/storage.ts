@@ -132,7 +132,7 @@ export async function saveFile(args: {
   // M151: scrittura atomica — write su file temporaneo + rename. Un crash a
   // metà writeFile lascerebbe altrimenti un file parziale/corrotto al path
   // finale (rename è atomico sullo stesso filesystem).
-  const tmpPath = `${absPath}.tmp-${randomBytes(4).toString('hex')}`;
+  const tmpPath = `${absPath}.tmp-${randomBytes(8).toString('hex')}`;
   await writeFile(tmpPath, args.buffer);
   try {
     await rename(tmpPath, absPath);

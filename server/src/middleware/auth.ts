@@ -84,7 +84,14 @@ export function requireRole(...roles: AuthRole[]): preHandlerAsyncHookHandler {
 }
 
 export function clearSessionCookie(reply: FastifyReply): void {
-  reply.clearCookie(env.SESSION_COOKIE_NAME, { path: '/' });
+  // L224: il clear deve combaciare con gli attributi del set (path/httpOnly/
+  // secure/sameSite), altrimenti alcuni browser non rimuovono un cookie Secure.
+  reply.clearCookie(env.SESSION_COOKIE_NAME, {
+    path: '/',
+    httpOnly: true,
+    secure: env.NODE_ENV === 'production',
+    sameSite: 'lax',
+  });
 }
 
 export function setSessionCookie(reply: FastifyReply, token: string, expiresAt: Date): void {

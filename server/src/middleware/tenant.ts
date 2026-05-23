@@ -1,6 +1,5 @@
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
-import { eq } from 'drizzle-orm';
 import { dbApp, dbSuper } from '../db/client.js';
 import { tenants } from '../db/schema.js';
 import { env } from '../env.js';

@@ -220,13 +220,16 @@ function deviazioneStdArr(arr, k = 2) {
 }
 
 export function computeAggregate(values, metodo = 'aritmetica') {
+  // L250: scarta valori non finiti (NaN/Infinity) → robusto anche se chiamata
+  // direttamente con input sporchi (l'uso interno passa già voti finiti).
+  const vals = (Array.isArray(values) ? values : []).filter((v) => Number.isFinite(v));
   switch (metodo) {
-    case 'olimpica':       return olimpicaArr(values);
-    case 'winsorizzata':   return winsorizzataArr(values);
-    case 'mediana':        return medianaArr(values);
-    case 'deviazione_std': return deviazioneStdArr(values);
+    case 'olimpica':       return olimpicaArr(vals);
+    case 'winsorizzata':   return winsorizzataArr(vals);
+    case 'mediana':        return medianaArr(vals);
+    case 'deviazione_std': return deviazioneStdArr(vals);
     case 'aritmetica':
-    default:               return aritmeticaArr(values);
+    default:               return aritmeticaArr(vals);
   }
 }
 

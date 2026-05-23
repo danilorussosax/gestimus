@@ -599,8 +599,9 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
     return req.dbTx(async (tx) => {
       if (!await assertCanManageFase(tx, req, reply, id)) return;
-      // Calcola lo shift della startedAt in base alla durata della pausa
-      const rows = await tx.select().from(fasi).where(eq(fasi.id, id)).limit(1);
+      // Calcola lo shift della startedAt in base alla durata della pausa.
+      // L221: FOR UPDATE come in /pause (N141) → resume concorrenti serializzati.
+      const rows = await tx.select().from(fasi).where(eq(fasi.id, id)).limit(1).for('update');
       if (rows.length === 0) return reply.notFound();
       const fase = rows[0]!;
       if (!fase.timerPausedAt || !fase.timerStartedAt) {

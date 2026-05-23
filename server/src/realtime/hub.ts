@@ -81,6 +81,9 @@ function scheduleReconnect() {
       scheduleReconnect();
     }
   }, delay);
+  // L227: il timer di reconnect non deve tenere vivo l'event loop allo
+  // shutdown (max MAX_RECONNECT_MS di ritardo se non venisse cancellato).
+  reconnectTimer.unref?.();
 }
 
 export async function startRealtimeHub(): Promise<void> {

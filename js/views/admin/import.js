@@ -58,6 +58,9 @@ function detectCsvSeparator(text) {
 }
 
 function parseCSV(text, sep) {
+  // L229: rimuovi un eventuale BOM UTF-8 iniziale, altrimenti finisce nella
+  // prima intestazione e il mapping delle colonne fallisce.
+  if (text && text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
   const rows = [];
   let row = [], cur = '', inQ = false;
   for (let i = 0; i < text.length; i++) {
