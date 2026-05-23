@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { gzip, gunzip } from 'node:zlib';
+import { gunzip, createGzip } from 'node:zlib';
 import { promisify } from 'node:util';
 import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
@@ -33,7 +33,6 @@ import {
 } from '../db/schema.js';
 import { env } from '../env.js';
 
-const gzipP = promisify(gzip);
 const gunzipP = promisify(gunzip);
 
 /**
@@ -132,35 +131,54 @@ export async function backupTenant(tenantId: string): Promise<BackupResult> {
   }
 
   const tableCounts = {} as Record<TenantTableName, number>;
-  const tables = {} as Record<TenantTableName, unknown[]>;
+  const exportedAt = new Date().toISOString();
 
+  // N117: serializziamo il manifest in STREAMING attraverso gzip, una tabella
+  // alla volta, invece di tenere in RAM tutte le 21 tabelle + l'intera stringa
+  // JSON simultaneamente (rischio OOM su tenant grandi). Il formato su disco
+  // resta IDENTICO — encrypt(gzip(JSON(stesso manifest))) — quindi restoreTenant
+  // e i test di decrypt restano validi.
+  const gz = createGzip();
+  const gzChunks: Buffer[] = [];
+  gz.on('data', (c: Buffer) => gzChunks.push(c));
+  const gzDone = new Promise<void>((res, rej) => {
+    gz.once('end', res);
+    gz.once('error', rej);
+  });
+  const writeGz = (s: string): Promise<void> =>
+    new Promise((res, rej) => gz.write(s, (e) => (e ? rej(e) : res())));
+
+  await writeGz(
+    `{"format":${JSON.stringify(BACKUP_FORMAT_VERSION)}` +
+      `,"tenantId":${JSON.stringify(tenantId)}` +
+      `,"tenantSlug":${JSON.stringify(tenantRow.slug)}` +
+      `,"exportedAt":${JSON.stringify(exportedAt)}` +
+      `,"tenant":${JSON.stringify(tenantRow)}` +
+      `,"tables":{`,
+  );
+  let firstTable = true;
   for (const [name, table] of Object.entries(TENANT_TABLES) as [
     TenantTableName,
     (typeof TENANT_TABLES)[TenantTableName],
   ][]) {
-    // Tutte le tabelle qui hanno una colonna tenantId (cascade-deleted con tenant)
+    // Tutte le tabelle qui hanno una colonna tenantId (cascade-deleted col tenant).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const tenantIdCol = (table as any).tenantId;
     const rows = await dbSuper.select().from(table).where(eq(tenantIdCol, tenantId));
-    tables[name] = rows;
     tableCounts[name] = rows.length;
+    await writeGz(`${firstTable ? '' : ','}${JSON.stringify(name)}:${JSON.stringify(rows)}`);
+    firstTable = false;
+    // `rows` esce di scope alla prossima iterazione → liberabile dal GC.
   }
-
-  const manifest: BackupManifest = {
-    format: BACKUP_FORMAT_VERSION,
-    tenantId,
-    tenantSlug: tenantRow.slug,
-    exportedAt: new Date().toISOString(),
-    tenant: tenantRow,
-    tables,
-    tableCounts,
-  };
+  await writeGz(`},"tableCounts":${JSON.stringify(tableCounts)}}`);
+  gz.end();
+  await gzDone;
+  const compressed = Buffer.concat(gzChunks);
 
   // L5: suffisso random per evitare collisioni se due backup partono nello
   // stesso millisecondo (es. cleanup + backup manuale concorrenti).
   const filename = `${tenantRow.slug}-${safeIsoStamp()}-${randomBytes(3).toString('hex')}.json.gz.enc`;
   const filepath = join(archiveDir(), filename);
-  const compressed = await gzipP(Buffer.from(JSON.stringify(manifest)));
   const iv = randomBytes(12);
   const cipher = createCipheriv(AES_ALGO, keyBuffer(), iv);
   const ciphertext = Buffer.concat([cipher.update(compressed), cipher.final()]);
@@ -174,7 +192,7 @@ export async function backupTenant(tenantId: string): Promise<BackupResult> {
     filename,
     sizeBytes: st.size,
     tableCounts,
-    exportedAt: manifest.exportedAt,
+    exportedAt,
   };
 }
 
