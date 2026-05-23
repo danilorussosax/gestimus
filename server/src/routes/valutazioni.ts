@@ -72,17 +72,22 @@ async function assertCanEvaluateCandidatoFase(
     reply.code(403).send({ error: 'un commissario può inserire voti solo a proprio nome' });
     return false;
   }
+  // N108: FOR UPDATE su candidatiFase e fasi → un admin concorrente non può
+  // cambiare fasi.commissioneId (o spostare il candidatoFase) tra questo check e
+  // l'upsert valutazione, evitando valutazioni autorizzate su dati ormai stale.
   const cfRows = await tx
     .select({ faseId: candidatiFase.faseId })
     .from(candidatiFase)
     .where(eq(candidatiFase.id, candidatoFaseId))
-    .limit(1);
+    .limit(1)
+    .for('update');
   if (cfRows.length === 0) { reply.notFound(); return false; }
   const faseRows = await tx
     .select({ commissioneId: fasi.commissioneId })
     .from(fasi)
     .where(eq(fasi.id, cfRows[0]!.faseId))
-    .limit(1);
+    .limit(1)
+    .for('update');
   const commissioneId = faseRows[0]?.commissioneId;
   if (!commissioneId) {
     reply.code(403).send({ error: 'fase senza commissione assegnata' });

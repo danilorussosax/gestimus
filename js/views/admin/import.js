@@ -2,7 +2,7 @@
 // Estratto da js/views/admin.js (refactoring).
 
 import { db } from '../../db.js';
-import { escapeHtml, modal, toast } from '../../utils.js';
+import { escapeHtml, modal, toast, fmtBytes } from '../../utils.js';
 import { t } from '../../i18n.js';
 
 // ---------- Mapping intestazioni CSV → campi DB ----------

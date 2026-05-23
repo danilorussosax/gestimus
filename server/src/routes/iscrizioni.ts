@@ -8,6 +8,7 @@ import { writeAudit } from '../services/audit.js';
 import { sendMail } from '../services/email.js';
 import { env } from '../env.js';
 import { parsePagination } from '../lib/pagination.js';
+import { todayISODate } from '../lib/date.js';
 
 const uuid = z.string().uuid();
 
@@ -103,7 +104,7 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
   app.get('/concorsi', async (req, reply) => {
     if (!req.tenant) return reply.code(400).send({ error: 'tenant context richiesto' });
     return req.dbTx(async (tx) => {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = todayISODate();
       const rows = await tx
         .select({
           id: concorsi.id,
@@ -217,7 +218,7 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
       //    vede l'iscrizione della prima → 409 deterministico (l'indice unique
       //    parziale uniq_iscrizioni_concorso_email_active resta la rete finale).
       const emailToken = generateToken();
-      const todayStr = new Date().toISOString().slice(0, 10);
+      const todayStr = todayISODate();
       const outcome = await req.dbTx(async (tx) => {
         const crows = await tx
           .select({
@@ -473,8 +474,12 @@ export const iscrizioniAdminRoutes: FastifyPluginAsync = async (app) => {
           return { ok: true, alreadyApproved: true, candidatoId: isc.candidatoId };
         }
 
+        // N112: hashtextextended (64-bit) invece di hashtext (32-bit) per
+        // azzerare la probabilità di collisione del lock advisory tra concorsi
+        // diversi. DEVE restare identico a candidati.ts (stesso lock condiviso
+        // per serializzare numeroCandidato tra create diretto e approve).
         await tx.execute(
-          sql`SELECT pg_advisory_xact_lock(hashtext(${isc.concorsoId}::text))`,
+          sql`SELECT pg_advisory_xact_lock(hashtextextended(${isc.concorsoId}::text, 0))`,
         );
 
         // Calcola numero candidato successivo per il concorso (sotto lock)
@@ -519,7 +524,7 @@ export const iscrizioniAdminRoutes: FastifyPluginAsync = async (app) => {
             isGruppo: isc.isGruppo,
             gruppoNome: isc.gruppoNome,
             tipoGruppo: isc.tipoGruppo,
-            dataIscrizione: new Date().toISOString().slice(0, 10),
+            dataIscrizione: todayISODate(),
           })
           .returning();
 
@@ -554,6 +559,20 @@ export const iscrizioniAdminRoutes: FastifyPluginAsync = async (app) => {
       const body = z.object({ reason: z.string().max(500).optional() }).safeParse(req.body ?? {});
       if (!body.success) return reply.badRequest(body.error.message);
       return req.dbTx(async (tx) => {
+        // N111: non si rifiuta un'iscrizione già APPROVATA — l'approvazione ha
+        // creato il candidato collegato; un reject lo lascerebbe orfano con stato
+        // incoerente. Lock pessimistico per evitare la race con un approve
+        // concorrente.
+        const existing = await tx
+          .select({ stato: iscrizioni.stato })
+          .from(iscrizioni)
+          .where(eq(iscrizioni.id, id))
+          .limit(1)
+          .for('update');
+        if (existing.length === 0) return reply.notFound();
+        if (existing[0]!.stato === 'APPROVATA') {
+          return reply.code(409).send({ error: 'iscrizione già approvata: revocare l\'approvazione prima di rifiutare' });
+        }
         const [updated] = await tx
           .update(iscrizioni)
           .set({

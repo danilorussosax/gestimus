@@ -187,6 +187,25 @@ BEGIN
     IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
       RAISE EXCEPTION 'fasi_sezioni: sezione di tenant differente';
     END IF;
+  ELSIF TG_TABLE_NAME = 'candidati_fase' THEN
+    -- N114: coerenza tenant verso i due parent (fase + candidato).
+    SELECT tenant_id INTO parent_tenant FROM fasi WHERE id = NEW.fase_id;
+    IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+      RAISE EXCEPTION 'candidati_fase: tenant_id mismatch (junction=% vs parent fase=%)',
+        NEW.tenant_id, parent_tenant;
+    END IF;
+    SELECT tenant_id INTO parent_tenant FROM candidati WHERE id = NEW.candidato_id;
+    IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+      RAISE EXCEPTION 'candidati_fase: tenant_id mismatch (junction=% vs parent candidato=%)',
+        NEW.tenant_id, parent_tenant;
+    END IF;
+  ELSIF TG_TABLE_NAME = 'valutazioni' THEN
+    -- N113: coerenza tenant verso il parent candidati_fase.
+    SELECT tenant_id INTO parent_tenant FROM candidati_fase WHERE id = NEW.candidato_fase_id;
+    IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+      RAISE EXCEPTION 'valutazioni: tenant_id mismatch (junction=% vs parent candidati_fase=%)',
+        NEW.tenant_id, parent_tenant;
+    END IF;
   END IF;
   RETURN NEW;
 END $$;
@@ -209,6 +228,18 @@ CREATE TRIGGER trg_junction_cca_tenant_check
 DROP TRIGGER IF EXISTS trg_junction_fs_tenant_check ON fasi_sezioni;
 CREATE TRIGGER trg_junction_fs_tenant_check
   BEFORE INSERT OR UPDATE ON fasi_sezioni
+  FOR EACH ROW EXECUTE FUNCTION check_junction_tenant_coherence();
+
+-- N114: candidati_fase eredita il tenant da fase+candidato.
+DROP TRIGGER IF EXISTS trg_cf_tenant_check ON candidati_fase;
+CREATE TRIGGER trg_cf_tenant_check
+  BEFORE INSERT OR UPDATE ON candidati_fase
+  FOR EACH ROW EXECUTE FUNCTION check_junction_tenant_coherence();
+
+-- N113: valutazioni eredita il tenant da candidati_fase.
+DROP TRIGGER IF EXISTS trg_val_tenant_check ON valutazioni;
+CREATE TRIGGER trg_val_tenant_check
+  BEFORE INSERT OR UPDATE ON valutazioni
   FOR EACH ROW EXECUTE FUNCTION check_junction_tenant_coherence();
 
 -- =====================================================================

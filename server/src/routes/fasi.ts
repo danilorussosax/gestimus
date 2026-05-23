@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { candidati, candidatiFase, commissioni, fasi, fasiSezioni, sezioni } from '../db/schema.js';
+import { candidati, candidatiFase, commissioni, concorsi, fasi, fasiSezioni, sezioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { faseChannel } from '../realtime/hub.js';
@@ -41,11 +41,15 @@ async function assertCanManageFase(tx: any, req: FastifyRequest, reply: FastifyR
     reply.code(403).send({ error: 'fase senza commissione assegnata: gestione admin-only' });
     return false;
   }
+  // N107: FOR UPDATE sulla riga commissione → un admin concorrente non può
+  // cambiare il presidente tra questo check e l'UPDATE di start/conclude/timer
+  // (questo assert gira nella stessa tx del caller).
   const comRows = await tx
     .select({ presidenteId: commissioni.presidenteCommissarioId })
     .from(commissioni)
     .where(eq(commissioni.id, commissioneId))
-    .limit(1);
+    .limit(1)
+    .for('update');
   if (comRows.length === 0 || comRows[0]!.presidenteId !== commissarioId) {
     reply.code(403).send({ error: 'solo il presidente della commissione può gestire questa fase' });
     return false;
@@ -175,6 +179,14 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     return req.dbTx(async (tx) => {
       try {
         const { sezioniIds, ...faseFields } = parsed.data;
+        // N103: stesso lock del reorder sulla riga del concorso → create e
+        // reorder si serializzano e non collidono sull'ordine.
+        await tx
+          .select({ id: concorsi.id })
+          .from(concorsi)
+          .where(eq(concorsi.id, faseFields.concorsoId))
+          .limit(1)
+          .for('update');
         // N51: le sezioni devono essere dello stesso concorso della fase.
         if (!(await sezioniAllInConcorso(tx, sezioniIds ?? [], faseFields.concorsoId))) {
           return reply.badRequest('una o più sezioni non appartengono al concorso della fase');
@@ -214,6 +226,16 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
       .safeParse(req.body);
     if (!body.success) return reply.badRequest(body.error.message);
     return req.dbTx(async (tx) => {
+      // N103: lock sulla riga del concorso → serializza reorder e create fasi.
+      // Il solo FOR UPDATE sulle righe `fasi` non basta: su concorso vuoto non
+      // blocca nulla e non blocca comunque l'INSERT concorrente di una nuova
+      // fase. Il lock sul concorso, condiviso con il create, chiude il buco.
+      await tx
+        .select({ id: concorsi.id })
+        .from(concorsi)
+        .where(eq(concorsi.id, body.data.concorsoId))
+        .limit(1)
+        .for('update');
       // N20: lock pessimistico sulle fasi del concorso per serializzare reorder
       // concorrenti (due richieste non si sovrascrivono a metà).
       const found = await tx
@@ -355,6 +377,14 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
         .from(candidatiFase)
         .where(eq(candidatiFase.faseId, id));
       if (existing.length === 0) {
+        // N109: blocca le associazioni sezione della fase per la durata della tx
+        // così una PATCH concorrente delle sezioni non fa popolare candidati
+        // incoerenti (il lock sulla riga `fasi` non copre fasi_sezioni).
+        await tx
+          .select({ faseId: fasiSezioni.faseId })
+          .from(fasiSezioni)
+          .where(eq(fasiSezioni.faseId, id))
+          .for('update');
         const sezMap = await loadFaseSezioniMap(tx, [id]);
         const sezIds = sezMap.get(id) ?? [];
         const candRows = sezIds.length > 0

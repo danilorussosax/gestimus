@@ -693,6 +693,13 @@ export const iscrizioni = pgTable(
     // N60: pre-check DELETE sezione/categoria filtrano su questi FK.
     index('idx_iscrizioni_sezione').on(t.sezioneId),
     index('idx_iscrizioni_categoria').on(t.categoriaId),
+    // N95: indice unique parziale — fonte di verità in schema (era solo nella
+    // migrazione 2026_05_23_iscrizioni_unique_partial). Una stessa email non può
+    // iscriversi due volte allo stesso concorso, salvo iscrizioni RIFIUTATE
+    // (ri-iscrizione ammessa dopo un rifiuto).
+    uniqueIndex('uniq_iscrizioni_concorso_email_active')
+      .on(t.concorsoId, t.email)
+      .where(sql`${t.stato} <> 'RIFIUTATA'`),
   ],
 );
 

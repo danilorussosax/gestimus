@@ -8,6 +8,7 @@ import {
   commissioniCategorie,
   commissioniCommissari,
   commissioniSezioni,
+  concorsi,
   sezioni,
 } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
@@ -115,6 +116,15 @@ export const commissioniRoutes: FastifyPluginAsync = async (app) => {
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
     return req.dbTx(async (tx) => {
+      // N106: il concorsoId deve appartenere al tenant corrente (la FK verso
+      // concorsi non è soggetta a RLS). Sotto RLS questa SELECT ritorna 0 righe
+      // se il concorso è di un altro tenant.
+      const concOk = await tx
+        .select({ id: concorsi.id })
+        .from(concorsi)
+        .where(eq(concorsi.id, parsed.data.concorsoId))
+        .limit(1);
+      if (concOk.length === 0) return reply.badRequest('concorso non trovato');
       // N96: come nel PATCH (N54), se il presidente è indicato già alla
       // creazione deve essere un commissario dello stesso concorso. Alla create
       // il concorso della commissione è parsed.data.concorsoId.

@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { parsePagination } from '../lib/pagination.js';
 import { checkCommissariLimit } from '../lib/plan-limits.js';
-import { commissari } from '../db/schema.js';
+import { commissari, concorsi } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 
@@ -56,6 +56,16 @@ export const commissariRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) return reply.badRequest(parsed.error.message);
 
     return req.dbTx(async (tx) => {
+      // N105: il concorsoId deve appartenere al tenant corrente. La FK verso
+      // concorsi non è soggetta a RLS, quindi senza questo check un payload con
+      // un concorsoId di un altro tenant verrebbe accettato (cross-tenant). Sotto
+      // RLS questa SELECT ritorna 0 righe se il concorso è di un altro tenant.
+      const concOk = await tx
+        .select({ id: concorsi.id })
+        .from(concorsi)
+        .where(eq(concorsi.id, parsed.data.concorsoId))
+        .limit(1);
+      if (concOk.length === 0) return reply.badRequest('concorso non trovato');
       // N57: enforce limite di piano sul numero di commissari.
       const limitErr = await checkCommissariLimit(tx, req.tenant!.id);
       if (limitErr) return reply.code(403).send({ error: limitErr });

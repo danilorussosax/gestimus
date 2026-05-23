@@ -125,7 +125,10 @@ export const candidatiRoutes: FastifyPluginAsync = async (app) => {
       // bloccavano a vicenda → stesso numeroCandidato. L'unique index resta
       // come rete di sicurezza (23505).
       if (data.numeroCandidato == null) {
-        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${data.concorsoId}::text))`);
+        // N112: hashtextextended (64-bit, no collisioni) — identico a
+        // iscrizioni.ts/approve: lo STESSO lock serializza create diretto e
+        // approve iscrizione sul concorso.
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${data.concorsoId}::text, 0))`);
         const next = await tx
           .select({ m: max(candidati.numeroCandidato) })
           .from(candidati)
