@@ -19,12 +19,15 @@ export async function writeAudit(
     targetType?: string;
     targetId?: string;
     payload?: unknown;
+    // M152: attore esplicito per i casi in cui req.account non è ancora
+    // popolato (es. audit di login, scritto prima che la sessione sia attiva).
+    actorAccountId?: string | null;
   },
 ): Promise<void> {
   if (!req.tenant) return; // niente audit per richieste senza contesto tenant
   await tx.insert(auditLog).values({
     tenantId: req.tenant.id,
-    actorAccountId: req.account?.id ?? null,
+    actorAccountId: data?.actorAccountId ?? req.account?.id ?? null,
     action,
     targetType: data?.targetType ?? null,
     targetId: data?.targetId ?? null,
@@ -45,10 +48,11 @@ export async function writePlatformAudit(
     targetTenantSlug?: string;
     targetTenantId?: string;
     payload?: unknown;
+    actorAccountId?: string | null;
   },
 ): Promise<void> {
   await dbSuper.insert(platformAuditLog).values({
-    actorAccountId: req.account?.id ?? null,
+    actorAccountId: data?.actorAccountId ?? req.account?.id ?? null,
     action,
     targetTenantSlug: data?.targetTenantSlug ?? null,
     targetTenantId: data?.targetTenantId ?? null,

@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { dbSuper } from '../db/client.js';
@@ -6,6 +6,29 @@ import { accounts } from '../db/schema.js';
 import { verifyPassword } from '../services/password.js';
 import { createSession, invalidateSession } from '../services/session.js';
 import { clearSessionCookie, requireAuth, setSessionCookie } from '../middleware/auth.js';
+import { writeAudit, writePlatformAudit } from '../services/audit.js';
+
+// M152: traccia forensica dei tentativi di login (successo e fallimento).
+// Best-effort: un errore di audit non deve mai far fallire il login. Tenant →
+// audit_log (RLS); superadmin/platform → platform_audit_log.
+async function auditLogin(
+  req: FastifyRequest,
+  action: 'auth.login' | 'auth.login_failed',
+  email: string,
+  actorAccountId: string | null,
+): Promise<void> {
+  try {
+    if (req.tenant) {
+      await req.dbTx(async (tx) => {
+        await writeAudit(tx, req, action, { actorAccountId, payload: { email } });
+      });
+    } else {
+      await writePlatformAudit(req, action, { actorAccountId, payload: { email } });
+    }
+  } catch (err) {
+    req.log.warn({ err }, 'audit login best-effort fallito');
+  }
+}
 
 const loginBody = z.object({
   email: z.string().email(),
@@ -59,11 +82,13 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     if (!account || !account.attivo) {
       // Verifica fittizia per timing-safe
       await verifyPassword(password, '$argon2id$v=19$m=19456,t=2,p=1$AAAAAAAAAAAAAAAAAAAAAA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA');
+      await auditLogin(req, 'auth.login_failed', normalizedEmail, null);
       return reply.code(401).send({ error: 'credenziali non valide' });
     }
 
     const ok = await verifyPassword(password, account.passwordHash);
     if (!ok) {
+      await auditLogin(req, 'auth.login_failed', normalizedEmail, account.id);
       return reply.code(401).send({ error: 'credenziali non valide' });
     }
 
@@ -71,6 +96,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     setSessionCookie(reply, token, expiresAt);
 
     await dbSuper.update(accounts).set({ lastLoginAt: new Date() }).where(eq(accounts.id, account.id));
+    await auditLogin(req, 'auth.login', normalizedEmail, account.id);
 
     return {
       account: {
