@@ -2,11 +2,13 @@ import type { FastifyPluginAsync } from 'fastify';
 import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import {
+  categorie,
   commissari,
   commissioni,
   commissioniCategorie,
   commissioniCommissari,
   commissioniSezioni,
+  sezioni,
 } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
@@ -232,6 +234,16 @@ export const commissioniRoutes: FastifyPluginAsync = async (app) => {
     async (req, reply) => {
       const { id, sezioneId } = z.object({ id: uuid, sezioneId: uuid }).parse(req.params);
       return req.dbTx(async (tx) => {
+        // N5: sezione e commissione devono appartenere allo stesso concorso.
+        const com = await tx.select({ concorsoId: commissioni.concorsoId })
+          .from(commissioni).where(eq(commissioni.id, id)).limit(1);
+        if (com.length === 0) return reply.notFound();
+        const sez = await tx.select({ concorsoId: sezioni.concorsoId })
+          .from(sezioni).where(eq(sezioni.id, sezioneId)).limit(1);
+        if (sez.length === 0) return reply.notFound();
+        if (sez[0]!.concorsoId !== com[0]!.concorsoId) {
+          return reply.badRequest('la sezione non appartiene al concorso della commissione');
+        }
         await tx
           .insert(commissioniSezioni)
           .values({ tenantId: req.tenant!.id, commissioneId: id, sezioneId })
@@ -278,6 +290,21 @@ export const commissioniRoutes: FastifyPluginAsync = async (app) => {
     async (req, reply) => {
       const { id, categoriaId } = z.object({ id: uuid, categoriaId: uuid }).parse(req.params);
       return req.dbTx(async (tx) => {
+        // N5: la categoria (via la sua sezione) deve stare nello stesso concorso
+        // della commissione.
+        const com = await tx.select({ concorsoId: commissioni.concorsoId })
+          .from(commissioni).where(eq(commissioni.id, id)).limit(1);
+        if (com.length === 0) return reply.notFound();
+        const catSez = await tx
+          .select({ concorsoId: sezioni.concorsoId })
+          .from(categorie)
+          .innerJoin(sezioni, eq(categorie.sezioneId, sezioni.id))
+          .where(eq(categorie.id, categoriaId))
+          .limit(1);
+        if (catSez.length === 0) return reply.notFound();
+        if (catSez[0]!.concorsoId !== com[0]!.concorsoId) {
+          return reply.badRequest('la categoria non appartiene al concorso della commissione');
+        }
         await tx
           .insert(commissioniCategorie)
           .values({ tenantId: req.tenant!.id, commissioneId: id, categoriaId })

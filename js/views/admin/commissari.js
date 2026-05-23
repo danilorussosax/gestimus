@@ -109,7 +109,7 @@ function commissarioCardHtml(c) {
   return `
     <div class="bg-white border ${cardCls} rounded-2xl p-4 flex items-start gap-3 hover:border-slate-300 transition">
       <div class="w-14 h-14 rounded-full bg-gradient-to-br from-amber-100 to-orange-100 overflow-hidden flex items-center justify-center text-2xl text-amber-700 shrink-0 ${ringCls} shadow-soft">
-        ${c.foto && safeUrl(c.foto) ? `<img src="${safeUrl(c.foto)}" alt="" class="w-full h-full object-cover" />` : '🧑‍⚖️'}
+        ${c.foto_url && safeUrl(c.foto_url) ? `<img src="${safeUrl(c.foto_url)}" alt="" class="w-full h-full object-cover" />` : '🧑‍⚖️'}
       </div>
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2 flex-wrap">
@@ -143,9 +143,9 @@ function openCommissarioForm(concorso, com, onSaved) {
     initNome = parts[0];
     initCognome = parts.slice(1).join(' ');
   }
-  let fotoData = com?.foto || null;
+  let fotoData = com?.foto_url || null;
   let cvData = com?.cv || null;
-  const initialFoto = com?.foto || null;
+  const initialFoto = com?.foto_url || null;
   const initialCv = com?.cv || null;
   const todayISO = new Date().toISOString().slice(0,10);
   const linkedAccount = isEdit ? db.getAccountForCommissario(com.id) : null;
@@ -197,7 +197,7 @@ function openCommissarioForm(concorso, com, onSaved) {
             <span class="text-sm font-medium text-slate-700 block mb-2">${escapeHtml(t('admin.candidato.field_foto'))}</span>
             <div class="flex items-center gap-3">
               <div data-foto-preview class="w-20 h-20 rounded-full bg-slate-100 border-2 border-slate-200 overflow-hidden flex items-center justify-center shrink-0">
-                ${fotoData ? `<img src="${fotoData}" alt="" class="w-full h-full object-cover" />` : '<span class="text-3xl text-slate-400">🧑‍⚖️</span>'}
+                ${fotoData && safeUrl(fotoData) ? `<img src="${safeUrl(fotoData)}" alt="" class="w-full h-full object-cover" />` : '<span class="text-3xl text-slate-400">🧑‍⚖️</span>'}
               </div>
               <div class="flex-1 min-w-0">
                 <button type="button" data-foto-pick class="inline-flex items-center px-3 py-1.5 text-sm font-medium text-brand-700 bg-brand-50 hover:bg-brand-100 rounded-lg transition">
@@ -294,8 +294,9 @@ function openCommissarioForm(concorso, com, onSaved) {
       const fotoPrev  = body.querySelector('[data-foto-preview]');
 
       const setFotoUI = () => {
-        fotoPrev.innerHTML = fotoData
-          ? `<img src="${fotoData}" alt="" class="w-full h-full object-cover" />`
+        // A4: safeUrl anche nella preview del form (dataURL upload o foto_url).
+        fotoPrev.innerHTML = fotoData && safeUrl(fotoData)
+          ? `<img src="${safeUrl(fotoData)}" alt="" class="w-full h-full object-cover" />`
           : '<span class="text-3xl text-slate-400">🧑‍⚖️</span>';
         fotoPick.textContent = fotoData ? t('admin.candidato.foto_change') : t('admin.candidato.foto_load');
         fotoClear.classList.toggle('hidden', !fotoData);
@@ -703,7 +704,7 @@ function archivioCardHtml(c, concorso, concorsoMap, presentInConcorso) {
     <div class="bg-white border ${inThis ? 'border-emerald-200 bg-emerald-50/30' : 'border-slate-200'} rounded-2xl p-4 flex flex-col gap-3 hover:border-brand-300 transition">
       <div class="flex items-start gap-3">
         <div class="w-14 h-14 rounded-full bg-gradient-to-br from-amber-100 to-orange-100 overflow-hidden flex items-center justify-center text-2xl text-amber-700 shrink-0 ring-2 ring-white shadow-soft">
-          ${c.foto && safeUrl(c.foto) ? `<img src="${safeUrl(c.foto)}" alt="" class="w-full h-full object-cover" />` : '🧑‍⚖️'}
+          ${c.foto_url && safeUrl(c.foto_url) ? `<img src="${safeUrl(c.foto_url)}" alt="" class="w-full h-full object-cover" />` : '🧑‍⚖️'}
         </div>
         <div class="flex-1 min-w-0">
           <h4 class="font-semibold text-slate-900 truncate">${escapeHtml(displayName(c))}</h4>

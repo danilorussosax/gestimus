@@ -71,17 +71,27 @@ export async function stopRealtimeHub(): Promise<void> {
   }
 }
 
+// N3: il nome canale viene interpolato in `LISTEN "..."` (i parametri pg non
+// sono ammessi per LISTEN/UNLISTEN). Whitelist rigorosa: solo [a-zA-Z0-9_],
+// max 63 char (limite identificatore Postgres). Blocca SQL injection via
+// channel arbitrario passato a subscribe().
+const VALID_CHANNEL = /^[a-zA-Z0-9_]{1,63}$/;
+
 /**
  * Subscribe a un canale Postgres NOTIFY. Ritorna una funzione di unsubscribe.
  */
 export async function subscribe(channel: string, cb: Listener): Promise<() => void> {
   if (!client) throw new Error('realtime hub not started');
+  if (!VALID_CHANNEL.test(channel)) {
+    throw new Error(`nome canale realtime non valido: ${channel}`);
+  }
 
   let set = subscribers.get(channel);
   if (!set) {
     set = new Set();
     subscribers.set(channel, set);
-    // LISTEN solo la prima volta che il canale appare
+    // LISTEN solo la prima volta che il canale appare. channel è già validato
+    // contro VALID_CHANNEL sopra → interpolazione sicura.
     await client.query(`LISTEN "${channel}"`);
   }
   set.add(cb);

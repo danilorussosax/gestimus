@@ -64,7 +64,14 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
         commissari: commissariList,
         candidati: candidatiList,
         candidatiMembri: membriList,
-        iscrizioni: iscrizioniList,
+        // N4: il token di verifica email è un segreto operativo (consente di
+        // confermare l'iscrizione). Va redatto dall'export GDPR come gli altri
+        // secret (passwordHash/totp), coerente col fix H10 che lo aveva già
+        // rimosso dalle response API.
+        iscrizioni: iscrizioniList.map((i) => ({
+          ...i,
+          emailVerificationToken: i.emailVerificationToken ? '[REDACTED]' : null,
+        })),
       };
     });
   });

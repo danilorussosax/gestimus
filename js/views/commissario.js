@@ -259,7 +259,7 @@ export function renderCommissario(root) {
                 </div>
                 ${concorso.anonimo ? '' : `
                 <div class="w-20 h-20 rounded-full bg-gradient-to-br from-slate-100 to-slate-200 overflow-hidden flex items-center justify-center text-3xl text-slate-400 shrink-0 ring-4 ring-white shadow-md">
-                  ${cand?.foto && safeUrl(cand.foto) ? `<img src="${safeUrl(cand.foto)}" alt="" class="w-full h-full object-cover" />` : '👤'}
+                  ${cand?.foto_url && safeUrl(cand.foto_url) ? `<img src="${safeUrl(cand.foto_url)}" alt="" class="w-full h-full object-cover" />` : '👤'}
                 </div>`}
                 <div class="min-w-0">
                   ${concorso.anonimo
@@ -1207,7 +1207,7 @@ function historyCardHtml(cf, fase, commissarioId, anonimo = false) {
       <div class="flex items-center justify-between gap-2">
         <div class="flex items-center gap-2 min-w-0">
           ${anonimo ? '' : `<div class="w-7 h-7 rounded-full bg-slate-100 overflow-hidden flex items-center justify-center text-sm text-slate-400 shrink-0">
-            ${cand?.foto && safeUrl(cand.foto) ? `<img src="${safeUrl(cand.foto)}" alt="" class="w-full h-full object-cover" />` : '👤'}
+            ${cand?.foto_url && safeUrl(cand.foto_url) ? `<img src="${safeUrl(cand.foto_url)}" alt="" class="w-full h-full object-cover" />` : '👤'}
           </div>`}
           <div class="font-mono text-xs text-slate-500">#${String(cand?.numero_candidato || '').padStart(3,'0')}</div>
         </div>
@@ -1279,7 +1279,7 @@ function renderWaiting(root, concorso, fase, com, cf, allCommissariIds, fasiPres
             ${String(cand?.numero_candidato || '').padStart(3,'0')}
           </div>
           ${concorso.anonimo ? '' : `<div class="w-12 h-12 rounded-full bg-slate-100 overflow-hidden flex items-center justify-center text-2xl text-slate-400 shrink-0 ring-2 ring-white">
-            ${cand?.foto && safeUrl(cand.foto) ? `<img src="${safeUrl(cand.foto)}" alt="" class="w-full h-full object-cover" />` : '👤'}
+            ${cand?.foto_url && safeUrl(cand.foto_url) ? `<img src="${safeUrl(cand.foto_url)}" alt="" class="w-full h-full object-cover" />` : '👤'}
           </div>`}
           <div class="min-w-0 flex-1">
             ${concorso.anonimo
@@ -1306,7 +1306,7 @@ function renderWaiting(root, concorso, fase, com, cf, allCommissariIds, fasiPres
                 <div class="flex items-center justify-between bg-white border ${v ? 'border-emerald-200' : 'border-slate-200'} rounded-lg px-3 py-2">
                   <div class="flex items-center gap-2 min-w-0">
                     <div class="w-7 h-7 rounded-full bg-slate-100 overflow-hidden flex items-center justify-center text-sm shrink-0">
-                      ${c.foto && safeUrl(c.foto) ? `<img src="${safeUrl(c.foto)}" alt="" class="w-full h-full object-cover" />` : '🧑‍⚖️'}
+                      ${c.foto_url && safeUrl(c.foto_url) ? `<img src="${safeUrl(c.foto_url)}" alt="" class="w-full h-full object-cover" />` : '🧑‍⚖️'}
                     </div>
                     <span class="text-sm truncate ${isMe ? 'font-semibold text-slate-900' : 'text-slate-700'}">${escapeHtml(displayName(c))}${isMe ? escapeHtml(t('com.you_suffix')) : ''}</span>
                   </div>

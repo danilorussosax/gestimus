@@ -265,7 +265,7 @@ function candidatoCardHtml(c) {
   return `
     <div class="bg-white border ${isGruppo ? 'border-purple-200 bg-purple-50/30' : 'border-slate-200'} rounded-2xl p-4 flex items-start gap-3 hover:border-slate-300 transition">
       <div class="w-14 h-14 rounded-full ${isGruppo ? 'bg-purple-100' : 'bg-slate-100'} overflow-hidden flex items-center justify-center text-2xl text-slate-400 shrink-0 ring-2 ring-white shadow-soft">
-        ${c.foto && safeUrl(c.foto) ? `<img src="${safeUrl(c.foto)}" alt="" class="w-full h-full object-cover" />` : (isGruppo ? gruppoIcon : '👤')}
+        ${c.foto_url && safeUrl(c.foto_url) ? `<img src="${safeUrl(c.foto_url)}" alt="" class="w-full h-full object-cover" />` : (isGruppo ? gruppoIcon : '👤')}
       </div>
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2">
@@ -338,8 +338,10 @@ function cvBadge(cv) {
 }
 
 function fotoPreviewHtml(fotoData) {
-  return fotoData
-    ? `<img src="${fotoData}" alt="" class="w-full h-full object-cover" />`
+  // A4: safeUrl anche nella preview del form. fotoData può essere un dataURL
+  // (upload appena scelto) o un foto_url esistente; safeUrl ammette entrambi.
+  return fotoData && safeUrl(fotoData)
+    ? `<img src="${safeUrl(fotoData)}" alt="" class="w-full h-full object-cover" />`
     : '<span class="text-3xl text-slate-400">👤</span>';
 }
 
@@ -372,8 +374,8 @@ function openCandidatoForm(concorso, candidato, onSaved) {
   const initScuola = candidato?.scuola_provenienza || '';
   const initGruppoNome = candidato?.gruppo_nome || '';
   const initNoteLibere = candidato?.note_libere || '';
-  let fotoData = candidato?.foto || null;
-  const initialFoto = candidato?.foto || null;
+  let fotoData = candidato?.foto_url || null;
+  const initialFoto = candidato?.foto_url || null;
   const todayISO = new Date().toISOString().slice(0,10);
   const initSezId = candidato?.sezione_id || '';
   const initCatId = candidato?.categoria_id || '';

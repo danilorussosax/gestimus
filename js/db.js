@@ -13,6 +13,21 @@
 
 import { api, ApiError } from './api.js';
 import { pb, refreshAuth } from './pb.js';
+import { slugifyKey } from './scoring.js';
+
+// N1: i criteri vivono in tabella `criteri` (nome, peso 0-100, ordine) ma le
+// view + scoring usano la forma {key,label,peso(0-1)} su `fase.criteri`.
+// Questi helper convertono tra le due rappresentazioni e popolano fase.criteri.
+function critRowToKLP(r) {
+  const label = r.nome || '';
+  return { key: slugifyKey(label) || 'crit', label, peso: (Number(r.peso) || 0) / 100 };
+}
+function criteriForFase(faseId) {
+  return (state._criteri || [])
+    .filter((c) => c.faseId === faseId)
+    .sort((a, b) => (a.ordine ?? 0) - (b.ordine ?? 0))
+    .map(critRowToKLP);
+}
 
 const META_KEY = 'gestionale_meta_v3'; // bump key per evitare collisioni col v2 PB
 
@@ -364,8 +379,15 @@ async function loadAll() {
   state.commissioni = (commissioni || []).map(mapCommissione);
   state.commissari = (commissari || []).map(mapCommissario);
   state.candidati = (candidati || []).map(mapCandidato);
-  state.fasi = (fasi || []).map(mapFase);
-  state._criteri = criteri || []; // tenuti raw, non usati direttamente dalle view core
+  state._criteri = criteri || [];
+  // N1: arricchisce ogni fase con .criteri ({key,label,peso}) derivati da
+  // state._criteri, così form fasi, scoring e tiebreak vedono i criteri salvati
+  // (mapFase da solo non li espone).
+  state.fasi = (fasi || []).map((r) => {
+    const f = mapFase(r);
+    f.criteri = criteriForFase(f.id);
+    return f;
+  });
   state.ente = mapEnte(ente);
 
   // H6: carica candidati_fase + valutazioni + membri-gruppo IN PARALLELO
@@ -1085,7 +1107,7 @@ export const db = {
   fasiByConcorso(concorso_id) {
     return state.fasi.filter((f) => f.concorso_id === concorso_id).sort((a, b) => a.ordine - b.ordine);
   },
-  async createFase({ concorso_id, nome, ammessi = null, data_prevista = null, scala = 100, modo_valutazione = 'autonoma', metodo_media = 'aritmetica', tempo_minuti = 0, pesi = null, commissione_id = null, tiebreak_strategy = null, sezioni_ids = [], testo_esito_promosso = '', testo_esito_eliminato = '' }) {
+  async createFase({ concorso_id, nome, ammessi = null, data_prevista = null, scala = 100, modo_valutazione = 'autonoma', metodo_media = 'aritmetica', tempo_minuti = 0, pesi = null, commissione_id = null, tiebreak_strategy = null, sezioni_ids = [], testo_esito_promosso = '', testo_esito_eliminato = '', criteri = null }) {
     const ordine = state.fasi.filter((f) => f.concorso_id === concorso_id).length + 1;
     const r = await api.post('/api/fasi', {
       concorsoId: concorso_id,
@@ -1103,6 +1125,9 @@ export const db = {
       testoEsitoEliminato: testo_esito_eliminato || undefined,
     });
     const f = mapFase(r);
+    // N1: persiste i criteri nella tabella `criteri` (prima venivano scartati).
+    if (Array.isArray(criteri)) await this._syncCriteri(f.id, criteri);
+    f.criteri = criteriForFase(f.id);
     state.fasi.push(f); notify();
     return f;
   },
@@ -1123,10 +1148,36 @@ export const db = {
     }
     const r = await api.patch(`/api/fasi/${id}`, body);
     const f = mapFase(r);
+    // N1: se la form ha passato i criteri, riconciliali nella tabella `criteri`.
+    if (Array.isArray(patch.criteri)) await this._syncCriteri(id, patch.criteri);
+    f.criteri = criteriForFase(id);
     const i = state.fasi.findIndex((x) => x.id === id);
     if (i >= 0) state.fasi[i] = f;
     notify();
     return f;
+  },
+  // N1: riconcilia i criteri di una fase. Strategia replace: cancella gli
+  // esistenti e ricrea da `criteri` ([{key,label,peso(0-1)}]). Aggiorna
+  // state._criteri di conseguenza. peso 0-1 → integer 0-100 per il DB.
+  async _syncCriteri(faseId, criteri) {
+    const existing = (state._criteri || []).filter((c) => c.faseId === faseId);
+    for (const c of existing) {
+      await api.delete(`/api/criteri/${c.id}`);
+    }
+    state._criteri = (state._criteri || []).filter((c) => c.faseId !== faseId);
+    let ordine = 0;
+    for (const c of criteri) {
+      const label = (c.label || c.key || '').trim();
+      if (!label) continue;
+      const pesoInt = Math.max(0, Math.min(100, Math.round((Number(c.peso) || 0) * 100)));
+      const r = await api.post('/api/criteri', {
+        faseId,
+        nome: label,
+        peso: pesoInt,
+        ordine: ordine++,
+      });
+      (state._criteri = state._criteri || []).push(r);
+    }
   },
   async deleteFase(id) {
     await api.delete(`/api/fasi/${id}`);

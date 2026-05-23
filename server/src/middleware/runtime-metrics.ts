@@ -12,6 +12,11 @@ type ReqSample = {
 };
 
 const WINDOW_MS = 60_000;
+// N6: cap duro sul numero di campioni vivi. Sotto carico estremo (migliaia
+// req/s) la finestra 60s potrebbe contenere centinaia di migliaia di sample
+// prima del prune; il cap limita la memoria a O(MAX_SAMPLES) scartando i più
+// vecchi (le metriche restano statisticamente valide su un campione ampio).
+const MAX_SAMPLES = 50_000;
 // M18: deque con head-pointer invece di Array.shift() (O(n)). pruneOld avanza
 // `head`; quando l'area morta in testa supera metà array, compattiamo una sola
 // volta. Ammortizzato O(1) per richiesta anche sotto carico.
@@ -65,6 +70,13 @@ export function registerRuntimeMetrics(app: FastifyInstance): void {
       latencyMs,
       statusCode: reply.statusCode,
     });
+    // N6: cap duro. Se i sample vivi superano MAX_SAMPLES, scarta i più vecchi
+    // avanzando head (e compatta subito per non far crescere l'array).
+    if (recentRequests.length - head > MAX_SAMPLES) {
+      head = recentRequests.length - MAX_SAMPLES;
+      recentRequests.splice(0, head);
+      head = 0;
+    }
   });
 }
 

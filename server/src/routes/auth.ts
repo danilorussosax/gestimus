@@ -87,7 +87,10 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
    * POST /auth/logout
    * Invalida la sessione corrente e cancella il cookie.
    */
-  app.post('/logout', { preHandler: [requireAuth] }, async (req, reply) => {
+  app.post('/logout', {
+    config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+    preHandler: [requireAuth],
+  }, async (req, reply) => {
     if (req.session) {
       await invalidateSession(req.session.id);
     }
@@ -99,7 +102,12 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
    * GET /auth/me
    * Ritorna l'account loggato.
    */
-  app.get('/me', { preHandler: [requireAuth] }, async (req) => {
+  app.get('/me', {
+    // N8: rate limit leggero contro polling abusivo (ogni hit tocca il DB
+    // per la validazione sessione). 120/min copre l'uso normale dell'app.
+    config: { rateLimit: { max: 120, timeWindow: '1 minute' } },
+    preHandler: [requireAuth],
+  }, async (req) => {
     const a = req.account!;
     return {
       id: a.id,
