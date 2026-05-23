@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { candidati, fasiSezioni, sezioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
+import { parsePagination } from '../lib/pagination.js';
 
 const uuid = z.string().uuid();
 const createBody = z.object({
@@ -19,10 +20,11 @@ export const sezioniRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/', async (req) => {
     const q = z.object({ concorsoId: uuid.optional() }).parse(req.query);
+    const { limit, offset } = parsePagination(req.query);
     return req.dbTx(async (tx) => {
-      return q.concorsoId
-        ? tx.select().from(sezioni).where(eq(sezioni.concorsoId, q.concorsoId))
-        : tx.select().from(sezioni);
+      const base = tx.select().from(sezioni).$dynamic();
+      const filtered = q.concorsoId ? base.where(eq(sezioni.concorsoId, q.concorsoId)) : base;
+      return filtered.limit(limit).offset(offset);
     });
   });
 

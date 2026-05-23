@@ -5,6 +5,7 @@ import { candidati, candidatiFase, commissioni, fasi, fasiSezioni, sezioni } fro
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { faseChannel } from '../realtime/hub.js';
+import { parsePagination } from '../lib/pagination.js';
 
 // Permission per start/conclude/sorteggio/timer di una fase:
 //   - admin/superadmin sempre OK
@@ -148,10 +149,11 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/', async (req) => {
     const q = z.object({ concorsoId: uuid.optional() }).parse(req.query);
+    const { limit, offset } = parsePagination(req.query);
     return req.dbTx(async (tx) => {
-      const rows = q.concorsoId
-        ? await tx.select().from(fasi).where(eq(fasi.concorsoId, q.concorsoId))
-        : await tx.select().from(fasi);
+      const base = tx.select().from(fasi).$dynamic();
+      const filtered = q.concorsoId ? base.where(eq(fasi.concorsoId, q.concorsoId)) : base;
+      const rows = await filtered.limit(limit).offset(offset);
       const sezMap = await loadFaseSezioniMap(tx, rows.map((r) => r.id));
       return rows.map((r) => ({ ...r, sezioniIds: sezMap.get(r.id) ?? [] }));
     });

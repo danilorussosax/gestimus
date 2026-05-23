@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { candidatiFase, commissioni, commissioniCommissari, fasi } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
+import { parsePagination } from '../lib/pagination.js';
 
 // Permesso a marcare ammessoProssimaFase / cambiare lo stato di un candidato_fase:
 //   - admin/superadmin sempre
@@ -81,10 +82,11 @@ export const candidatiFaseRoutes: FastifyPluginAsync = async (app) => {
   // GET /candidati-fase?faseId=... → tutti i candidati di una fase
   app.get('/', async (req) => {
     const q = z.object({ faseId: uuid.optional() }).parse(req.query);
+    const { limit, offset } = parsePagination(req.query);
     return req.dbTx(async (tx) => {
-      return q.faseId
-        ? tx.select().from(candidatiFase).where(eq(candidatiFase.faseId, q.faseId))
-        : tx.select().from(candidatiFase);
+      const base = tx.select().from(candidatiFase).$dynamic();
+      const filtered = q.faseId ? base.where(eq(candidatiFase.faseId, q.faseId)) : base;
+      return filtered.limit(limit).offset(offset);
     });
   });
 

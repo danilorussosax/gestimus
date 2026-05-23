@@ -12,6 +12,7 @@ import {
 } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
+import { parsePagination } from '../lib/pagination.js';
 
 const uuid = z.string().uuid();
 const createBody = z.object({
@@ -66,10 +67,11 @@ export const commissioniRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/', async (req) => {
     const q = z.object({ concorsoId: uuid.optional() }).parse(req.query);
+    const { limit, offset } = parsePagination(req.query);
     return req.dbTx(async (tx) => {
-      const rows = q.concorsoId
-        ? await tx.select().from(commissioni).where(eq(commissioni.concorsoId, q.concorsoId))
-        : await tx.select().from(commissioni);
+      const base = tx.select().from(commissioni).$dynamic();
+      const filtered = q.concorsoId ? base.where(eq(commissioni.concorsoId, q.concorsoId)) : base;
+      const rows = await filtered.limit(limit).offset(offset);
       const { cMap, sMap, catMap } = await loadCommissioniJoins(tx, rows.map((r) => r.id));
       return rows.map((r) => ({
         ...r,

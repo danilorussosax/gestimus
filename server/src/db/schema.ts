@@ -308,6 +308,9 @@ export const candidati = pgTable(
     uniqueIndex('uniq_candidati_concorso_numero').on(t.concorsoId, t.numeroCandidato),
     index('idx_candidati_tenant').on(t.tenantId),
     index('idx_candidati_concorso').on(t.concorsoId),
+    // N60: i pre-check di DELETE sezione/categoria filtrano su questi FK.
+    index('idx_candidati_sezione').on(t.sezioneId),
+    index('idx_candidati_categoria').on(t.categoriaId),
   ],
 );
 
@@ -682,6 +685,9 @@ export const iscrizioni = pgTable(
     index('idx_iscrizioni_tenant').on(t.tenantId),
     index('idx_iscrizioni_concorso_stato').on(t.concorsoId, t.stato),
     index('idx_iscrizioni_email').on(t.email),
+    // N60: pre-check DELETE sezione/categoria filtrano su questi FK.
+    index('idx_iscrizioni_sezione').on(t.sezioneId),
+    index('idx_iscrizioni_categoria').on(t.categoriaId),
   ],
 );
 

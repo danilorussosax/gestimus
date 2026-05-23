@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { criteri, fasi } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
+import { parsePagination } from '../lib/pagination.js';
 
 const uuid = z.string().uuid();
 const createBody = z.object({
@@ -35,10 +36,11 @@ export const criteriRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/', async (req) => {
     const q = z.object({ faseId: uuid.optional() }).parse(req.query);
+    const { limit, offset } = parsePagination(req.query);
     return req.dbTx(async (tx) => {
-      return q.faseId
-        ? tx.select().from(criteri).where(eq(criteri.faseId, q.faseId))
-        : tx.select().from(criteri);
+      const base = tx.select().from(criteri).$dynamic();
+      const filtered = q.faseId ? base.where(eq(criteri.faseId, q.faseId)) : base;
+      return filtered.limit(limit).offset(offset);
     });
   });
 
@@ -111,11 +113,28 @@ export const criteriRoutes: FastifyPluginAsync = async (app) => {
 
     const items = parsed.data.criteri;
     const sum = items.reduce((s, c) => s + c.peso, 0);
-    // Normalizza a 100 (interi). Se sum è 0 (tutti pesi 0), distribuisci equo.
-    const normalized = items.map((c, i) => {
-      const pesoNorm = sum > 0 ? Math.round((c.peso / sum) * 100) : Math.round(100 / items.length);
-      return { ...c, peso: Math.max(0, Math.min(100, pesoNorm)), ordine: c.ordine ?? i };
-    });
+    // N58: normalizzazione a 100 con metodo largest-remainder (Hamilton):
+    // Math.round() su ogni peso non garantisce somma 100 (es. 3×33.33→99).
+    // Assegniamo il floor a tutti, poi distribuiamo il resto (100 - Σfloor) ai
+    // criteri con la parte frazionaria più alta. Risultato: somma sempre 100.
+    const n = items.length;
+    const exact = items.map((c) => (sum > 0 ? (c.peso / sum) * 100 : 100 / n));
+    const floors = exact.map((x) => Math.floor(x));
+    let remainder = 100 - floors.reduce((s, x) => s + x, 0);
+    // indici ordinati per parte frazionaria decrescente
+    const order = exact
+      .map((x, i) => ({ i, frac: x - Math.floor(x) }))
+      .sort((a, b) => b.frac - a.frac);
+    const pesi = [...floors];
+    for (let k = 0; k < order.length && remainder > 0; k++) {
+      pesi[order[k]!.i]! += 1;
+      remainder--;
+    }
+    const normalized = items.map((c, i) => ({
+      ...c,
+      peso: Math.max(0, Math.min(100, pesi[i]!)),
+      ordine: c.ordine ?? i,
+    }));
 
     return req.dbTx(async (tx) => {
       await tx.delete(criteri).where(eq(criteri.faseId, faseId));

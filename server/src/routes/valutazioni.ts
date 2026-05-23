@@ -10,6 +10,7 @@ import {
 } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
+import { parsePagination } from '../lib/pagination.js';
 
 const uuid = z.string().uuid();
 // N15: bound applicativo su `voto`. Il trigger DB clamp_voto normalizza
@@ -113,6 +114,7 @@ export const valutazioniRoutes: FastifyPluginAsync = async (app) => {
     const q = z
       .object({ candidatoFaseId: uuid.optional(), commissarioId: uuid.optional() })
       .parse(req.query);
+    const { limit, offset } = parsePagination(req.query);
     return req.dbTx(async (tx) => {
       let where;
       if (q.candidatoFaseId && q.commissarioId) {
@@ -125,7 +127,9 @@ export const valutazioniRoutes: FastifyPluginAsync = async (app) => {
       } else if (q.commissarioId) {
         where = eq(valutazioni.commissarioId, q.commissarioId);
       }
-      return where ? tx.select().from(valutazioni).where(where) : tx.select().from(valutazioni);
+      const base = tx.select().from(valutazioni).$dynamic();
+      const filtered = where ? base.where(where) : base;
+      return filtered.limit(limit).offset(offset);
     });
   });
 

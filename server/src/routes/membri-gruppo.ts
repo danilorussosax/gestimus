@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { candidati, candidatiMembri } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
+import { parsePagination } from '../lib/pagination.js';
 
 const uuid = z.string().uuid();
 const createBody = z.object({
@@ -21,10 +22,11 @@ export const membriGruppoRoutes: FastifyPluginAsync = async (app) => {
   // GET /membri-gruppo?candidatoId=...
   app.get('/', async (req) => {
     const q = z.object({ candidatoId: uuid.optional() }).parse(req.query);
+    const { limit, offset } = parsePagination(req.query);
     return req.dbTx(async (tx) => {
-      return q.candidatoId
-        ? tx.select().from(candidatiMembri).where(eq(candidatiMembri.candidatoId, q.candidatoId))
-        : tx.select().from(candidatiMembri);
+      const base = tx.select().from(candidatiMembri).$dynamic();
+      const filtered = q.candidatoId ? base.where(eq(candidatiMembri.candidatoId, q.candidatoId)) : base;
+      return filtered.limit(limit).offset(offset);
     });
   });
 

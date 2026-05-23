@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { concorsi } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
+import { parsePagination } from '../lib/pagination.js';
 
 const uuid = z.string().uuid();
 const createBody = z.object({
@@ -21,7 +22,8 @@ const updateBody = createBody.partial();
 export const concorsiRoutes: FastifyPluginAsync = async (app) => {
   // GET pubblico-ish ma richiede comunque sessione (admin/commissario)
   app.get('/concorsi', { preHandler: [requireAuth] }, async (req) => {
-    return req.dbTx(async (tx) => tx.select().from(concorsi));
+    const { limit, offset } = parsePagination(req.query);
+    return req.dbTx(async (tx) => tx.select().from(concorsi).limit(limit).offset(offset));
   });
 
   app.get('/concorsi/:id', { preHandler: [requireAuth] }, async (req, reply) => {
