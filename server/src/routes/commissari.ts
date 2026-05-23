@@ -15,8 +15,10 @@ const emptyToNull = <T>(v: T) => (v === '' ? null : v);
 const createBody = z.object({
   concorsoId: uuid,
   nome: z.string().min(1).max(255),
-  cognome: z.string().max(255).optional(),
-  specialita: z.string().max(255).optional(),
+  // M160: coerenza con gli altri campi — "" (campo svuotato nel form) → null
+  // invece di stringa vuota persistita.
+  cognome: z.preprocess(emptyToNull, z.string().max(255).nullable()).optional(),
+  specialita: z.preprocess(emptyToNull, z.string().max(255).nullable()).optional(),
   email: z.preprocess(emptyToNull, z.string().email().nullable()).optional(),
   telefono: z.preprocess(emptyToNull, z.string().max(50).nullable()).optional(),
   dataNascita: z.preprocess(emptyToNull, z.string().date().nullable()).optional(),

@@ -6,16 +6,19 @@ import { tenants } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 
+// M167: "" (campo svuotato nel form) → undefined, così non finisce come stringa
+// vuota nel JSONB dell'ente. I campi email/pec gestiscono già il caso vuoto.
+const blankToUndef = (v: unknown) => (v === '' ? undefined : v);
 const enteBody = z.object({
-  denominazione: z.string().max(255).optional(),
-  sede: z.string().max(255).optional(),
-  codiceFiscale: z.string().max(50).optional(),
-  partitaIva: z.string().max(50).optional(),
-  telefono: z.string().max(50).optional(),
+  denominazione: z.preprocess(blankToUndef, z.string().max(255).optional()),
+  sede: z.preprocess(blankToUndef, z.string().max(255).optional()),
+  codiceFiscale: z.preprocess(blankToUndef, z.string().max(50).optional()),
+  partitaIva: z.preprocess(blankToUndef, z.string().max(50).optional()),
+  telefono: z.preprocess(blankToUndef, z.string().max(50).optional()),
   email: z.string().email().optional().or(z.literal('')),
   pec: z.string().email().optional().or(z.literal('')),
-  sitoWeb: z.string().max(255).optional(),
-  note: z.string().optional(),
+  sitoWeb: z.preprocess(blankToUndef, z.string().max(255).optional()),
+  note: z.preprocess(blankToUndef, z.string().optional()),
 });
 
 // logoUrl può essere un dataURL base64 inline (PNG/WebP) oppure un path/URL.

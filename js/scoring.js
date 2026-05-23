@@ -188,6 +188,10 @@ function olimpicaArr(arr) {
 }
 function winsorizzataArr(arr) {
   if (arr.length <= 2) return aritmeticaArr(arr);
+  // M161 (non è un bug): con n=3, winsorizzare 1 valore da ciascun estremo
+  // sostituisce min e max con il valore centrale → tutti e tre diventano la
+  // mediana. È il comportamento corretto del winsorized mean a livello 1 su 3
+  // campioni, non una svista.
   const sorted = [...arr].sort((a,b) => a - b);
   const capped = [...sorted];
   capped[0] = sorted[1];
@@ -249,8 +253,12 @@ export function getModoValutazione(fase) {
 }
 
 export function fmtVoto(v, scala) {
-  const decimals = (Number(scala) || 10) <= 10 ? 1 : 0;
-  return Number(v || 0).toFixed(decimals);
+  // M162: su scala >10 i voti individuali sono interi (voteStep=1), ma le MEDIE
+  // possono essere frazionarie (es. 7.5). Mantieni 1 decimale per i non interi,
+  // altrimenti 7.5 verrebbe mostrato come "8".
+  const x = Number(v || 0);
+  const decimals = (Number(scala) || 10) <= 10 ? 1 : (Number.isInteger(x) ? 0 : 1);
+  return x.toFixed(decimals);
 }
 
 // Eliminatoria suggested admission: thresholds RELATIVE to scala.

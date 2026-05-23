@@ -648,7 +648,9 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/:id/sorteggio', { preHandler: [requireAuth] }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
-    const body = z.object({ seed: z.number().int() }).safeParse(req.body);
+    // M158: seed limitato a int32 non negativo — un valore estremo passerebbe a
+    // shuffleSeeded producendo aritmetica fuori range / comportamento anomalo.
+    const body = z.object({ seed: z.number().int().min(0).max(2_147_483_647) }).safeParse(req.body);
     if (!body.success) return reply.badRequest(body.error.message);
     return req.dbTx(async (tx) => {
       if (!await assertCanManageFase(tx, req, reply, id)) return;
@@ -714,7 +716,9 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
       const [updated] = await tx
         .update(fasi)
         .set({
-          timerBonusSeconds: sql`${fasi.timerBonusSeconds} + ${body.data.seconds}`,
+          // M147: tetto cumulativo (24h) sul bonus → niente accumulo illimitato
+          // che potrebbe far overfloware l'INTEGER (~2.1B) dopo molte richieste.
+          timerBonusSeconds: sql`LEAST(${fasi.timerBonusSeconds} + ${body.data.seconds}, 86400)`,
           updatedAt: new Date(),
         })
         .where(eq(fasi.id, id))
