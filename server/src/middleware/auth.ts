@@ -21,6 +21,12 @@ export const SESSION_COOKIE_OPTIONS = {
   httpOnly: true,
   secure: env.NODE_ENV === 'production',
   sameSite: 'lax' as const,
+  // N136 (non firmato di proposito): il cookie NON codifica fiducia — contiene
+  // solo un token casuale opaco validato lato server (validateSessionToken).
+  // Una manomissione produce un token inesistente → 401, non una sessione
+  // forgiata. La firma HMAC protegge i cookie che *trasportano* dati di trust
+  // (es. uno userId): qui sarebbe ridondante. httpOnly + opacità + lookup DB
+  // sono la difesa effettiva.
   signed: false,
 };
 
@@ -51,6 +57,9 @@ export const requireAuth: preHandlerAsyncHookHandler = async (req, reply) => {
     // C12: cookie firmato per tenant A presentato su tenant B → invalida la
     // sessione (DB-side) e cancella il cookie. Senza questo, un cookie rubato
     // poteva essere usato per sondare infiniti tenant senza penalità.
+    // N134 (falso positivo): questo check blocca ANCHE un superadmin sul
+    // subdomain di un tenant — la sua sessione ha tenantId = platform, che non
+    // combacia con req.tenant.id del tenant → 403. Nessun accesso cross-tenant.
     try { await invalidateSession(req.session.id); } catch { /* best-effort */ }
     req.account = null;
     req.session = null;

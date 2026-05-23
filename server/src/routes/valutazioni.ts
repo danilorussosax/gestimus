@@ -180,6 +180,9 @@ export const valutazioniRoutes: FastifyPluginAsync = async (app) => {
             // N31: distinzione insert/update affidabile via xmax. Per una riga
             // appena inserita xmax=0; per una aggiornata xmax≠0. Prima si
             // confrontava createdAt==updatedAt (millisecondo), fragile.
+            // N116 (falso positivo): verificato empiricamente su Postgres —
+            // ON CONFLICT insert → xmax=0 (true), conflict→update → xmax≠0
+            // (false). L'audit log distingue quindi correttamente create/update.
             .returning({ ...getTableColumns(valutazioni), inserted: sql<boolean>`(xmax = 0)` });
           const wasInsert = row!.inserted === true;
           await writeAudit(tx, req, wasInsert ? 'valutazione.create' : 'valutazione.update', {

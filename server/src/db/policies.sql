@@ -133,6 +133,29 @@ SELECT apply_tenant_rls('valutazioni');
 SELECT apply_tenant_rls('iscrizioni');
 SELECT apply_tenant_rls('iscrizioni_allegati');
 
+-- N133: guardia anti-regressione. Le default privileges (sopra) concedono CRUD
+-- a gestimus_app su OGNI tabella futura in `public`. Se una nuova tabella con
+-- dati tenant venisse aggiunta dimenticando apply_tenant_rls, sarebbe esposta.
+-- Qui falliamo esplicitamente l'apply delle policy se esiste una tabella con
+-- colonna `tenant_id` priva di RLS abilitata+forzata → la svista emerge subito
+-- (CI / db:policies) invece che in produzione.
+DO $$
+DECLARE
+  missing text;
+BEGIN
+  SELECT string_agg(c.relname, ', ')
+    INTO missing
+  FROM pg_class c
+  JOIN pg_namespace n ON n.oid = c.relnamespace
+  JOIN pg_attribute a ON a.attrelid = c.oid AND a.attname = 'tenant_id' AND NOT a.attisdropped
+  WHERE n.nspname = 'public'
+    AND c.relkind = 'r'
+    AND NOT (c.relrowsecurity AND c.relforcerowsecurity);
+  IF missing IS NOT NULL THEN
+    RAISE EXCEPTION 'N133: tabelle con tenant_id senza RLS ENABLE+FORCE: % (aggiungere apply_tenant_rls)', missing;
+  END IF;
+END $$;
+
 -- =====================================================================
 -- 4b. Junction tenant-coherence trigger
 --     Difesa in profondità: anche se l'app sbagliasse, il DB rifiuta una
