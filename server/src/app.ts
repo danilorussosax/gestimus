@@ -8,6 +8,7 @@ import fastifyStatic from '@fastify/static';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { env } from './env.js';
+import { pingDb } from './db/client.js';
 import { registerTenantMiddleware } from './middleware/tenant.js';
 import { registerAuthMiddleware } from './middleware/auth.js';
 import { registerRuntimeMetrics } from './middleware/runtime-metrics.js';
@@ -112,8 +113,19 @@ export async function createApp(): Promise<FastifyInstance> {
   // Avvia il realtime hub (Postgres LISTEN client dedicato)
   await startRealtimeHub();
 
+  // /healthz: liveness (il processo risponde). /readyz: readiness — verifica
+  // la connettività DB reale così un orchestratore non instrada traffico se il
+  // DB è irraggiungibile.
   app.get('/healthz', async () => ({ ok: true, ts: new Date().toISOString() }));
-  app.get('/readyz', async () => ({ ok: true, env: env.NODE_ENV }));
+  app.get('/readyz', async (_req, reply) => {
+    try {
+      await pingDb();
+      return { ok: true, env: env.NODE_ENV, db: 'up' };
+    } catch (err) {
+      reply.log.error({ err }, 'readyz: DB non raggiungibile');
+      return reply.code(503).send({ ok: false, db: 'down' });
+    }
+  });
 
   await app.register(authRoutes, { prefix: '/auth' });
 

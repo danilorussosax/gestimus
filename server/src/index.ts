@@ -44,16 +44,44 @@ async function start() {
   }
 }
 
+let shuttingDown = false;
 async function shutdown(signal: string) {
+  // Idempotente: un secondo segnale durante lo shutdown non riavvia la sequenza.
+  if (shuttingDown) return;
+  shuttingDown = true;
   app.log.info(`Received ${signal}, shutting down...`);
-  if (cleanupTask) cleanupTask.stop();
-  await app.close();
-  await stopRealtimeHub();
-  await shutdownPools();
-  process.exit(0);
+  // Hard-timeout: se la chiusura ordinata si blocca (connessioni appese, SSE
+  // che non drenano), forziamo l'uscita dopo 10s per non restare zombie.
+  const forceExit = setTimeout(() => {
+    app.log.error('shutdown: timeout 10s superato, uscita forzata');
+    process.exit(1);
+  }, 10_000);
+  forceExit.unref();
+  try {
+    if (cleanupTask) cleanupTask.stop();
+    await app.close();
+    await stopRealtimeHub();
+    await shutdownPools();
+    clearTimeout(forceExit);
+    process.exit(0);
+  } catch (err) {
+    app.log.error({ err }, 'shutdown: errore durante la chiusura ordinata');
+    process.exit(1);
+  }
 }
 
 process.on('SIGINT', () => void shutdown('SIGINT'));
 process.on('SIGTERM', () => void shutdown('SIGTERM'));
+
+// Affidabilità: una promise rejection non gestita o un'eccezione non catturata
+// non devono uccidere silenziosamente il processo. Logghiamo con contesto;
+// su uncaughtException avviamo uno shutdown ordinato (lo stato è dubbio).
+process.on('unhandledRejection', (reason) => {
+  app.log.error({ reason }, 'unhandledRejection');
+});
+process.on('uncaughtException', (err) => {
+  app.log.fatal({ err }, 'uncaughtException — shutdown');
+  void shutdown('uncaughtException');
+});
 
 await start();
