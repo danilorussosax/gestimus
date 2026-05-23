@@ -1,9 +1,9 @@
 # Gestimus — Audit di robustezza del codice
 
 > **Data**: 2026-05-23
-> **Commit**: branch `main` (post Rianalisi 10 — CI e suite test verdi)
-> **Scope**: frontend vanilla JS (`js/`, ~20.700 LOC) + backend Fastify/Drizzle (`server/src/`, ~7.400 LOC) + 21 route REST + 14 migrazioni SQL.
-> **Contesto**: l'audit segue 5 round di bugfix (C1-C13, H1-H12, M1-M22, L1-L16, N1-N50), 5 fasi di consolidamento e quattro round di rianalisi (N51-N84 + A1/A2; N85-N94; N95-N104; N105-N114). In totale ~140 problemi di sicurezza/correttezza/performance chiusi.
+> **Commit**: branch `main` (post Analisi Finale — CI e suite test verdi)
+> **Scope**: frontend vanilla JS (`js/`, ~20.700 LOC) + backend Fastify/Drizzle (`server/src/`, ~7.400 LOC) + 21 route REST + 15 migrazioni SQL.
+> **Contesto**: l'audit segue 5 round di bugfix (C1-C13, H1-H12, M1-M22, L1-L16, N1-N50), 5 fasi di consolidamento, quattro round di rianalisi (N51-N84 + A1/A2; N85-N94; N95-N104; N105-N114) e un'Analisi Finale a 6 agenti (N115-N181, M146-M167, L168-L181). In totale ~170 problemi di sicurezza/correttezza/performance chiusi.
 
 ---
 
@@ -179,6 +179,21 @@ Nessun rischio residuo Alto o Medio: i precedenti (A1 paginazione, A2 streaming,
 - **Integrità tenant a livello DB**: estesa `check_junction_tenant_coherence` con trigger anche su `valutazioni` (parent `candidati_fase`, N113) e `candidati_fase` (parent `fasi`+`candidati`, N114) — prima coperte solo le 4 junction; chiude la scrittura cross-tenant via `dbSuper`.
 - **Correttezza/robustezza**: reject di un'iscrizione `APPROVATA` bloccato con 409, niente candidato orfano (N111); `fmtBytes` importato in `import.js`, era un ReferenceError al caricamento di un CSV (N110); advisory lock `numeroCandidato` portato a `hashtextextended` 64-bit in entrambi i punti, coerente, per azzerare le collisioni (N112).
 - **Ri-segnalati risolti alla radice (anti-churn)**: indice unique parziale `uniq_iscrizioni_concorso_email_active` portato in `schema.ts` oltre che nella migrazione (N95); confronto scadenze reso TZ-aware con helper `lib/date.ts` `todayISODate()` Europe/Rome (N100); `FOR UPDATE` sul concorso in reorder e create fasi (N103). N102 era già risolto nel Round 9 (transazione unica).
+
+### Analisi Finale (N115-N181, M146-M167, L168-L181)
+
+Round a 6 agenti, ~60 segnalazioni triate per severità; ~12 verificate come
+**falsi positivi** e neutralizzate alla radice (commento o prova). Eseguita a
+ondate (8 commit), ognuna con typecheck + test verdi.
+
+- **CRITICAL — realtime hub** (`realtime/hub.ts`): N126 — `client` assegnato solo dopo connect riuscita (un connect fallito non lascia più un client morto-ma-truthy che bloccava ogni reconnect); N127 — flag `stopping` per non lasciare client orfani su shutdown race; M148 — backoff esponenziale.
+- **HIGH — sicurezza/isolamento**: N115 (iscrizioni admin lista/dettaglio → solo admin, prima PII a ogni utente auth); N105/N106/N140 (ownership tenant su POST commissari/commissioni/sezioni/categorie/criteri/candidati-fase — le FK non passano per RLS); N133 (guardia: l'apply policy fallisce se una tabella con `tenant_id` non ha RLS FORCE); N131 (estensione upload sempre dal MIME, mai dal filename → no stored XSS); N137 (no PII nell'audit GDPR erase, Art. 17); N129 (`trustProxy: 1`); N130 (keyBuffer AES unificato); N132 (platform transporter invalidabile); N107/N108 (FOR UPDATE su presidente/fase nei TOCTOU); N141 (doppia pausa timer); M166/N113/N114 (trigger coerenza tenant estesi a accounts/commissioni/candidati/iscrizioni/valutazioni/candidati_fase).
+- **HIGH — frontend**: N138 (verbale: presidente per id, non `is_presidente` sempre false); N139 (import CSV commissari: `concorso_id`); N142 (SW non forza più il reload → avviso, niente perdita form); N143 (media-per-criterio coerente con la media principale).
+- **N124 (feature)**: cablato il motore tiebreak (`rankWithTieBreak`, prima esportato ma mai chiamato) nel ranking di tabella/podio/CSV/PDF/verbale via helper condiviso `common.js rankFase`; i pareggi ora sono risolti e la UI tiebreak (badge ex aequo, log spareggi) è viva. Calcolo on-the-fly (fasi CONCLUSA = voti congelati → stabile). Include M163 (CSV) e M164 (decimali podio).
+- **MEDIUM/LOW**: M147 (tetto bonus timer), M151 (write upload atomica), M157 (AudioContext chiuso), M159 (dominio validato), M160/M167 (`""`→null), M162 (decimali medie scala>10), M154/M155/M156 (avatar/nomi membri/close modale), L175 (vista superadmin non crasha su sys.cpu mancante), N118 (unico account per commissario), N119 (deleteCandidato pulisce lo stato derivato), N123 (dirSize sequenziale), M152 (audit login successo/fallimento).
+- **Falsi positivi documentati**: N116 (xmax provato empiricamente), N125/N128 (cache invalidata da auditChange a ogni mutazione), N134 (C12 blocca il superadmin cross-tenant), N135 (hard-timeout), N136 (token opaco), M146/M148 (già fatti in W1), M150 (SameSite-Lax), M153 (CSV già sanificato), M161, M165, N121, L174, L181, L170.
+
+> **Non validati in browser**: N124 e le modifiche frontend (PDF verbale/protocollo, flow update SW, import CSV, tab Risultati/podio) richiedono verifica manuale. **Differiti** (non bloccanti): L176 (CV server-side incompleto), N117 (backup streaming), N120, N122, L169/L171/L172/L173/L177/L180, N144 (semantica ammissione — decisione di prodotto).
 
 ---
 
