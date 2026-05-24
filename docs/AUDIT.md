@@ -84,6 +84,7 @@ Punti critici coperti, provati da test (`tests/crud/concurrency.test.ts`):
 - **Streaming**: export GDPR e backup tenant scritti in streaming (picco memoria = tabella più grande, non la somma) → no OOM su tenant grandi.
 - **Indici**: cache LRU tenant (TTL 60s), indici su FK e colonne filtrate, bulk UPDATE sorteggio, ring-buffer metriche.
 - **Realtime hub**: riconnessione con backoff esponenziale, niente client orfani/morti, timer di reconnect `.unref()`.
+- **PgBouncer-ready**: l'intero stack è compatibile con PgBouncer in *transaction mode* (RLS tenant via `set_config(...,true)` tx-local, advisory lock di candidato transaction-scoped, niente prepared statement con nome né `SET` di sessione). I due soli percorsi session-stateful (LISTEN/NOTIFY del realtime e advisory lock di sessione del cleanup) sono isolati su `DATABASE_URL_DIRECT` che bypassa il bouncer → APP e SUPER possono essere multiplexati. Pool dimensionabili via `DB_APP_POOL_MAX`/`DB_SUPER_POOL_MAX`.
 
 **Residuo evolutivo**: il client carica ancora `db.loadAll` in memoria — adeguato ai volumi attesi; la migrazione a lazy-load per-vista è un'evoluzione successiva da validare in browser.
 
@@ -92,7 +93,7 @@ Punti critici coperti, provati da test (`tests/crud/concurrency.test.ts`):
 ## 7. Test e CI
 
 - **Unit** (root, `node --test`): 47 test su `scoring.js`/`rng.js`/`tiebreak.js` (media, tiebreak, RNG sorteggio).
-- **Server** (`node --test` + tsx): ~112 test su 15 suite — `rls/isolation`, `auth/{login,totp}`, `realtime/notify`, `crud/{smoke,triggers,privacy,storage,smtp,crypto-smtp,platform,cleanup,concurrency,calendario,routes}`. Coprono RLS, trigger, crypto, concorrenza, 2FA TOTP, calendario/scheduling, route critiche (transizioni fase, permessi, GDPR, ammissione, DELETE concorso, restore backup).
+- **Server** (`node --test` + tsx): **154 test / 16 suite** (153 pass, 1 skip preesistente) — `rls/isolation`, `auth/{login,totp}`, `realtime/notify`, `crud/{smoke,triggers,privacy,storage,smtp,crypto-smtp,platform,cleanup,concurrency,calendario,routes}`. Coprono RLS, trigger, crypto, concorrenza, 2FA TOTP, calendario/scheduling, route critiche (transizioni fase, permessi, GDPR, ammissione, DELETE concorso, restore backup).
 - **E2E** (Playwright): 2 spec (smoke, multitenant).
 - **CI**: job `Server tests (Postgres 18)` a ogni push, lint TS/JS, lint bash+shellcheck, validate SQL migrations, i18n coverage, type-check frontend core, audit dimensioni file. Verde su `main`.
 

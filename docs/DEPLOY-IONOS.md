@@ -49,7 +49,7 @@ Listino IONOS Italia (aggiornato — promo 24 mesi · poi rinnovo automatico al 
 | VPS XL+ | 8 | 16 GB | 480 GB | €9,00 | €15,00 | 800–1500 enti |
 | VPS XXL+ | 12 | 24 GB | 720 GB | €15,00 | €29,50 | 1500–3000 enti |
 
-> **Nota — capacità cambiata con il nuovo stack PG+Fastify+Drizzle.** Lo stack PocketBase (legacy) richiedeva **1 processo per ente** (~50-150 MB RAM ciascuno), per cui la VPS L+ si fermava a 20-50 enti. Con multitenancy logica via `tenant_id`+RLS l'app è **un solo processo Node + un solo Postgres** condiviso: la RAM/CPU non scalano più col numero di enti ma col **traffico totale**, e il vincolo si sposta sul disco (~300 MB/tenant medio fra DB e allegati CV/foto) e sui picchi di utenti concorrenti (form pubblici aperti contemporaneamente). I numeri in tabella sono stime conservative basate sul nuovo modello, non ancora validate da load test in produzione.
+> **Nota — capacità cambiata con il nuovo stack PG+Fastify+Drizzle.** Lo stack PocketBase (legacy) richiedeva **1 processo per ente** (~50-150 MB RAM ciascuno), per cui la VPS L+ si fermava a 20-50 enti. Con multitenancy logica via `tenant_id`+RLS l'app è **un solo processo Node + un solo Postgres** condiviso: la RAM/CPU non scalano più col numero di enti ma col **traffico totale**, e il vincolo si sposta sul disco (~300 MB/tenant medio fra DB e allegati CV/foto) e sui picchi di utenti concorrenti (form pubblici aperti contemporaneamente). I numeri in tabella sono stime conservative basate sul nuovo modello, non ancora validate da load test in produzione. Il **disco** è il tetto fisico (~500 enti attivi su L+); il soffitto di **concorrenza** (utenti simultanei) si alza con PgBouncer — vedi Step 6-bis.
 
 **Consiglio**: per Gestimus parti con **VPS L+** (€5/mese promo, €8 a rinnovo) — è il piano "best seller", offre 240 GB NVMe (sufficienti per anni anche con upload foto+CV degli iscritti) e 8 GB RAM (Postgres `shared_buffers` ~2 GB + Fastify + nginx + cache OS, con margine per i picchi concorsi). Il datacenter più vicino fisicamente è la **Germania (Francoforte)** → conforme GDPR, latenza ~25-40 ms dall'Italia.
 
@@ -209,6 +209,10 @@ SUPERADMIN_SUBDOMAIN=platform
 # Uploads
 UPLOADS_DIR=/var/lib/gestimus/uploads
 UPLOADS_MAX_FILE_SIZE_MB=5
+
+# Pool connessioni (default node-pg = 10). Vedi Step 6-bis per PgBouncer.
+DB_APP_POOL_MAX=20
+DB_SUPER_POOL_MAX=5
 EOF
 
 chown gestimus:gestimus /etc/gestimus/server.env
@@ -233,6 +237,92 @@ for f in /opt/gestimus/server/scripts/migrations/*.sql; do
   sudo -u postgres psql -d gestimus -f "$f"
 done
 ```
+
+## Step 6-bis — PgBouncer (opzionale, per alta concorrenza)
+
+**Quando serve.** Il pool node-postgres ha default 10 connessioni; ora i default
+sono `DB_APP_POOL_MAX=20` / `DB_SUPER_POOL_MAX=5`. Per pochi enti basta così.
+PgBouncer conviene quando hai **molti utenti concorrenti** (form pubblici aperti
+in massa durante l'apertura iscrizioni, sessioni live con SSE su più concorsi
+insieme): multiplexa centinaia di connessioni applicative su poche connessioni
+backend Postgres, alzando il soffitto di concorrenza. **Non** sposta il limite da
+disco (~300 MB/ente): quello resta il tetto fisico (~500 enti attivi su L+).
+
+**Compatibilità.** Lo stack è progettato per girare **interamente** dietro PgBouncer
+in **transaction mode**. Quasi tutto è transaction-scoped; gli unici due percorsi
+che richiedono una sessione stabile sono isolati su un DSN dedicato
+(`DATABASE_URL_DIRECT`) che bypassa il bouncer.
+
+> | Componente | DSN | Transaction pooling |
+> |---|---|---|
+> | RLS tenant (hot path) | APP | ✅ tenant via `set_config(..., true)` *nella* transazione (`policies.sql`); niente `SET` di sessione, niente prepared statement con nome |
+> | `numeroCandidato` | APP | ✅ `pg_advisory_xact_lock` (transaction-scoped) |
+> | Query platform / DDL / cleanup work | SUPER | ✅ transaction-scoped |
+> | LISTEN/NOTIFY (realtime/SSE) | **DIRECT** | ⚠️ richiede sessione stabile → connessione diretta dedicata (`hub.ts`) |
+> | Advisory lock di sessione del cleanup | **DIRECT** | ⚠️ `pg_try_advisory_lock` tenuto per tutto il job → `connectDirectClient()` su DSN diretto |
+>
+> Quindi: **APP e SUPER possono entrambi passare dal bouncer**; solo
+> `DATABASE_URL_DIRECT` deve puntare a Postgres `:5432`. Se `DATABASE_URL_DIRECT`
+> non è impostato, ricade su `DATABASE_URL_SUPER` (corretto solo se SUPER è diretto).
+
+### Installazione
+
+```bash
+apt install -y pgbouncer
+
+# Entrambi i ruoli passano dal bouncer (la connessione DIRECT non usa userlist:
+# va dritta a Postgres). Genera gli hash SCRAM con: SELECT rolname, rolpassword FROM pg_authid;
+cat >/etc/pgbouncer/userlist.txt <<'EOF'
+"gestimus_app" "SCRAM-SHA-256$..."
+"gestimus_super" "SCRAM-SHA-256$..."
+EOF
+chown postgres:postgres /etc/pgbouncer/userlist.txt
+chmod 600 /etc/pgbouncer/userlist.txt
+```
+
+`/etc/pgbouncer/pgbouncer.ini`:
+
+```ini
+[databases]
+gestimus = host=127.0.0.1 port=5432 dbname=gestimus
+
+[pgbouncer]
+listen_addr = 127.0.0.1
+listen_port = 6432
+auth_type = scram-sha-256
+auth_file = /etc/pgbouncer/userlist.txt
+pool_mode = transaction          ; transaction (non session/statement)
+max_client_conn = 1000           ; connessioni applicative multiplexate
+default_pool_size = 25           ; connessioni backend per (db,user) — tienilo < max_connections PG
+server_idle_timeout = 120
+ignore_startup_parameters = extra_float_digits
+```
+
+```bash
+systemctl enable --now pgbouncer
+```
+
+### Cablaggio nello stack
+
+In `/etc/gestimus/server.env`: APP e SUPER al bouncer, `DATABASE_URL_DIRECT` diretto.
+
+```bash
+# APP + SUPER → PgBouncer (transaction mode)
+DATABASE_URL_APP=postgres://gestimus_app:<pwd_app>@127.0.0.1:6432/gestimus
+DATABASE_URL_SUPER=postgres://gestimus_super:<pwd_super>@127.0.0.1:6432/gestimus
+# DIRECT → Postgres diretto (LISTEN/NOTIFY + advisory lock di sessione del cleanup)
+DATABASE_URL_DIRECT=postgres://gestimus_super:<pwd_super>@127.0.0.1:5432/gestimus
+```
+
+> Nota: `db:setup`, `db:push` e le migrazioni (DDL) possono girare sul :6432 in
+> transaction mode senza problemi; in caso di errori di startup-param puoi anche
+> lanciarle puntando direttamente al :5432.
+
+Con PgBouncer puoi tenere `DB_APP_POOL_MAX`/`DB_SUPER_POOL_MAX` modesti: sono le
+connessioni Node→PgBouncer; è il bouncer a multiplexare verso PG con
+`default_pool_size`. Verifica `max_connections` di Postgres
+(`SHOW max_connections;`, default 100) ≥ `default_pool_size` + connessioni DIRECT
+(1 LISTEN persistente + 1 cleanup occasionale) + margine.
 
 ## Step 7 — systemd unit
 

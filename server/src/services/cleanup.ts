@@ -1,5 +1,5 @@
 import { and, eq, isNotNull, lt, lte, sql } from 'drizzle-orm';
-import { dbSuper, superPool } from '../db/client.js';
+import { dbSuper, connectDirectClient } from '../db/client.js';
 import { iscrizioni, platformAuditLog, tenants } from '../db/schema.js';
 import { backupTenant, pruneOldBackups } from './backup.js';
 import { computePlatformAuditSig } from './audit.js';
@@ -56,10 +56,13 @@ export async function runTenantCleanup(): Promise<CleanupResult> {
     errors: [],
   };
 
-  // M15 + N182: lock advisory di SESSIONE su una connessione DEDICATA. Acquire e
-  // unlock DEVONO avvenire sulla stessa connessione: con dbSuper (pool) l'unlock
-  // poteva finire su una connessione diversa → lock di sessione mai rilasciato.
-  const lockClient = await superPool.connect();
+  // M15 + N182: lock advisory di SESSIONE su una connessione DEDICATA e DIRETTA.
+  // Acquire e unlock DEVONO avvenire sulla stessa connessione: con un pool
+  // l'unlock poteva finire su una connessione diversa → lock mai rilasciato.
+  // Connessione diretta (no PgBouncer): un lock di sessione non sopravvive al
+  // transaction pooling. Il lavoro vero del cleanup gira invece su dbSuper
+  // (pooled, transaction-scoped) → compatibile col bouncer.
+  const lockClient = await connectDirectClient();
   let acquired = false;
   try {
     const lockRes = await lockClient.query<{ acquired: boolean }>(
@@ -137,12 +140,13 @@ export async function runTenantCleanup(): Promise<CleanupResult> {
 
     return result;
   } finally {
-    // M15 + N182: unlock sulla STESSA connessione del lock, poi rilascia il client.
+    // M15 + N182: unlock sulla STESSA connessione del lock, poi chiudi il client
+    // diretto (pg.Client → .end(), non .release() che è del pool).
     if (acquired) {
       await lockClient
         .query('SELECT pg_advisory_unlock($1)', [CLEANUP_ADVISORY_LOCK_KEY])
         .catch(() => {});
     }
-    lockClient.release();
+    await lockClient.end().catch(() => {});
   }
 }

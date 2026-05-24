@@ -1,5 +1,5 @@
 import pg from 'pg';
-import { env } from '../env.js';
+import { DATABASE_URL_DIRECT } from '../db/client.js';
 
 type Listener = (payload: unknown) => void;
 
@@ -22,7 +22,9 @@ async function connect(): Promise<void> {
   // connect() riuscita. Prima `client` veniva assegnato subito: se connect()
   // falliva restava un client disconnesso ma truthy → `if (client) return` in
   // start/reconnect bloccava per sempre ogni nuovo tentativo (hub morto).
-  const c = new pg.Client({ connectionString: env.DATABASE_URL_SUPER });
+  // DSN DIRETTO: LISTEN richiede una sessione stabile, incompatibile con
+  // PgBouncer transaction mode. Vedi DATABASE_URL_DIRECT in db/client.ts.
+  const c = new pg.Client({ connectionString: DATABASE_URL_DIRECT });
   c.on('error', (err) => {
     console.error('[realtime] LISTEN client error:', err.message);
     scheduleReconnect();

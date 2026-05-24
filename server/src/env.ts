@@ -4,6 +4,22 @@ import { z } from 'zod';
 const schema = z.object({
   DATABASE_URL_APP: z.string().url(),
   DATABASE_URL_SUPER: z.string().url(),
+  // DSN DIRETTO a Postgres (bypassa un eventuale PgBouncer). Usato SOLO dai due
+  // consumatori che richiedono una SESSIONE stabile: il client LISTEN/NOTIFY del
+  // realtime e l'advisory lock di SESSIONE del cleanup — entrambi incompatibili
+  // con il transaction pooling. Tutto il resto (APP hot path, query platform,
+  // DDL) è transaction-scoped e può passare dal bouncer. Se non impostato,
+  // ricade su DATABASE_URL_SUPER (dev / deploy senza PgBouncer).
+  DATABASE_URL_DIRECT: z.string().url().optional(),
+  // Dimensione dei pool node-postgres. Il default di node-pg è 10: troppo basso
+  // sotto picchi (form pubblici + sessioni live SSE concorrenti). Il pool APP
+  // serve l'hot path tenant (RLS transaction-local → compatibile con PgBouncer
+  // in transaction mode: in quel caso questo è il numero di connessioni
+  // Node→PgBouncer, che multiplexa su poche connessioni backend). Il pool SUPER
+  // serve solo platform + cleanup (advisory lock di SESSIONE su connessione
+  // dedicata) e resta piccolo; NON va dietro un PgBouncer transaction-mode.
+  DB_APP_POOL_MAX: z.coerce.number().int().positive().max(1000).default(20),
+  DB_SUPER_POOL_MAX: z.coerce.number().int().positive().max(1000).default(5),
   PORT: z.coerce.number().int().positive().default(4000),
   HOST: z.string().default('127.0.0.1'),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
