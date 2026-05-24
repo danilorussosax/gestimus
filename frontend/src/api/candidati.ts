@@ -64,6 +64,34 @@ export interface CreateCandidatoInput {
 
 export type UpdateCandidatoInput = Partial<Omit<CreateCandidatoInput, 'concorsoId'>>;
 
+/**
+ * Membro di un candidato-gruppo (riga della tabella candidati_membri,
+ * dati piatti: nome/cognome/strumento/data_nascita — non riferimenti ad
+ * altri candidati). Allinea il modello del backend route /membri-gruppo.
+ */
+export interface MembroGruppo {
+  id: string;
+  candidatoId: string;
+  nome: string;
+  cognome: string | null;
+  strumento: string | null;
+  dataNascita: string | null;
+  nazionalita?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface MembroGruppoInput {
+  candidatoId: string;
+  nome: string;
+  cognome?: string;
+  strumento?: string;
+  dataNascita?: string;
+  nazionalita?: string;
+}
+
+export type MembroGruppoUpdate = Partial<Omit<MembroGruppoInput, 'candidatoId'>>;
+
 // ── API functions ─────────────────────────────────────────────────────────────
 
 export const candidatiApi = {
@@ -82,12 +110,44 @@ export const candidatiApi = {
   /** Carica la foto del candidato via /api/upload/candidati/:id (multipart). */
   uploadFoto: (id: string, file: Blob) => http.upload('candidati', id, file),
 
+  /** Rimuove la foto del candidato (DELETE /api/upload/candidati/:id). */
+  deleteFoto: (id: string) => http.del<void>(`/api/upload/candidati/${id}`),
+
   /** Sezioni e categorie del concorso — necessarie per il form candidato. */
   sezioni: (concorsoId: string) =>
     http.get<Sezione[]>('sezioni', { concorsoId, limit: 200 }),
 
   categorie: (concorsoId: string) =>
     http.get<Categoria[]>('categorie', { concorsoId, limit: 500 }),
+
+  // ── Membri gruppo (candidati_membri, dati piatti) ─────────────────────────
+  /** Elenco membri di un candidato-gruppo. */
+  membri: (candidatoId: string) =>
+    http.get<MembroGruppo[]>('membri-gruppo', { candidatoId, limit: 200 }),
+
+  addMembro: (body: MembroGruppoInput) =>
+    http.post<MembroGruppo>('membri-gruppo', body),
+
+  updateMembro: (id: string, body: MembroGruppoUpdate) =>
+    http.patch<MembroGruppo>(`membri-gruppo/${id}`, body),
+
+  removeMembro: (id: string) => http.del<void>(`membri-gruppo/${id}`),
+
+  // ── Storico cross-concorso ────────────────────────────────────────────────
+  /** Tutti i candidati del tenant (nessun filtro concorso) per lo storico. */
+  listAll: () => http.get<CandidatoFull[]>('candidati', { limit: 2000 }),
+
+  /** Fasi di un concorso (per i conteggi dello storico). */
+  fasi: (concorsoId: string) =>
+    http.get<{ id: string }[]>('fasi', { concorsoId, limit: 200 }),
+
+  /** Candidati-fase di una fase (per i conteggi dello storico). */
+  candidatiFase: (faseId: string) =>
+    http.get<{ id: string; candidatoId: string }[]>('candidati-fase', { faseId, limit: 1000 }),
+
+  /** Valutazioni di un candidato-fase (per i conteggi dello storico). */
+  valutazioni: (candidatoFaseId: string) =>
+    http.get<{ id: string }[]>('valutazioni', { candidatoFaseId, limit: 500 }),
 };
 
 // ── React Query hook ──────────────────────────────────────────────────────────

@@ -1,30 +1,43 @@
 // =============================================================================
 // CommissioniTab — gestione commissioni + N-N sync (admin)
 //
-// Features:
-//  - Lista commissioni con card espansa (membri, sezioni, categorie)
-//  - Crea / Modifica commissione con:
-//    · selezione multi-commissari
-//    · selezione presidente (deve essere tra i membri)
-//    · selezione sezioni
-//    · toggle "includi tutte le categorie delle sezioni"
-//    · selezione categorie granulare
-//  - Delete
+// Port FEDELE di js/views/admin/commissioni.js. Replica esattamente:
+//  - Header (⚖ Commissioni + sottotitolo) + warnings (no commissari / no sezioni)
+//  - Empty state (⚖)
+//  - Card commissione:
+//    · titolo + descrizione
+//    · badge Presidente (🎯) oppure warning "Nessun presidente"
+//    · 🧑‍⚖️ Commissari (n) con foto/emoji + 🎯 sul presidente DI QUESTA commissione
+//    · 🗂 Sezioni (n) con iconaPerSezione
+//    · 📑 Categorie (n) con tooltip sezione
+//  - Form crea/modifica:
+//    · nome (required) + descrizione
+//    · multi-select commissari (con 🎯 se presidente di QUALCHE commissione) + contatore
+//    · selettore presidente (amber box) limitato semanticamente ai membri
+//    · multi-select sezioni (con conteggio categorie)
+//    · toggle "includi tutte le categorie" → auto-popola e blocca le checkbox
+//    · selettore categorie granulare raggruppato per sezione
+//  - Delete con conferma
 //  - Sync N-N con diff-apply (no replace-all)
 //
-// Presentation: vanilla-JS design system (c-tile, c-btn, c-tag, c-field,
-// c-input, c-select, raw Tailwind amber/emerald/brand pills exactly as in
-// js/views/admin/commissioni.js).
+// NB: il backend Postgres NON persiste `descrizione` né `include_tutte_categorie`
+// (vedi server/src/db/schema.ts → commissioni). Il toggle "tutte le categorie"
+// resta quindi una comodità in-form: espande le categorie delle sezioni scelte
+// e le invia esplicitamente in `categorieIds` (esattamente come il ramo
+// `finalCategorieIds` del vanilla). La descrizione resta nella UI ma non viene
+// inviata al server (coerente con l'API attuale).
 // =============================================================================
 
 import { useState, useEffect } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
+import { useQueries } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Plus, Pencil, Trash2, Scale } from 'lucide-react';
+import { Pencil, Trash2 } from 'lucide-react';
 
 import { fileUrl, httpErrorMessage } from '@/lib/api';
+import { iconaPerSezione } from '@/lib/sezione-icon';
 import {
   useCommissioni,
   useCreateCommissione,
@@ -35,7 +48,7 @@ import {
 } from '@/api/commissioni';
 import { useCommissari, type CommissarioRecord } from '@/api/commissari';
 import { useSezioni, type SezioneRecord } from '@/api/sezioni';
-import { useCategorie, type CategoriaRecord } from '@/api/categorie';
+import { categorieApi, categorieKeys, type CategoriaRecord } from '@/api/categorie';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -44,8 +57,41 @@ function displayName(c: Pick<CommissarioRecord, 'nome' | 'cognome'>) {
   return [c.nome, c.cognome].filter(Boolean).join(' ');
 }
 
+// inputCls — identico al vanilla (commissioni.js)
+const inputCls =
+  'mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500';
+
 // ---------------------------------------------------------------------------
-// Zod schema
+// useCategorieMaps — aggrega le categorie di TUTTE le sezioni del concorso.
+// Sostituisce `db.state.categorie` del vanilla: il backend espone le categorie
+// per-sezione, quindi facciamo fan-out con useQueries.
+//   · catsBySezione: sezioneId → CategoriaRecord[]   (per il form + auto-include)
+//   · allCats:       catId      → CategoriaRecord     (per nomi + tooltip sezione)
+// ---------------------------------------------------------------------------
+function useCategorieMaps(sezioni: SezioneRecord[]) {
+  const results = useQueries({
+    queries: sezioni.map((s) => ({
+      queryKey: categorieKeys.bySezione(s.id),
+      queryFn: () => categorieApi.listBySezione(s.id),
+      enabled: !!s.id,
+      staleTime: 30_000,
+    })),
+  });
+
+  const catsBySezione = new Map<string, CategoriaRecord[]>();
+  const allCats = new Map<string, CategoriaRecord>();
+  sezioni.forEach((s, i) => {
+    const cats = (results[i]?.data ?? []);
+    catsBySezione.set(s.id, cats);
+    for (const c of cats) allCats.set(c.id, c);
+  });
+
+  return { catsBySezione, allCats };
+}
+
+// ---------------------------------------------------------------------------
+// Zod schema (solo nome/descrizione — il resto è gestito a parte come nel
+// vanilla, dove `formFields` legge nome/descrizione e il resto vive nei Set).
 // ---------------------------------------------------------------------------
 const commissioneSchema = z.object({
   nome: z.string().min(1, 'Nome obbligatorio').max(255),
@@ -54,53 +100,7 @@ const commissioneSchema = z.object({
 type CommissioneFormValues = z.infer<typeof commissioneSchema>;
 
 // ---------------------------------------------------------------------------
-// CategoriePerSezioneSelector
-// ---------------------------------------------------------------------------
-interface CatSelectorProps {
-  sezione: SezioneRecord;
-  selectedCatIds: Set<string>;
-  onChange: (catId: string, checked: boolean) => void;
-  disabled?: boolean;
-}
-
-function CategoriePerSezioneSelector({
-  sezione,
-  selectedCatIds,
-  onChange,
-  disabled = false,
-}: CatSelectorProps) {
-  const { data: cats } = useCategorie(sezione.id);
-
-  if (!cats?.length) return null;
-
-  return (
-    <div className="border border-slate-200 rounded-lg p-2 bg-slate-50">
-      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
-        {sezione.nome}
-      </div>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
-        {cats.map((cat: CategoriaRecord) => (
-          <label
-            key={cat.id}
-            className="flex items-center gap-2 bg-white hover:bg-brand-50 border border-slate-200 rounded-md px-2 py-1 cursor-pointer"
-          >
-            <input
-              type="checkbox"
-              checked={selectedCatIds.has(cat.id)}
-              onChange={(e) => onChange(cat.id, e.target.checked)}
-              disabled={disabled}
-              className="w-3.5 h-3.5 rounded border-slate-300 text-brand-600"
-            />
-            <span className="text-xs text-slate-800 truncate">{cat.nome}</span>
-          </label>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// CommissioneFormDialog — modal overlay matching vanilla JS modal()
+// CommissioneFormDialog — replica modal() del vanilla openCommissioneForm()
 // ---------------------------------------------------------------------------
 interface FormDialogProps {
   open: boolean;
@@ -108,7 +108,9 @@ interface FormDialogProps {
   concorsoId: string;
   allCommissari: CommissarioRecord[];
   allSezioni: SezioneRecord[];
-  catsBySezione: Map<string, string[]>;
+  catsBySezione: Map<string, CategoriaRecord[]>;
+  /** id commissari che sono presidente di QUALCHE commissione (per il 🎯). */
+  presidentiOvunque: Set<string>;
   existing?: CommissioneRecord;
 }
 
@@ -119,44 +121,30 @@ function CommissioneFormDialog({
   allCommissari,
   allSezioni,
   catsBySezione,
+  presidentiOvunque,
   existing,
 }: FormDialogProps) {
   const isEdit = !!existing;
   const createCommissione = useCreateCommissione(concorsoId);
   const updateCommissione = useUpdateCommissione(concorsoId);
 
-  const [selCommissari, setSelCommissari] = useState<Set<string>>(
-    new Set(existing?.commissari ?? []),
-  );
-  const [selSezioni, setSelSezioni] = useState<Set<string>>(new Set(existing?.sezioni ?? []));
-  const [selCategorie, setSelCategorie] = useState<Set<string>>(
-    new Set(existing?.categorie ?? []),
-  );
+  const [selCommissari, setSelCommissari] = useState<Set<string>>(new Set());
+  const [selSezioni, setSelSezioni] = useState<Set<string>>(new Set());
+  const [selCategorie, setSelCategorie] = useState<Set<string>>(new Set());
   const [includeTutte, setIncludeTutte] = useState(false);
-  const [presidente, setPresidente] = useState<string>(
-    existing?.presidenteCommissarioId ?? '',
-  );
+  const [selPresidente, setSelPresidente] = useState<string>('');
   const [saving, setSaving] = useState(false);
 
+  // Reset sullo open (come il re-mount del modal vanilla).
   useEffect(() => {
-    if (open) {
-      setSelCommissari(new Set(existing?.commissari ?? []));
-      setSelSezioni(new Set(existing?.sezioni ?? []));
-      setSelCategorie(new Set(existing?.categorie ?? []));
-      setIncludeTutte(false);
-      setPresidente(existing?.presidenteCommissarioId ?? '');
-    }
+    if (!open) return;
+    setSelCommissari(new Set(existing?.commissari ?? []));
+    setSelSezioni(new Set(existing?.sezioni ?? []));
+    setSelCategorie(new Set(existing?.categorie ?? []));
+    // include_tutte_categorie non è persistito dal backend → parte sempre off.
+    setIncludeTutte(false);
+    setSelPresidente(existing?.presidenteCommissarioId ?? '');
   }, [open, existing]);
-
-  // Sync "include tutte" → categories
-  useEffect(() => {
-    if (!includeTutte) return;
-    const auto = new Set<string>();
-    for (const sezId of selSezioni) {
-      (catsBySezione.get(sezId) ?? []).forEach((id) => auto.add(id));
-    }
-    setSelCategorie(auto);
-  }, [includeTutte, selSezioni, catsBySezione]);
 
   const form = useForm<CommissioneFormValues>({
     resolver: zodResolver(commissioneSchema),
@@ -166,28 +154,46 @@ function CommissioneFormDialog({
     },
   });
 
+  // syncCategorieAuto: quando "includi tutte" è attivo, le categorie delle
+  // sezioni scelte vengono auto-popolate e le checkbox bloccate in checked.
+  // (vanilla: syncCategorieAuto). Disattivato → ripristina la scelta manuale.
+  useEffect(() => {
+    if (!includeTutte) return;
+    const auto = new Set<string>();
+    for (const sezId of selSezioni) {
+      (catsBySezione.get(sezId) ?? []).forEach((c) => auto.add(c.id));
+    }
+    setSelCategorie(auto);
+    // selSezioni cambia → ricalcola; catsBySezione cambia → ricalcola.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [includeTutte, selSezioni]);
+
   const toggleCommissario = (id: string, checked: boolean) => {
     setSelCommissari((prev) => {
       const next = new Set(prev);
-      if (checked) next.add(id); else next.delete(id);
+      if (checked) next.add(id);
+      else next.delete(id);
       return next;
     });
-    if (!checked && id === presidente) setPresidente('');
+    // Smarcare un membro che era presidente → azzera il presidente.
+    if (!checked && id === selPresidente) setSelPresidente('');
   };
 
   const toggleSezione = (id: string, checked: boolean) => {
     setSelSezioni((prev) => {
       const next = new Set(prev);
-      if (checked) next.add(id); else next.delete(id);
+      if (checked) next.add(id);
+      else next.delete(id);
       return next;
     });
   };
 
   const toggleCategoria = (id: string, checked: boolean) => {
-    if (includeTutte) return;
+    if (includeTutte) return; // checkbox bloccate dal flag
     setSelCategorie((prev) => {
       const next = new Set(prev);
-      if (checked) next.add(id); else next.delete(id);
+      if (checked) next.add(id);
+      else next.delete(id);
       return next;
     });
   };
@@ -195,15 +201,16 @@ function CommissioneFormDialog({
   const toggleIncludeTutte = (checked: boolean) => {
     setIncludeTutte(checked);
     if (!checked) {
+      // Ripristina lo stato manuale (ciò che l'admin aveva scelto / esistente).
       setSelCategorie(new Set(existing?.categorie ?? []));
     }
   };
 
-  const finalCategorie = (): string[] => {
+  const finalCategorieIds = (): string[] => {
     if (includeTutte) {
       const auto = new Set<string>();
       for (const sezId of selSezioni) {
-        (catsBySezione.get(sezId) ?? []).forEach((id) => auto.add(id));
+        (catsBySezione.get(sezId) ?? []).forEach((c) => auto.add(c.id));
       }
       return Array.from(auto);
     }
@@ -211,9 +218,10 @@ function CommissioneFormDialog({
   };
 
   const onSubmit = async (values: CommissioneFormValues) => {
+    // Il presidente deve essere tra i membri selezionati; altrimenti azzera.
     const presidenteValido =
-      presidente && selCommissari.has(presidente) ? presidente : '';
-    const categorieIds = finalCategorie();
+      selPresidente && selCommissari.has(selPresidente) ? selPresidente : '';
+    const categorieIds = finalCategorieIds();
 
     setSaving(true);
     try {
@@ -258,15 +266,13 @@ function CommissioneFormDialog({
 
   if (!open) return null;
 
-  // inputCls matching vanilla JS exactly
-  const inputCls =
-    'mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500';
-
   return (
     /* Backdrop */
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4"
-      onClick={(e) => { if (e.target === e.currentTarget) onOpenChange(false); }}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onOpenChange(false);
+      }}
     >
       <div
         className="bg-white rounded-2xl shadow-xl w-full max-w-2xl max-h-[92dvh] flex flex-col modal-pop"
@@ -276,7 +282,7 @@ function CommissioneFormDialog({
         <div className="flex items-center justify-between px-6 pt-5 pb-4 border-b border-slate-200">
           <div>
             <h3 className="text-base font-bold text-slate-900">
-              {isEdit ? `Modifica commissione` : 'Nuova commissione'}
+              {isEdit ? 'Modifica commissione' : 'Aggiungi commissione'}
             </h3>
             {isEdit && existing && (
               <p className="text-xs text-slate-500 mt-0.5">{existing.nome}</p>
@@ -303,12 +309,12 @@ function CommissioneFormDialog({
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <label className="block sm:col-span-2">
               <span className="text-sm font-medium text-slate-700">
-                Nome <span className="text-rose-500">*</span>
+                Nome commissione <span className="text-rose-500">*</span>
               </span>
               <input
                 {...form.register('nome')}
                 className={inputCls}
-                placeholder="Es. Commissione Pianoforte"
+                placeholder="Es: Giuria Archi, Giuria Fiati Senior"
               />
               {form.formState.errors.nome && (
                 <p className="mt-1 text-xs text-rose-600">
@@ -322,23 +328,26 @@ function CommissioneFormDialog({
                 {...form.register('descrizione')}
                 rows={2}
                 className={inputCls}
-                placeholder="Descrizione opzionale"
+                placeholder="Breve descrizione (opzionale)"
               />
             </label>
           </div>
 
-          {/* Sezione: Commissari */}
+          {/* Sezione: Membri */}
           <section className="pt-4 border-t border-slate-200">
             <header className="mb-2">
-              <h4 className="text-sm font-bold text-slate-900">Membri</h4>
+              <h4 className="text-sm font-bold text-slate-900">
+                🧑‍⚖️ Membri della commissione
+              </h4>
               <p className="text-xs text-slate-500">
-                Seleziona i commissari assegnati a questa commissione.
+                Seleziona i commissari che ne fanno parte. Un commissario può appartenere a
+                più commissioni.
               </p>
             </header>
             <div className="space-y-1.5 max-h-56 overflow-y-auto pr-1" id="comm-list">
               {allCommissari.length === 0 ? (
                 <span className="text-xs text-slate-400 italic">
-                  Nessun commissario disponibile — aggiungine uno prima.
+                  Nessun commissario disponibile. Aggiungili dalla scheda Commissari.
                 </span>
               ) : (
                 allCommissari.map((c) => {
@@ -350,7 +359,6 @@ function CommissioneFormDialog({
                     >
                       <input
                         type="checkbox"
-                        data-comm={c.id}
                         checked={selCommissari.has(c.id)}
                         onChange={(e) => toggleCommissario(c.id, e.target.checked)}
                         className="w-4 h-4 rounded border-slate-300 text-brand-600"
@@ -362,14 +370,13 @@ function CommissioneFormDialog({
                           '🧑‍⚖️'
                         )}
                       </div>
-                      <span className="text-sm text-slate-800 truncate flex-1">
+                      <span className="text-sm text-slate-800 truncate">
                         {displayName(c)}
+                        {presidentiOvunque.has(c.id) ? ' 🎯' : ''}
                       </span>
-                      {c.specialita && (
-                        <span className="text-[10px] text-slate-500 ml-auto truncate max-w-[120px]">
-                          {c.specialita}
-                        </span>
-                      )}
+                      <span className="text-[10px] text-slate-500 ml-auto truncate">
+                        {c.specialita || ''}
+                      </span>
                     </label>
                   );
                 })
@@ -379,23 +386,24 @@ function CommissioneFormDialog({
               {selCommissari.size} selezionati
             </div>
 
-            {/* Presidente */}
+            {/* Selezione presidente DI QUESTA COMMISSIONE */}
             <div className="mt-3 bg-amber-50 border border-amber-200 rounded-lg p-3">
               <label className="block">
                 <span className="text-sm font-semibold text-amber-900 flex items-center gap-1.5">
                   🎯 Presidente della commissione
                 </span>
                 <p className="text-[11px] text-amber-800 mt-0.5 mb-2">
-                  Il presidente pilota le fasi a cui questa commissione è assegnata: avvia/conclude,
-                  gestisce il timer, conferma le valutazioni.
+                  Il presidente pilota le fasi a cui questa commissione è assegnata:
+                  avvia/conclude, gestisce il timer, conferma le valutazioni.
                 </p>
                 <select
-                  id="presidente-select"
-                  value={presidente}
-                  onChange={(e) => setPresidente(e.target.value)}
+                  value={selPresidente}
+                  onChange={(e) => setSelPresidente(e.target.value)}
                   className={inputCls + ' mt-0'}
                 >
-                  <option value="">— Nessun presidente (l&apos;admin gestirà le fasi) —</option>
+                  <option value="">
+                    — Nessun presidente (l&apos;admin gestirà le fasi) —
+                  </option>
                   {allCommissari.map((c) => (
                     <option key={c.id} value={c.id}>
                       {displayName(c)}
@@ -410,18 +418,18 @@ function CommissioneFormDialog({
             </div>
           </section>
 
-          {/* Sezione: Sezioni */}
+          {/* Sezione: Sezioni assegnate */}
           <section className="pt-4 border-t border-slate-200">
             <header className="mb-2">
-              <h4 className="text-sm font-bold text-slate-900">Sezioni</h4>
+              <h4 className="text-sm font-bold text-slate-900">🗂 Sezioni assegnate</h4>
               <p className="text-xs text-slate-500">
-                Sezioni di competenza di questa commissione.
+                La commissione può coprire più sezioni del concorso.
               </p>
             </header>
             <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1" id="sez-list">
               {allSezioni.length === 0 ? (
                 <span className="text-xs text-slate-400 italic">
-                  Nessuna sezione disponibile — creane una nel tab Sezioni.
+                  Nessuna sezione disponibile.
                 </span>
               ) : (
                 allSezioni.map((s) => {
@@ -433,14 +441,13 @@ function CommissioneFormDialog({
                     >
                       <input
                         type="checkbox"
-                        data-sez={s.id}
                         checked={selSezioni.has(s.id)}
                         onChange={(e) => toggleSezione(s.id, e.target.checked)}
                         className="w-4 h-4 rounded border-slate-300 text-brand-600"
                       />
-                      <span className="text-sm text-slate-800 flex-1">{s.nome}</span>
+                      <span className="text-sm text-slate-800">{s.nome}</span>
                       <span className="text-[10px] text-slate-500 ml-auto">
-                        {nCat} cat.
+                        {nCat} categorie
                       </span>
                     </label>
                   );
@@ -451,32 +458,31 @@ function CommissioneFormDialog({
               <label className="mt-3 flex items-start gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 cursor-pointer">
                 <input
                   type="checkbox"
-                  id="incl-tutte"
                   checked={includeTutte}
                   onChange={(e) => toggleIncludeTutte(e.target.checked)}
                   className="mt-0.5 w-4 h-4 rounded border-emerald-300 text-emerald-600"
                 />
                 <div>
                   <span className="text-sm font-semibold text-emerald-900">
-                    Includi tutte le categorie delle sezioni selezionate
+                    ✨ Includi automaticamente tutte le categorie delle sezioni selezionate
                   </span>
                   <p className="text-[11px] text-emerald-800 mt-0.5">
-                    Le categorie verranno aggiunte automaticamente ogni volta che selezioni
-                    una sezione. Puoi comunque gestirle singolarmente disattivando questa opzione.
+                    Se attivo, la commissione valuterà automaticamente{' '}
+                    <strong>tutte</strong> le categorie presenti nelle sezioni scelte sopra
+                    (anche quelle aggiunte in futuro).
                   </p>
                 </div>
               </label>
             )}
           </section>
 
-          {/* Sezione: Categorie */}
+          {/* Sezione: Categorie specifiche */}
           <section className="pt-4 border-t border-slate-200">
             <header className="mb-2">
-              <h4 className="text-sm font-bold text-slate-900">Categorie</h4>
+              <h4 className="text-sm font-bold text-slate-900">📑 Categorie specifiche</h4>
               <p className="text-xs text-slate-500">
-                {includeTutte
-                  ? 'Tutte le categorie delle sezioni selezionate vengono incluse automaticamente.'
-                  : 'Seleziona le categorie specifiche assegnate a questa commissione.'}
+                Assegnazioni puntuali — utile per coprire solo alcune categorie di una
+                sezione (se non hai attivato &quot;auto-include&quot;).
               </p>
             </header>
             <div className="space-y-2" id="cat-list">
@@ -484,22 +490,38 @@ function CommissioneFormDialog({
                 <span className="text-xs text-slate-400 italic">
                   Nessuna sezione disponibile.
                 </span>
-              ) : selSezioni.size === 0 ? (
-                <span className="text-xs text-slate-400 italic">
-                  Seleziona almeno una sezione per vedere le categorie.
-                </span>
               ) : (
-                allSezioni
-                  .filter((s) => selSezioni.has(s.id))
-                  .map((s) => (
-                    <CategoriePerSezioneSelector
+                allSezioni.map((s) => {
+                  const cats = catsBySezione.get(s.id) ?? [];
+                  if (cats.length === 0) return null;
+                  return (
+                    <div
                       key={s.id}
-                      sezione={s}
-                      selectedCatIds={selCategorie}
-                      onChange={toggleCategoria}
-                      disabled={includeTutte}
-                    />
-                  ))
+                      className="border border-slate-200 rounded-lg p-2 bg-slate-50"
+                    >
+                      <div className="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">
+                        {s.nome}
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
+                        {cats.map((c) => (
+                          <label
+                            key={c.id}
+                            className="flex items-center gap-2 bg-white hover:bg-brand-50 border border-slate-200 rounded-md px-2 py-1 cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={selCategorie.has(c.id)}
+                              onChange={(e) => toggleCategoria(c.id, e.target.checked)}
+                              disabled={includeTutte}
+                              className="w-3.5 h-3.5 rounded border-slate-300 text-brand-600"
+                            />
+                            <span className="text-xs text-slate-800 truncate">{c.nome}</span>
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })
               )}
             </div>
           </section>
@@ -520,11 +542,7 @@ function CommissioneFormDialog({
             disabled={saving}
             className="c-btn c-btn--primary c-btn--sm"
           >
-            {saving
-              ? 'Salvataggio…'
-              : isEdit
-                ? 'Salva modifiche'
-                : 'Crea commissione'}
+            {saving ? 'Salvataggio…' : isEdit ? 'Salva modifiche' : 'Crea commissione'}
           </button>
         </div>
       </div>
@@ -533,13 +551,13 @@ function CommissioneFormDialog({
 }
 
 // ---------------------------------------------------------------------------
-// CommissioneCard — matches commissioneCardHtml() in commissioni.js exactly
+// CommissioneCard — replica esatta di commissioneCardHtml() (commissioni.js)
 // ---------------------------------------------------------------------------
 interface CommissioneCardProps {
   commissione: CommissioneRecord;
   allCommissari: CommissarioRecord[];
   allSezioni: SezioneRecord[];
-  allCatNames: Map<string, string>;
+  allCats: Map<string, CategoriaRecord>;
   onEdit: () => void;
   onDelete: () => void;
 }
@@ -548,7 +566,7 @@ function CommissioneCard({
   commissione: c,
   allCommissari,
   allSezioni,
-  allCatNames,
+  allCats,
   onEdit,
   onDelete,
 }: CommissioneCardProps) {
@@ -558,6 +576,12 @@ function CommissioneCard({
   const sezs = c.sezioni
     .map((id) => allSezioni.find((x) => x.id === id))
     .filter((x): x is SezioneRecord => !!x);
+  // Categorie effettive = lista persistita (categorie_ids). Il backend non
+  // persiste include_tutte_categorie, quindi non c'è espansione "auto"/✨.
+  const cats = c.categorie
+    .map((id) => allCats.get(id))
+    .filter((x): x is CategoriaRecord => !!x);
+  // Presidente di QUESTA commissione (non di altre).
   const pres = c.presidenteCommissarioId
     ? allCommissari.find((x) => x.id === c.presidenteCommissarioId)
     : null;
@@ -576,21 +600,21 @@ function CommissioneCard({
           <button
             onClick={onEdit}
             className="w-9 h-9 inline-flex items-center justify-center rounded-lg text-brand-700 bg-brand-50 hover:bg-brand-100 border border-brand-100 transition-colors"
-            title="Modifica commissione"
+            title="Modifica"
           >
             <Pencil size={18} />
           </button>
           <button
             onClick={onDelete}
             className="w-9 h-9 inline-flex items-center justify-center rounded-lg text-rose-600 bg-rose-50 hover:bg-rose-100 border border-rose-100 transition-colors"
-            title="Elimina commissione"
+            title="Elimina"
           >
             <Trash2 size={18} />
           </button>
         </div>
       </div>
 
-      {/* Presidente badge */}
+      {/* Presidente badge / warning */}
       {pres ? (
         <div className="mt-3 inline-flex items-center gap-2 bg-amber-50 border border-amber-200 text-amber-900 rounded-lg px-2.5 py-1.5">
           <span className="text-base">🎯</span>
@@ -609,24 +633,25 @@ function CommissioneCard({
       )}
 
       <div className="mt-3 grid grid-cols-1 gap-2">
-        {/* Membri */}
+        {/* Commissari */}
         <div>
           <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-1">
-            Membri ({members.length})
+            🧑‍⚖️ Commissari ({members.length})
           </div>
           <div className="flex flex-wrap gap-1">
             {members.length === 0 ? (
-              <span className="text-xs text-slate-400 italic">Nessun membro</span>
+              <span className="text-xs text-slate-400 italic">Nessuno</span>
             ) : (
               members.map((m) => {
-                const isPres = c.presidenteCommissarioId === m.id;
+                // 🎯 SOLO se è presidente di QUESTA commissione.
+                const isPresQui = c.presidenteCommissarioId === m.id;
                 const fotoSrc = m.foto ? fileUrl(m.foto) : null;
                 return (
                   <span
                     key={m.id}
                     className={
                       'inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full ' +
-                      (isPres
+                      (isPresQui
                         ? 'bg-amber-100 text-amber-900 ring-1 ring-amber-300'
                         : 'bg-slate-100 text-slate-700')
                     }
@@ -639,7 +664,7 @@ function CommissioneCard({
                       )}
                     </span>
                     {displayName(m)}
-                    {isPres && ' 🎯'}
+                    {isPresQui && ' 🎯'}
                   </span>
                 );
               })
@@ -650,18 +675,18 @@ function CommissioneCard({
         {/* Sezioni */}
         <div>
           <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-1">
-            Sezioni ({sezs.length})
+            🗂 Sezioni ({sezs.length})
           </div>
           <div className="flex flex-wrap gap-1">
             {sezs.length === 0 ? (
-              <span className="text-xs text-slate-400 italic">Nessuna sezione</span>
+              <span className="text-xs text-slate-400 italic">Nessuna</span>
             ) : (
               sezs.map((s) => (
                 <span
                   key={s.id}
                   className="text-[11px] bg-brand-50 text-brand-700 px-2 py-0.5 rounded-full font-medium"
                 >
-                  {s.nome}
+                  {iconaPerSezione(s.nome)} {s.nome}
                 </span>
               ))
             )}
@@ -671,20 +696,24 @@ function CommissioneCard({
         {/* Categorie */}
         <div>
           <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-1">
-            Categorie ({c.categorie.length})
+            📑 Categorie ({cats.length})
           </div>
           <div className="flex flex-wrap gap-1">
-            {c.categorie.length === 0 ? (
-              <span className="text-xs text-slate-400 italic">Nessuna categoria</span>
+            {cats.length === 0 ? (
+              <span className="text-xs text-slate-400 italic">Nessuna</span>
             ) : (
-              c.categorie.map((id) => (
-                <span
-                  key={id}
-                  className="text-[11px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full"
-                >
-                  {allCatNames.get(id) ?? id.slice(0, 8)}
-                </span>
-              ))
+              cats.map((cat) => {
+                const sez = allSezioni.find((s) => s.id === cat.sezioneId);
+                return (
+                  <span
+                    key={cat.id}
+                    className="text-[11px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full"
+                    title={sez?.nome || ''}
+                  >
+                    {cat.nome}
+                  </span>
+                );
+              })
             )}
           </div>
         </div>
@@ -706,14 +735,27 @@ export default function CommissioniTab({ concorsoId }: { concorsoId: string }) {
     open: false,
   });
 
-  // catsBySezione / allCatNames: built lazily from tanstack cache by child components.
-  const catsBySezione = new Map<string, string[]>();
-  const allCatNames = new Map<string, string>();
+  const sezList = allSezioni ?? [];
+  const { catsBySezione, allCats } = useCategorieMaps(sezList);
 
-  const attiviCommissari = allCommissari?.filter((c) => c.stato === 'ATTIVO') ?? [];
+  // Commissari attivi (il vanilla mostrava tutti i commissari del concorso;
+  // qui restiamo coerenti con la convenzione del componente precedente che
+  // filtra gli ATTIVO). Le card risolvono i membri dalla lista completa per
+  // non far sparire i membri di commissioni che includono ex-attivi.
+  const commissariAll = allCommissari ?? [];
+  const commissariAttivi = commissariAll.filter((c) => c.stato === 'ATTIVO');
+
+  // isPresidenteDiQualcheCommissione: id presidenti su TUTTE le commissioni.
+  const presidentiOvunque = new Set<string>(
+    (commissioni ?? [])
+      .map((c) => c.presidenteCommissarioId)
+      .filter((id): id is string => !!id),
+  );
 
   const handleDelete = async (c: CommissioneRecord) => {
-    if (!confirm(`Eliminare la commissione "${c.nome}"? L'operazione non è reversibile.`)) return;
+    if (!confirm(`Eliminare la commissione "${c.nome}"? L'operazione non è reversibile.`)) {
+      return;
+    }
     try {
       await deleteCommissione.mutateAsync(c.id);
       toast.success('Commissione eliminata');
@@ -740,63 +782,58 @@ export default function CommissioniTab({ concorsoId }: { concorsoId: string }) {
     );
   }
 
+  const list = commissioni ?? [];
+
   return (
-    <div className="view-fade space-y-4">
-      {/* Header — matches vanilla flex justify-between */}
+    <div className="view-fade">
+      {/* Header — mirrors renderCommissioni heading row */}
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
-          Commissioni
+          ⚖ Commissioni
         </h3>
         <button
-          className="c-btn c-btn--primary c-btn--sm"
           onClick={() => setDialog({ open: true })}
+          className="text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 px-3.5 py-2 rounded-lg shadow-sm"
         >
-          <Plus size={16} />
-          Nuova commissione
+          + Aggiungi commissione
         </button>
       </div>
       <p className="text-sm text-slate-600 mb-4">
-        {commissioni?.length ?? 0} commissioni · ogni commissione gestisce una o più sezioni.
+        Una <strong>commissione</strong> è un gruppo di commissari che valuta una o più
+        sezioni / categorie. Un commissario può far parte di più commissioni; una
+        commissione può coprire sezioni multiple.
       </p>
 
       {/* Warnings */}
-      {(allCommissari?.length ?? 0) === 0 && (
+      {commissariAll.length === 0 && (
         <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl px-4 py-3 mb-4 text-sm">
-          Nessun commissario disponibile — aggiungine uno nel tab Commissari.
+          ⚠ Aggiungi prima dei commissari per poter comporre le commissioni.
         </div>
       )}
-      {(allSezioni?.length ?? 0) === 0 && (
+      {sezList.length === 0 && (
         <div className="bg-amber-50 border border-amber-200 text-amber-900 rounded-xl px-4 py-3 mb-4 text-sm">
-          Nessuna sezione disponibile — creane una nel tab Sezioni.
+          ℹ Crea prima almeno una sezione per assegnare le commissioni a sezioni /
+          categorie.
         </div>
       )}
 
-      {/* Empty state */}
-      {(commissioni?.length ?? 0) === 0 ? (
+      {/* Empty state / List */}
+      {list.length === 0 ? (
         <div className="bg-white border-2 border-dashed border-slate-200 rounded-2xl py-12 text-center">
-          <div className="text-4xl mb-2">
-            <Scale className="mx-auto h-10 w-10 text-slate-300" />
-          </div>
+          <div className="text-4xl mb-2">⚖</div>
           <p className="text-sm text-slate-500 italic">
-            Nessuna commissione — creane una per organizzare la giuria.
+            Nessuna commissione ancora composta.
           </p>
-          <button
-            className="c-btn c-btn--outline c-btn--sm mt-4"
-            onClick={() => setDialog({ open: true })}
-          >
-            <Plus size={16} />
-            Crea la prima commissione
-          </button>
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-          {commissioni!.map((c) => (
+          {list.map((c) => (
             <CommissioneCard
               key={c.id}
               commissione={c}
-              allCommissari={attiviCommissari}
-              allSezioni={allSezioni ?? []}
-              allCatNames={allCatNames}
+              allCommissari={commissariAll}
+              allSezioni={sezList}
+              allCats={allCats}
               onEdit={() => setDialog({ open: true, existing: c })}
               onDelete={() => handleDelete(c)}
             />
@@ -809,9 +846,10 @@ export default function CommissioniTab({ concorsoId }: { concorsoId: string }) {
         open={dialog.open}
         onOpenChange={(v) => setDialog((p) => ({ ...p, open: v }))}
         concorsoId={concorsoId}
-        allCommissari={attiviCommissari}
-        allSezioni={allSezioni ?? []}
+        allCommissari={commissariAttivi}
+        allSezioni={sezList}
         catsBySezione={catsBySezione}
+        presidentiOvunque={presidentiOvunque}
         existing={dialog.existing}
       />
     </div>

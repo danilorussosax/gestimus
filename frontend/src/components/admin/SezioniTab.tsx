@@ -8,10 +8,9 @@ import { useForm, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import { Plus, Pencil, Trash2, Copy, Layers } from 'lucide-react';
+import { Plus, Pencil, Trash2, Copy } from 'lucide-react';
 
-import { httpErrorMessage } from '@/lib/api';
-import { http } from '@/lib/api';
+import { HttpError, httpErrorMessage, http } from '@/lib/api';
 import { iconaPerSezione } from '@/lib/sezione-icon';
 import {
   Dialog,
@@ -35,6 +34,8 @@ import {
   categorieApi,
   type CategoriaRecord,
 } from '@/api/categorie';
+import { candidatiApi } from '@/api/candidati';
+import { useQuery } from '@tanstack/react-query';
 
 // ---------------------------------------------------------------------------
 // Zod schemas
@@ -48,14 +49,73 @@ type SezioneFormValues = z.infer<typeof sezioneSchema>;
 const categoriaSchema = z.object({
   nome: z.string().min(1, 'Nome obbligatorio').max(255),
   descrizione: z.string().max(2000).optional(),
-  etaMin: z.coerce.number().int().min(0).max(120).optional().or(z.literal('')),
-  etaMax: z.coerce.number().int().min(0).max(120).optional().or(z.literal('')),
 });
 type CategoriaFormValues = z.infer<typeof categoriaSchema>;
 
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/** Extract the cleanest error message, honouring 409 body.error like the vanilla. */
+function resolveError(e: unknown): string {
+  if (e instanceof HttpError && e.status === 409 && e.payload.error) {
+    return e.payload.error;
+  }
+  return httpErrorMessage(e);
+}
 
 // ---------------------------------------------------------------------------
-// SezioneFormDialog
+// ConfirmDialog — mirrors vanilla confirmDialog({ danger: true })
+// ---------------------------------------------------------------------------
+interface ConfirmDialogProps {
+  open: boolean;
+  title: string;
+  message: string;
+  danger?: boolean;
+  confirmLabel?: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}
+
+function ConfirmDialog({
+  open,
+  title,
+  message,
+  danger = false,
+  confirmLabel = 'Conferma',
+  onConfirm,
+  onCancel,
+}: ConfirmDialogProps) {
+  return (
+    <Dialog open={open} onOpenChange={(v) => { if (!v) onCancel(); }}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+        </DialogHeader>
+        <p className="text-sm text-slate-600">{message}</p>
+        <DialogFooter>
+          <button
+            type="button"
+            className="c-btn c-btn--outline"
+            onClick={onCancel}
+          >
+            Annulla
+          </button>
+          <button
+            type="button"
+            className={danger ? 'c-btn c-btn--danger' : 'c-btn c-btn--primary'}
+            onClick={onConfirm}
+          >
+            {confirmLabel}
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SezioneFormDialog — mirrors openSezioneForm()
 // ---------------------------------------------------------------------------
 interface SezioneDialogProps {
   open: boolean;
@@ -89,7 +149,8 @@ function SezioneFormDialog({ open, onOpenChange, concorsoId, existing }: Sezione
       }
       onOpenChange(false);
     } catch (e) {
-      toast.error(httpErrorMessage(e));
+      console.error(e);
+      toast.error(resolveError(e));
     }
   };
 
@@ -147,7 +208,7 @@ function SezioneFormDialog({ open, onOpenChange, concorsoId, existing }: Sezione
 }
 
 // ---------------------------------------------------------------------------
-// CategoriaFormDialog
+// CategoriaFormDialog — mirrors openCategoriaForm() (nome + descrizione only)
 // ---------------------------------------------------------------------------
 interface CategoriaDialogProps {
   open: boolean;
@@ -166,8 +227,6 @@ function CategoriaFormDialog({ open, onOpenChange, sezione, existing }: Categori
     values: {
       nome: existing?.nome ?? '',
       descrizione: existing?.descrizione ?? '',
-      etaMin: existing?.etaMin ?? '',
-      etaMax: existing?.etaMax ?? '',
     },
   });
 
@@ -175,12 +234,6 @@ function CategoriaFormDialog({ open, onOpenChange, sezione, existing }: Categori
     const body = {
       nome: values.nome.trim(),
       descrizione: (values.descrizione ?? '').trim() || undefined,
-      etaMin: values.etaMin !== '' && values.etaMin != null
-        ? Number(values.etaMin)
-        : undefined,
-      etaMax: values.etaMax !== '' && values.etaMax != null
-        ? Number(values.etaMax)
-        : undefined,
     };
     try {
       if (isEdit && existing) {
@@ -192,7 +245,8 @@ function CategoriaFormDialog({ open, onOpenChange, sezione, existing }: Categori
       }
       onOpenChange(false);
     } catch (e) {
-      toast.error(httpErrorMessage(e));
+      console.error(e);
+      toast.error(resolveError(e));
     }
   };
 
@@ -252,8 +306,7 @@ function CategoriaFormDialog({ open, onOpenChange, sezione, existing }: Categori
 }
 
 // ---------------------------------------------------------------------------
-// CopyCategorieDialog — mirrors openCopyCategorieModal in sezioni.js
-// Fan-out via individual categorieApi.create calls (no server bulk endpoint yet).
+// CopyCategorieDialog — mirrors openCopyCategorieModal()
 // ---------------------------------------------------------------------------
 interface CopyCategorieDialogProps {
   open: boolean;
@@ -275,6 +328,9 @@ function CopyCategorieDialog({
 
   const otherSezioni = allSezioni.filter((s) => s.id !== fromSezione.id);
 
+  // Per ogni sezione destinazione, fetch il conteggio categorie esistenti
+  const destCatCounts = useDestCatCounts(otherSezioni);
+
   const toggleDest = (id: string) =>
     setDestIds((prev) =>
       prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
@@ -294,7 +350,6 @@ function CopyCategorieDialog({
     let skipped = 0;
     try {
       for (const destId of destIds) {
-        // fetch existing names in destination to honor skipDup
         let existingNames = new Set<string>();
         if (skipDup) {
           const destCats = await categorieApi.listBySezione(destId);
@@ -309,8 +364,6 @@ function CopyCategorieDialog({
             sezioneId: destId,
             nome: cat.nome,
             descrizione: cat.descrizione ?? undefined,
-            etaMin: cat.etaMin ?? undefined,
-            etaMax: cat.etaMax ?? undefined,
           });
           created++;
         }
@@ -322,7 +375,7 @@ function CopyCategorieDialog({
       onOpenChange(false);
       setDestIds([]);
     } catch (e) {
-      toast.error(httpErrorMessage(e));
+      toast.error(resolveError(e));
     } finally {
       setIsPending(false);
     }
@@ -335,7 +388,7 @@ function CopyCategorieDialog({
           <DialogTitle>Copia categorie da &ldquo;{fromSezione.nome}&rdquo;</DialogTitle>
         </DialogHeader>
         <div className="space-y-4">
-          {/* Preview categorie sorgente */}
+          {/* Preview categorie sorgente — mirrors the bg-slate-50 box */}
           <div className="bg-slate-50 border border-slate-200 rounded-xl p-3">
             <p className="text-xs font-semibold text-slate-600 mb-1.5">
               Categorie che verranno copiate ({fromCats?.length ?? 0}):
@@ -351,28 +404,34 @@ function CopyCategorieDialog({
               ))}
             </ul>
           </div>
-          {/* Sezioni destinazione */}
+          {/* Sezioni destinazione — mirrors the fieldset with existing-cat count */}
           <fieldset>
             <legend className="text-sm font-semibold text-slate-800 mb-2">
               Sezioni destinazione
             </legend>
             <div className="space-y-1.5 max-h-64 overflow-y-auto pr-1">
-              {otherSezioni.map((s) => (
-                <label
-                  key={s.id}
-                  className="flex items-start gap-2 p-2 rounded-lg hover:bg-slate-50 cursor-pointer"
-                >
-                  <input
-                    type="checkbox"
-                    className="mt-0.5"
-                    checked={destIds.includes(s.id)}
-                    onChange={() => toggleDest(s.id)}
-                  />
-                  <span className="min-w-0 flex-1">
-                    <span className="font-medium text-slate-800">{s.nome}</span>
-                  </span>
-                </label>
-              ))}
+              {otherSezioni.map((s) => {
+                const existingCats = destCatCounts[s.id] ?? 0;
+                return (
+                  <label
+                    key={s.id}
+                    className="flex items-start gap-2 p-2 rounded-lg hover:bg-slate-50 cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={destIds.includes(s.id)}
+                      onChange={() => toggleDest(s.id)}
+                    />
+                    <span className="min-w-0 flex-1">
+                      <span className="font-medium text-slate-800">{s.nome}</span>
+                      <span className="text-[11px] text-slate-500 ml-1">
+                        ({existingCats} categori{existingCats === 1 ? 'a' : 'e'})
+                      </span>
+                    </span>
+                  </label>
+                );
+              })}
             </div>
           </fieldset>
           {/* Skip duplicati */}
@@ -407,46 +466,73 @@ function CopyCategorieDialog({
   );
 }
 
+/**
+ * Hook: per ogni sezione in `sezioni`, ritorna una map id→count usando
+ * le query già in cache da useCategorie (niente fetch aggiuntivi se già caricati).
+ * Materializziamo con una singola query aggregata che legge la cache TQ.
+ */
+function useDestCatCounts(sezioni: SezioneRecord[]): Record<string, number> {
+  // One hook call per sezione. Rules-of-hooks: the array length is stable during
+  // the dialog lifetime. We gather counts into a record.
+  // To avoid conditional hooks we use a combined approach: each SezioneRow fetches
+  // its own count via a tiny hook, and we expose a map.
+  // Since we cannot use hooks in a loop, we use the pure API queries via useQuery
+  // composed as a single combined query that resolves all counts.
+  const { data } = useQuery({
+    queryKey: ['categorie-counts', sezioni.map((s) => s.id).join(',')],
+    queryFn: async () => {
+      const results = await Promise.all(
+        sezioni.map(async (s) => {
+          const cats = await categorieApi.listBySezione(s.id);
+          return [s.id, cats.length] as const;
+        }),
+      );
+      return Object.fromEntries(results);
+    },
+    enabled: sezioni.length > 0,
+    staleTime: 30_000,
+  });
+  return data ?? {};
+}
+
 // ---------------------------------------------------------------------------
-// SezioneCard — mirrors sezioneCardHtml() + categorie tree
+// SezioneCard — mirrors sezioneCardHtml() exactly
 // ---------------------------------------------------------------------------
 interface SezioneCardProps {
   sezione: SezioneRecord;
+  /** candidati counts by sezioneId and categoriaId */
+  candBySezione: Record<string, number>;
+  candByCategoria: Record<string, number>;
   onEditSezione: (s: SezioneRecord) => void;
   onDeleteSezione: (s: SezioneRecord) => void;
   onAddCategoria: (s: SezioneRecord) => void;
   onEditCategoria: (sez: SezioneRecord, cat: CategoriaRecord) => void;
+  onDeleteCategoria: (sez: SezioneRecord, cat: CategoriaRecord) => void;
   onCopyCategorie: (s: SezioneRecord) => void;
 }
 
 function SezioneCard({
   sezione,
+  candBySezione,
+  candByCategoria,
   onEditSezione,
   onDeleteSezione,
   onAddCategoria,
   onEditCategoria,
+  onDeleteCategoria,
   onCopyCategorie,
 }: SezioneCardProps) {
   const { data: cats, isLoading } = useCategorie(sezione.id);
-  const deleteCategoria = useDeleteCategoria(sezione.id);
-
-  const handleDeleteCategoria = async (cat: CategoriaRecord) => {
-    if (!confirm(`Eliminare la categoria "${cat.nome}"?`)) return;
-    try {
-      await deleteCategoria.mutateAsync(cat.id);
-      toast.success('Categoria eliminata');
-    } catch (e) {
-      toast.error(httpErrorMessage(e));
-    }
-  };
 
   const catCount = cats?.length ?? 0;
+  const candCount = candBySezione[sezione.id] ?? 0;
 
   return (
     <li className="bg-white border border-slate-200 rounded-2xl p-4">
       {/* Header sezione */}
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3 min-w-0">
+          {/* Icon */}
           <div className="w-10 h-10 rounded-xl bg-brand-50 text-brand-700 flex items-center justify-center text-lg shrink-0">
             {iconaPerSezione(sezione.nome)}
           </div>
@@ -455,10 +541,12 @@ function SezioneCard({
             {sezione.descrizione && (
               <p className="text-xs text-slate-500 mt-0.5">{sezione.descrizione}</p>
             )}
+            {/* N categorie · N candidati — mirrors the vanilla subtitle */}
             <p className="text-[11px] text-slate-500 mt-1">
               {isLoading
                 ? '…'
-                : `${catCount} categori${catCount === 1 ? 'a' : 'e'}`}
+                : `${catCount} categori${catCount === 1 ? 'a' : 'e'}`}{' '}
+              · {candCount} candidat{candCount === 1 ? 'o' : 'i'}
             </p>
           </div>
         </div>
@@ -480,48 +568,53 @@ function SezioneCard({
         </div>
       </div>
 
-      {/* Categorie tree */}
-      <div className="mt-3 ml-13 pl-3 border-l-2 border-slate-100">
+      {/* Categorie tree — mirrors ml-13 border-l block */}
+      <div className="mt-3 ml-13 sm:ml-13 pl-3 border-l-2 border-slate-100">
         {isLoading ? (
           <p className="text-xs text-slate-400 italic mb-2">Caricamento…</p>
         ) : catCount === 0 ? (
           <p className="text-xs text-slate-400 italic mb-2">Nessuna categoria</p>
         ) : (
           <ul className="space-y-1.5 mb-2">
-            {cats!.map((cat) => (
-              <li
-                key={cat.id}
-                className="flex items-center justify-between gap-2 bg-slate-50 rounded-lg px-3 py-2"
-              >
-                <div className="min-w-0 flex items-center gap-2">
-                  <span className="text-sm font-medium text-slate-800">{cat.nome}</span>
-                  {cat.descrizione && (
-                    <span className="text-[11px] text-slate-500 ml-1">{cat.descrizione}</span>
-                  )}
-                  {(cat.etaMin != null || cat.etaMax != null) && (
-                    <span className="text-[10px] font-mono px-1.5 py-0.5 bg-white border border-slate-200 rounded text-slate-600">
-                      {cat.etaMin ?? 0}–{cat.etaMax ?? '∞'} anni
+            {cats!.map((cat) => {
+              const catCandCount = candByCategoria[cat.id] ?? 0;
+              return (
+                <li
+                  key={cat.id}
+                  className="flex items-center justify-between gap-2 bg-slate-50 rounded-lg px-3 py-2"
+                >
+                  <div className="min-w-0 flex items-center gap-2">
+                    <span className="text-sm font-medium text-slate-800">{cat.nome}</span>
+                    {/* Candidati count badge — mirrors the font-mono badge in vanilla */}
+                    <span
+                      className="text-[10px] font-mono px-1.5 py-0.5 bg-white border border-slate-200 rounded text-slate-600"
+                      title="Candidati assegnati"
+                    >
+                      {catCandCount}
                     </span>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    onClick={() => onEditCategoria(sezione, cat)}
-                    className="w-9 h-9 inline-flex items-center justify-center rounded-lg text-brand-700 bg-white hover:bg-brand-50 border border-brand-100 transition-colors"
-                    title="Modifica categoria"
-                  >
-                    <Pencil size={18} />
-                  </button>
-                  <button
-                    onClick={() => handleDeleteCategoria(cat)}
-                    className="w-9 h-9 inline-flex items-center justify-center rounded-lg text-rose-600 bg-white hover:bg-rose-50 border border-rose-100 transition-colors"
-                    title="Elimina categoria"
-                  >
-                    <Trash2 size={18} />
-                  </button>
-                </div>
-              </li>
-            ))}
+                    {cat.descrizione && (
+                      <span className="text-[11px] text-slate-500 ml-1">{cat.descrizione}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      onClick={() => onEditCategoria(sezione, cat)}
+                      className="w-9 h-9 inline-flex items-center justify-center rounded-lg text-brand-700 bg-white hover:bg-brand-50 border border-brand-100 transition-colors"
+                      title="Modifica categoria"
+                    >
+                      <Pencil size={18} />
+                    </button>
+                    <button
+                      onClick={() => onDeleteCategoria(sezione, cat)}
+                      className="w-9 h-9 inline-flex items-center justify-center rounded-lg text-rose-600 bg-white hover:bg-rose-50 border border-rose-100 transition-colors"
+                      title="Elimina categoria"
+                    >
+                      <Trash2 size={18} />
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         )}
 
@@ -551,11 +644,27 @@ function SezioneCard({
 }
 
 // ---------------------------------------------------------------------------
-// SezioniTab (exported)
+// SezioniTab (exported) — mirrors renderSezioni()
 // ---------------------------------------------------------------------------
 export default function SezioniTab({ concorsoId }: { concorsoId: string }) {
   const { data: sezioni, isLoading, isError } = useSezioni(concorsoId);
   const deleteSezione = useDeleteSezione(concorsoId);
+
+  // Candidati list — used for counts per sezione and per categoria
+  const { data: candidati } = useQuery({
+    queryKey: ['candidati', concorsoId],
+    queryFn: () => candidatiApi.list(concorsoId),
+    enabled: !!concorsoId,
+    staleTime: 30_000,
+  });
+
+  // Build count maps once from the flat candidati list
+  const candBySezione: Record<string, number> = {};
+  const candByCategoria: Record<string, number> = {};
+  for (const c of candidati ?? []) {
+    if (c.sezioneId) candBySezione[c.sezioneId] = (candBySezione[c.sezioneId] ?? 0) + 1;
+    if (c.categoriaId) candByCategoria[c.categoriaId] = (candByCategoria[c.categoriaId] ?? 0) + 1;
+  }
 
   // Dialog state
   const [sezDialog, setSezDialog] = useState<{ open: boolean; existing?: SezioneRecord }>({
@@ -571,15 +680,40 @@ export default function SezioniTab({ concorsoId }: { concorsoId: string }) {
     fromSezione?: SezioneRecord;
   }>({ open: false });
 
-  // ---------- Handlers ----------
-  const handleDeleteSezione = async (s: SezioneRecord) => {
-    if (!confirm(`Eliminare la sezione "${s.nome}"? Le categorie figlie verranno rimosse.`)) return;
+  // Delete confirms — mirrors confirmDialog({ danger: true })
+  const [delSezConfirm, setDelSezConfirm] = useState<{ open: boolean; sezione?: SezioneRecord }>({
+    open: false,
+  });
+  const [delCatConfirm, setDelCatConfirm] = useState<{
+    open: boolean;
+    sezione?: SezioneRecord;
+    cat?: CategoriaRecord;
+  }>({ open: false });
+
+  // ---------- Sezione delete ----------
+  const handleDeleteSezione = (s: SezioneRecord) => {
+    setDelSezConfirm({ open: true, sezione: s });
+  };
+
+  const confirmDeleteSezione = async () => {
+    const s = delSezConfirm.sezione;
+    if (!s) return;
+    setDelSezConfirm({ open: false });
     try {
       await deleteSezione.mutateAsync(s.id);
       toast.success('Sezione eliminata');
     } catch (e) {
-      toast.error(httpErrorMessage(e));
+      toast.error(resolveError(e));
     }
+  };
+
+  // ---------- Categoria delete ----------
+  // We keep deleteCategoria per-sezione hooks inside SezioneCard to keep
+  // the invalidation scoped. So we pass onDeleteCategoria up to the card
+  // which opens the confirm dialog here, then mutates via a separate hook.
+
+  const handleDeleteCategoria = (sez: SezioneRecord, cat: CategoriaRecord) => {
+    setDelCatConfirm({ open: true, sezione: sez, cat });
   };
 
   // ---------- Loading ----------
@@ -610,49 +744,69 @@ export default function SezioniTab({ concorsoId }: { concorsoId: string }) {
         <div className="flex items-center gap-2">
           <button
             onClick={() => setSezDialog({ open: true })}
-            className="text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 px-3.5 py-2 rounded-lg shadow-sm inline-flex items-center gap-1.5"
+            className="text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 px-3.5 py-2 rounded-lg shadow-sm"
           >
-            <Plus size={16} />
-            <span>Nuova sezione</span>
+            Nuova sezione
           </button>
         </div>
       </div>
+      {/* Subtitle — mirrors admin.sezioni.subtitle */}
       <p className="text-sm text-slate-600 mb-4">
-        {sezList.length} sezioni · organizza i partecipanti per disciplina e fascia d&apos;età.
+        Organizza il concorso in sezioni (per strumento o disciplina) e categorie (per fascia
+        d&apos;età o livello).
       </p>
 
-      {/* Empty state */}
-      {sezList.length === 0 && (
+      {/* Empty state — mirrors the dashed border block with 🗂 emoji */}
+      {sezList.length === 0 ? (
         <div className="bg-white border-2 border-dashed border-slate-200 rounded-2xl py-12 text-center">
-          <div className="text-4xl mb-2">
-            <Layers className="mx-auto h-10 w-10 text-slate-300" />
-          </div>
+          <div className="text-4xl mb-2">🗂</div>
           <p className="text-sm text-slate-500 italic">
             Nessuna sezione — creane una per organizzare il concorso.
           </p>
         </div>
-      )}
-
-      {/* List */}
-      {sezList.length > 0 && (
+      ) : (
         <ul className="space-y-3">
           {sezList.map((sez) => (
             <SezioneCard
               key={sez.id}
               sezione={sez}
+              candBySezione={candBySezione}
+              candByCategoria={candByCategoria}
               onEditSezione={(s) => setSezDialog({ open: true, existing: s })}
               onDeleteSezione={handleDeleteSezione}
               onAddCategoria={(s) => setCatDialog({ open: true, sezione: s })}
               onEditCategoria={(sez2, cat) =>
                 setCatDialog({ open: true, sezione: sez2, existing: cat })
               }
+              onDeleteCategoria={handleDeleteCategoria}
               onCopyCategorie={(s) => setCopyDialog({ open: true, fromSezione: s })}
             />
           ))}
         </ul>
       )}
 
-      {/* Sezione dialog */}
+      {/* ConfirmDialog: elimina sezione — mirrors confirmDialog danger */}
+      <ConfirmDialog
+        open={delSezConfirm.open}
+        title={`Elimina sezione "${delSezConfirm.sezione?.nome ?? ''}"`}
+        message="Sei sicuro? Questa operazione è irreversibile. Se la sezione è referenziata da candidati o fasi, il server bloccherà l'eliminazione."
+        danger
+        confirmLabel="Elimina"
+        onConfirm={confirmDeleteSezione}
+        onCancel={() => setDelSezConfirm({ open: false })}
+      />
+
+      {/* ConfirmDialog: elimina categoria */}
+      {delCatConfirm.cat && delCatConfirm.sezione && (
+        <DeleteCategoriaConfirm
+          open={delCatConfirm.open}
+          sezione={delCatConfirm.sezione}
+          cat={delCatConfirm.cat}
+          onClose={() => setDelCatConfirm({ open: false })}
+        />
+      )}
+
+      {/* Sezione form dialog */}
       <SezioneFormDialog
         open={sezDialog.open}
         onOpenChange={(v) => setSezDialog((p) => ({ ...p, open: v }))}
@@ -660,7 +814,7 @@ export default function SezioniTab({ concorsoId }: { concorsoId: string }) {
         existing={sezDialog.existing}
       />
 
-      {/* Categoria dialog */}
+      {/* Categoria form dialog */}
       {catDialog.sezione && (
         <CategoriaFormDialog
           open={catDialog.open}
@@ -680,5 +834,43 @@ export default function SezioniTab({ concorsoId }: { concorsoId: string }) {
         />
       )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// DeleteCategoriaConfirm — separate component so it can own the mutation hook
+// (hooks must be called unconditionally, so wrapping in a rendered component
+// is the idiomatic React way when the sezione_id is needed for invalidation).
+// ---------------------------------------------------------------------------
+interface DeleteCategoriaConfirmProps {
+  open: boolean;
+  sezione: SezioneRecord;
+  cat: CategoriaRecord;
+  onClose: () => void;
+}
+
+function DeleteCategoriaConfirm({ open, sezione, cat, onClose }: DeleteCategoriaConfirmProps) {
+  const deleteCategoria = useDeleteCategoria(sezione.id);
+
+  const handleConfirm = async () => {
+    onClose();
+    try {
+      await deleteCategoria.mutateAsync(cat.id);
+      toast.success('Categoria eliminata');
+    } catch (e) {
+      toast.error(resolveError(e));
+    }
+  };
+
+  return (
+    <ConfirmDialog
+      open={open}
+      title={`Elimina categoria "${cat.nome}"`}
+      message="Sei sicuro? Se la categoria è referenziata da candidati o fasi, il server bloccherà l'eliminazione."
+      danger
+      confirmLabel="Elimina"
+      onConfirm={handleConfirm}
+      onCancel={onClose}
+    />
   );
 }

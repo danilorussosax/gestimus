@@ -1,23 +1,34 @@
 /**
  * CalendarioTab — Gestione Sale + Blocchi (eventi) + Slot + Link pubblici.
  *
+ * Ricostruzione fedele della vista vanilla `js/views/admin/calendario.js`
+ * (+ `js/calendario-pdf.js`). Board drag-and-drop a due livelli:
+ *   - card-blocco (eventi_calendario) trascinabile tra lane giorno × sala
+ *   - card-candidato (slot) trascinabile per riordinare dentro il blocco
+ * In entrambi i casi gli orari individuali si ricalcolano lato server.
+ *
  * Props: concorsoId: string
  *
- * Features:
- *   - CRUD sale (chips)
- *   - Board giorni × sale con card-blocco drag-and-drop (HTML5 DnD)
- *   - Drag slot (riordino dentro un blocco)
- *   - Genera/ricalcola slot
- *   - CRUD link pubblici (pubblicazioni)
- *   - Form blocco modale: tipo ESIBIZIONE/EVENTO, fase/sezione/categoria, ora, sala
+ * Feature (1:1 con la vista vanilla):
+ *   - Header: titolo/sottotitolo, bottone "Scarica PDF", bottone "Nuovo blocco"
+ *   - Sale: chips con edit/delete + modale CRUD (nome, indirizzo)
+ *   - Board: giorni × lane (ogni sala + "senza sala"), card-blocco ESIBIZIONE/EVENTO
+ *     con drag tra lane (sposta data/sala → server ricalcola), azioni
+ *     genera-slot / edit / delete per card
+ *   - Slot list per card ESIBIZIONE con drag-reorder (riordina-slot)
+ *   - Form blocco: tipo (cascade EVENTO/ESIBIZIONE), fase/sezione/categoria
+ *     (categorie dipendono dalla sezione), durata, data, ore, sala, note
+ *   - Link pubblici: create (scopo CONCORSO/SEZIONE/GIORNO + flag), copy,
+ *     tabellone (display), toggle attivo, revoke
+ *   - Export PDF intero concorso (giorni → blocchi → slot + giuria)
  *
- * Dipendenze query: sale, eventi, pubblicazioni.
- * Le sezioni/fasi/categorie vengono passate tramite le stesse query di concorso.
- * Per questo tab usiamo query separate per semplicità.
+ * Dipendenze query (@/api/calendario): sale, eventi, pubblicazioni; più
+ * sezioni/fasi/categorie/candidati/candidati-fase per popolare board+slot e
+ * concorso/commissari/commissioni per il PDF.
  */
 
-import { useState, useRef, useCallback } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useState, useCallback, useMemo } from 'react';
+import { useQuery, useMutation, useQueryClient, useQueries } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -32,7 +43,7 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
-  Link2,
+  Download,
   GripVertical,
 } from 'lucide-react';
 import {
@@ -40,12 +51,26 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogFooter,
   DialogClose,
 } from '@/components/ui/dialog';
+import { cn } from '@/lib/utils';
 import { http, httpErrorMessage } from '@/lib/api';
 import { calendarioApi } from '@/api/calendario';
-import type { Sala, Evento, Sezione, Fase, Categoria } from '@/types';
+import { getConcorso } from '@/api/concorsi';
+import { commissariApi } from '@/api/commissari';
+import { commissioniApi } from '@/api/commissioni';
+import { exportCalendarioPdf } from '@/lib/calendario-pdf';
+import type {
+  Sala,
+  Evento,
+  Sezione,
+  Fase,
+  Categoria,
+  Candidato,
+  CandidatoFase,
+} from '@/types';
 import type { CalendarioPubblicazione, SalaCreate } from '@/api/calendario';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -55,6 +80,7 @@ function hhmm(s: string | null | undefined) {
 }
 
 function fmtDay(iso: string) {
+  if (!iso) return '';
   try {
     return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, {
       weekday: 'long',
@@ -66,11 +92,28 @@ function fmtDay(iso: string) {
   }
 }
 
+/** Nome visualizzato del candidato (individuale vs gruppo/orchestra). */
+function displayName(cand: Candidato | null | undefined): string {
+  if (!cand) return '—';
+  if (cand.tipo === 'gruppo' || cand.tipo === 'orchestra') return cand.nome || '—';
+  return `${cand.nome || ''} ${cand.cognome || ''}`.trim() || '—';
+}
+
 function publicCalUrl(token: string, display = false) {
-  return `${window.location.origin}/calendario?token=${encodeURIComponent(token)}${display ? '&display=1' : ''}`;
+  return `${window.location.origin}${window.location.pathname}#/calendario?token=${encodeURIComponent(token)}${display ? '&display=1' : ''}`;
 }
 
 const SALA_NONE = '__none__';
+
+// ─── Slot model (card-candidato) ───────────────────────────────────────────────
+// Uno slot è un candidato_fase con eventoId valorizzato + oraPrevista. La label è
+// "NNN · displayName" (come candLabel in vanilla).
+interface Slot {
+  id: string;
+  oraPrevista: string | null;
+  posizione: number | null;
+  label: string;
+}
 
 // ─── Zod schemas ─────────────────────────────────────────────────────────────
 
@@ -113,6 +156,50 @@ const PUB_KEY = (cid: string) => ['calendario', 'pubblicazioni', cid];
 const SEZIONI_KEY = (cid: string) => ['sezioni', cid];
 const FASI_KEY = (cid: string) => ['fasi', cid];
 const CATEGORIE_KEY = (cid: string) => ['categorie', cid];
+const CANDIDATI_KEY = (cid: string) => ['candidati', cid];
+const CF_KEY = (faseId: string) => ['candidati-fase', faseId];
+
+// ─── ConfirmDialog (modale, sostituisce confirmDialog vanilla) ─────────────────
+
+interface ConfirmState {
+  open: boolean;
+  title: string;
+  message: string;
+  danger?: boolean;
+  confirmLabel?: string;
+  onConfirm: () => void;
+}
+
+function ConfirmDialog({
+  state,
+  onClose,
+}: {
+  state: ConfirmState;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog open={state.open} onOpenChange={(o) => { if (!o) onClose(); }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{state.title}</DialogTitle>
+          <DialogDescription>{state.message}</DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <button type="button" className="c-btn c-btn--outline" onClick={onClose}>
+            Annulla
+          </button>
+          <button
+            type="button"
+            className={cn('c-btn', state.danger ? 'c-btn--danger' : 'c-btn--primary')}
+            onClick={() => { state.onConfirm(); onClose(); }}
+          >
+            {state.confirmLabel ?? 'Conferma'}
+          </button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 // ─── SalaDialog ───────────────────────────────────────────────────────────────
 
@@ -250,6 +337,7 @@ function BlockDialog({
   const tipo = watch('tipo');
   const watchedSezId = watch('sezioneId');
 
+  // Le categorie dipendono dalla sezione scelta (cascade, come in vanilla).
   const filteredCategorie = watchedSezId
     ? categorie.filter((c) => c.sezioneId === watchedSezId)
     : [];
@@ -267,32 +355,30 @@ function BlockDialog({
       };
       let payload: typeof base & Record<string, unknown>;
       if (d.tipo === 'EVENTO') {
-        payload = { ...base, titolo: d.titolo || null };
+        payload = { ...base, titolo: d.titolo || null, faseId: null, sezioneId: null, categoriaId: null, durataCandidatoMinuti: null };
       } else {
         payload = {
           ...base,
           faseId: d.faseId || null,
           sezioneId: d.sezioneId || null,
           categoriaId: d.categoriaId || null,
-          durataCandidatoMinuti: d.durataCandidatoMinuti ? Number(d.durataCandidatoMinuti) : null,
+          durataCandidatoMinuti: d.durataCandidatoMinuti === '' || d.durataCandidatoMinuti == null ? null : Number(d.durataCandidatoMinuti),
         };
       }
       if (evento) {
         return calendarioApi.updateEvento(evento.id, payload);
       } else {
         const created = await calendarioApi.createEvento(payload);
+        // Come in vanilla: alla creazione di un'ESIBIZIONE genera subito gli slot.
         if (d.tipo === 'ESIBIZIONE') {
-          try {
-            await calendarioApi.generaSlot(created.id);
-          } catch {
-            // non-fatal: slot generation failure
-          }
+          await calendarioApi.generaSlot(created.id);
         }
         return created;
       }
     },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: EVENTI_KEY(concorsoId) });
+      void qc.invalidateQueries({ queryKey: ['candidati-fase'] });
       toast.success(evento ? 'Blocco aggiornato' : 'Blocco creato');
       onClose();
       reset();
@@ -338,7 +424,7 @@ function BlockDialog({
             </label>
           )}
 
-          {/* Esibizione fields */}
+          {/* Campi esibizione */}
           {tipo === 'ESIBIZIONE' && (
             <div className="space-y-3">
               <label className="block">
@@ -377,7 +463,6 @@ function BlockDialog({
                     className="c-select"
                     value={watch('categoriaId') ?? ''}
                     onChange={(e) => setValue('categoriaId', e.target.value)}
-                    disabled={!watchedSezId}
                   >
                     <option value="">{t('cal.block.tutte_categorie')}</option>
                     {filteredCategorie.map((c) => (
@@ -478,8 +563,11 @@ function LinkDialog({ open, concorsoId, sezioni, onClose }: LinkDialogProps) {
   const scopo = watch('scopo');
 
   const createMut = useMutation({
-    mutationFn: (d: LinkForm) =>
-      calendarioApi.createPubblicazione({
+    mutationFn: (d: LinkForm) => {
+      // Validazioni come in vanilla onPrimary.
+      if (d.scopo === 'SEZIONE' && !d.sezioneId) throw new Error(t('cal.block.sezione'));
+      if (d.scopo === 'GIORNO' && !d.giorno) throw new Error(t('cal.block.data'));
+      return calendarioApi.createPubblicazione({
         concorsoId,
         scopo: d.scopo,
         etichetta: d.etichetta || null,
@@ -487,7 +575,8 @@ function LinkDialog({ open, concorsoId, sezioni, onClose }: LinkDialogProps) {
         mostraCommissione: d.mostraCommissione,
         sezioneId: d.scopo === 'SEZIONE' ? (d.sezioneId || null) : null,
         giorno: d.scopo === 'GIORNO' ? (d.giorno || null) : null,
-      }),
+      });
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: PUB_KEY(concorsoId) });
       toast.success('Link creato');
@@ -587,22 +676,12 @@ function LinkDialog({ open, concorsoId, sezioni, onClose }: LinkDialogProps) {
 
 // ─── BlockCard ────────────────────────────────────────────────────────────────
 
-interface Slot {
-  id: string;
-  candidatoId: string;
-  posizione: number | null;
-  oraPrevista: string | null;
-  numeroCandidato: number | null;
-}
-
 interface BlockCardProps {
   evento: Evento;
-  sale: Sala[];
   sezioni: Sezione[];
   categorie: Categoria[];
   fasi: Fase[];
   slots: Slot[];
-  concorsoId: string;
   onEdit: () => void;
   onDelete: () => void;
   onGeneraSlot: () => void;
@@ -630,9 +709,9 @@ function BlockCard({
   onSlotReorder,
 }: BlockCardProps) {
   const { t } = useTranslation();
-  const sez = sezioni.find((s) => s.id === evento.sezioneId);
-  const cat = categorie.find((c) => c.id === evento.categoriaId);
-  const fase = fasi.find((f) => f.id === evento.faseId);
+  const sez = evento.sezioneId ? sezioni.find((s) => s.id === evento.sezioneId) : null;
+  const cat = evento.categoriaId ? categorie.find((c) => c.id === evento.categoriaId) : null;
+  const fase = evento.faseId ? fasi.find((f) => f.id === evento.faseId) : null;
   const head =
     [sez?.nome, cat?.nome, fase?.nome].filter(Boolean).join(' · ') ||
     evento.titolo ||
@@ -664,6 +743,7 @@ function BlockCard({
         </div>
         <div className="flex shrink-0 items-center gap-0.5 opacity-60 transition group-hover:opacity-100">
           <button
+            type="button"
             onClick={onGeneraSlot}
             title={t('cal.block.genera')}
             className="p-1"
@@ -674,6 +754,7 @@ function BlockCard({
             <Clock className="h-[13px] w-[13px]" />
           </button>
           <button
+            type="button"
             onClick={onEdit}
             className="p-1"
             style={{ color: 'hsl(var(--muted-foreground))' }}
@@ -683,6 +764,7 @@ function BlockCard({
             <Pencil className="h-[13px] w-[13px]" />
           </button>
           <button
+            type="button"
             onClick={onDelete}
             className="p-1"
             style={{ color: 'hsl(var(--muted-foreground))' }}
@@ -749,7 +831,7 @@ function BlockCard({
                   {hhmm(slot.oraPrevista) || '—'}
                 </span>
                 <span className="flex-1 truncate" style={{ color: 'hsl(var(--foreground))' }}>
-                  {String(slot.numeroCandidato ?? '').padStart(3, '0')} · cand.
+                  {slot.label}
                 </span>
               </li>
             ))
@@ -765,20 +847,19 @@ function BlockCard({
 interface PubRowProps {
   pub: CalendarioPubblicazione;
   sezioni: Sezione[];
-  concorsoId: string;
   onRevoke: () => void;
   onToggle: () => void;
 }
 
 function PubRow({ pub, sezioni, onRevoke, onToggle }: PubRowProps) {
   const { t } = useTranslation();
-  const sez = sezioni.find((s) => s.id === pub.sezioneId);
+  const sezName = (id: string | null) => sezioni.find((s) => s.id === id)?.nome ?? '';
   const scopoLabel =
     pub.scopo === 'CONCORSO'
       ? t('cal.links.scopo.concorso')
       : pub.scopo === 'SEZIONE'
-      ? `${t('cal.links.scopo.sezione')}: ${sez?.nome ?? '—'}`
-      : `${t('cal.links.scopo.giorno')}: ${pub.giorno ?? '—'}`;
+      ? `${t('cal.links.scopo.sezione')}: ${sezName(pub.sezioneId)}`
+      : `${t('cal.links.scopo.giorno')}: ${pub.giorno ?? ''}`;
 
   async function copy() {
     try {
@@ -800,12 +881,13 @@ function PubRow({ pub, sezioni, onRevoke, onToggle }: PubRowProps) {
         </p>
         <p className="text-[11px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
           {scopoLabel}
-          {pub.mostraNomi ? ' · 👤' : ''}
+          {' · '}
+          {pub.mostraNomi ? '👤' : '🔒'}
           {pub.mostraCommissione ? ' ⚖️' : ''}
           {!pub.attivo ? ' · (off)' : ''}
         </p>
       </div>
-      <button onClick={copy} className="c-btn c-btn--ghost c-btn--sm">
+      <button type="button" onClick={copy} className="c-btn c-btn--ghost c-btn--sm">
         <Copy className="h-[13px] w-[13px]" />
         <span>{t('cal.links.copy')}</span>
       </button>
@@ -818,10 +900,11 @@ function PubRow({ pub, sezioni, onRevoke, onToggle }: PubRowProps) {
         <ExternalLink className="h-[13px] w-[13px]" />
         <span>{t('cal.links.display')}</span>
       </a>
-      <button onClick={onToggle} className="c-btn c-btn--ghost c-btn--sm">
+      <button type="button" onClick={onToggle} className="c-btn c-btn--ghost c-btn--sm">
         {pub.attivo ? <Eye className="h-[13px] w-[13px]" /> : <EyeOff className="h-[13px] w-[13px]" />}
       </button>
       <button
+        type="button"
         onClick={onRevoke}
         className="c-btn c-btn--ghost c-btn--sm"
         style={{ color: 'hsl(var(--destructive))' }}
@@ -867,6 +950,63 @@ export function CalendarioTab({ concorsoId }: CalendarioTabProps) {
     queryKey: CATEGORIE_KEY(concorsoId),
     queryFn: () => http.get<Categoria[]>('categorie', { concorsoId }),
   });
+  const { data: candidati = [] } = useQuery({
+    queryKey: CANDIDATI_KEY(concorsoId),
+    queryFn: () => http.get<Candidato[]>('candidati', { concorsoId, limit: 1000 }),
+  });
+
+  // candidati_fase per ogni fase referenziata da un blocco ESIBIZIONE → da qui
+  // derivano gli slot (cf con eventoId valorizzato). Una query per fase.
+  const faseIds = useMemo(
+    () => [...new Set(eventi.map((e) => e.faseId).filter((x): x is string => !!x))],
+    [eventi],
+  );
+  const cfQueries = useQueries({
+    queries: faseIds.map((fid) => ({
+      queryKey: CF_KEY(fid),
+      queryFn: () => http.get<CandidatoFase[]>('candidati-fase', { faseId: fid, limit: 1000 }),
+    })),
+  });
+  const allCf = useMemo(
+    () => cfQueries.flatMap((q) => q.data ?? []),
+    [cfQueries],
+  );
+
+  // Lookup candidato → label "NNN · displayName" (come candLabel vanilla).
+  const candById = useMemo(() => new Map(candidati.map((c) => [c.id, c])), [candidati]);
+  const candLabel = useCallback(
+    (candidatoId: string) => {
+      const cand = candById.get(candidatoId);
+      if (!cand) return '—';
+      const num = String(cand.numeroCandidato ?? '').padStart(3, '0');
+      return `${num} · ${displayName(cand)}`;
+    },
+    [candById],
+  );
+
+  // Slot per evento (cf con eventoId === ev.id, ordinati per oraPrevista/posizione).
+  const slotsByEvento = useMemo(() => {
+    const m = new Map<string, Slot[]>();
+    for (const cf of allCf) {
+      if (!cf.eventoId) continue;
+      const arr = m.get(cf.eventoId) ?? [];
+      arr.push({
+        id: cf.id,
+        oraPrevista: cf.oraPrevista,
+        posizione: cf.posizione,
+        label: candLabel(cf.candidatoId),
+      });
+      m.set(cf.eventoId, arr);
+    }
+    for (const arr of m.values()) {
+      arr.sort(
+        (a, b) =>
+          (a.oraPrevista || '').localeCompare(b.oraPrevista || '') ||
+          (a.posizione ?? 0) - (b.posizione ?? 0),
+      );
+    }
+    return m;
+  }, [allCf, candLabel]);
 
   // ── UI State ───────────────────────────────────────────────────────────────
   const [salaDialog, setSalaDialog] = useState<{ open: boolean; sala: Sala | null }>({ open: false, sala: null });
@@ -874,38 +1014,56 @@ export function CalendarioTab({ concorsoId }: CalendarioTabProps) {
   const [linkDialog, setLinkDialog] = useState(false);
   const [draggingBlockId, setDraggingBlockId] = useState<string | null>(null);
   const [draggingSlot, setDraggingSlot] = useState<{ cfId: string; eventoId: string } | null>(null);
-  const dragOverLane = useRef<string | null>(null);
+  const [confirmState, setConfirmState] = useState<ConfirmState>({
+    open: false, title: '', message: '', onConfirm: () => {},
+  });
+  const closeConfirm = () => setConfirmState((s) => ({ ...s, open: false }));
 
   // ── Mutations ──────────────────────────────────────────────────────────────
   const deleteSalaMut = useMutation({
     mutationFn: (id: string) => calendarioApi.deleteSala(id),
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: SALE_KEY(concorsoId) }); toast.success('Sala eliminata'); },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: SALE_KEY(concorsoId) });
+      void qc.invalidateQueries({ queryKey: EVENTI_KEY(concorsoId) });
+      toast.success('Sala eliminata');
+    },
     onError: (e) => toast.error(httpErrorMessage(e)),
   });
 
   const deleteEventoMut = useMutation({
     mutationFn: (id: string) => calendarioApi.deleteEvento(id),
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: EVENTI_KEY(concorsoId) }); toast.success('Blocco eliminato'); },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: EVENTI_KEY(concorsoId) });
+      void qc.invalidateQueries({ queryKey: ['candidati-fase'] });
+      toast.success('Blocco eliminato');
+    },
     onError: (e) => toast.error(httpErrorMessage(e)),
   });
 
   const updateEventoMut = useMutation({
     mutationFn: ({ id, body }: { id: string; body: Record<string, unknown> }) =>
       calendarioApi.updateEvento(id, body),
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: EVENTI_KEY(concorsoId) }); },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: EVENTI_KEY(concorsoId) });
+      void qc.invalidateQueries({ queryKey: ['candidati-fase'] });
+    },
     onError: (e) => toast.error(httpErrorMessage(e)),
   });
 
   const generaSlotMut = useMutation({
     mutationFn: (eventoId: string) => calendarioApi.generaSlot(eventoId),
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: EVENTI_KEY(concorsoId) }); toast.success('Orari rigenerati'); },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['candidati-fase'] });
+      void qc.invalidateQueries({ queryKey: EVENTI_KEY(concorsoId) });
+      toast.success(t('cal.block.genera_done'));
+    },
     onError: (e) => toast.error(httpErrorMessage(e)),
   });
 
   const riordinaSlotMut = useMutation({
     mutationFn: ({ eventoId, ordine }: { eventoId: string; ordine: string[] }) =>
       calendarioApi.riordinaSlot(eventoId, ordine),
-    onSuccess: () => { void qc.invalidateQueries({ queryKey: EVENTI_KEY(concorsoId) }); },
+    onSuccess: () => { void qc.invalidateQueries({ queryKey: ['candidati-fase'] }); },
     onError: (e) => toast.error(httpErrorMessage(e)),
   });
 
@@ -922,6 +1080,62 @@ export function CalendarioTab({ concorsoId }: CalendarioTabProps) {
     onError: (e) => toast.error(httpErrorMessage(e)),
   });
 
+  // ── PDF export (intero concorso) ─────────────────────────────────────────────
+  const pdfMut = useMutation({
+    mutationFn: async () => {
+      const [concorso, commissari, commissioni] = await Promise.all([
+        getConcorso(concorsoId),
+        commissariApi.list(concorsoId),
+        commissioniApi.list(concorsoId),
+      ]);
+      const days = [...new Set(eventi.map((e) => e.data).filter((d): d is string => !!d))].sort();
+      const giorni = days.map((data) => ({
+        data,
+        blocchi: eventi
+          .filter((e) => e.data === data)
+          .map((ev) => {
+            const sez = ev.sezioneId ? sezioni.find((s) => s.id === ev.sezioneId) : null;
+            const cat = ev.categoriaId ? categorie.find((c) => c.id === ev.categoriaId) : null;
+            const fase = ev.faseId ? fasi.find((f) => f.id === ev.faseId) : null;
+            const comm = fase?.commissioneId
+              ? commissioni.find((c) => c.id === fase.commissioneId)
+              : null;
+            const commissione = comm
+              ? (comm.commissari ?? [])
+                  .map((id) => {
+                    const m = commissari.find((x) => x.id === id);
+                    return m ? { nome: m.nome, cognome: m.cognome ?? '', specialita: m.specialita ?? '' } : null;
+                  })
+                  .filter((x): x is { nome: string; cognome: string; specialita: string } => !!x)
+              : [];
+            return {
+              oraInizio: ev.oraInizio,
+              oraFine: ev.oraFine,
+              tipo: ev.tipo,
+              titolo: ev.titolo,
+              sala: ev.salaId ? { nome: sale.find((s) => s.id === ev.salaId)?.nome ?? '' } : null,
+              sezione: sez ? { nome: sez.nome } : null,
+              categoria: cat ? { nome: cat.nome } : null,
+              fase: fase ? { nome: fase.nome } : null,
+              commissione,
+              slot: (slotsByEvento.get(ev.id) ?? []).map((s) => ({
+                oraPrevista: s.oraPrevista,
+                etichetta: s.label,
+              })),
+            };
+          }),
+      }));
+      await exportCalendarioPdf({
+        titolo: concorso.nome,
+        sottotitolo: `${t('cal.pdf.title')} · ${concorso.anno ?? ''}`,
+        logoUrl: concorso.logoUrl || '/logo.png',
+        mostraCommissione: true,
+        giorni,
+      });
+    },
+    onError: (e) => toast.error(httpErrorMessage(e)),
+  });
+
   // ── Board data ─────────────────────────────────────────────────────────────
   const days = [...new Set(eventi.map((e) => e.data).filter(Boolean))].sort() as string[];
   const lanes = [
@@ -929,11 +1143,10 @@ export function CalendarioTab({ concorsoId }: CalendarioTabProps) {
     { id: SALA_NONE, nome: t('cal.sala.senza') },
   ];
 
-  // Drop handler for block (lane)
+  // Drop handler per il blocco (lane).
   const handleLaneDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>, day: string, salaId: string | null) => {
       e.preventDefault();
-      e.currentTarget.classList.remove('ring-2', 'ring-primary');
       if (!draggingBlockId) return;
       const id = draggingBlockId;
       setDraggingBlockId(null);
@@ -958,13 +1171,25 @@ export function CalendarioTab({ concorsoId }: CalendarioTabProps) {
           </h3>
           <p className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>{t('cal.subtitle')}</p>
         </div>
-        <button
-          className="c-btn c-btn--primary"
-          onClick={() => setBlockDialog({ open: true, evento: null })}
-        >
-          <Plus className="h-4 w-4" />
-          <span>{t('cal.block.add')}</span>
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            className="c-btn c-btn--outline c-btn--sm"
+            onClick={() => pdfMut.mutate()}
+            disabled={pdfMut.isPending}
+          >
+            <Download className="h-[15px] w-[15px]" />
+            <span>{t('cal.pdf.export')}</span>
+          </button>
+          <button
+            type="button"
+            className="c-btn c-btn--primary"
+            onClick={() => setBlockDialog({ open: true, evento: null })}
+          >
+            <Plus className="h-4 w-4" />
+            <span>{t('cal.block.add')}</span>
+          </button>
+        </div>
       </div>
 
       {/* Sale */}
@@ -972,6 +1197,7 @@ export function CalendarioTab({ concorsoId }: CalendarioTabProps) {
         <div className="mb-3 flex items-center justify-between">
           <h4 className="text-sm font-bold" style={{ color: 'hsl(var(--foreground))' }}>{t('cal.sale.title')}</h4>
           <button
+            type="button"
             className="c-btn c-btn--outline c-btn--sm"
             onClick={() => setSalaDialog({ open: true, sala: null })}
           >
@@ -993,22 +1219,33 @@ export function CalendarioTab({ concorsoId }: CalendarioTabProps) {
               >
                 <span className="text-sm" style={{ color: 'hsl(var(--foreground))' }}>{s.nome}</span>
                 <button
+                  type="button"
                   onClick={() => setSalaDialog({ open: true, sala: s })}
                   className="p-1"
                   style={{ color: 'hsl(var(--muted-foreground))' }}
                   onMouseOver={(e) => (e.currentTarget.style.color = 'hsl(var(--primary))')}
                   onMouseOut={(e) => (e.currentTarget.style.color = 'hsl(var(--muted-foreground))')}
-                  aria-label="Modifica"
+                  aria-label="edit"
                 >
                   <Pencil className="h-[13px] w-[13px]" />
                 </button>
                 <button
-                  onClick={() => { if (confirm(`Eliminare "${s.nome}"?`)) deleteSalaMut.mutate(s.id); }}
+                  type="button"
+                  onClick={() =>
+                    setConfirmState({
+                      open: true,
+                      title: `${t('modal.delete')} — ${s.nome}`,
+                      message: t('cal.block.delete_confirm'),
+                      danger: true,
+                      confirmLabel: t('modal.delete'),
+                      onConfirm: () => deleteSalaMut.mutate(s.id),
+                    })
+                  }
                   className="p-1"
                   style={{ color: 'hsl(var(--muted-foreground))' }}
                   onMouseOver={(e) => (e.currentTarget.style.color = 'hsl(var(--destructive))')}
                   onMouseOut={(e) => (e.currentTarget.style.color = 'hsl(var(--muted-foreground))')}
-                  aria-label="Elimina"
+                  aria-label="delete"
                 >
                   <Trash2 className="h-[13px] w-[13px]" />
                 </button>
@@ -1061,7 +1298,6 @@ export function CalendarioTab({ concorsoId }: CalendarioTabProps) {
                     onDragOver={(e) => {
                       if (draggingBlockId) {
                         e.preventDefault();
-                        dragOverLane.current = lane.id;
                         e.currentTarget.style.outline = '2px solid hsl(var(--primary))';
                         e.currentTarget.style.outlineOffset = '-2px';
                       }
@@ -1087,14 +1323,21 @@ export function CalendarioTab({ concorsoId }: CalendarioTabProps) {
                         <BlockCard
                           key={ev.id}
                           evento={ev}
-                          sale={sale}
                           sezioni={sezioni}
                           categorie={categorie}
                           fasi={fasi}
-                          slots={[]}
-                          concorsoId={concorsoId}
+                          slots={slotsByEvento.get(ev.id) ?? []}
                           onEdit={() => setBlockDialog({ open: true, evento: ev })}
-                          onDelete={() => { if (confirm('Eliminare questo blocco?')) deleteEventoMut.mutate(ev.id); }}
+                          onDelete={() =>
+                            setConfirmState({
+                              open: true,
+                              title: t('cal.block.edit'),
+                              message: t('cal.block.delete_confirm'),
+                              danger: true,
+                              confirmLabel: t('modal.delete'),
+                              onConfirm: () => deleteEventoMut.mutate(ev.id),
+                            })
+                          }
                           onGeneraSlot={() => generaSlotMut.mutate(ev.id)}
                           onDragStart={setDraggingBlockId}
                           onDragEnd={() => setDraggingBlockId(null)}
@@ -1117,11 +1360,10 @@ export function CalendarioTab({ concorsoId }: CalendarioTabProps) {
       {/* Link pubblici */}
       <div className="rounded-2xl p-4" style={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}>
         <div className="mb-3 flex items-center justify-between">
-          <h4 className="flex items-center gap-2 text-sm font-bold" style={{ color: 'hsl(var(--foreground))' }}>
-            <Link2 className="h-4 w-4" />
+          <h4 className="text-sm font-bold" style={{ color: 'hsl(var(--foreground))' }}>
             {t('cal.links.title')}
           </h4>
-          <button className="c-btn c-btn--outline c-btn--sm" onClick={() => setLinkDialog(true)}>
+          <button type="button" className="c-btn c-btn--outline c-btn--sm" onClick={() => setLinkDialog(true)}>
             <Plus className="h-[14px] w-[14px]" />
             <span>{t('cal.links.add')}</span>
           </button>
@@ -1138,14 +1380,19 @@ export function CalendarioTab({ concorsoId }: CalendarioTabProps) {
                 key={pub.id}
                 pub={pub}
                 sezioni={sezioni}
-                concorsoId={concorsoId}
                 onToggle={() =>
                   togglePubMut.mutate({ id: pub.id, attivo: !pub.attivo })
                 }
-                onRevoke={() => {
-                  if (confirm('Revocare questo link? Smetterà di funzionare.'))
-                    deletePubMut.mutate(pub.id);
-                }}
+                onRevoke={() =>
+                  setConfirmState({
+                    open: true,
+                    title: t('cal.links.revoke'),
+                    message: t('cal.links.revoke_confirm'),
+                    danger: true,
+                    confirmLabel: t('cal.links.revoke'),
+                    onConfirm: () => deletePubMut.mutate(pub.id),
+                  })
+                }
               />
             ))}
           </ul>
@@ -1176,6 +1423,7 @@ export function CalendarioTab({ concorsoId }: CalendarioTabProps) {
         sezioni={sezioni}
         onClose={() => setLinkDialog(false)}
       />
+      <ConfirmDialog state={confirmState} onClose={closeConfirm} />
     </div>
   );
 }

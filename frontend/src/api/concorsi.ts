@@ -34,6 +34,7 @@ interface ConcorsoRaw {
   anonimo: boolean;
   iscrizioniAperte: boolean;
   iscrizioniScadenza: string | null;
+  defaultTiebreakStrategy?: { key: string; enabled: boolean }[] | null;
   createdAt?: string;
   updatedAt?: string;
 }
@@ -49,6 +50,7 @@ function normalize(raw: ConcorsoRaw): Concorso {
     iscrizioniAperte: raw.iscrizioniAperte,
     iscrizioniChiusura: raw.iscrizioniScadenza,
     logoUrl: raw.logo ?? null,
+    defaultTiebreakStrategy: raw.defaultTiebreakStrategy ?? null,
   };
 }
 
@@ -59,11 +61,12 @@ export interface CreateConcorsoBody {
   nome: string;
   anno: number;
   dataInizio?: string;
-  stato?: 'ATTIVO' | 'CONCLUSO';
+  stato?: 'ATTIVO' | 'CONCLUSO' | 'ARCHIVIATO';
   logo?: string;
   anonimo?: boolean;
   iscrizioniAperte?: boolean;
   iscrizioniScadenza?: string;
+  defaultTiebreakStrategy?: { key: string; enabled: boolean }[];
 }
 
 export type UpdateConcorsoBody = Partial<CreateConcorsoBody>;

@@ -51,15 +51,6 @@ function ageFromDate(dateStr: string | null | undefined): number | null {
   return age >= 0 ? age : null;
 }
 
-function fmtDate(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  return new Date(iso).toLocaleDateString('it-IT', {
-    day: '2-digit',
-    month: 'short',
-    year: '2-digit',
-  });
-}
-
 function fmtDateTime(iso: string | null | undefined): string {
   if (!iso) return '—';
   return new Date(iso).toLocaleString('it-IT');
@@ -278,6 +269,10 @@ function IscrizioneDetailDialog({
         catch { return []; }
       })();
 
+  // Durata totale: somma dei brani (nel vecchio stack era un campo dedicato
+  // isc.durata_totale_min; ora lo deriviamo dal programma).
+  const durataTotaleMin = programma.reduce((acc, p) => acc + (Number(p.durata_min) || 0), 0);
+
   const docenti = Array.isArray(isc.docentiPreparatori)
     ? (isc.docentiPreparatori as string[])
     : (() => {
@@ -289,16 +284,12 @@ function IscrizioneDetailDialog({
   const isGruppo = isc.isGruppo;
   const membri = Array.isArray(isc.membri)
     ? (isc.membri as { nome?: string; cognome?: string; strumento?: string; data_nascita?: string }[])
-    : [];
+    : (() => {
+        try { return JSON.parse(String(isc.membri ?? '[]')) as { nome?: string; cognome?: string; strumento?: string; data_nascita?: string }[]; }
+        catch { return []; }
+      })();
 
   const gdpr = isc.consensiGdpr ?? {};
-
-  const gdprLabels: Record<string, string> = {
-    privacy:     'Privacy (GDPR)',
-    immagini:    'Uso immagini',
-    regolamento: 'Accettazione regolamento',
-    newsletter:  'Newsletter',
-  };
 
   const detailStatoCls = STATO_DETAIL_COLORS[isc.stato] ?? 'bg-slate-100 text-slate-700';
 
@@ -330,7 +321,7 @@ function IscrizioneDetailDialog({
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2 text-xs">
               <div>
                 <span className="text-slate-500">Nato il:</span>{' '}
-                <strong>{fmtDate(isc.dataNascita)}</strong>
+                <strong>{isc.dataNascita ?? '—'}</strong>
                 {age != null && <span className="text-slate-400 ml-1">({age} anni)</span>}
               </div>
               <div>
@@ -375,9 +366,7 @@ function IscrizioneDetailDialog({
               <div className="col-span-3">
                 <span className="text-slate-500">Indirizzo:</span>{' '}
                 <strong>
-                  {[isc.indirizzo ?? '—', isc.citta ?? '—', isc.cap ?? '', isc.provincia ? `(${isc.provincia})` : '—', isc.paese ?? '—']
-                    .filter(Boolean)
-                    .join(', ')}
+                  {`${isc.indirizzo ?? '—'}, ${isc.citta ?? '—'} ${isc.cap ?? ''} (${isc.provincia ?? '—'}) · ${isc.paese ?? '—'}`}
                 </strong>
               </div>
             </div>
@@ -445,9 +434,9 @@ function IscrizioneDetailDialog({
               <ul className="space-y-1 text-xs">
                 {membri.map((m, i) => (
                   <li key={i}>
-                    · <strong>{[m.nome, m.cognome].filter(Boolean).join(' ')}</strong>
-                    {m.strumento ? ` — ${m.strumento}` : ''}
-                    {m.data_nascita ? ` (${fmtDate(m.data_nascita)})` : ''}
+                    · <strong>{`${m.nome ?? ''} ${m.cognome ?? ''}`}</strong>
+                    {` — ${m.strumento ?? '—'}`}
+                    {m.data_nascita ? ` (${m.data_nascita})` : ''}
                   </li>
                 ))}
               </ul>
@@ -457,17 +446,15 @@ function IscrizioneDetailDialog({
           {/* ---- Programma ---- */}
           <section>
             <h3 className="font-mono text-[10px] uppercase tracking-wider text-slate-500 mb-2">
-              Programma musicale ({programma.length} brani)
+              Programma musicale ({programma.length} brani · {durataTotaleMin} min)
             </h3>
             {programma.length > 0 ? (
               <ol className="space-y-1 text-xs list-decimal pl-5">
                 {programma.map((p, i) => (
                   <li key={i}>
                     <strong>{p.titolo ?? '—'}</strong>
-                    {p.autore ? ` — ${p.autore}` : ' — autore sconosciuto'}
-                    {p.durata_min != null && (
-                      <span className="text-slate-500"> ({p.durata_min} min)</span>
-                    )}
+                    {' '}— {p.autore ?? 'autore sconosciuto'}
+                    <span className="text-slate-500"> ({p.durata_min ?? 0} min)</span>
                   </li>
                 ))}
               </ol>
@@ -486,30 +473,37 @@ function IscrizioneDetailDialog({
             </section>
           )}
 
-          {/* ---- Consensi GDPR ---- */}
+          {/* ---- Consensi GDPR (3 righe fisse, come nel vanilla) ---- */}
           <section className="bg-slate-50 border border-slate-200 rounded-xl p-3">
             <h3 className="font-mono text-[10px] uppercase tracking-wider text-slate-500 mb-2">Consensi</h3>
-            {Object.keys(gdpr).length === 0 ? (
-              <p className="text-xs text-slate-500 italic">Nessun dato consensi.</p>
-            ) : (
-              <div className="text-xs space-y-1">
-                {Object.entries(gdpr).map(([key, val]) => (
-                  <p key={key}>
-                    {val ? '✅' : '❌'} {gdprLabels[key] ?? key}
-                  </p>
-                ))}
-              </div>
-            )}
+            <div className="text-xs space-y-1">
+              <p>{gdpr.privacy ? '✅' : '❌'} Privacy (GDPR)</p>
+              <p>{gdpr.immagini ? '✅' : '⚪'} Uso immagini</p>
+              <p>{gdpr.regolamento ? '✅' : '❌'} Regolamento</p>
+            </div>
           </section>
 
-          {/* ---- Note admin / motivo rifiuto ---- */}
+          {/* ---- Note admin / motivo rifiuto ----
+               Nel nuovo stack reason del rifiuto e note admin condividono il
+               campo `note`: se RIFIUTATA lo mostriamo come "Motivo del rifiuto"
+               (rosa), altrimenti come "Note admin" (ambra). Riproduce le due
+               sezioni distinte del vanilla. */}
           {isc.note && (
-            <section>
-              <h3 className="font-mono text-[10px] uppercase tracking-wider text-slate-500 mb-2">Note admin</h3>
-              <p className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs whitespace-pre-wrap">
-                {isc.note}
-              </p>
-            </section>
+            isc.stato === 'RIFIUTATA' ? (
+              <section>
+                <h3 className="font-mono text-[10px] uppercase tracking-wider text-rose-700 mb-2">Motivo del rifiuto</h3>
+                <p className="bg-rose-50 border border-rose-200 rounded-lg p-3 text-xs whitespace-pre-wrap">
+                  {isc.note}
+                </p>
+              </section>
+            ) : (
+              <section>
+                <h3 className="font-mono text-[10px] uppercase tracking-wider text-slate-500 mb-2">Note admin</h3>
+                <p className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs whitespace-pre-wrap">
+                  {isc.note}
+                </p>
+              </section>
+            )
           )}
 
           {/* ---- Allegati ---- */}
@@ -627,18 +621,26 @@ export function IscrizioniTab({ concorsoId }: { concorsoId: string }) {
     };
     const headers = [
       'Data', 'Stato', 'Nome', 'Cognome', 'Email', 'Telefono',
-      'Data nascita', 'Nazionalità', 'Sesso', 'Strumento', 'Tipo',
-      'Anni studio', 'Scuola', 'Indirizzo', 'Città', 'CAP', 'Provincia',
+      'Data nascita', 'Luogo nascita', 'Nazionalità', 'Sesso', 'Strumento', 'Tipo',
+      'Gruppo', 'Anni studio', 'Scuola', 'Brani', 'Durata tot',
+      'Indirizzo', 'Città', 'CAP', 'Provincia',
     ];
     const lines = [headers.map(csvField).join(',')];
     for (const i of filtered) {
+      const programma = Array.isArray(i.programma)
+        ? (i.programma as { titolo?: string; autore?: string; durata_min?: number }[])
+        : [];
+      const briefBrani = programma.map((p) => `${p.titolo ?? ''} — ${p.autore ?? ''}`).join(' | ');
+      const durataTot = programma.reduce((acc, p) => acc + (Number(p.durata_min) || 0), 0);
       lines.push([
         new Date(i.createdAt).toLocaleString('it-IT'),
         i.stato,
         i.nome, i.cognome, i.email, i.telefono,
-        i.dataNascita, i.nazionalita, i.sesso, i.strumento,
+        i.dataNascita, i.luogoNascita, i.nazionalita, i.sesso, i.strumento,
         i.isGruppo ? (i.tipoGruppo ?? 'gruppo') : 'individuale',
+        i.gruppoNome,
         i.anniStudio, i.scuolaProvenienza,
+        briefBrani, durataTot,
         i.indirizzo, i.citta, i.cap, i.provincia,
       ].map(csvField).join(','));
     }
@@ -762,11 +764,14 @@ export function IscrizioniTab({ concorsoId }: { concorsoId: string }) {
       </div>
 
       {/* Main content */}
-      {iscrizioni.length === 0 ? (
-        /* Empty — no iscrizioni at all */
+      {filtered.length === 0 ? (
+        /* Empty — identico al vanilla: stesso blocco sia a lista vuota che a
+           filtro senza risultati, cambia solo il suffisso del testo. */
         <div className="bg-white border-2 border-dashed border-slate-200 rounded-2xl py-12 text-center">
           <div className="text-4xl mb-2">📭</div>
-          <p className="text-sm text-slate-500 italic">Nessuna iscrizione.</p>
+          <p className="text-sm text-slate-500 italic">
+            Nessuna iscrizione{filterStato ? ' con questo stato' : ''}.
+          </p>
           <p className="text-sm text-slate-500 italic mt-1">Le iscrizioni inviate dal form pubblico compariranno qui.</p>
           <a
             href="#/iscrizione"
@@ -777,11 +782,6 @@ export function IscrizioniTab({ concorsoId }: { concorsoId: string }) {
             <ExternalLink size={14} />
             <span>Apri form di iscrizione pubblico</span>
           </a>
-        </div>
-      ) : filtered.length === 0 ? (
-        /* Empty filtered */
-        <div className="bg-white border-2 border-dashed border-slate-200 rounded-2xl py-12 text-center">
-          <p className="text-sm text-slate-500 italic">Nessuna iscrizione con questo stato.</p>
         </div>
       ) : (
         /* Table — mirrors vanilla exactly */
@@ -817,11 +817,11 @@ export function IscrizioniTab({ concorsoId }: { concorsoId: string }) {
                     </td>
                     <td className="px-3 py-2.5">
                       <p className="font-medium text-slate-900">{isc.nome} {isc.cognome ?? ''}</p>
-                      {isc.isGruppo && isc.tipoGruppo !== 'orchestra' && isc.gruppoNome && (
-                        <p className="text-[11px] text-purple-700">{isc.gruppoNome}</p>
+                      {isc.isGruppo && isc.tipoGruppo === 'orchestra' && (
+                        <p className="text-[11px] text-indigo-700">{isc.gruppoNome || 'Orchestra'}</p>
                       )}
-                      {isc.isGruppo && isc.tipoGruppo === 'orchestra' && isc.gruppoNome && (
-                        <p className="text-[11px] text-indigo-700">{isc.gruppoNome}</p>
+                      {isc.isGruppo && isc.tipoGruppo !== 'orchestra' && (
+                        <p className="text-[11px] text-purple-700">{isc.gruppoNome || 'Gruppo'}</p>
                       )}
                     </td>
                     <td className="px-3 py-2.5 text-xs text-slate-600 hidden sm:table-cell">

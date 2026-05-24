@@ -45,7 +45,7 @@ export type LoginResponse = LoginNeedsMfa | LoginSession;
 // (interfacce best-effort dall'inventory della vecchia app; i singoli moduli
 //  api le rifiniscono contro le rotte server reali.)
 
-export type ConcorsoStato = 'ATTIVO' | 'SOSPESO' | 'CHIUSO';
+export type ConcorsoStato = 'ATTIVO' | 'ARCHIVIATO' | 'SOSPESO' | 'CHIUSO';
 export interface Concorso {
   id: string;
   nome: string;
@@ -56,6 +56,7 @@ export interface Concorso {
   iscrizioniAperte: boolean;
   iscrizioniChiusura: string | null;
   logoUrl: string | null;
+  defaultTiebreakStrategy?: { key: string; enabled: boolean }[] | null;
 }
 
 export type FaseStato = 'PIANIFICATA' | 'IN_CORSO' | 'CONCLUSA';
@@ -230,8 +231,14 @@ export interface Account {
 export interface AuditEntry {
   id: string;
   action: string;
+  /** UUID del target (es. concorsoId, faseId…). */
   targetId: string | null;
+  /** Etichetta leggibile del target (es. nome concorso). Può essere null. */
+  targetLabel: string | null;
   payload: unknown;
+  /** ISO datetime (campo `created_at` del backend). */
   timestamp: string;
   actorEmail: string | null;
+  /** Ruolo dell'attore al momento dell'azione (es. "admin", "commissario"). */
+  actorRole: string | null;
 }

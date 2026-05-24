@@ -6,44 +6,39 @@
  *   il ConcorsoSelector né l'empty-state; usa direttamente il concorso attivo.
  *   Default false (pagina standalone con selector in testa).
  *
- * Struttura (replica del layout vanilla dashboard.js):
+ * Struttura (replica FEDELE del layout vanilla dashboard.js):
  *   1. ConcorsoSelector in testa; empty-state se nessun concorso selezionato.
  *   2. KPI strip: 3 stat cards (candidati / commissari / fasi concluse).
- *   3. Griglia "Sezioni del concorso": cards cliccabili (SIDEBAR_TABS) → Link /admin.
- *   4. Statistiche distribuzione (strumenti top-8, nazionalità) + tabella fasi.
+ *   3. Banner warning se nessuna commissione ha un presidente assegnato.
+ *   4. Griglia "Sezioni del concorso": 10 cards cliccabili (SIDEBAR_TABS) → Link /admin.
+ *   5. Statistiche distribuzione (strumenti top-8, nazionalità) + tabella fasi
+ *      con colonne: Fase / Candidati / Valutazioni / Ammessi / % ammessi.
  *
  * Fonti dati:
- *   GET /api/fasi?concorsoId=           → Fase[]
- *   GET /api/candidati?concorsoId=      → Candidato[]
- *   GET /api/commissari?concorsoId=     → Commissario[]
- *   GET /api/sezioni?concorsoId=        → Sezione[]
- *   GET /api/commissioni?concorsoId=    → Commissione[]
+ *   GET /api/fasi?concorsoId=              → Fase[]
+ *   GET /api/candidati?concorsoId=         → Candidato[]
+ *   GET /api/commissari?concorsoId=        → Commissario[]
+ *   GET /api/sezioni?concorsoId=           → Sezione[]
+ *   GET /api/commissioni?concorsoId=       → Commissione[]
  *   GET /api/calendario/eventi?concorsoId= → Evento[]
+ *   GET /api/candidati-fase?faseId=        → CandidatoFase[] (per ogni fase)
+ *   GET /api/valutazioni?candidatoFaseId=  → Valutazione[]  (per ogni cf)
  */
 
 import { useQueries } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import {
-  GraduationCap,
-  Gavel,
-  Flag,
-  Folder,
-  Scale,
-  Calendar,
-  User,
-  Trophy,
-  Shield,
-  Settings,
-  ArrowRight,
-} from 'lucide-react';
+import { AlertTriangle, ArrowRight, Calendar, Flag, Folder, GraduationCap, Gavel, Scale, Settings, Shield, Trophy, User } from 'lucide-react';
 
 import { useActiveConcorso } from '@/api/concorsi';
 import { http } from '@/lib/api';
+import { fetchValutazioniByFase } from '@/api/valutazioni';
 import type { Fase, Candidato, Commissario, Sezione, Commissione, Evento, CandidatoFase } from '@/types';
 import { ConcorsoSelector } from '@/components/admin/ConcorsoSelector';
 
 // ---------------------------------------------------------------------------
-// SIDEBAR_TABS — single source of truth (mirrors vanilla dashboard.js)
+// SIDEBAR_TABS — single source of truth (mirrors vanilla dashboard.js order)
+// 10 items: sezioni, commissari, commissioni, fasi, calendario, iscrizioni,
+//           candidati, risultati, audit, impostazioni-concorso
 // ---------------------------------------------------------------------------
 
 interface SidebarTab {
@@ -51,7 +46,7 @@ interface SidebarTab {
   icon: React.ReactNode;
   label: string;
   desc: string;
-  /** returns count from fetched data, or null if not applicable */
+  /** key into CountsMap, or null when count not applicable */
   countKey: 'sezioni' | 'commissari' | 'commissioni' | 'fasi' | 'eventi' | 'candidati' | null;
 }
 
@@ -129,7 +124,7 @@ const SIDEBAR_TABS: SidebarTab[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Counts map — derived from fetched data
+// CountsMap — derived from fetched data
 // ---------------------------------------------------------------------------
 
 interface CountsMap {
@@ -142,22 +137,25 @@ interface CountsMap {
 }
 
 // ---------------------------------------------------------------------------
-// KPI card — replica del kpiCard vanilla (icon + value + label + accent strip)
+// KpiCard — replica di kpiCard() vanilla
+// accent palette: brand (teal) / sky / amber / emerald
 // ---------------------------------------------------------------------------
 
-interface KpiCardProps {
-  icon: React.ReactNode;
-  value: React.ReactNode;
-  label: string;
-  accent: 'brand' | 'sky' | 'amber' | 'emerald';
-}
+type KpiAccent = 'brand' | 'sky' | 'amber' | 'emerald';
 
-const ACCENT_CLASSES: Record<KpiCardProps['accent'], { bg: string; text: string; border: string }> = {
+const ACCENT_CLASSES: Record<KpiAccent, { bg: string; text: string; border: string }> = {
   brand:   { bg: 'bg-brand-50',   text: 'text-brand-700',   border: 'border-brand-100' },
   sky:     { bg: 'bg-sky-50',     text: 'text-sky-700',     border: 'border-sky-100' },
   amber:   { bg: 'bg-amber-50',   text: 'text-amber-700',   border: 'border-amber-100' },
   emerald: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-100' },
 };
+
+interface KpiCardProps {
+  icon: React.ReactNode;
+  value: React.ReactNode;
+  label: string;
+  accent: KpiAccent;
+}
 
 function KpiCard({ icon, value, label, accent }: KpiCardProps) {
   const a = ACCENT_CLASSES[accent];
@@ -175,7 +173,9 @@ function KpiCard({ icon, value, label, accent }: KpiCardProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Section card — replica del sectionCard vanilla (icon + label + count + desc)
+// SectionCard — replica di sectionCard() vanilla
+// icon + label + count badge + desc + hover "Apri →"
+// Links to '/admin' (React Router Link, matches vanilla setAdminTab behaviour)
 // ---------------------------------------------------------------------------
 
 function SectionCard({ tab, count }: { tab: SidebarTab; count: number | null }) {
@@ -204,7 +204,7 @@ function SectionCard({ tab, count }: { tab: SidebarTab; count: number | null }) 
 }
 
 // ---------------------------------------------------------------------------
-// Distribution bar chart — replica vanilla horizontal bar
+// HorizontalBarChart — replica del bar chart vanilla (strumenti / nazionalità)
 // ---------------------------------------------------------------------------
 
 interface BarChartProps {
@@ -239,23 +239,28 @@ function HorizontalBarChart({ title, rows, max, barClass, bgClass }: BarChartPro
 }
 
 // ---------------------------------------------------------------------------
-// Per-fase summary table (c-table style, like the vanilla fasiStats table)
+// FasiSummaryTable — replica FEDELE della tabella vanilla:
+//   5 colonne: Fase | Candidati | Valutazioni | Ammessi | % ammessi
+//
+// Per ogni fase:
+//   1. GET /api/candidati-fase?faseId=   → CandidatoFase[]
+//   2. GET /api/valutazioni?candidatoFaseId= (fanout per ogni cf.id)
+//      tramite fetchValutazioniByFase(ids)
+//
+// valCount = numero di righe Valutazione della fase (non de-duplicato,
+// mirrors vanilla che conta s.valutazioni filtrate per cf della fase)
 // ---------------------------------------------------------------------------
 
 interface FaseStat {
   nome: string;
   ordine: number;
   totale: number;
+  valutazioni: number;
   ammessi: number;
 }
 
-function FasiSummaryTable({
-  fasi,
-  activeId,
-}: {
-  fasi: Fase[];
-  activeId: string;
-}) {
+function FasiSummaryTable({ fasi, activeId }: { fasi: Fase[]; activeId: string }) {
+  // Step 1: candidati-fase per ogni fase
   const cfQueries = useQueries({
     queries: fasi.map((f) => ({
       queryKey: ['candidati-fase', f.id, activeId],
@@ -264,22 +269,54 @@ function FasiSummaryTable({
     })),
   });
 
+  // Collect all cf.id lists per fase (used to fan-out valutazioni queries)
+  const cfIdsByFase: string[][] = fasi.map((_, i) => {
+    const cfs: CandidatoFase[] = cfQueries[i]?.data ?? [];
+    return cfs.map((cf) => cf.id);
+  });
+
+  // Step 2: valutazioni per ogni fase (fanout via fetchValutazioniByFase)
+  const valQueries = useQueries({
+    queries: fasi.map((f, i) => ({
+      queryKey: ['valutazioni', 'by-fase', f.id, activeId],
+      queryFn: () => fetchValutazioniByFase(cfIdsByFase[i] ?? []),
+      // only run once we have the cf ids
+      enabled: cfQueries[i]?.isSuccess,
+      staleTime: 60_000,
+    })),
+  });
+
   const stats: FaseStat[] = fasi.map((f, i) => {
     const cfs: CandidatoFase[] = cfQueries[i]?.data ?? [];
+    const valCount = valQueries[i]?.data?.length ?? 0;
     const ammessi = cfs.filter((cf) => cf.ammessoProssimaFase).length;
-    return { nome: f.nome, ordine: f.ordine, totale: cfs.length, ammessi };
+    return {
+      nome: f.nome,
+      ordine: f.ordine,
+      totale: cfs.length,
+      valutazioni: valCount,
+      ammessi,
+    };
   });
 
   return (
     <div className="lg:col-span-2 bg-white border border-slate-200 rounded-xl p-5 overflow-x-auto">
       <h4 className="font-semibold text-ink-900 mb-4 text-sm">Riepilogo fasi</h4>
-      <table className="c-table">
+      <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-slate-100">
-            {(['Fase', 'Candidati', 'Ammessi', '% ammessi'] as const).map((col) => (
+            {(
+              [
+                { col: 'Fase',        align: 'text-left' },
+                { col: 'Candidati',   align: 'text-center' },
+                { col: 'Valutazioni', align: 'text-center' },
+                { col: 'Ammessi',     align: 'text-center' },
+                { col: '% ammessi',   align: 'text-center' },
+              ] as const
+            ).map(({ col, align }) => (
               <th
                 key={col}
-                className="text-left px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-ink-700"
+                className={`${align} px-3 py-2 font-mono text-[10px] uppercase tracking-wider text-ink-700`}
               >
                 {col}
               </th>
@@ -296,6 +333,7 @@ function FasiSummaryTable({
                 #{fs.ordine} {fs.nome}
               </td>
               <td className="px-3 py-2.5 text-center font-mono text-ink-700">{fs.totale}</td>
+              <td className="px-3 py-2.5 text-center font-mono text-ink-700">{fs.valutazioni}</td>
               <td
                 className={`px-3 py-2.5 text-center font-mono ${
                   fs.ammessi > 0 ? 'text-emerald-700 font-medium' : 'text-ink-700'
@@ -315,7 +353,25 @@ function FasiSummaryTable({
 }
 
 // ---------------------------------------------------------------------------
-// Empty state — nessun concorso selezionato (solo in modalità standalone)
+// NoPresidenteBanner — replica del banner vanilla:
+//   bg-amber-50 border border-amber-200, icon warning, testo fisso.
+//   Mostrato quando NESSUNA commissione ha presidenteId != null.
+// ---------------------------------------------------------------------------
+
+function NoPresidenteBanner() {
+  return (
+    <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 text-sm text-amber-900 flex items-start gap-2">
+      <AlertTriangle size={18} className="shrink-0 mt-0.5" />
+      <div>
+        <strong>Nessun presidente designato.</strong>{' '}
+        Apri il tab Commissioni per assegnare un presidente ad almeno una commissione.
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// EmptyState — nessun concorso selezionato (solo in modalità standalone)
 // ---------------------------------------------------------------------------
 
 function EmptyState() {
@@ -335,7 +391,8 @@ function EmptyState() {
 }
 
 // ---------------------------------------------------------------------------
-// Dashboard content — rendered when a concorso is selected
+// DashboardContent — rendered when a concorso is selected
+// Mirrors renderDashboard() from vanilla dashboard.js exactly.
 // ---------------------------------------------------------------------------
 
 function DashboardContent({ activeId }: { activeId: string }) {
@@ -376,17 +433,19 @@ function DashboardContent({ activeId }: { activeId: string }) {
 
   const [fasiQ, candidatiQ, commissariQ, sezioniQ, commissioniQ, eventiQ] = results;
 
-  const fasi: Fase[]              = fasiQ.data        ?? [];
-  const candidati: Candidato[]    = candidatiQ.data   ?? [];
-  const commissari: Commissario[] = commissariQ.data  ?? [];
-  const sezioni: Sezione[]        = sezioniQ.data     ?? [];
-  const commissioni: Commissione[]= commissioniQ.data ?? [];
-  const eventi: Evento[]          = eventiQ.data      ?? [];
+  const fasi: Fase[]               = fasiQ.data        ?? [];
+  const candidati: Candidato[]     = candidatiQ.data   ?? [];
+  const commissari: Commissario[]  = commissariQ.data  ?? [];
+  const sezioni: Sezione[]         = sezioniQ.data     ?? [];
+  const commissioni: Commissione[] = commissioniQ.data ?? [];
+  const eventi: Evento[]           = eventiQ.data      ?? [];
 
+  // KPI derivations
   const fasiConcluse = fasi.filter((f) => f.stato === 'CONCLUSA').length;
   const fasiInCorso  = fasi.filter((f) => f.stato === 'IN_CORSO').length;
   const fasiSorted   = [...fasi].sort((a, b) => a.ordine - b.ordine);
 
+  // Counts for section-card badges
   const counts: CountsMap = {
     sezioni:     sezioni.length,
     commissari:  commissari.length,
@@ -396,7 +455,11 @@ function DashboardContent({ activeId }: { activeId: string }) {
     candidati:   candidati.length,
   };
 
-  // Distribuzione strumenti top-8
+  // No-presidente: true when at least one commissione has presidenteId set
+  // mirrors: db.presidentiFor(concorso.id).length > 0
+  const hasAnyPresidente = commissioni.some((c) => c.presidenteId != null);
+
+  // Distribuzione strumenti (top 8) — mirrors vanilla
   const strumentiMap: Record<string, number> = {};
   candidati.forEach((c) => {
     const k = c.strumento ?? 'Altro';
@@ -407,7 +470,7 @@ function DashboardContent({ activeId }: { activeId: string }) {
     .slice(0, 8);
   const maxStrumenti = Math.max(1, ...strumentiSorted.map(([, n]) => n));
 
-  // Distribuzione nazionalità
+  // Distribuzione nazionalità (all, no top-N limit) — mirrors vanilla
   const nazMap: Record<string, number> = {};
   candidati.forEach((c) => {
     const n = c.nazionalita ?? '—';
@@ -416,11 +479,14 @@ function DashboardContent({ activeId }: { activeId: string }) {
   const nazSorted = Object.entries(nazMap).sort((a, b) => b[1] - a[1]);
   const maxNaz = Math.max(1, ...nazSorted.map(([, n]) => n));
 
+  // Stats section shown only when candidati OR fasi exist
+  // mirrors vanilla: `candidati.length === 0 && fasi.length === 0 ? '' : ...`
   const hasStats = candidati.length > 0 || fasi.length > 0;
 
   return (
     <div className="space-y-6">
       {/* ---- KPI strip: candidati / commissari / fasi concluse ---- */}
+      {/* 3 cards; fasi accent amber when in-corso, emerald when all done */}
       <section className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <KpiCard
           icon={<GraduationCap size={18} />}
@@ -442,7 +508,7 @@ function DashboardContent({ activeId }: { activeId: string }) {
         />
       </section>
 
-      {/* ---- Sezioni del concorso — griglia di cards cliccabili ---- */}
+      {/* ---- Sezioni del concorso: griglia di 10 cards cliccabili ---- */}
       <section>
         <header className="mb-3">
           <h3 className="text-sm font-semibold text-ink-900">Sezioni del concorso</h3>
@@ -461,6 +527,10 @@ function DashboardContent({ activeId }: { activeId: string }) {
         </div>
       </section>
 
+      {/* ---- No-presidente warning banner ---- */}
+      {/* Shown when NO commissione has a presidente assigned */}
+      {!hasAnyPresidente && <NoPresidenteBanner />}
+
       {/* ---- Statistiche del concorso ---- */}
       {hasStats && (
         <section>
@@ -471,6 +541,7 @@ function DashboardContent({ activeId }: { activeId: string }) {
             </p>
           </header>
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {/* Distribuzione strumenti (top 8) — bg-brand-50 / bar bg-brand-500 */}
             <HorizontalBarChart
               title="Candidati per strumento"
               rows={strumentiSorted}
@@ -478,6 +549,7 @@ function DashboardContent({ activeId }: { activeId: string }) {
               barClass="bg-brand-500"
               bgClass="bg-brand-50"
             />
+            {/* Distribuzione nazionalità (all) — bg-amber-50 / bar bg-amber-500 */}
             <HorizontalBarChart
               title="Candidati per nazionalità"
               rows={nazSorted}
@@ -485,6 +557,7 @@ function DashboardContent({ activeId }: { activeId: string }) {
               barClass="bg-amber-500"
               bgClass="bg-amber-50"
             />
+            {/* Riepilogo per fase — 5 colonne: Fase/Candidati/Valutazioni/Ammessi/% */}
             {fasiSorted.length > 0 && (
               <FasiSummaryTable fasi={fasiSorted} activeId={activeId} />
             )}
@@ -496,7 +569,7 @@ function DashboardContent({ activeId }: { activeId: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// Main component
+// AdminDashboard — public default export
 // ---------------------------------------------------------------------------
 
 interface AdminDashboardProps {
@@ -533,7 +606,7 @@ export default function AdminDashboard({ embedded = false }: AdminDashboardProps
       {/* No concorso selected */}
       {!activeId && <EmptyState />}
 
-      {/* Content */}
+      {/* Dashboard content */}
       {activeId && <DashboardContent activeId={activeId} />}
     </div>
   );

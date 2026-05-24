@@ -3,13 +3,14 @@
  * toggle anonimato, esporta CSV, esporta protocollo PDF, verbale editor.
  * Prop: concorsoId (string)
  *
- * Layout/struttura replica esatta di js/views/admin/risultati.js (vanilla).
+ * Layout/struttura replica FEDELE di js/views/admin/risultati.js (vanilla).
+ * Differenze solo dove imposto dalla React/TSX API surface (hooks, JSX).
  */
 
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
-import { Download, Eye, EyeOff, FileText, Scale, Users } from 'lucide-react';
+import { Eye, EyeOff, FileText, Download } from 'lucide-react';
 import { http } from '@/lib/api';
 import type { Candidato, CandidatoFase, Valutazione } from '@/types';
 import type { FaseRecord } from '@/api/fasi';
@@ -30,9 +31,20 @@ import { VerbaleBlock } from '@/components/admin/VerbaleBlock';
 
 function displayName(cand: Candidato | undefined | null, anon: boolean): string {
   if (!cand) return '—';
-  if (anon) return `#${String(cand.numeroCandidato ?? '').padStart(3, '0')}`;
+  if (anon) return '';
   const parts = [cand.cognome, cand.nome].filter(Boolean);
   return parts.length ? parts.join(' ') : cand.nome || '—';
+}
+
+/** Vanilla `faseScopeLabel`: returns ' · sez1 + sez2' or '' for global fasi. */
+function faseScopeLabel(fase: FaseRecord, sezioni: SezioneRecord[]): string {
+  const ids = Array.isArray(fase.sezioniIds) ? fase.sezioniIds : [];
+  if (ids.length === 0) return '';
+  const nomi = ids
+    .map((id) => sezioni.find((s) => s.id === id)?.nome)
+    .filter(Boolean) as string[];
+  if (nomi.length === 0) return '';
+  return ' · ' + nomi.join(' + ');
 }
 
 function csvEscape(v: unknown): string {
@@ -171,6 +183,7 @@ function FaseLeaderboard({ fase, candidati, showEsito, anon }: FaseLeaderboardPr
     );
   }
 
+  // Counters for tiebreak/ex-aequo sub-header badges (exact vanilla logic)
   const tiebreakCount = ranked.filter(
     (r) => Array.isArray(r.tiebreak_log) && r.tiebreak_log.length > 1,
   ).length;
@@ -178,12 +191,13 @@ function FaseLeaderboard({ fase, candidati, showEsito, anon }: FaseLeaderboardPr
     ranked.filter((r) => r.ex_aequo_group).map((r) => r.ex_aequo_group),
   );
 
-  const promossoLabel = (fase.testoEsitoPromosso ?? t('admin.risultati.promosso')).toUpperCase();
-  const eliminatoLabel = (fase.testoEsitoEliminato ?? t('admin.risultati.eliminato')).toUpperCase();
+  // Custom esito labels with fallback (vanilla: fase.testo_esito_promosso)
+  const promossoLabel = ((fase.testoEsitoPromosso || '') || (t('admin.risultati.promosso') || 'PROMOSSO')).toUpperCase();
+  const eliminatoLabel = ((fase.testoEsitoEliminato || '') || (t('admin.risultati.eliminato') || 'ELIMINATO')).toUpperCase();
 
   return (
     <>
-      {/* Tiebreak / ex-aequo badges — same flex row as vanilla */}
+      {/* Tiebreak / ex-aequo sub-header badges — same flex row as vanilla */}
       {(tiebreakCount > 0 || exAequoGroups.size > 0) && (
         <div className="flex items-center gap-2 flex-wrap mb-3">
           {tiebreakCount > 0 && (
@@ -191,33 +205,32 @@ function FaseLeaderboard({ fase, candidati, showEsito, anon }: FaseLeaderboardPr
               className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200"
               title={t('admin.risultati.tiebreak_badge_title') ?? 'Spareggi applicati per risolvere parità di punteggio'}
             >
-              <Scale className="inline h-3 w-3 mr-0.5" aria-hidden />
-              {t('admin.risultati.tiebreak_badge', { n: tiebreakCount })}
+              {'⚖ '}{(t('admin.risultati.tiebreak_badge') ?? '{n} spareggi').replace('{n}', String(tiebreakCount))}
             </span>
           )}
           {exAequoGroups.size > 0 && (
             <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-violet-100 text-violet-800 border border-violet-200">
-              <Users className="inline h-3 w-3 mr-0.5" aria-hidden />
-              {t('admin.risultati.ex_aequo_badge', { n: exAequoGroups.size })}
+              {'🤝 '}{(t('admin.risultati.ex_aequo_badge') ?? '{n} ex aequo').replace('{n}', String(exAequoGroups.size))}
             </span>
           )}
         </div>
       )}
 
-      {/* Leaderboard table — c-table replaces ad-hoc min-w-full */}
+      {/* Leaderboard table — vanilla: min-w-full text-sm */}
       <div className="overflow-x-auto">
-        <table className="c-table">
-          <thead>
+        <table className="min-w-full text-sm">
+          <thead className="text-xs text-slate-500 uppercase tracking-wider">
             <tr>
-              <th className="text-left">{t('admin.risultati.col_pos')}</th>
-              <th className="text-left">{t('admin.risultati.col_cand')}</th>
-              <th className="text-right">{t('admin.risultati.col_media')}</th>
+              {/* vanilla col headers: Pos | Candidato | Media | [Esito] */}
+              <th className="text-left py-2 pr-3">{t('admin.risultati.col_pos')}</th>
+              <th className="text-left py-2 pr-3">{t('admin.risultati.col_cand')}</th>
+              <th className="text-right py-2 pr-3">{t('admin.risultati.col_media')}</th>
               {showEsito && (
-                <th className="text-center">{t('admin.risultati.col_esito')}</th>
+                <th className="text-center py-2 pr-3">{t('admin.risultati.col_esito')}</th>
               )}
             </tr>
           </thead>
-          <tbody>
+          <tbody className="divide-y divide-slate-100">
             {ranked.map((r, i) => {
               const pos = r.posizione_finale ?? (i + 1);
               const isExAequo = !!r.ex_aequo_group;
@@ -225,6 +238,7 @@ function FaseLeaderboard({ fase, candidati, showEsito, anon }: FaseLeaderboardPr
                 Array.isArray(r.tiebreak_log) && r.tiebreak_log.length > 1;
               const cand = r.cand as Candidato | undefined;
               const cf = r.cf as CandidatoFase;
+              // Tooltip: bullet-list of tiebreak log steps (same as vanilla title attr)
               const tbTooltip = hadTiebreak
                 ? r.tiebreak_log
                     .map((s) => `• ${s.motivazione ?? s.step}`)
@@ -236,8 +250,8 @@ function FaseLeaderboard({ fase, candidati, showEsito, anon }: FaseLeaderboardPr
                   key={cf.id}
                   className={isExAequo ? 'bg-violet-50/40' : undefined}
                 >
-                  {/* Pos */}
-                  <td className="text-slate-500">
+                  {/* Pos — vanilla: "{pos}°? [ex aequo badge]" */}
+                  <td className="py-2 pr-3 text-slate-500">
                     {pos}{isExAequo ? '°' : ''}{' '}
                     {isExAequo && (
                       <span className="text-[10px] text-violet-700 font-bold ml-1">
@@ -246,43 +260,46 @@ function FaseLeaderboard({ fase, candidati, showEsito, anon }: FaseLeaderboardPr
                     )}
                   </td>
 
-                  {/* Candidato */}
-                  <td>
+                  {/* Candidato — vanilla: "#NNN · Nome (strumento) [⚖]"
+                      In anon mode: "#NNN (strumento)" only (name hidden, strumento kept) */}
+                  <td className="py-2 pr-3">
                     <span className="font-medium text-slate-900">
                       #{String(cand?.numeroCandidato ?? '').padStart(3, '0')}
                     </span>
                     {' · '}
-                    {displayName(cand, anon)}
-                    {!anon && cand?.strumento && (
+                    {!anon && displayName(cand, false)}
+                    {cand?.strumento && (
                       <span className="text-slate-500 text-xs ml-1">
                         ({cand.strumento})
                       </span>
                     )}
                     {hadTiebreak && (
+                      // Vanilla uses a <span> with title= for the tooltip, not a Lucide icon
                       <span
                         className="ml-1 text-[10px] font-bold text-amber-700"
                         title={tbTooltip}
                       >
-                        <Scale className="inline h-3 w-3" aria-hidden />
+                        ⚖
                       </span>
                     )}
                   </td>
 
-                  {/* Media */}
-                  <td className="text-right font-mono">
+                  {/* Media — vanilla: "{fmtVoto} /{scala}" */}
+                  <td className="py-2 pr-3 text-right font-mono">
                     {fmtVoto(r.media, scala)}
-                    <span className="text-[10px] text-slate-400 ml-0.5">
-                      /{scala}
-                    </span>
+                    <span className="text-[10px] text-slate-400 ml-0.5">/{scala}</span>
                   </td>
 
-                  {/* Esito */}
+                  {/* Esito — vanilla:
+                      NOT COMPLETATO → <span text-xs text-slate-500>—</span>
+                      ammesso        → <span bg-emerald-100 text-emerald-800 rounded-full>PROMOSSO</span>
+                      not ammesso    → <span text-xs text-slate-600>ELIMINATO</span> (plain text, no pill) */}
                   {showEsito && (
-                    <td className="text-center">
+                    <td className="py-2 pr-3 text-center">
                       {cf.stato !== 'COMPLETATO' ? (
                         <span className="text-xs text-slate-500">—</span>
                       ) : cf.ammessoProssimaFase ? (
-                        <span className="c-tag c-tag--green c-tag--no-dot">
+                        <span className="text-xs px-2 py-0.5 bg-emerald-100 text-emerald-800 rounded-full font-medium">
                           {promossoLabel}
                         </span>
                       ) : (
@@ -297,20 +314,20 @@ function FaseLeaderboard({ fase, candidati, showEsito, anon }: FaseLeaderboardPr
         </table>
       </div>
 
-      {/* Ex-aequo note — bg-violet-50 box, same as vanilla */}
+      {/* Ex-aequo note — bg-violet-50 box (exact vanilla markup) */}
       {exAequoGroups.size > 0 && (
         <div className="mt-3 bg-violet-50 border border-violet-200 rounded-xl px-3 py-2 text-xs text-violet-900">
-          <strong>{t('admin.risultati.ex_aequo_note_title')}:</strong>{' '}
-          {t('admin.risultati.ex_aequo_note_body')}
+          <strong>{t('admin.risultati.ex_aequo_note_title') ?? 'Nota ex aequo'}:</strong>{' '}
+          {t('admin.risultati.ex_aequo_note_body') ?? 'Le posizioni indicate sono condivise tra i candidati ex aequo; la posizione immediatamente successiva non viene assegnata. I premi previsti dal regolamento per le posizioni interessate si sommano e dividono in parti uguali tra i vincitori.'}
         </div>
       )}
 
-      {/* Tiebreak details — bg-amber-50 <details>, same as vanilla */}
+      {/* Tiebreak detail block — bg-amber-50 <details> (exact vanilla markup) */}
       {tiebreakCount > 0 && (
         <div className="mt-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-xs text-amber-900">
           <details>
             <summary className="cursor-pointer font-semibold">
-              {t('admin.risultati.tiebreak_details_title')}
+              {t('admin.risultati.tiebreak_details_title') ?? 'Dettaglio spareggi applicati'}
             </summary>
             <ul className="mt-2 space-y-1.5">
               {ranked
@@ -352,16 +369,15 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
   const { t } = useTranslation();
   const [anon, setAnon] = useState(false);
 
+  // ALL hooks unconditionally before any early return (rules-of-hooks)
   const fasiQuery = useFasi(concorsoId);
   const candidatiQuery = useCandidati(concorsoId);
-
-  // Extra data for PDF export and VerbaleBlock.
   const concorsoQuery = useConcorsoData(concorsoId);
   const commissariQuery = useCommissariData(concorsoId);
   const commissioniQuery = useCommissioniData(concorsoId);
   const sezioniQuery = useSezioniData(concorsoId);
 
-  // Compute groupSize: how many fasi share the same sezioniIds signature.
+  // groupSize: how many fasi share same sezioniIds signature (vanilla computeGroupSizes)
   const groupSize = useMemo(() => {
     const fasi = fasiQuery.data ?? [];
     const counts = new Map<string, number>();
@@ -377,16 +393,16 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
     return result;
   }, [fasiQuery.data]);
 
-  // CSV export: needs all candidatiFase + valutazioni per fase, fetched on demand.
+  // CSV export: all vanilla columns including Nazionalita + Eta
   const handleExportCsv = async () => {
     const fasi = fasiQuery.data ?? [];
     const candidati = candidatiQuery.data ?? [];
-    const lines = ['Fase,Posizione,Numero,Nome,Cognome,Strumento,Media,Esito'];
+    // Vanilla header: Fase,Posizione,Numero,Nome,Cognome,Strumento,Nazionalita,Eta,Media,Esito
+    const lines = ['Fase,Posizione,Numero,Nome,Cognome,Strumento,Nazionalita,Eta,Media,Esito'];
     for (const fase of fasi) {
       const cfs = await http.get<CandidatoFase[]>('candidati-fase', { faseId: fase.id, limit: 500 });
       if (cfs.length === 0) continue;
       const vals = await fetchValutazioniByFase(cfs.map((c) => c.id));
-      const scala = getScala(fase);
       const rows = cfs.map((cf) => {
         const cand = candidati.find((c) => c.id === cf.candidatoId);
         const vs = vals
@@ -409,7 +425,16 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
             ? 'PROMOSSO'
             : 'ELIMINATO';
         const media = Number.isFinite(r.media) ? r.media.toFixed(2) : '0.00';
-        void scala; // used in fmtVoto above
+        // Eta: age from dataNascita (same as vanilla ageFromDate)
+        const eta = (() => {
+          const dn = cand?.dataNascita;
+          if (!dn) return cand?.eta ?? '';
+          const d = new Date(dn);
+          if (isNaN(d.getTime())) return '';
+          const days = Math.floor((Date.now() - d.getTime()) / 86_400_000);
+          if (days < 0) return '';
+          return String(Math.floor(days / 365.2425));
+        })();
         lines.push(
           [
             csvEscape(fase.nome),
@@ -418,61 +443,34 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
             csvEscape(cand?.nome),
             csvEscape(cand?.cognome),
             csvEscape(cand?.strumento),
+            csvEscape(cand?.nazionalita),
+            eta,
             media,
             esito,
           ].join(','),
         );
       });
     }
-    // BOM UTF-8 per Excel + nome file sanificato
+    // BOM UTF-8 per Excel + nome file sanificato (vanilla logic)
     const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
-    const safeName = 'risultati';
+    const safeName = ((fasiQuery.data?.[0]?.concorsoId ?? '') || 'risultati')
+      // eslint-disable-next-line no-control-regex -- sanitizzazione nome file CSV
+      .replace(/[\\/\x00-\x1f]+/g, '_')
+      .replaceAll(' ', '_') || 'risultati';
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${safeName}.csv`;
+    a.download = `${safeName}_risultati.csv`;
     a.click();
     URL.revokeObjectURL(url);
   };
 
-  if (fasiQuery.isLoading || candidatiQuery.isLoading) {
-    return (
-      <div className="space-y-6">
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 animate-pulse">
-          <div className="h-5 bg-slate-100 rounded w-48 mb-3" />
-          <div className="h-32 bg-slate-50 rounded" />
-        </div>
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 animate-pulse">
-          <div className="h-5 bg-slate-100 rounded w-48 mb-3" />
-          <div className="h-32 bg-slate-50 rounded" />
-        </div>
-      </div>
-    );
-  }
-
-  const fasi = fasiQuery.data ?? [];
-  const candidati = candidatiQuery.data ?? [];
-  const commissari: CommissarioRecord[] = commissariQuery.data ?? [];
-  const commissioni: CommissioneRecord[] = commissioniQuery.data ?? [];
-  const sezioni: SezioneRecord[] = sezioniQuery.data ?? [];
-  const concorso = concorsoQuery.data ?? null;
-
-  // Build rankedByFase map for VerbaleBlock + protocollo PDF.
-  // NOTE: FaseLeaderboard already computes rankings internally via React Query;
-  // here we re-derive a synchronous map from the cached query data for use
-  // by the verbale/protocollo helpers that need ranked rows without hooks.
-  // The individual FaseLeaderboard components remain the source of truth for
-  // the leaderboard UI — this map is only for PDF/verbale resolution.
-  // Because each FaseLeaderboard fetches its own data, we use a snapshot of
-  // candidatiFase from the query cache here (not refetched).
-  // We build a simple empty map as placeholder; the VerbaleBlock will show
-  // live data once the user expands a fase. The protocollo-pdf handler fetches
-  // on demand below.
-  const rankedByFaseStub = EMPTY_RANKED_MAP;
-
-  // Protocollo PDF: fetch all cf + vals on demand and rank.
+  // Protocollo PDF: fetch all cf + vals on demand and rank
   const handleExportPdf = async () => {
+    const concorso = concorsoQuery.data;
     if (!concorso) return;
+    const fasi = fasiQuery.data ?? [];
+    const candidati = candidatiQuery.data ?? [];
     const rankedMap = new Map<string, RankedRow[]>();
     for (const fase of fasi) {
       const cfs = await http.get<CandidatoFase[]>('candidati-fase', { faseId: fase.id, limit: 500 });
@@ -502,54 +500,86 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
       fasi,
       candidati,
       rankedByFase: rankedMap,
-      sezioni,
-      commissioni,
-      commissari,
+      sezioni: sezioniQuery.data ?? [],
+      commissioni: commissioniQuery.data ?? [],
+      commissari: commissariQuery.data ?? [],
     });
   };
 
+  // Loading skeleton (after all hooks)
+  if (fasiQuery.isLoading || candidatiQuery.isLoading) {
+    return (
+      <div className="space-y-6">
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 animate-pulse">
+          <div className="h-5 bg-slate-100 rounded w-48 mb-3" />
+          <div className="h-32 bg-slate-50 rounded" />
+        </div>
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 animate-pulse">
+          <div className="h-5 bg-slate-100 rounded w-48 mb-3" />
+          <div className="h-32 bg-slate-50 rounded" />
+        </div>
+      </div>
+    );
+  }
+
+  const fasi = fasiQuery.data ?? [];
+  const candidati = candidatiQuery.data ?? [];
+  const commissari: CommissarioRecord[] = commissariQuery.data ?? [];
+  const commissioni: CommissioneRecord[] = commissioniQuery.data ?? [];
+  const sezioni: SezioneRecord[] = sezioniQuery.data ?? [];
+  const concorso = concorsoQuery.data ?? null;
+
+  // EMPTY_RANKED_MAP stub for VerbaleBlock (module-level constant = no conditional hook)
+  const rankedByFaseStub = EMPTY_RANKED_MAP;
+
   return (
-    <div className="space-y-6 view-fade">
-      {/* Per-fase leaderboard cards */}
+    <div className="space-y-6">
+      {/* Per-fase leaderboard cards — one card per fase (vanilla: buildFaseSummary) */}
       {fasi.length === 0 && (
         <p className="text-sm text-slate-500 italic">Nessuna fase definita.</p>
       )}
 
       {fasi.map((fase) => {
         const showEsito = (groupSize.get(fase.id) ?? 1) > 1;
+        const scope = faseScopeLabel(fase, sezioni);
+        // Vanilla: first sezione icon prefix (iconaPerSezione) — we skip the emoji icon
+        // since we don't have that helper, but preserve the full scope label rendering.
 
         return (
           <div
             key={fase.id}
             className="bg-white border border-slate-200 rounded-2xl p-5"
           >
-            {/* Card header: title + stato badge */}
+            {/* Card header: title + tiebreak/ex-aequo/stato badges */}
             <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+              {/* Title: "#ordine Nome · scope" — vanilla exact markup */}
               <h3 className="font-semibold text-slate-900">
                 <span className="text-slate-400 font-mono mr-1">#{fase.ordine}</span>
                 {fase.nome}
-                {fase.sezioniIds.length === 0 && (
+                {scope ? (
+                  <span className="text-slate-500 font-normal">{scope}</span>
+                ) : (
                   <span className="text-xs text-slate-400 italic ml-2">
                     {t('admin.risultati.fase_scope_all') ?? 'tutte le sezioni'}
                   </span>
                 )}
               </h3>
+
+              {/* Right-side badges cluster: stato (vanilla inline classes, not c-tag) */}
               <div className="flex items-center gap-2 flex-wrap">
                 <span
-                  className={`c-tag c-tag--no-dot ${
+                  className={`text-xs px-2 py-0.5 rounded-full ${
                     fase.stato === 'CONCLUSA'
-                      ? 'c-tag--gray'
-                      : fase.stato === 'IN_CORSO'
-                      ? 'c-tag--green'
-                      : 'c-tag--blue'
+                      ? 'bg-slate-200 text-slate-700'
+                      : 'bg-brand-100 text-brand-800'
                   }`}
                 >
-                  {fase.stato.replace(/_/g, ' ')}
+                  {(fase.stato ?? 'PIANIFICATA').replace(/_/g, ' ')}
                 </span>
               </div>
             </div>
 
-            {/* Leaderboard body */}
+            {/* Leaderboard body — FaseLeaderboard handles its own data fetching */}
             <FaseLeaderboard
               fase={fase}
               candidati={candidati}
@@ -579,11 +609,13 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
         />
       )}
 
-      {/* Footer toolbar: anonimato toggle + PDF + CSV export — same flex justify-end gap-2 as vanilla */}
+      {/* Footer toolbar: anonimato toggle + export PDF (brand) + export CSV (slate-900)
+          Vanilla order: [export-pdf brand-500] [export slate-900] — anon toggle added in React */}
       <div className="flex justify-end gap-2 flex-wrap items-center">
+        {/* Anonimato toggle — React addition (vanilla had this per concorso.anonimo flag) */}
         <button
           type="button"
-          className="c-btn c-btn--outline c-btn--sm"
+          className="text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-lg flex items-center gap-1.5"
           onClick={() => setAnon((v) => !v)}
           aria-pressed={anon}
         >
@@ -599,22 +631,26 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
             </>
           )}
         </button>
+
+        {/* Protocollo PDF — vanilla: brand-500 button */}
         <button
           type="button"
-          className="c-btn c-btn--primary c-btn--sm"
+          className="text-sm font-medium text-white bg-brand-500 hover:bg-brand-600 px-3.5 py-2 rounded-lg shadow-soft flex items-center gap-1.5"
           disabled={!concorso || fasi.length === 0}
           onClick={() => { void handleExportPdf(); }}
         >
           <FileText className="h-4 w-4" aria-hidden />
           {t('admin.risultati.export_pdf') ?? 'Esporta PDF'}
         </button>
+
+        {/* CSV — vanilla: slate-900 button */}
         <button
           type="button"
-          className="c-btn c-btn--primary c-btn--sm"
+          className="text-sm font-medium text-white bg-slate-900 hover:bg-slate-800 px-3.5 py-2 rounded-lg flex items-center gap-1.5"
           onClick={() => { void handleExportCsv(); }}
         >
           <Download className="h-4 w-4" aria-hidden />
-          {t('admin.risultati.export_csv')}
+          {t('admin.risultati.export_csv') ?? 'Esporta CSV'}
         </button>
       </div>
     </div>
