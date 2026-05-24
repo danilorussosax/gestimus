@@ -39,7 +39,22 @@ function currentRoute() {
   return 'home';
 }
 
+// Display/tabellone del calendario (#/calendario?…&display=1): nasconde la chrome
+// dell'app (header + footer) per mostrare a tutto schermo SOLO il calendario prove,
+// senza barra admin né altro. Vale sia pre-login sia da admin loggato.
+function applyDisplayChrome() {
+  const q = new URLSearchParams((location.hash.split('?')[1]) || '');
+  const displayMode = currentRoute() === 'calendario' && q.get('display') === '1';
+  $('#app-header')?.classList.toggle('hidden', displayMode);
+  $('#app-footer')?.classList.toggle('hidden', displayMode);
+  document.body.classList.toggle('display-mode', displayMode);
+}
+
 function render() {
+  // Applicato prima del guard d'init: la chrome va nascosta subito sul display,
+  // anche durante il boot (evita il flash dell'header sul tabellone).
+  applyDisplayChrome();
+
   if (!db.initialized) return;
 
   // R15: azzera il poll del calendario pubblico a ogni navigazione; se la rotta
