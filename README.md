@@ -253,6 +253,7 @@ npm run test:e2e         # playwright (richiede server in esecuzione)
 |------|-----------|
 | [`docs/MIGRATION_POSTGRES.md`](docs/MIGRATION_POSTGRES.md) | **Architettura tecnica completa** — schema DB, policy RLS, struttura moduli backend, soft-delete tenant con cleanup configurabile, 2FA TOTP, milestone roadmap |
 | [`docs/AUDIT.md`](docs/AUDIT.md) | **Stato sicurezza/hardening** — fotografia corrente + cronologia dei round di audit (voci aperte/chiuse, tamper-evidence, GDPR) |
+| [`docs/TEST.md`](docs/TEST.md) | **Test & verifica** — piramide (unit/server/E2E/type-check/load), comandi, prerequisiti, risultati di riferimento del load test, gate CI |
 | [`docs/LISTINO.md`](docs/LISTINO.md) | **Listino piani commerciali** — documento per i clienti finali |
 | [`docs/DEPLOY-IONOS.md`](docs/DEPLOY-IONOS.md) | **Guida deploy IONOS** per il nuovo stack Fastify + Postgres (systemd single unit, certbot DNS-01, backup PG, PgBouncer) |
 | [`docs/HA-POSTGRES.md`](docs/HA-POSTGRES.md) | **Alta disponibilità** — replica streaming + failover automatico (Patroni/HAProxy), routing connessioni, PITR, runbook operativo |
