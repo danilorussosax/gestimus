@@ -44,6 +44,41 @@
   --color-card: hsl(var(--card));
   --color-card-foreground: hsl(var(--card-foreground));
 
+  /* Palette legacy Gestimus (da tailwind.config vanilla): usata dal markup
+   * portato (bg-brand-50, text-ink-700, border-l-brand-500, ecc.). */
+  --color-brand-50: #eff3ff;
+  --color-brand-100: #dae2ff;
+  --color-brand-200: #b5c5ff;
+  --color-brand-300: #8ba4ff;
+  --color-brand-400: #5c82ff;
+  --color-brand-500: #4169e1;
+  --color-brand-600: #3253bb;
+  --color-brand-700: #2843a0;
+  --color-brand-800: #1f347d;
+  --color-brand-900: #152560;
+
+  --color-ink-400: #8089a6;
+  --color-ink-500: hsl(var(--muted-foreground));
+  --color-ink-700: #2e3554;
+  --color-ink-800: #1a2342;
+  --color-ink-900: hsl(var(--foreground));
+
+  --color-accent-50: #eff8fe;
+  --color-accent-100: #d9eefc;
+  --color-accent-200: #b2dcf7;
+  --color-accent-300: #7dc1ee;
+  --color-accent-400: #48a2dd;
+  --color-accent-500: #1e83c8;
+  --color-accent-600: #1268a6;
+
+  --color-sun-50: #fff7e0;
+  --color-sun-400: #ffc85c;
+  --color-sun-500: #f5a623;
+  --color-sun-600: #c97d0f;
+
+  --color-canvas: hsl(var(--background));
+  --color-canvas-50: #ffffff;
+
   --color-success: hsl(var(--success));
   --color-success-foreground: hsl(var(--success-foreground));
 

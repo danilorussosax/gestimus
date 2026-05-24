@@ -9,12 +9,6 @@ import { Flag, Scale, Trophy, ArrowRight } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { httpErrorMessage } from '@/lib/api';
 
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { FieldError } from '@/components/ui/field-error';
-
 // ─── Schema login ─────────────────────────────────────────────────────────────
 
 const loginSchema = z.object({
@@ -61,40 +55,53 @@ function TotpStep({ challenge, onSuccess }: TotpStepProps) {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="mt-7 space-y-5" noValidate>
-      <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-primary font-bold">
+      <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-brand-700 font-bold">
         {t('login.2fa.eyebrow')}
       </p>
-      <h2 className="mt-1.5 text-2xl font-black tracking-tight text-foreground">
+      <h2 className="mt-1.5 text-2xl font-black tracking-tight text-ink-900">
         {t('login.2fa.title')}
       </h2>
-      <p className="text-[15px] text-muted-foreground mt-1 font-medium">
+      <p className="text-[15px] text-ink-700 mt-1 font-medium">
         {t('login.2fa.help')}
       </p>
 
-      <div className="space-y-1.5">
-        <Label htmlFor="totp-code">{t('login.2fa.code')}</Label>
-        <Input
+      <label className="c-field">
+        <span className="c-field__label">{t('login.2fa.code')}</span>
+        <input
           id="totp-code"
+          type="text"
           inputMode="text"
           autoComplete="one-time-code"
           autoFocus
           placeholder="123456"
-          className="tracking-widest"
+          className="c-input tracking-widest"
           aria-describedby={errors.code ? 'totp-code-error' : undefined}
           {...register('code')}
         />
-        <FieldError id="totp-code-error">{errors.code?.message}</FieldError>
-      </div>
+        {errors.code && (
+          <span id="totp-code-error" className="text-xs font-semibold text-red-700">
+            {errors.code.message}
+          </span>
+        )}
+      </label>
 
       {error && (
-        <Alert variant="destructive" role="alert" aria-live="assertive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="text-sm font-semibold text-red-800 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5"
+        >
+          {error}
+        </div>
       )}
 
-      <Button type="submit" size="xl" className="w-full" disabled={isSubmitting}>
-        {isSubmitting ? 'Verifica in corso…' : t('login.2fa.submit')}
-      </Button>
+      <button
+        type="submit"
+        className="c-btn c-btn--primary c-btn--xl w-full justify-center"
+        disabled={isSubmitting}
+      >
+        <span>{isSubmitting ? 'Verifica in corso…' : t('login.2fa.submit')}</span>
+      </button>
     </form>
   );
 }
@@ -136,12 +143,9 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen grid lg:grid-cols-2 gap-6 lg:gap-10 p-4 sm:p-6 bg-background">
-      {/* ── Left: hero panel ── */}
-      <aside
-        className="login-hero hidden lg:flex flex-col justify-between text-white p-10 overflow-hidden rounded-3xl shadow-lg"
-        style={{ background: 'linear-gradient(135deg, #1e40af 0%, #1d4ed8 50%, #2563eb 100%)' }}
-      >
+    <section className="view-fade min-h-screen grid lg:grid-cols-2 gap-6 lg:gap-10 c-page">
+      {/* ── Left: royal-blue brand panel with blurred musical backdrop ── */}
+      <aside className="login-hero hidden lg:flex flex-col justify-between text-white p-10 overflow-hidden rounded-3xl shadow-pop">
         <div>
           <p className="font-mono text-[12px] uppercase tracking-[0.18em] text-white font-bold drop-shadow">
             {t('login.eyebrow')}
@@ -152,7 +156,10 @@ export default function Login() {
               alt=""
               className="w-20 h-20 rounded-3xl shadow-2xl ring-4 ring-white/40 object-contain bg-white/10"
             />
-            <h2 className="text-[2.4rem] sm:text-5xl font-black tracking-tight leading-[1.0] drop-shadow-md text-white">
+            <h2
+              style={{ color: '#fff' }}
+              className="text-[2.4rem] sm:text-5xl font-black tracking-tight leading-[1.0] drop-shadow-md"
+            >
               {t('login.title.line1')}
               <br />
               {t('login.title.line2')}
@@ -163,21 +170,24 @@ export default function Login() {
         </div>
 
         <div className="space-y-3">
-          {(
-            [
-              { icon: <Flag size={20} />, key: 'login.feat.1' },
-              { icon: <Scale size={20} />, key: 'login.feat.2' },
-              { icon: <Trophy size={20} />, key: 'login.feat.3' },
-            ] as const
-          ).map(({ icon, key }) => (
-            <div
-              key={key}
-              className="flex items-start gap-3 bg-white/15 backdrop-blur-md rounded-2xl px-4 py-3.5 ring-1 ring-white/25 shadow-lg"
-            >
-              <span className="text-white mt-0.5">{icon}</span>
-              <p className="text-[15px] text-white font-medium leading-relaxed">{t(key)}</p>
-            </div>
-          ))}
+          <div className="flex items-start gap-3 bg-white/15 backdrop-blur-md rounded-2xl px-4 py-3.5 ring-1 ring-white/25 shadow-lg">
+            <span className="text-white mt-0.5">
+              <Flag size={20} />
+            </span>
+            <p className="text-[15px] text-white font-medium leading-relaxed">{t('login.feat.1')}</p>
+          </div>
+          <div className="flex items-start gap-3 bg-white/15 backdrop-blur-md rounded-2xl px-4 py-3.5 ring-1 ring-white/25 shadow-lg">
+            <span className="text-white mt-0.5">
+              <Scale size={20} />
+            </span>
+            <p className="text-[15px] text-white font-medium leading-relaxed">{t('login.feat.2')}</p>
+          </div>
+          <div className="flex items-start gap-3 bg-white/15 backdrop-blur-md rounded-2xl px-4 py-3.5 ring-1 ring-white/25 shadow-lg">
+            <span className="text-white mt-0.5">
+              <Trophy size={20} />
+            </span>
+            <p className="text-[15px] text-white font-medium leading-relaxed">{t('login.feat.3')}</p>
+          </div>
         </div>
 
         <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-white/85 font-bold">
@@ -185,21 +195,21 @@ export default function Login() {
         </p>
       </aside>
 
-      {/* ── Right: form card ── */}
+      {/* ── Right: login card ── */}
       <div className="flex items-center justify-center p-2 sm:p-6">
-        <div className="w-full max-w-md bg-card rounded-3xl shadow-md p-7 sm:p-10 ring-1 ring-border">
-          {/* Mobile branding */}
+        <div className="w-full max-w-md bg-white rounded-3xl shadow-soft p-7 sm:p-10 ring-1 ring-brand-200">
+          {/* Mobile branding — visible only below lg */}
           <div className="flex items-center gap-3 lg:hidden mb-5">
             <img
               src="./logo.png"
               alt=""
-              className="w-14 h-14 rounded-2xl shadow-sm ring-2 ring-border object-contain"
+              className="w-14 h-14 rounded-2xl shadow-soft ring-2 ring-brand-100 object-contain"
             />
             <div>
-              <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-primary font-bold">
+              <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-brand-700 font-bold">
                 {t('app.title')} · {t('app.subtitle')}
               </p>
-              <h3 className="text-lg font-black text-foreground">{t('login.title.line1')}</h3>
+              <h3 className="text-lg font-black text-ink-900">{t('login.title.line1')}</h3>
             </div>
           </div>
 
@@ -207,13 +217,13 @@ export default function Login() {
             <TotpStep challenge={mfaChallenge} onSuccess={handleMfaSuccess} />
           ) : (
             <>
-              <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-primary font-bold">
+              <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-brand-700 font-bold">
                 {t('login.form.eyebrow')}
               </p>
-              <h2 className="mt-1.5 text-3xl sm:text-4xl font-black tracking-tight text-foreground">
+              <h2 className="mt-1.5 text-3xl sm:text-4xl font-black tracking-tight text-ink-900">
                 {t('login.form.title')}
               </h2>
-              <p className="text-[15px] text-muted-foreground mt-2 font-medium">
+              <p className="text-[15px] text-ink-700 mt-2 font-medium">
                 {t('login.form.subtitle')}
               </p>
 
@@ -223,53 +233,77 @@ export default function Login() {
                 autoComplete="on"
                 noValidate
               >
-                <div className="space-y-1.5">
-                  <Label htmlFor="email">{t('login.form.email')}</Label>
-                  <Input
+                <label className="c-field">
+                  <span className="c-field__label">{t('login.form.email')}</span>
+                  <input
                     id="email"
                     type="email"
                     autoComplete="email"
                     autoFocus
                     inputMode="email"
                     placeholder="nome@esempio.it"
+                    className="c-input"
                     aria-describedby={errors.email ? 'email-error' : undefined}
                     {...register('email')}
                   />
-                  <FieldError id="email-error">{errors.email?.message}</FieldError>
-                </div>
+                  {errors.email && (
+                    <span id="email-error" className="text-xs font-semibold text-red-700">
+                      {errors.email.message}
+                    </span>
+                  )}
+                </label>
 
-                <div className="space-y-1.5">
-                  <Label htmlFor="password">{t('login.form.password')}</Label>
-                  <Input
+                <label className="c-field">
+                  <span className="c-field__label">{t('login.form.password')}</span>
+                  <input
                     id="password"
                     type="password"
                     autoComplete="current-password"
                     placeholder="••••••••"
+                    className="c-input"
                     aria-describedby={errors.password ? 'password-error' : undefined}
                     {...register('password')}
                   />
-                  <FieldError id="password-error">{errors.password?.message}</FieldError>
-                </div>
+                  {errors.password && (
+                    <span id="password-error" className="text-xs font-semibold text-red-700">
+                      {errors.password.message}
+                    </span>
+                  )}
+                </label>
 
                 {error && (
-                  <Alert variant="destructive" role="alert" aria-live="assertive">
-                    <AlertDescription>{error}</AlertDescription>
-                  </Alert>
+                  <div
+                    role="alert"
+                    aria-live="assertive"
+                    className="text-sm font-semibold text-red-800 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5"
+                  >
+                    {error}
+                  </div>
                 )}
 
-                <Button type="submit" size="xl" className="w-full" disabled={isSubmitting}>
-                  {isSubmitting ? t('login.form.submitting') : t('login.form.submit')}
-                  {!isSubmitting && <ArrowRight size={16} aria-hidden="true" />}
-                </Button>
+                <button
+                  type="submit"
+                  className="c-btn c-btn--primary c-btn--xl w-full justify-center"
+                  disabled={isSubmitting}
+                >
+                  <span>
+                    {isSubmitting ? t('login.form.submitting') : t('login.form.submit')}
+                  </span>
+                  {!isSubmitting && (
+                    <span className="c-btn__icon" aria-hidden="true">
+                      <ArrowRight size={16} />
+                    </span>
+                  )}
+                </button>
               </form>
 
-              <div className="mt-6 pt-5 border-t border-border text-center">
-                <p className="text-xs text-muted-foreground mb-2">
+              <div className="mt-6 pt-5 border-t border-slate-200 text-center">
+                <p className="text-xs text-slate-600 mb-2">
                   Sei un candidato e vuoi iscriverti al concorso?
                 </p>
                 <a
                   href="/iscrizione"
-                  className="inline-flex items-center gap-1.5 text-sm font-medium text-primary underline-offset-4 hover:underline"
+                  className="c-btn c-btn--outline c-btn--sm inline-flex items-center gap-1.5"
                 >
                   <span>📝</span>
                   <span>Vai al form di iscrizione</span>
@@ -279,6 +313,6 @@ export default function Login() {
           )}
         </div>
       </div>
-    </div>
+    </section>
   );
 }

@@ -14,6 +14,9 @@ import { initSentry } from '@/lib/sentry';
 import { bumpVisitCount, setupPwa } from '@/lib/pwa';
 import '@/i18n';
 import './index.css';
+// Design system vanilla portato (classi c-*, sidebar-nav-active, login-hero,
+// c-stat/c-tile, override radius/shadow) per ripristinare la grafica precedente.
+import './legacy.css';
 
 // Sentry: init prima del render così cattura errori di mount. No-op senza DSN.
 initSentry();
