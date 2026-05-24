@@ -111,6 +111,12 @@ Punti critici coperti, provati da test (`tests/crud/concurrency.test.ts`):
 
 | Priorità | Voce | Note |
 |:---:|---|---|
+| Media | Feature CV commissario half-built | Frontend completo (bottone/`openCv`/`patch.cv`) ma nessuna colonna `cv` lato server → `c.cv` sempre `undefined`. Completare il backend (colonna+migrazione+route) o rimuovere il codice CV morto. |
+| Media | i18n EN/FR/ES incomplete | ~185 chiavi mancanti vs IT; il check coverage CI valida solo IT. Estendere il check e colmare le traduzioni. |
+| Media | Export GDPR senza entry `audit_log` della persona (Art.15) | `privacy.ts` esporta accounts/commissari/candidati/iscrizioni ma non le righe audit dell'interessato. |
+| Bassa | GET `/public/iscrizioni/:token/verify` con side-effect + `sameSite:lax` | Token nell'URL = capability (non CSRF classico), ma i prefetcher di posta possono auto-verificare. Valutare landing→POST. |
+| Bassa | Timer fase senza sync orologio client-server | Drift visibile in cloud sotto skew del client (`fasi.ts`/`commissario.js`). |
+| Bassa | Edge minori | IDN/Punycode sottodomini, stampede cache tenant a TTL, fingerprint asset CDN nel SW, precache SW incompleta, collisione slug criteri su diacritici. Tutti a basso impatto sui volumi attesi. |
 | Bassa | Lazy-load client per-vista | `db.loadAll` carica tutto in memoria; ok ai volumi attesi, da rivedere per tenant molto grandi (richiede test browser). |
 | Bassa | Split file frontend > 1500 LOC | Manutenibilità. |
 | Bassa | Type-check esteso a tutto il frontend | Bug a runtime; oggi solo il core algoritmico è type-checked. |
@@ -125,3 +131,20 @@ Punti critici coperti, provati da test (`tests/crud/concurrency.test.ts`):
 Il codice è **robusto su tutti gli assi**: difesa a strati matura su sicurezza/integrità (RLS forzata, trigger di coerenza, CHECK, transazioni con lock, ownership cross-entità, limiti piano, audit firmato), affidabilità runtime (health-check, handler globali, shutdown ordinato, hub auto-recuperante), concorrenza provata da test, scala (paginazione + streaming export/backup) e disaster recovery (backup cifrati + restore). Suite verde in CI su Postgres reale, 0 alert Dependabot.
 
 Le voci aperte (§9) sono puramente **debito evolutivo** (lazy-load client, split file, type-check esteso) — non correttezza né sicurezza bloccante per l'uso attuale.
+
+---
+
+## 11. Cronologia — Round R14 (2026-05-24)
+
+Re-analisi esterna (report "R13", 109 voci dichiarate aperte) **verificata sul codice reale**. Esito: la stragrande maggioranza era già fixata o falso positivo — incluse 8 delle 10 "top priority" (N182/N183/N185/N186/N187/N188/N189/N190 già risolti o FP). Bug realmente presenti: ~25, quasi tutti MEDIUM/LOW.
+
+**Fixati in R14:**
+- **M191** — età GDPR (check minorenne) ora calcolata con helper TZ-safe `ageYears()` sul fuso piattaforma, non con `new Date()` del processo (sfasamento di un anno a cavallo di mezzanotte il giorno del compleanno).
+- **L232** — `ip`/`userAgent` sanificati (strip control-char, cap 512) prima dell'inserimento in `audit_log`/`platform_audit_log`; la firma HMAC copre il valore sanificato.
+- **N120** — rimosso `notify()` ridondante in `_syncCriteri` (doppio render: il primo con `state.fasi` ancora privo della fase appena creata).
+- **L230** — strip byte NUL nel parser CSV import.
+- **L231** — messaggio "troppe righe" import migrato a i18n (IT/EN/FR/ES).
+
+**Verifica:** typecheck server pulito · integrazione 147 pass / 1 skip preesistente · unit 47/47.
+
+Le voci reali residue sono confluite in §9 (CV half-built, i18n EN/FR/ES, export audit GDPR, GET-verify, drift timer + edge minori).
