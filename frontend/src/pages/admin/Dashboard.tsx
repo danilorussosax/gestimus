@@ -34,6 +34,7 @@ import { http } from '@/lib/api';
 import { fetchValutazioniByFase } from '@/api/valutazioni';
 import type { Fase, Candidato, Commissario, Sezione, Commissione, Evento, CandidatoFase } from '@/types';
 import { ConcorsoSelector } from '@/components/admin/ConcorsoSelector';
+import { presidentiFor, type CommissioneLike } from '@/lib/presidenti';
 
 // ---------------------------------------------------------------------------
 // SIDEBAR_TABS — single source of truth (mirrors vanilla dashboard.js order)
@@ -455,9 +456,12 @@ function DashboardContent({ activeId }: { activeId: string }) {
     candidati:   candidati.length,
   };
 
-  // No-presidente: true when at least one commissione has presidenteId set
-  // mirrors: db.presidentiFor(concorso.id).length > 0
-  const hasAnyPresidente = commissioni.some((c) => c.presidenteId != null);
+  // No-presidente: true se il concorso ha almeno un presidente distinto.
+  // mirrors: db.presidentiFor(concorso.id).length > 0 (ora in @/lib/presidenti).
+  // I record commissione/commissario del server portano `presidenteCommissarioId`
+  // e l'`id` richiesti dalla shape strutturale CommissioneLike/CommissarioLike.
+  const hasAnyPresidente =
+    presidentiFor(activeId, commissioni as unknown as CommissioneLike[], commissari).length > 0;
 
   // Distribuzione strumenti (top 8) — mirrors vanilla
   const strumentiMap: Record<string, number> = {};

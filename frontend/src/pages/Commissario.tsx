@@ -29,6 +29,7 @@ import { Link } from 'react-router-dom';
 import { http } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
+import { getPresidenteForFase, type CommissioneLike } from '@/lib/presidenti';
 
 import type {
   Fase,
@@ -1537,16 +1538,15 @@ export default function Commissario() {
 
   const faseAttiva = fasiList.find((f) => f.stato === 'IN_CORSO') ?? null;
 
-  // Commissioni presiedute da questo commissario.
-  const fasiPresidente = fasiList.filter((f) => {
-    if (!f.commissioneId) return false;
-    const com = commissioniList.find((c) => c.id === f.commissioneId);
-    if (!com) return false;
-    const presId =
-      (com as unknown as { presidenteCommissarioId?: string | null }).presidenteCommissarioId
-      ?? com.presidenteId;
-    return presId === commissarioId;
-  });
+  // Fasi di cui questo commissario è presidente (presidente della commissione
+  // assegnata alla fase) — db.getPresidenteForFase, ora in @/lib/presidenti.
+  // Il record commissione del server porta `presidenteCommissarioId`; lo
+  // esponiamo alla lib con la shape strutturale CommissioneLike.
+  const commissioniLike = commissioniList as unknown as CommissioneLike[];
+  const commissariSelf = [{ id: commissarioId }];
+  const fasiPresidente = fasiList.filter(
+    (f) => getPresidenteForFase(f, commissioniLike, commissariSelf)?.id === commissarioId,
+  );
   const isPresidenteFase = fasiPresidente.length > 0;
 
   // ── No active fase ─────────────────────────────────────────────────────────

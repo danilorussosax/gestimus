@@ -49,6 +49,7 @@ import {
   type CommissarioRecord,
 } from '@/api/commissari';
 import { useCommissioni } from '@/api/commissioni';
+import { isPresidenteDiQualcheCommissione } from '@/lib/presidenti';
 
 // ---------------------------------------------------------------------------
 // Helpers (port di displayName / ageFromDate da js/utils.js)
@@ -1134,19 +1135,16 @@ export default function CommissariTab({ concorsoId }: { concorsoId: string }) {
   const attivi = useMemo(() => all?.filter((c) => c.stato === 'ATTIVO') ?? [], [all]);
   const inattivi = useMemo(() => all?.filter((c) => c.stato === 'INATTIVO') ?? [], [all]);
 
-  // Set dei commissari che sono presidente di qualche commissione (port di
-  // db.isPresidenteDiQualcheCommissione).
-  const presidentiIds = useMemo(() => {
-    const s = new Set<string>();
-    for (const com of commissioni ?? []) {
-      if (com.presidenteCommissarioId) s.add(com.presidenteCommissarioId);
-    }
-    return s;
+  // Presidente = commissario presidente di ALMENO UNA commissione del concorso
+  // (db.isPresidenteDiQualcheCommissione, ora in @/lib/presidenti).
+  const isPresidente = useMemo(() => {
+    const coms = commissioni ?? [];
+    return (id: string) => isPresidenteDiQualcheCommissione(id, coms);
   }, [commissioni]);
 
   const presidente = useMemo(
-    () => attivi.find((c) => presidentiIds.has(c.id)) ?? null,
-    [attivi, presidentiIds],
+    () => attivi.find((c) => isPresidente(c.id)) ?? null,
+    [attivi, isPresidente],
   );
 
   // ----- Action handlers (port di unassign/delete) -----
@@ -1301,7 +1299,7 @@ export default function CommissariTab({ concorsoId }: { concorsoId: string }) {
             <CommissarioCard
               key={c.id}
               commissario={c}
-              isPresidente={presidentiIds.has(c.id)}
+              isPresidente={isPresidente(c.id)}
               onEdit={() => setDialog({ open: true, existing: c })}
               onUnassign={() => handleUnassign(c)}
               onDelete={() => handleDelete(c)}

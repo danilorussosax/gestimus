@@ -50,9 +50,14 @@ import {
   type UpdateFaseBody,
   type TiebreakStep,
 } from '@/api/fasi';
-import { useCriteri, type CriterioInput, type CriterioRecord } from '@/api/criteri';
-import { useSezioni } from '@/api/sezioni';
-import { useCommissioni } from '@/api/commissioni';
+import {
+  useCriteri,
+  listCriteri,
+  type CriterioInput,
+  type CriterioRecord,
+} from '@/api/criteri';
+import { useSezioni, type SezioneRecord } from '@/api/sezioni';
+import { useCommissioni, type CommissioneRecord } from '@/api/commissioni';
 import { useCommissari } from '@/api/commissari';
 import type { FaseStato } from '@/types';
 
@@ -223,6 +228,111 @@ function prettyStato(stato: FaseStato): string {
   return stato.replace(/_/g, ' ');
 }
 
+// ---------------------------------------------------------------------------
+// Raggruppamento fasi ("fase madre per sezione") — porta gruppoFasi / SHARED_FIELDS
+// / sharedValue / computeDrift da js/views/admin/fasi.js.
+//
+// Le fasi vengono raggruppate dalla UI in base a `sezioniIds` (signature):
+//   - sezioniIds = []        → gruppo "shared"  (vale per tutte le sezioni)
+//   - sezioniIds = [X]       → gruppo "single"  (FASE MADRE della sezione X)
+//   - sezioniIds = [X,Y,...] → gruppo "multi"   (caso avanzato/raro)
+// Il record "fase madre" NON esiste come riga: la madre è la card che
+// raggruppa le sotto-fasi. Si garantisce un gruppo per OGNI sezione del
+// concorso (anche vuoto), così ogni sezione mostra la sua card-madre con CTA.
+// ---------------------------------------------------------------------------
+
+// Campi "condivisi" tra le sotto-fasi di un gruppo. Su FaseRecord il campo
+// criteri vive separato (entità criteri) ma il record list espone `pesi`:
+// lo usiamo per il confronto strutturale del drift criteri.
+const SHARED_FIELDS = [
+  'commissioneId',
+  'scala',
+  'metodoMedia',
+  'modoValutazione',
+  'tempoMinuti',
+  'pesi',
+] as const;
+type SharedField = (typeof SHARED_FIELDS)[number];
+
+// Ritorna il valore se TUTTE le fasi concordano, altrimenti undefined.
+// Confronto strutturale via JSON.stringify (replica sharedValue vanilla).
+function sharedValue<K extends SharedField>(
+  fasi: FaseRecord[],
+  key: K,
+): FaseRecord[K] | undefined {
+  if (!fasi || fasi.length === 0) return undefined;
+  const first = JSON.stringify(fasi[0][key] ?? null);
+  for (let i = 1; i < fasi.length; i++) {
+    if (JSON.stringify(fasi[i][key] ?? null) !== first) return undefined;
+  }
+  return fasi[0][key];
+}
+
+// Lista dei campi condivisi che divergono tra le sotto-fasi del gruppo.
+function computeDrift(fasi: FaseRecord[]): SharedField[] {
+  if (!fasi || fasi.length < 2) return [];
+  return SHARED_FIELDS.filter((k) => sharedValue(fasi, k) === undefined);
+}
+
+type GroupType = 'shared' | 'single' | 'multi';
+
+interface FaseGroup {
+  key: string;
+  type: GroupType;
+  sezioneIds: string[];
+  fasi: FaseRecord[];
+}
+
+// Raggruppa le fasi del concorso per signature di sezioniIds e garantisce
+// che ogni sezione del concorso abbia un gruppo (anche vuoto, per la CTA).
+function gruppoFasi(fasi: FaseRecord[], sezioni: SezioneRecord[]): FaseGroup[] {
+  const groups = new Map<string, FaseGroup>();
+  for (const f of fasi) {
+    const ids = Array.isArray(f.sezioniIds) ? [...f.sezioniIds].sort() : [];
+    const key = ids.length === 0 ? '__shared__' : ids.length === 1 ? `s:${ids[0]}` : `m:${ids.join(',')}`;
+    const type: GroupType = ids.length === 0 ? 'shared' : ids.length === 1 ? 'single' : 'multi';
+    if (!groups.has(key)) groups.set(key, { key, type, sezioneIds: ids, fasi: [] });
+    groups.get(key)!.fasi.push(f);
+  }
+  // Ordina le sotto-fasi per ordine globale (sequenza di valutazione).
+  for (const g of groups.values()) g.fasi.sort((a, b) => a.ordine - b.ordine);
+  // Sezioni senza fasi → card vuota con CTA "Configura fasi".
+  for (const s of sezioni) {
+    const key = `s:${s.id}`;
+    if (!groups.has(key)) groups.set(key, { key, type: 'single', sezioneIds: [s.id], fasi: [] });
+  }
+  // Ordering: shared in cima, poi per nome sezione, poi i multi-section in fondo.
+  const rank: Record<GroupType, number> = { shared: 0, single: 1, multi: 2 };
+  return [...groups.values()].sort((a, b) => {
+    if (rank[a.type] !== rank[b.type]) return rank[a.type] - rank[b.type];
+    if (a.type === 'single') {
+      const sa = sezioni.find((s) => s.id === a.sezioneIds[0])?.nome ?? '';
+      const sb = sezioni.find((s) => s.id === b.sezioneIds[0])?.nome ?? '';
+      return sa.localeCompare(sb);
+    }
+    return 0;
+  });
+}
+
+// Emoji per categoria strumentale, dedotta dal nome della sezione.
+// Porta iconaPerSezione da js/views/admin/common.js (stesso ordine di pattern).
+function iconaPerSezione(nome: string | undefined): string {
+  const s = String(nome ?? '').toLowerCase();
+  if (/canto|voce|voice|soprano|tenor|baritono|contralto|mezzosoprano|lirica|opera/.test(s)) return '🎤';
+  if (/coro|choir|coral/.test(s)) return '🎼';
+  if (/piano|tastier|harpsichord|clavicembal|fisarmonic|accordion|organo|\borgan\b/.test(s)) return '🎹';
+  if (/chitarr|guitar/.test(s)) return '🎸';
+  if (/sax|flaut|flute|clarinet|oboe|fagott|bassoon|legni|woodwind/.test(s)) return '🎷';
+  if (/tromb[oa]ne|tromb[ae]|trumpet|corno|horn|tuba|ottoni|brass|fiati|wind/.test(s)) return '🎺';
+  if (/percuss|drum|batter|marimba|vibrafon|xilo|timpan/.test(s)) return '🥁';
+  if (/viol|arch|cello|contrabb|double\s*bass|string/.test(s)) return '🎻';
+  if (/arpa|harp/.test(s)) return '🎵';
+  if (/composiz|composit/.test(s)) return '🎼';
+  if (/direz|conduct|maestro/.test(s)) return '🎙';
+  if (/camera|chamber|ensemble|quartett|quintet|musica\s*da\s*camera/.test(s)) return '🎶';
+  return '🎵';
+}
+
 function fmtDate(iso: string | null | undefined): string {
   if (!iso) return '';
   try {
@@ -318,11 +428,24 @@ function NumericCard({ icon, title, desc, tip, value, min, max, suffix, presets,
 // FaseFormDialog
 // ---------------------------------------------------------------------------
 
+// Pre-popolamento in creazione (wizard "+ Aggiungi sotto-fase"): ricava
+// sezioni_ids + campi condivisi dal gruppo e li passa al form standard.
+// Replica il ramo `group.fasi.length > 0` di openFaseWizard.
+interface FasePrefill {
+  sezioniIds?: string[];
+  scala?: number;
+  tempoMinuti?: number;
+  modoValutazione?: 'autonoma' | 'sincrona';
+  metodoMedia?: string;
+  commissioneId?: string | null;
+}
+
 interface FaseFormDialogProps {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   concorsoId: string;
   existing?: FaseRecord;
+  prefill?: FasePrefill;
   nextOrdine: number;
   onSaved: () => void;
 }
@@ -331,6 +454,7 @@ function buildDefaults(
   fase: FaseRecord | undefined,
   criteriExisting: CriterioRecord[] | undefined,
   suggeritoMetodo: string,
+  prefill?: FasePrefill,
 ): FaseFormValues {
   const criteri: CriterioFV[] =
     criteriExisting && criteriExisting.length > 0
@@ -339,16 +463,21 @@ function buildDefaults(
   return {
     nome: fase?.nome ?? '',
     dataPrevista: fase?.dataPrevista ?? '',
-    scala: fase?.scala ?? 10,
-    tempoMinuti: fase?.tempoMinuti ?? 0,
+    scala: fase?.scala ?? prefill?.scala ?? 10,
+    tempoMinuti: fase?.tempoMinuti ?? prefill?.tempoMinuti ?? 0,
     ammessi: fase?.ammessi ?? '',
     testoEsitoPromosso: fase?.testoEsitoPromosso ?? '',
     testoEsitoEliminato: fase?.testoEsitoEliminato ?? '',
-    modoValutazione: fase?.modoValutazione === 'sincrona' ? 'sincrona' : 'autonoma',
-    metodoMedia: fase?.metodoMedia ?? suggeritoMetodo,
+    modoValutazione:
+      (fase?.modoValutazione ?? prefill?.modoValutazione) === 'sincrona' ? 'sincrona' : 'autonoma',
+    metodoMedia: fase?.metodoMedia ?? prefill?.metodoMedia ?? suggeritoMetodo,
     criteri,
-    sezioniIds: Array.isArray(fase?.sezioniIds) ? [...fase.sezioniIds] : [],
-    commissioneId: fase?.commissioneId ?? '',
+    sezioniIds: Array.isArray(fase?.sezioniIds)
+      ? [...fase.sezioniIds]
+      : prefill?.sezioniIds
+        ? [...prefill.sezioniIds]
+        : [],
+    commissioneId: fase?.commissioneId ?? prefill?.commissioneId ?? '',
     tiebreakStrategy: Array.isArray(fase?.tiebreakStrategy) ? fase.tiebreakStrategy : null,
     tiebreakTouched: Array.isArray(fase?.tiebreakStrategy) && fase.tiebreakStrategy.length > 0,
   };
@@ -359,6 +488,7 @@ function FaseFormDialog({
   onOpenChange,
   concorsoId,
   existing,
+  prefill,
   nextOrdine,
   onSaved,
 }: FaseFormDialogProps) {
@@ -386,14 +516,14 @@ function FaseFormDialog({
   const suggerito = useMemo(() => suggerisciMetodo(nCommissari), [nCommissari]);
 
   const [values, setValues] = useState<FaseFormValues>(() =>
-    buildDefaults(existing, undefined, suggerito.metodo),
+    buildDefaults(existing, undefined, suggerito.metodo, prefill),
   );
 
   // Reset/riempimento quando si apre o cambia la fase / i criteri caricati.
   useEffect(() => {
     if (!open) return;
-    setValues(buildDefaults(existing, criteriExisting, suggerito.metodo));
-  }, [open, existing, criteriExisting, suggerito.metodo]);
+    setValues(buildDefaults(existing, criteriExisting, suggerito.metodo, prefill));
+  }, [open, existing, criteriExisting, suggerito.metodo, prefill]);
 
   const set = <K extends keyof FaseFormValues>(key: K, val: FaseFormValues[K]) =>
     setValues((p) => ({ ...p, [key]: val }));
@@ -1188,19 +1318,1217 @@ function FaseCard({
 }
 
 // ---------------------------------------------------------------------------
+// InnerFaseRow — riga compatta di sotto-fase dentro la card-gruppo.
+// Porta innerFaseRowHtml: ordine, nome, stato, drift pills, azioni workflow.
+// ---------------------------------------------------------------------------
+
+interface InnerFaseRowProps {
+  fase: FaseRecord;
+  drift: SharedField[];
+  isFirst: boolean;
+  isLast: boolean;
+  commissioni: CommissioneRecord[] | undefined;
+  onEdit: () => void;
+  onDelete: () => void;
+  onStart: () => void;
+  onConclude: () => void;
+  onSorteggio: () => void;
+  onMoveUp: () => void;
+  onMoveDown: () => void;
+}
+
+function InnerFaseRow({
+  fase,
+  drift,
+  isFirst,
+  isLast,
+  commissioni,
+  onEdit,
+  onDelete,
+  onStart,
+  onConclude,
+  onSorteggio,
+  onMoveUp,
+  onMoveDown,
+}: InnerFaseRowProps) {
+  const stato = fase.stato ?? 'PIANIFICATA';
+  const tempo = Number(fase.tempoMinuti) || 0;
+
+  // Pillole "override": mostriamo SOLO i campi che divergono dal gruppo,
+  // così si vede dov'è lo scostamento (replica i driftPills di innerFaseRowHtml).
+  const driftPills: string[] = [];
+  if (drift.includes('scala')) driftPills.push(`scala ${fase.scala || 10}`);
+  if (drift.includes('tempoMinuti') && tempo > 0) driftPills.push(`⏱ ${tempo}′`);
+  if (drift.includes('modoValutazione')) driftPills.push(fase.modoValutazione ?? 'autonoma');
+  if (drift.includes('metodoMedia')) driftPills.push(`media ${fase.metodoMedia ?? 'aritmetica'}`);
+  if (drift.includes('pesi')) driftPills.push('criteri specifici');
+  if (drift.includes('commissioneId')) {
+    const c = fase.commissioneId ? commissioni?.find((x) => x.id === fase.commissioneId) : null;
+    driftPills.push(c ? `🎼 ${c.nome}` : 'nessuna comm.');
+  }
+
+  return (
+    <div className="px-5 py-3.5 flex items-start gap-3 hover:bg-slate-50/60 transition-colors">
+      <div className="min-w-0 flex-1">
+        <div className="flex items-center gap-2 flex-wrap">
+          <span className="text-xs font-mono uppercase tracking-wider text-slate-400">#{fase.ordine}</span>
+          <h4 className="font-semibold text-slate-900 text-base">{fase.nome}</h4>
+          <span
+            className={cn(
+              'inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider border',
+              STATO_COLORS[stato],
+            )}
+          >
+            {prettyStato(stato)}
+          </span>
+          {driftPills.length > 0 && (
+            <span
+              className="text-[10px] font-medium text-amber-700 inline-flex items-center gap-1"
+              title="Valori specifici di questa sotto-fase"
+            >
+              ▾ {driftPills.join(' · ')}
+            </span>
+          )}
+        </div>
+        <div className="mt-0.5 text-xs text-slate-500 flex flex-wrap gap-x-3 gap-y-0.5">
+          {fase.ammessi != null ? (
+            <span>
+              <strong>{fase.ammessi}</strong> passano
+            </span>
+          ) : (
+            <span className="italic">tutti gli ammessi passano</span>
+          )}
+          {fase.dataPrevista && <span>📅 {fmtDate(fase.dataPrevista)}</span>}
+        </div>
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {stato === 'PIANIFICATA' && (
+            <button
+              type="button"
+              onClick={onStart}
+              className="text-[11px] font-medium text-white bg-emerald-600 hover:bg-emerald-700 px-2.5 py-1 rounded-md shadow-sm inline-flex items-center gap-1"
+            >
+              <Play className="h-3 w-3" /> Avvia
+            </button>
+          )}
+          {stato === 'IN_CORSO' && (
+            <button
+              type="button"
+              onClick={onConclude}
+              className="text-[11px] font-medium text-white bg-rose-600 hover:bg-rose-700 px-2.5 py-1 rounded-md shadow-sm inline-flex items-center gap-1"
+            >
+              <StopCircle className="h-3 w-3" /> Concludi
+            </button>
+          )}
+          {stato !== 'CONCLUSA' && (
+            <button
+              type="button"
+              onClick={onSorteggio}
+              className="text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 px-2.5 py-1 rounded-md inline-flex items-center gap-1"
+            >
+              <Shuffle className="h-3 w-3" /> Sorteggio
+            </button>
+          )}
+        </div>
+      </div>
+      <div className="flex items-center gap-1 shrink-0">
+        <button
+          type="button"
+          onClick={onMoveUp}
+          disabled={isFirst}
+          title="Sposta su"
+          className="w-8 h-8 inline-flex items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          <ChevronUp className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={onMoveDown}
+          disabled={isLast}
+          title="Sposta giù"
+          className="w-8 h-8 inline-flex items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          <ChevronDown className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={onEdit}
+          title="Modifica"
+          className="w-8 h-8 inline-flex items-center justify-center rounded-md text-brand-700 hover:bg-brand-50"
+        >
+          <Pencil className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={stato === 'IN_CORSO'}
+          title={stato === 'IN_CORSO' ? 'Non eliminabile mentre è IN_CORSO' : 'Elimina'}
+          className="w-8 h-8 inline-flex items-center justify-center rounded-md text-rose-600 hover:bg-rose-50 disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          <Trash2 className="h-4 w-4" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// GroupCard — card-gruppo (FASE MADRE). Porta gruppoFasiCardHtml:
+// header con titolo scope/sottotitolo/icona, commissione condivisa, drift
+// pills, count badge, pulsanti (Configura fasi / + Aggiungi sotto-fase /
+// Configurazione condivisa / Elimina gruppo) e body con le sotto-fasi.
+// ---------------------------------------------------------------------------
+
+interface GroupCardProps {
+  group: FaseGroup;
+  sezioni: SezioneRecord[] | undefined;
+  commissioni: CommissioneRecord[] | undefined;
+  renderRow: (fase: FaseRecord) => ReactNode;
+  onWizard: () => void;
+  onAddFase: () => void;
+  onEditShared: () => void;
+  onDeleteGroup: () => void;
+}
+
+function GroupCard({
+  group,
+  sezioni,
+  commissioni,
+  renderRow,
+  onWizard,
+  onAddFase,
+  onEditShared,
+  onDeleteGroup,
+}: GroupCardProps) {
+  const sezioniRecord = group.sezioneIds
+    .map((id) => sezioni?.find((s) => s.id === id))
+    .filter((s): s is SezioneRecord => !!s);
+
+  const title =
+    group.type === 'shared'
+      ? 'Fasi globali (tutte le sezioni)'
+      : group.type === 'multi'
+        ? `Fasi su: ${sezioniRecord.map((s) => s.nome).join(' + ')}`
+        : (sezioniRecord[0]?.nome ?? '???');
+  const subtitle =
+    group.type === 'shared'
+      ? 'Si applicano a tutti i candidati del concorso, indipendentemente dalla sezione.'
+      : group.type === 'single'
+        ? 'Fase madre della sezione: le sotto-fasi qui sotto formano la sequenza di valutazione.'
+        : 'Caso avanzato: la fase coinvolge più sezioni contemporaneamente.';
+  const groupIcon =
+    group.type === 'shared' ? '🌐' : group.type === 'multi' ? '🔗' : iconaPerSezione(sezioniRecord[0]?.nome);
+
+  const drift = computeDrift(group.fasi);
+  const sharedComm = sharedValue(group.fasi, 'commissioneId');
+  const sharedScala = sharedValue(group.fasi, 'scala');
+  const sharedModo = sharedValue(group.fasi, 'modoValutazione');
+  const sharedTempo = sharedValue(group.fasi, 'tempoMinuti');
+  const commAssegnata = sharedComm ? commissioni?.find((c) => c.id === sharedComm) : null;
+
+  const anyRunning = group.fasi.some((f) => f.stato === 'IN_CORSO');
+  const hasFasi = group.fasi.length > 0;
+
+  return (
+    <section className="bg-white border border-slate-200 rounded-2xl shadow-soft overflow-hidden">
+      <header className="bg-gradient-to-br from-brand-50/60 to-white border-b border-slate-200 px-5 py-4 flex items-start justify-between gap-3 flex-wrap">
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-xl" aria-hidden="true">{groupIcon}</span>
+            <h3 className="font-bold text-slate-900 text-lg truncate">{title}</h3>
+            {hasFasi ? (
+              <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-100 text-slate-700">
+                {group.fasi.length} {group.fasi.length === 1 ? 'sotto-fase' : 'sotto-fasi'}
+              </span>
+            ) : (
+              <span className="text-[10px] font-mono uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-50 text-slate-400 border border-dashed border-slate-200">
+                vuoto
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-slate-600 mt-1 leading-snug">{subtitle}</p>
+          {hasFasi && (
+            <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
+              {commAssegnata ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
+                  🎼 {commAssegnata.nome}
+                </span>
+              ) : drift.includes('commissioneId') ? (
+                <span
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200"
+                  title="I valori divergono tra le sotto-fasi"
+                >
+                  ⚠ Commissioni diverse
+                </span>
+              ) : (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-50 text-slate-600 border border-slate-200 italic">
+                  Nessuna commissione
+                </span>
+              )}
+              {sharedScala !== undefined ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-50 text-slate-700 border border-slate-200">
+                  Scala {sharedScala}
+                </span>
+              ) : (
+                drift.includes('scala') && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                    ⚠ scala diff.
+                  </span>
+                )
+              )}
+              {sharedModo ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-50 text-slate-700 border border-slate-200">
+                  {sharedModo}
+                </span>
+              ) : (
+                drift.includes('modoValutazione') && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                    ⚠ modo diff.
+                  </span>
+                )
+              )}
+              {sharedTempo !== undefined && sharedTempo != null && sharedTempo > 0 ? (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-50 text-slate-700 border border-slate-200">
+                  ⏱ {sharedTempo}′
+                </span>
+              ) : (
+                drift.includes('tempoMinuti') && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                    ⚠ tempo diff.
+                  </span>
+                )
+              )}
+              {drift.includes('pesi') && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 border border-amber-200">
+                  ⚠ criteri diff.
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {group.fasi.length > 1 && (
+            <button
+              type="button"
+              onClick={onEditShared}
+              className="text-xs font-medium text-brand-700 hover:bg-brand-50 px-3 py-1.5 rounded-lg border border-brand-100"
+            >
+              ⚙ Configurazione condivisa
+            </button>
+          )}
+          {hasFasi && (
+            <button
+              type="button"
+              onClick={onDeleteGroup}
+              disabled={anyRunning}
+              title={
+                anyRunning
+                  ? "Impossibile: c'è almeno una sotto-fase IN_CORSO. Concludila prima."
+                  : 'Elimina tutte le sotto-fasi del gruppo'
+              }
+              className="text-xs font-medium text-rose-700 hover:bg-rose-50 px-3 py-1.5 rounded-lg border border-rose-100 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              🗑 Elimina gruppo
+            </button>
+          )}
+          {hasFasi ? (
+            <button
+              type="button"
+              onClick={onAddFase}
+              className="text-xs font-medium text-white bg-brand-600 hover:bg-brand-700 px-3 py-1.5 rounded-lg shadow-sm"
+            >
+              ＋ Aggiungi sotto-fase
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onWizard}
+              className="text-xs font-medium text-white bg-brand-600 hover:bg-brand-700 px-3 py-1.5 rounded-lg shadow-sm"
+            >
+              Configura fasi
+            </button>
+          )}
+        </div>
+      </header>
+      {hasFasi ? (
+        <div className="divide-y divide-slate-100">{group.fasi.map((f) => renderRow(f))}</div>
+      ) : (
+        <div className="px-5 py-8 text-center">
+          <div className="text-3xl mb-2" aria-hidden="true">🎼</div>
+          <p className="text-sm text-slate-600 max-w-md mx-auto">
+            Nessuna fase configurata per questa sezione. Usa il wizard per crearne una unica o una sequenza
+            (eliminatoria → semifinale → finale).
+          </p>
+        </div>
+      )}
+    </section>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// FaseWizardDialog — wizard sequenza (porta openFaseWizard, ramo "initial").
+// Crea 1 fase unica O una sequenza per il gruppo: template chooser + lista
+// nomi/ammessi + configurazione comune (scala/tempo/commissione/modo/metodo/
+// criteri). Crea i record sequenzialmente e sincronizza i criteri.
+// ---------------------------------------------------------------------------
+
+interface WizItem {
+  nome: string;
+  ammessi: number | '';
+}
+
+const WIZ_TEMPLATES: Record<string, { label: string; items: WizItem[] }> = {
+  unica: { label: 'Fase unica', items: [{ nome: 'Audizione', ammessi: '' }] },
+  elim_fin: {
+    label: 'Eliminatoria + Finale',
+    items: [
+      { nome: 'Eliminatoria', ammessi: 10 },
+      { nome: 'Finale', ammessi: '' },
+    ],
+  },
+  elim_semi_fin: {
+    label: 'Eliminatoria + Semifinale + Finale',
+    items: [
+      { nome: 'Eliminatoria', ammessi: 20 },
+      { nome: 'Semifinale', ammessi: 6 },
+      { nome: 'Finale', ammessi: '' },
+    ],
+  },
+  custom: { label: 'Personalizzato', items: [{ nome: 'Fase 1', ammessi: '' }] },
+};
+
+interface FaseWizardDialogProps {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  concorsoId: string;
+  group: FaseGroup;
+  nextOrdine: number;
+  onSaved: () => void;
+}
+
+function FaseWizardDialog({
+  open,
+  onOpenChange,
+  concorsoId,
+  group,
+  nextOrdine,
+  onSaved,
+}: FaseWizardDialogProps) {
+  const qc = useQueryClient();
+  const { data: sezioni } = useSezioni(concorsoId);
+  const { data: commissioni } = useCommissioni(concorsoId);
+  const { data: commissari } = useCommissari(concorsoId);
+
+  const suggerito = useMemo(() => suggerisciMetodo(commissari?.length ?? 0), [commissari]);
+
+  const groupLabel =
+    group.type === 'shared'
+      ? 'tutte le sezioni'
+      : group.sezioneIds
+          .map((id) => sezioni?.find((s) => s.id === id)?.nome)
+          .filter(Boolean)
+          .join(', ');
+
+  const [tpl, setTpl] = useState<string>('unica');
+  const [items, setItems] = useState<WizItem[]>(WIZ_TEMPLATES.unica.items.map((i) => ({ ...i })));
+  const [scala, setScala] = useState<number | ''>(10);
+  const [tempoMinuti, setTempoMinuti] = useState<number | ''>(0);
+  const [commissioneId, setCommissioneId] = useState('');
+  const [modoValutazione, setModoValutazione] = useState<'autonoma' | 'sincrona'>('autonoma');
+  const [metodoMedia, setMetodoMedia] = useState(suggerito.metodo);
+  const [criteri, setCriteri] = useState<CriterioFV[]>(DEFAULT_CRITERI.map((c) => ({ ...c })));
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    setTpl('unica');
+    setItems(WIZ_TEMPLATES.unica.items.map((i) => ({ ...i })));
+    setScala(10);
+    setTempoMinuti(0);
+    setCommissioneId('');
+    setModoValutazione('autonoma');
+    setMetodoMedia(suggerito.metodo);
+    setCriteri(DEFAULT_CRITERI.map((c) => ({ ...c })));
+  }, [open, suggerito.metodo]);
+
+  const totalPeso = criteri.reduce((s, c) => s + (Number(c.peso) || 0), 0);
+
+  const pickTemplate = (k: string) => {
+    setTpl(k);
+    setItems(WIZ_TEMPLATES[k].items.map((i) => ({ ...i })));
+  };
+  const addItem = () =>
+    setItems((p) => [...p, { nome: `Fase ${p.length + 1}`, ammessi: '' }]);
+  const removeItem = (idx: number) =>
+    setItems((p) => (p.length > 1 ? p.filter((_, i) => i !== idx) : p));
+  const updateItem = (idx: number, field: keyof WizItem, val: string | number) =>
+    setItems((p) => p.map((it, i) => (i === idx ? { ...it, [field]: val } : it)));
+
+  const updateCriterio = (idx: number, field: keyof CriterioFV, val: string | number) =>
+    setCriteri((p) => p.map((c, i) => (i === idx ? { ...c, [field]: val } : c)));
+  const addCriterio = () => setCriteri((p) => [...p, { label: '', key: '', peso: 0 }]);
+  const removeCriterio = (idx: number) =>
+    setCriteri((p) => (p.length > 1 ? p.filter((_, i) => i !== idx) : p));
+
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    const cleanItems = items
+      .map((it) => ({ nome: it.nome.trim(), ammessi: it.ammessi }))
+      .filter((it) => it.nome);
+    if (cleanItems.length === 0) {
+      toast.error('Aggiungi almeno una fase');
+      return;
+    }
+    const lower = cleanItems.map((i) => i.nome.toLowerCase());
+    const dupes = lower.filter((n, i, a) => a.indexOf(n) !== i);
+    if (dupes.length > 0) {
+      toast.error(`Nomi duplicati: ${[...new Set(dupes)].join(', ')}`);
+      return;
+    }
+
+    const criteriParsed: CriterioInput[] = criteri
+      .map((c, i) => ({
+        nome: c.label.trim(),
+        peso: Math.max(0, Math.min(100, Number(c.peso) || 0)),
+        ordine: i,
+      }))
+      .filter((c) => c.nome);
+    if (criteriParsed.length === 0) {
+      toast.error('Almeno un criterio richiesto');
+      return;
+    }
+    const totPct = Math.round(criteriParsed.reduce((s, c) => s + c.peso, 0));
+    if (totPct !== 100) {
+      const ok = window.confirm(`La somma dei pesi è ${totPct}% (consigliato 100%). Continuo?`);
+      if (!ok) return;
+    }
+
+    setSaving(true);
+    const created: string[] = [];
+    try {
+      // Creazione sequenziale: l'ordine globale è progressivo dal nextOrdine.
+      for (let i = 0; i < cleanItems.length; i++) {
+        const it = cleanItems[i];
+        const ammessi = it.ammessi === '' || it.ammessi == null ? null : Number(it.ammessi);
+        const rec = await createFase({
+          concorsoId,
+          ordine: nextOrdine + i,
+          nome: it.nome,
+          scala: Number(scala) || 10,
+          tempoMinuti: Number(tempoMinuti) || 0,
+          ammessi,
+          dataPrevista: null,
+          modoValutazione,
+          metodoMedia,
+          sezioniIds: group.sezioneIds.slice(),
+          commissioneId: commissioneId || null,
+        });
+        created.push(rec.id);
+        await syncCriteri(rec.id, criteriParsed);
+      }
+      toast.success(`${created.length} ${created.length === 1 ? 'fase creata' : 'fasi create'}`);
+      await qc.invalidateQueries({ queryKey: FASI_QUERY_KEY(concorsoId) });
+      onSaved();
+      onOpenChange(false);
+    } catch (err) {
+      toast.error(
+        `Errore dopo ${created.length} fasi: ${httpErrorMessage(err)}`,
+      );
+      await qc.invalidateQueries({ queryKey: FASI_QUERY_KEY(concorsoId) });
+      onSaved();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>Configura fasi per {groupLabel}</DialogTitle>
+          <DialogDescription className="sr-only">
+            Scegli un template di fasi, definisci nomi e posti, e la configurazione comune.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={onSubmit} className="space-y-6 overflow-y-auto max-h-[76dvh] pr-1">
+          <div className="bg-brand-50/60 border border-brand-100 rounded-xl px-4 py-3 text-sm text-slate-700">
+            <p>
+              Stai configurando le fasi per: {groupLabel}.{' '}
+              <span className="text-slate-500">
+                Tutte le sotto-fasi create qui condivideranno i campi della "configurazione comune" qui sotto.
+              </span>
+            </p>
+          </div>
+
+          {/* Step 1: template */}
+          <section>
+            <SectionHeader num={1} title="Quante fasi?" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+              {Object.entries(WIZ_TEMPLATES).map(([k, def]) => {
+                const sel = k === tpl;
+                return (
+                  <button
+                    key={k}
+                    type="button"
+                    onClick={() => pickTemplate(k)}
+                    className={cn(
+                      'text-left rounded-xl border px-3 py-2.5 transition',
+                      sel
+                        ? 'border-brand-300 bg-brand-50/40 ring-2 ring-brand-500'
+                        : 'border-slate-200 hover:border-brand-300 hover:bg-brand-50/30',
+                    )}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-bold text-slate-900">{def.label}</span>
+                      <span className="ml-auto text-brand-600 text-xs">{sel ? '●' : '○'}</span>
+                    </div>
+                    <p className="text-[11px] text-slate-500 mt-0.5">
+                      {def.items.map((i) => i.nome).join(' → ')}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* Step 2: lista fasi */}
+          <section>
+            <SectionHeader
+              num={2}
+              title="Nome e posti per ogni fase"
+              right={
+                <button
+                  type="button"
+                  onClick={addItem}
+                  className="text-xs font-medium text-brand-700 hover:text-brand-900 inline-flex items-center gap-1"
+                >
+                  + Aggiungi fase
+                </button>
+              }
+            />
+            <p className="text-xs text-slate-500 mb-2">
+              "Ammessi" = quanti candidati passano alla fase successiva. Vuoto = passano tutti gli ammessi dal
+              verdetto della commissione.
+            </p>
+            <div className="space-y-2">
+              {items.map((it, i) => (
+                <div key={i} className="grid grid-cols-12 gap-2 items-center">
+                  <div className="col-span-1 text-center text-xs font-mono text-slate-400">#{i + 1}</div>
+                  <input
+                    type="text"
+                    className="col-span-7 c-input"
+                    placeholder="Nome fase"
+                    value={it.nome}
+                    onChange={(e) => updateItem(i, 'nome', e.target.value)}
+                  />
+                  <input
+                    type="number"
+                    min={0}
+                    className="col-span-3 c-input"
+                    placeholder="Ammessi (vuoto = tutti)"
+                    value={it.ammessi === '' || it.ammessi == null ? '' : it.ammessi}
+                    onChange={(e) => updateItem(i, 'ammessi', e.target.value === '' ? '' : Number(e.target.value))}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeItem(i)}
+                    className="col-span-1 text-rose-600 hover:bg-rose-50 rounded-md text-lg"
+                    title="Rimuovi"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          </section>
+
+          {/* Step 3: configurazione comune */}
+          <section>
+            <SectionHeader num={3} title="Configurazione comune (vale per tutte le sotto-fasi)" />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
+              <NumericCard
+                icon="🎯"
+                title="Scala di voto"
+                desc="Voto massimo che un commissario può assegnare."
+                value={scala}
+                min={1}
+                max={100}
+                suffix={null}
+                presets={[
+                  { v: 10, label: '0–10' },
+                  { v: 25, label: '0–25' },
+                  { v: 100, label: '0–100' },
+                ]}
+                onChange={(v) => setScala(v === '' ? '' : Number(v))}
+                tip={
+                  <>
+                    <strong>10</strong> standard, <strong>100</strong> concorsi internazionali.
+                  </>
+                }
+              />
+              <NumericCard
+                icon="⏱"
+                title="Tempo per candidato"
+                desc="Minuti previsti per l'esibizione."
+                value={tempoMinuti}
+                min={0}
+                max={600}
+                suffix="min"
+                presets={[
+                  { v: 0, label: 'Libero' },
+                  { v: 5, label: '5 min' },
+                  { v: 10, label: '10 min' },
+                  { v: 15, label: '15 min' },
+                ]}
+                onChange={(v) => setTempoMinuti(v === '' ? '' : Number(v))}
+                tip={
+                  <>
+                    <strong>0</strong> = nessun limite.
+                  </>
+                }
+              />
+              <div className="rounded-xl border border-slate-200 bg-white p-3 flex flex-col gap-2">
+                <div className="flex items-center gap-2">
+                  <span className="text-xl">🎼</span>
+                  <p className="font-semibold text-sm">Commissione</p>
+                </div>
+                <p className="text-xs text-slate-600">
+                  Stessa commissione per tutte le sotto-fasi. Vuoto = tutti i commissari del concorso.
+                </p>
+                <select className="c-input" value={commissioneId} onChange={(e) => setCommissioneId(e.target.value)}>
+                  <option value="">— Nessuna —</option>
+                  {commissioni?.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nome} · {c.commissari.length} comm.
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+
+            <p className="c-field__label mb-2">Modalità di valutazione</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
+              {(['autonoma', 'sincrona'] as const).map((key) => {
+                const m = MODI_VALUTAZIONE[key];
+                const selected = modoValutazione === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setModoValutazione(key)}
+                    className={cn(
+                      'text-left rounded-xl border bg-white p-3 transition-all hover:shadow-soft flex flex-col gap-2',
+                      selected
+                        ? 'ring-2 ring-brand-500 bg-brand-50/40 border-brand-300'
+                        : 'border-slate-200 hover:border-brand-200',
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-xl shrink-0" aria-hidden="true">{m.icon}</span>
+                        <p className="font-semibold text-sm text-slate-900">{m.nome}</p>
+                      </div>
+                      <span className="text-base text-brand-600 leading-none shrink-0">{selected ? '●' : '○'}</span>
+                    </div>
+                    <p className="text-xs text-slate-600 leading-snug">{m.breve}</p>
+                  </button>
+                );
+              })}
+            </div>
+
+            <p className="c-field__label mb-2">Metodo di calcolo media</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
+              {Object.entries(METODI_MEDIA).map(([key, m]) => {
+                const isSel = key === metodoMedia;
+                const isSug = key === suggerito.metodo;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => setMetodoMedia(key)}
+                    className={cn(
+                      'text-left rounded-xl border bg-white p-3 transition-all hover:shadow-soft flex flex-col gap-2',
+                      isSel
+                        ? 'ring-2 ring-brand-500 bg-brand-50/40 border-brand-300'
+                        : 'border-slate-200 hover:border-brand-200',
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-xl shrink-0" aria-hidden="true">{m.icon}</span>
+                        <div className="min-w-0">
+                          <p className="font-semibold text-sm text-slate-900 truncate">{m.nome}</p>
+                          {isSug && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100 border border-emerald-200 px-1.5 py-0.5 rounded-full mt-0.5">
+                              🎯 consigliato
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <span className="text-base text-brand-600 leading-none shrink-0">{isSel ? '●' : '○'}</span>
+                    </div>
+                    <p className="text-xs text-slate-600 leading-snug">{m.breve}</p>
+                  </button>
+                );
+              })}
+            </div>
+
+            <p className="c-field__label mb-2 flex items-center justify-between">
+              <span>Criteri di valutazione</span>
+              <span className="text-xs font-mono text-slate-600">
+                Tot:{' '}
+                <span className={cn('font-bold', totalPeso === 100 ? 'text-emerald-600' : 'text-amber-600')}>
+                  {totalPeso}%
+                </span>
+              </span>
+            </p>
+            <div className="space-y-2">
+              {criteri.map((c, i) => (
+                <div key={i} className="grid grid-cols-12 gap-2 items-end">
+                  <label className="col-span-7 c-field">
+                    {i === 0 && <span className="c-field__label">Etichetta</span>}
+                    <input
+                      type="text"
+                      className="c-input"
+                      value={c.label}
+                      onChange={(e) => updateCriterio(i, 'label', e.target.value)}
+                      placeholder="Tecnica"
+                    />
+                  </label>
+                  <label className="col-span-4 c-field">
+                    {i === 0 && <span className="c-field__label">Peso (%)</span>}
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step={1}
+                        min={0}
+                        max={100}
+                        className="c-input pr-7"
+                        value={c.peso}
+                        onChange={(e) => updateCriterio(i, 'peso', Number(e.target.value))}
+                      />
+                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-500 pointer-events-none">
+                        %
+                      </span>
+                    </div>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => removeCriterio(i)}
+                    className="col-span-1 h-9 text-rose-600 hover:bg-rose-50 rounded-md flex items-center justify-center"
+                    title="Rimuovi"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={addCriterio}
+              className="mt-2 text-xs font-medium text-brand-700 hover:text-brand-900 inline-flex items-center gap-1"
+            >
+              + Aggiungi criterio
+            </button>
+          </section>
+
+          <DialogFooter>
+            <button type="button" className="c-btn c-btn--outline" onClick={() => onOpenChange(false)} disabled={saving}>
+              Annulla
+            </button>
+            <button type="submit" className="c-btn c-btn--primary" disabled={saving}>
+              {saving ? 'Creazione…' : 'Crea fasi'}
+            </button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SharedFieldsDialog — batch edit dei campi condivisi (porta openSharedFieldsModal).
+// Per ogni campo una checkbox "modifica": solo i campi spuntati vengono
+// propagati a TUTTE le sotto-fasi del gruppo (commissione/scala/tempo/modo/
+// metodo via updateFase; criteri via syncCriteri). I campi in drift mostrano
+// un tag di avviso.
+// ---------------------------------------------------------------------------
+
+interface SharedFieldsDialogProps {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  concorsoId: string;
+  group: FaseGroup;
+  commissioni: CommissioneRecord[] | undefined;
+  onSaved: () => void;
+}
+
+function SharedFieldsDialog({
+  open,
+  onOpenChange,
+  concorsoId,
+  group,
+  commissioni,
+  onSaved,
+}: SharedFieldsDialogProps) {
+  const qc = useQueryClient();
+  const fasi = group.fasi;
+  const drift = computeDrift(fasi);
+
+  // Valori consensus (se tutte le fasi concordano) o fallback.
+  const curComm = (sharedValue(fasi, 'commissioneId')) ?? '';
+  const curScala = (sharedValue(fasi, 'scala')) ?? 10;
+  const curTempo = (sharedValue(fasi, 'tempoMinuti')) ?? 0;
+  const curModo = (sharedValue(fasi, 'modoValutazione') as string | null | undefined) ?? 'autonoma';
+  const curMetodo = (sharedValue(fasi, 'metodoMedia')) ?? 'aritmetica';
+
+  const [toggles, setToggles] = useState<Record<string, boolean>>({});
+  const [commValue, setCommValue] = useState('');
+  const [scalaValue, setScalaValue] = useState<number | ''>(10);
+  const [tempoValue, setTempoValue] = useState<number | ''>(0);
+  const [modoValue, setModoValue] = useState<'autonoma' | 'sincrona'>('autonoma');
+  const [metodoValue, setMetodoValue] = useState('aritmetica');
+  const [criteri, setCriteri] = useState<CriterioFV[]>([]);
+  const [criteriLoading, setCriteriLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  // All'apertura: ricarica i valori consensus + i criteri della prima fase
+  // (rappresentano la base da propagare quando si attiva il toggle criteri).
+  useEffect(() => {
+    if (!open) return;
+    setToggles({});
+    setCommValue(curComm || '');
+    setScalaValue(curScala ?? 10);
+    setTempoValue(curTempo ?? 0);
+    setModoValue(curModo === 'sincrona' ? 'sincrona' : 'autonoma');
+    setMetodoValue(curMetodo || 'aritmetica');
+    setCriteri(DEFAULT_CRITERI.map((c) => ({ ...c })));
+    const base = fasi[0];
+    if (base) {
+      setCriteriLoading(true);
+      listCriteri(base.id)
+        .then((rows) => {
+          if (rows.length > 0) {
+            setCriteri(rows.map((r) => ({ label: r.nome, key: '', peso: Number(r.peso) || 0 })));
+          }
+        })
+        .catch(() => {})
+        .finally(() => setCriteriLoading(false));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const totalPeso = criteri.reduce((s, c) => s + (Number(c.peso) || 0), 0);
+  const updateCriterio = (idx: number, field: keyof CriterioFV, val: string | number) =>
+    setCriteri((p) => p.map((c, i) => (i === idx ? { ...c, [field]: val } : c)));
+  const addCriterio = () => setCriteri((p) => [...p, { label: '', key: '', peso: 0 }]);
+  const removeCriterio = (idx: number) =>
+    setCriteri((p) => (p.length > 1 ? p.filter((_, i) => i !== idx) : p));
+
+  const toggle = (key: string) => setToggles((p) => ({ ...p, [key]: !p[key] }));
+
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    const patch: UpdateFaseBody = {};
+    if (toggles.commissioneId) patch.commissioneId = commValue || null;
+    if (toggles.scala) patch.scala = Number(scalaValue) || 0;
+    if (toggles.tempoMinuti) patch.tempoMinuti = Number(tempoValue) || 0;
+    if (toggles.modoValutazione) patch.modoValutazione = modoValue;
+    if (toggles.metodoMedia) patch.metodoMedia = metodoValue;
+
+    let criteriPatch: CriterioInput[] | null = null;
+    if (toggles.criteri) {
+      criteriPatch = criteri
+        .map((c, i) => ({ nome: c.label.trim(), peso: Math.max(0, Math.min(100, Number(c.peso) || 0)), ordine: i }))
+        .filter((c) => c.nome);
+      if (criteriPatch.length === 0) {
+        toast.error('Almeno un criterio richiesto');
+        return;
+      }
+    }
+
+    if (Object.keys(patch).length === 0 && !criteriPatch) {
+      toast.warning('Seleziona almeno un campo da modificare');
+      return;
+    }
+
+    setSaving(true);
+    // Applica a TUTTE le sotto-fasi; allSettled per non perdere update parziali.
+    const results = await Promise.allSettled(
+      fasi.map(async (f) => {
+        if (Object.keys(patch).length > 0) await updateFase(f.id, patch);
+        if (criteriPatch) await syncCriteri(f.id, criteriPatch);
+      }),
+    );
+    const ok = results.filter((r) => r.status === 'fulfilled').length;
+    const ko = results.filter((r) => r.status === 'rejected');
+    if (ko.length === 0) {
+      toast.success(`Configurazione propagata a ${ok} sotto-fasi`);
+    } else {
+      toast.error(`Aggiornate ${ok}/${fasi.length} — ${ko.length} errori`);
+    }
+    await qc.invalidateQueries({ queryKey: FASI_QUERY_KEY(concorsoId) });
+    setSaving(false);
+    onSaved();
+    onOpenChange(false);
+  };
+
+  const fieldWrap = (key: string, label: string, isDrift: boolean, control: ReactNode, help: string) => (
+    <div className={cn('border rounded-xl p-3', isDrift ? 'border-amber-200 bg-amber-50/30' : 'border-slate-200 bg-white')}>
+      <label className="flex items-start gap-3">
+        <input type="checkbox" className="mt-1 w-4 h-4" checked={!!toggles[key]} onChange={() => toggle(key)} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <span className="font-semibold text-sm text-slate-800">{label}</span>
+            {isDrift && (
+              <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                ⚠ diverso tra fasi
+              </span>
+            )}
+          </div>
+          <div className="mt-2">{control}</div>
+          <p className="text-[11px] text-slate-500 mt-1.5">{help}</p>
+        </div>
+      </label>
+    </div>
+  );
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>Configurazione condivisa</DialogTitle>
+          <DialogDescription className="sr-only">
+            Modifica i campi condivisi e propagali a tutte le sotto-fasi del gruppo.
+          </DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={onSubmit} className="space-y-4 overflow-y-auto max-h-[76dvh] pr-1">
+          <div className="bg-brand-50/60 border border-brand-100 rounded-xl px-4 py-3 text-sm text-slate-700">
+            <p>
+              Modifica i campi che vuoi applicare a tutte le {fasi.length} sotto-fasi di questo gruppo. I campi senza
+              spunta restano invariati su ogni sotto-fase.
+            </p>
+          </div>
+
+          {fieldWrap(
+            'commissioneId',
+            'Commissione',
+            drift.includes('commissioneId'),
+            <select className="c-input w-full" value={commValue} onChange={(e) => setCommValue(e.target.value)}>
+              <option value="">— Nessuna —</option>
+              {commissioni?.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nome} · {c.commissari.length} comm.
+                </option>
+              ))}
+            </select>,
+            drift.includes('commissioneId')
+              ? 'Attiva la spunta e imposta il nuovo valore: verrà propagato a tutte le sotto-fasi, sovrascrivendo le differenze attuali.'
+              : 'Attiva la spunta per modificare questo campo su tutte le sotto-fasi.',
+          )}
+
+          {fieldWrap(
+            'scala',
+            'Scala di voto',
+            drift.includes('scala'),
+            <input
+              type="number"
+              className="c-input w-full"
+              min={1}
+              max={100}
+              value={scalaValue}
+              onChange={(e) => setScalaValue(e.target.value === '' ? '' : Number(e.target.value))}
+            />,
+            drift.includes('scala')
+              ? 'Attiva la spunta e imposta il nuovo valore: verrà propagato a tutte le sotto-fasi, sovrascrivendo le differenze attuali.'
+              : 'Attiva la spunta per modificare questo campo su tutte le sotto-fasi.',
+          )}
+
+          {fieldWrap(
+            'tempoMinuti',
+            'Tempo per candidato (min)',
+            drift.includes('tempoMinuti'),
+            <input
+              type="number"
+              className="c-input w-full"
+              min={0}
+              max={600}
+              value={tempoValue}
+              onChange={(e) => setTempoValue(e.target.value === '' ? '' : Number(e.target.value))}
+            />,
+            drift.includes('tempoMinuti')
+              ? 'Attiva la spunta e imposta il nuovo valore: verrà propagato a tutte le sotto-fasi, sovrascrivendo le differenze attuali.'
+              : 'Attiva la spunta per modificare questo campo su tutte le sotto-fasi.',
+          )}
+
+          {fieldWrap(
+            'modoValutazione',
+            'Modalità di valutazione',
+            drift.includes('modoValutazione'),
+            <select
+              className="c-input w-full"
+              value={modoValue}
+              onChange={(e) => setModoValue(e.target.value === 'sincrona' ? 'sincrona' : 'autonoma')}
+            >
+              <option value="autonoma">Autonoma</option>
+              <option value="sincrona">Sincrona</option>
+            </select>,
+            drift.includes('modoValutazione')
+              ? 'Attiva la spunta e imposta il nuovo valore: verrà propagato a tutte le sotto-fasi, sovrascrivendo le differenze attuali.'
+              : 'Attiva la spunta per modificare questo campo su tutte le sotto-fasi.',
+          )}
+
+          {fieldWrap(
+            'metodoMedia',
+            'Metodo di media',
+            drift.includes('metodoMedia'),
+            <select className="c-input w-full" value={metodoValue} onChange={(e) => setMetodoValue(e.target.value)}>
+              {Object.entries(METODI_MEDIA).map(([k, m]) => (
+                <option key={k} value={k}>
+                  {m.nome}
+                </option>
+              ))}
+            </select>,
+            drift.includes('metodoMedia')
+              ? 'Attiva la spunta e imposta il nuovo valore: verrà propagato a tutte le sotto-fasi, sovrascrivendo le differenze attuali.'
+              : 'Attiva la spunta per modificare questo campo su tutte le sotto-fasi.',
+          )}
+
+          {/* Criteri: blocco dedicato con editor pesi (toggle key="criteri") */}
+          <div
+            className={cn(
+              'border rounded-xl p-3',
+              drift.includes('pesi') ? 'border-amber-200 bg-amber-50/30' : 'border-slate-200 bg-white',
+            )}
+          >
+            <label className="flex items-start gap-3">
+              <input
+                type="checkbox"
+                className="mt-1 w-4 h-4"
+                checked={!!toggles.criteri}
+                onChange={() => toggle('criteri')}
+              />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="font-semibold text-sm text-slate-800">Criteri di valutazione</span>
+                  {drift.includes('pesi') && (
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200">
+                      ⚠ diverso tra fasi
+                    </span>
+                  )}
+                  <span className="text-xs font-mono text-slate-600 ml-auto">
+                    Tot:{' '}
+                    <span className={cn('font-bold', totalPeso === 100 ? 'text-emerald-600' : 'text-amber-600')}>
+                      {totalPeso}%
+                    </span>
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-500 mt-1.5 mb-2">
+                  Attiva la spunta per propagare la stessa lista di criteri/pesi a tutte le sotto-fasi.
+                </p>
+                {criteriLoading ? (
+                  <p className="text-xs text-slate-400 italic">Caricamento criteri…</p>
+                ) : (
+                  <div className="space-y-2">
+                    {criteri.map((c, i) => (
+                      <div key={i} className="grid grid-cols-12 gap-2 items-end">
+                        <label className="col-span-8 c-field">
+                          {i === 0 && <span className="c-field__label">Etichetta</span>}
+                          <input
+                            type="text"
+                            className="c-input"
+                            value={c.label}
+                            onChange={(e) => updateCriterio(i, 'label', e.target.value)}
+                            placeholder="Tecnica"
+                          />
+                        </label>
+                        <label className="col-span-3 c-field">
+                          {i === 0 && <span className="c-field__label">Peso (%)</span>}
+                          <input
+                            type="number"
+                            step={1}
+                            min={0}
+                            max={100}
+                            className="c-input"
+                            value={c.peso}
+                            onChange={(e) => updateCriterio(i, 'peso', Number(e.target.value))}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => removeCriterio(i)}
+                          className="col-span-1 h-9 text-rose-600 hover:bg-rose-50 rounded-md flex items-center justify-center"
+                          title="Rimuovi"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={addCriterio}
+                      className="text-xs font-medium text-brand-700 hover:text-brand-900 inline-flex items-center gap-1"
+                    >
+                      + Aggiungi criterio
+                    </button>
+                  </div>
+                )}
+              </div>
+            </label>
+          </div>
+
+          <DialogFooter>
+            <button type="button" className="c-btn c-btn--outline" onClick={() => onOpenChange(false)} disabled={saving}>
+              Annulla
+            </button>
+            <button type="submit" className="c-btn c-btn--primary" disabled={saving}>
+              {saving ? 'Applicazione…' : 'Applica alle sotto-fasi'}
+            </button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // FasiTab (exported)
 // ---------------------------------------------------------------------------
 
 export function FasiTab({ concorsoId }: { concorsoId: string }) {
   const qc = useQueryClient();
   const { data: fasi, isLoading, isError } = useFasi(concorsoId);
+  // Sezioni: servono per enumerare i gruppi (una "fase madre" per sezione).
+  const { data: sezioni } = useSezioni(concorsoId);
+  const { data: commissioni } = useCommissioni(concorsoId);
 
   const sorted = [...(fasi ?? [])].sort((a, b) => a.ordine - b.ordine);
 
+  // Vista raggruppata: attiva quando il concorso ha sezioni. Senza sezioni
+  // (legacy / micro-concorsi) si usa la vista piatta come prima.
+  const useGrouped = (sezioni?.length ?? 0) > 0;
+  const groups = useMemo(
+    () => gruppoFasi(sorted, sezioni ?? []),
+    // sorted è ricalcolato a ogni render (nuovo array) ma il contenuto cambia solo con `fasi`.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [fasi, sezioni],
+  );
+
+  // form: { existing } = modifica fase; { prefill } = "+ Aggiungi sotto-fase"
+  // (delega al form con sezioni_ids + campi condivisi del gruppo pre-popolati).
   const [formDialog, setFormDialog] = useState<{
     open: boolean;
     existing?: FaseRecord;
+    prefill?: FasePrefill;
   }>({ open: false });
+
+  const [wizardDialog, setWizardDialog] = useState<{ open: boolean; group?: FaseGroup }>({
+    open: false,
+  });
+  const [sharedDialog, setSharedDialog] = useState<{ open: boolean; group?: FaseGroup }>({
+    open: false,
+  });
 
   const [confirmState, setConfirmState] = useState<{
     open: boolean;
@@ -1324,6 +2652,70 @@ export function FasiTab({ concorsoId }: { concorsoId: string }) {
     });
   };
 
+  // ── Add sotto-fase (delega al form con prefill dei campi condivisi) ─────────
+  // Replica il ramo `group.fasi.length > 0` di openFaseWizard.
+  const handleAddFase = (group: FaseGroup) => {
+    const prefill: FasePrefill = { sezioniIds: group.sezioneIds.slice() };
+    const sScala = sharedValue(group.fasi, 'scala');
+    if (sScala !== undefined) prefill.scala = sScala;
+    const sTempo = sharedValue(group.fasi, 'tempoMinuti');
+    if (sTempo !== undefined && sTempo != null) prefill.tempoMinuti = sTempo;
+    const sModo = sharedValue(group.fasi, 'modoValutazione');
+    if (sModo === 'autonoma' || sModo === 'sincrona') prefill.modoValutazione = sModo;
+    const sMetodo = sharedValue(group.fasi, 'metodoMedia');
+    if (sMetodo) prefill.metodoMedia = sMetodo;
+    const sComm = sharedValue(group.fasi, 'commissioneId');
+    if (sComm !== undefined) prefill.commissioneId = sComm;
+    setFormDialog({ open: true, prefill });
+  };
+
+  // ── Elimina gruppo: cancella TUTTE le sotto-fasi del gruppo ─────────────────
+  // Blocco preventivo se c'è qualcosa IN_CORSO (replica delete-group vanilla).
+  const handleDeleteGroup = (group: FaseGroup) => {
+    const running = group.fasi.filter((f) => f.stato === 'IN_CORSO');
+    if (running.length > 0) {
+      toast.error(`Impossibile eliminare: ${running.length} sotto-fasi sono IN_CORSO. Concludile prima.`);
+      return;
+    }
+    const concluse = group.fasi.filter((f) => f.stato === 'CONCLUSA').length;
+    const scopeLabel =
+      group.type === 'shared'
+        ? 'Fasi globali (tutte le sezioni)'
+        : group.sezioneIds
+            .map((id) => sezioni?.find((s) => s.id === id)?.nome)
+            .filter(Boolean)
+            .join(', ');
+    openConfirm({
+      title: 'Elimina gruppo di fasi',
+      description:
+        `Stai per eliminare tutte e ${group.fasi.length} le sotto-fasi del gruppo "${scopeLabel}".` +
+        (concluse > 0
+          ? ` ⚠ ${concluse} sotto-fasi sono CONCLUSE: tutte le valutazioni associate andranno perse irrimediabilmente.`
+          : '') +
+        " L'operazione non è reversibile.",
+      confirmLabel: 'Elimina tutte',
+      danger: true,
+      onConfirm: async () => {
+        // Sequenziale: ogni delete invalida il dataset → evito race.
+        const failed: string[] = [];
+        for (const f of group.fasi) {
+          try {
+            await deleteFase(f.id);
+          } catch (e) {
+            failed.push(`${f.nome}: ${httpErrorMessage(e)}`);
+          }
+        }
+        if (failed.length === 0) {
+          toast.success(`${group.fasi.length} sotto-fasi eliminate`);
+        } else {
+          const ok = group.fasi.length - failed.length;
+          toast.error(`Eliminate ${ok}/${group.fasi.length} — ${failed.slice(0, 3).join(' · ')}`);
+        }
+        await invalidate();
+      },
+    });
+  };
+
   // ── Render ────────────────────────────────────────────────────────────────
 
   const nextOrdine = sorted.length > 0 ? (sorted[sorted.length - 1]?.ordine ?? 0) + 1 : 1;
@@ -1353,17 +2745,26 @@ export function FasiTab({ concorsoId }: { concorsoId: string }) {
   return (
     <div className="space-y-4">
       {/* ── Header ────────────────────────────────────────────────────── */}
+      {/* In vista raggruppata il pulsante crea una FASE GLOBALE (sezioni_ids
+          vuoto). Le altre creazioni partono dalle card-gruppo. In vista piatta
+          (legacy) è il classico "Nuova fase". */}
       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <p className="text-sm text-slate-600">
           {sorted.length} {sorted.length === 1 ? 'fase' : 'fasi'}
         </p>
         <button
           type="button"
-          onClick={() => setFormDialog({ open: true })}
-          className="c-btn c-btn--primary c-btn--sm inline-flex items-center gap-1"
+          onClick={() => setFormDialog({ open: true, prefill: { sezioniIds: [] } })}
+          className="text-sm font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 px-3 py-2 rounded-lg inline-flex items-center gap-1"
         >
-          <Plus className="h-4 w-4" />
-          Nuova fase
+          {useGrouped ? (
+            <>＋ Fase globale</>
+          ) : (
+            <>
+              <Plus className="h-4 w-4" />
+              Nuova fase
+            </>
+          )}
         </button>
       </div>
 
@@ -1387,11 +2788,13 @@ export function FasiTab({ concorsoId }: { concorsoId: string }) {
             Ogni fase ha i propri criteri di valutazione, commissione e scala di voto.
           </p>
           <ul className="space-y-1.5 pl-1">
-            <li>▶️ <strong>Avvia</strong> — passa da PIANIFICATA a IN CORSO. I commissari possono iniziare a votare.</li>
-            <li>■ <strong>Concludi</strong> — chiude la fase e calcola gli ammessi alla successiva.</li>
-            <li>🎲 <strong>Sorteggio</strong> — genera un ordine casuale dei candidati.</li>
-            <li>↕ <strong>Riordina</strong> — cambia la sequenza delle fasi con le frecce su/giù.</li>
+            <li>🗂 <strong>Fasi per sezione</strong> — ogni sezione del concorso ha una "fase madre": la card che raggruppa la sua sequenza di sotto-fasi.</li>
+            <li>🧙 <strong>Wizard</strong> — su una sezione vuota usa <em>Configura fasi</em> per creare una fase unica o una sequenza (eliminatoria → semifinale → finale).</li>
+            <li>🔗 <strong>Configurazione condivisa</strong> — commissione, scala, metodo, modo, tempo e criteri si propagano a tutte le sotto-fasi del gruppo in un colpo solo.</li>
+            <li>🔧 <strong>Override</strong> — se una sotto-fase diverge su un campo condiviso, la card mostra un avviso ⚠ "diverso tra fasi" e la riga elenca i valori specifici.</li>
+            <li>🌐 <strong>Fasi globali</strong> — una fase senza sezioni vale per tutti i candidati del concorso.</li>
             <li>🏆 <strong>Ammessi</strong> — numero di candidati che passano alla fase successiva. Vuoto = tutti.</li>
+            <li>▶️ <strong>Flusso</strong> — Avvia (PIANIFICATA → IN CORSO), Concludi (calcola gli ammessi), Sorteggio (ordine casuale), frecce per riordinare.</li>
           </ul>
           <p className="mt-3 text-xs text-slate-500 italic">
             Il flusso di una fase è: PIANIFICATA → IN CORSO → CONCLUSA. Una fase IN CORSO non può essere eliminata.
@@ -1399,8 +2802,45 @@ export function FasiTab({ concorsoId }: { concorsoId: string }) {
         </div>
       </details>
 
-      {/* ── Empty state ───────────────────────────────────────────────── */}
-      {sorted.length === 0 ? (
+      {/* ── Body: vista raggruppata (fase madre per sezione) o piatta (legacy) ── */}
+      {useGrouped ? (
+        <div className="space-y-4">
+          {groups.map((g) => (
+            <GroupCard
+              key={g.key}
+              group={g}
+              sezioni={sezioni}
+              commissioni={commissioni}
+              onWizard={() => setWizardDialog({ open: true, group: g })}
+              onAddFase={() => handleAddFase(g)}
+              onEditShared={() => setSharedDialog({ open: true, group: g })}
+              onDeleteGroup={() => handleDeleteGroup(g)}
+              renderRow={(fase) => {
+                // isFirst/isLast usano l'ordine GLOBALE: il reorder è globale,
+                // non per-gruppo (replica move-up/down della vista vanilla).
+                const globalIdx = sorted.findIndex((f) => f.id === fase.id);
+                return (
+                  <InnerFaseRow
+                    key={fase.id}
+                    fase={fase}
+                    drift={computeDrift(g.fasi)}
+                    isFirst={globalIdx === 0}
+                    isLast={globalIdx === sorted.length - 1}
+                    commissioni={commissioni}
+                    onEdit={() => setFormDialog({ open: true, existing: fase })}
+                    onDelete={() => handleDelete(fase)}
+                    onStart={() => handleStart(fase)}
+                    onConclude={() => handleConclude(fase)}
+                    onSorteggio={() => handleSorteggio(fase)}
+                    onMoveUp={() => handleReorder(fase.id, 'up')}
+                    onMoveDown={() => handleReorder(fase.id, 'down')}
+                  />
+                );
+              }}
+            />
+          ))}
+        </div>
+      ) : sorted.length === 0 ? (
         <div className="bg-white border-2 border-dashed border-slate-200 rounded-2xl p-8 sm:p-10 text-center">
           <div className="text-5xl mb-3">🎼</div>
           <h3 className="text-lg font-bold text-slate-800">Nessuna fase configurata</h3>
@@ -1429,7 +2869,7 @@ export function FasiTab({ concorsoId }: { concorsoId: string }) {
           </ol>
           <button
             type="button"
-            onClick={() => setFormDialog({ open: true })}
+            onClick={() => setFormDialog({ open: true, prefill: { sezioniIds: [] } })}
             className="mt-6 c-btn c-btn--primary inline-flex items-center gap-1.5"
           >
             <Plus className="h-4 w-4" />
@@ -1456,16 +2896,43 @@ export function FasiTab({ concorsoId }: { concorsoId: string }) {
         </div>
       )}
 
-      {/* ── Form dialog ───────────────────────────────────────────────── */}
+      {/* ── Form dialog (modifica / + sotto-fase / fase globale) ──────────── */}
       {formDialog.open && (
         <FaseFormDialog
-          key={formDialog.existing?.id ?? 'new'}
+          key={formDialog.existing?.id ?? `new:${JSON.stringify(formDialog.prefill ?? {})}`}
           open={formDialog.open}
           onOpenChange={(v) => setFormDialog((p) => ({ ...p, open: v }))}
           concorsoId={concorsoId}
           existing={formDialog.existing}
+          prefill={formDialog.prefill}
           nextOrdine={nextOrdine}
           onSaved={() => setFormDialog({ open: false })}
+        />
+      )}
+
+      {/* ── Wizard dialog (sequenza fasi per un gruppo vuoto) ─────────────── */}
+      {wizardDialog.open && wizardDialog.group && (
+        <FaseWizardDialog
+          key={wizardDialog.group.key}
+          open={wizardDialog.open}
+          onOpenChange={(v) => setWizardDialog((p) => ({ ...p, open: v }))}
+          concorsoId={concorsoId}
+          group={wizardDialog.group}
+          nextOrdine={nextOrdine}
+          onSaved={() => setWizardDialog({ open: false })}
+        />
+      )}
+
+      {/* ── Shared-fields dialog (batch edit campi condivisi) ─────────────── */}
+      {sharedDialog.open && sharedDialog.group && (
+        <SharedFieldsDialog
+          key={sharedDialog.group.key}
+          open={sharedDialog.open}
+          onOpenChange={(v) => setSharedDialog((p) => ({ ...p, open: v }))}
+          concorsoId={concorsoId}
+          group={sharedDialog.group}
+          commissioni={commissioni}
+          onSaved={() => setSharedDialog({ open: false })}
         />
       )}
 

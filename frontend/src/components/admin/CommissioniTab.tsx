@@ -49,6 +49,10 @@ import {
 import { useCommissari, type CommissarioRecord } from '@/api/commissari';
 import { useSezioni, type SezioneRecord } from '@/api/sezioni';
 import { categorieApi, categorieKeys, type CategoriaRecord } from '@/api/categorie';
+import {
+  getPresidenteForCommissione,
+  isPresidenteDiQualcheCommissione,
+} from '@/lib/presidenti';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -581,10 +585,8 @@ function CommissioneCard({
   const cats = c.categorie
     .map((id) => allCats.get(id))
     .filter((x): x is CategoriaRecord => !!x);
-  // Presidente di QUESTA commissione (non di altre).
-  const pres = c.presidenteCommissarioId
-    ? allCommissari.find((x) => x.id === c.presidenteCommissarioId)
-    : null;
+  // Presidente di QUESTA commissione (non di altre) — db.getPresidenteForCommissione.
+  const pres = getPresidenteForCommissione(c, [c], allCommissari);
 
   return (
     <div className="bg-white border border-slate-200 rounded-2xl p-4">
@@ -745,11 +747,13 @@ export default function CommissioniTab({ concorsoId }: { concorsoId: string }) {
   const commissariAll = allCommissari ?? [];
   const commissariAttivi = commissariAll.filter((c) => c.stato === 'ATTIVO');
 
-  // isPresidenteDiQualcheCommissione: id presidenti su TUTTE le commissioni.
+  // isPresidenteDiQualcheCommissione: id dei commissari presidente di ALMENO
+  // UNA commissione del concorso (db, ora in @/lib/presidenti).
+  const allComs = commissioni ?? [];
   const presidentiOvunque = new Set<string>(
-    (commissioni ?? [])
-      .map((c) => c.presidenteCommissarioId)
-      .filter((id): id is string => !!id),
+    commissariAll
+      .filter((c) => isPresidenteDiQualcheCommissione(c.id, allComs))
+      .map((c) => c.id),
   );
 
   const handleDelete = async (c: CommissioneRecord) => {
