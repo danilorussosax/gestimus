@@ -1116,6 +1116,7 @@ export const fr = {
     'admin.dashboard.card.commissari_desc': 'Registre et archives des juges du concours.',
     'admin.dashboard.card.commissioni_desc': 'Commissions avec membres, sections et catégories.',
     'admin.dashboard.card.fasi_desc': 'Phases du concours, critères d\'évaluation et départage.',
+    'admin.dashboard.card.calendario_desc': 'Planification des salles, blocs et horaires ; liens publics et tableau.',
     'admin.dashboard.card.iscrizioni_desc': 'Inscriptions publiques en attente d\'approbation.',
     'admin.dashboard.card.candidati_desc': 'Registre des candidats et gestion des groupes.',
     'admin.dashboard.card.risultati_desc': 'Classements, podium, export PDF et procès-verbal.',

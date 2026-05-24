@@ -15,6 +15,7 @@ export const SIDEBAR_TABS = [
   { id: 'commissari',  iconName: 'judge',      labelKey: 'admin.nav.commissari',  descKey: 'admin.dashboard.card.commissari_desc',  count: (c) => db.commissariByConcorso(c.id).length },
   { id: 'commissioni', iconName: 'scale',      labelKey: 'admin.nav.commissioni', descKey: 'admin.dashboard.card.commissioni_desc', count: (c) => db.commissioniByConcorso(c.id).length },
   { id: 'fasi',        iconName: 'flag',       labelKey: 'admin.nav.fasi',        descKey: 'admin.dashboard.card.fasi_desc',        count: (c) => db.fasiByConcorso(c.id).length },
+  { id: 'calendario',  iconName: 'calendar',   labelKey: 'admin.nav.calendario',  descKey: 'admin.dashboard.card.calendario_desc',  count: (c) => db.eventiByConcorso(c.id).length },
   { id: 'iscrizioni',  iconName: 'user',       labelKey: 'admin.nav.iscrizioni',  descKey: 'admin.dashboard.card.iscrizioni_desc',  count: () => null },
   { id: 'candidati',   iconName: 'graduation', labelKey: 'admin.nav.candidati',   descKey: 'admin.dashboard.card.candidati_desc',   count: (c) => db.candidatiByConcorso(c.id).length },
   { id: 'risultati',   iconName: 'trophy',     labelKey: 'admin.nav.risultati',   descKey: 'admin.dashboard.card.risultati_desc',   count: () => null },

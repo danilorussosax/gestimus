@@ -1224,6 +1224,7 @@ export const en = {
     'admin.dashboard.card.commissari_desc': 'Competition judges registry and archive.',
     'admin.dashboard.card.commissioni_desc': 'Commissions with members, sections and categories.',
     'admin.dashboard.card.fasi_desc': 'Competition phases, scoring criteria and tiebreak.',
+    'admin.dashboard.card.calendario_desc': 'Scheduling of rooms, blocks and times; public links and board.',
     'admin.dashboard.card.iscrizioni_desc': 'Public registrations pending approval.',
     'admin.dashboard.card.candidati_desc': 'Candidate registry and group management.',
     'admin.dashboard.card.risultati_desc': 'Rankings, podium, PDF export and minutes.',

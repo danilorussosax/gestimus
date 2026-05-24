@@ -1046,6 +1046,7 @@ Il Presidente
     'admin.dashboard.card.commissari_desc': 'Anagrafica e archivio commissari del concorso.',
     'admin.dashboard.card.commissioni_desc': 'Commissioni con membri, sezioni e categorie.',
     'admin.dashboard.card.fasi_desc': 'Fasi del concorso, criteri di valutazione e tiebreak.',
+    'admin.dashboard.card.calendario_desc': 'Pianificazione di sale, blocchi e orari; link pubblici e tabellone.',
     'admin.dashboard.card.iscrizioni_desc': 'Iscrizioni pubbliche pendenti di approvazione.',
     'admin.dashboard.card.candidati_desc': 'Anagrafica candidati e gestione gruppi.',
     'admin.dashboard.card.risultati_desc': 'Classifiche, podio, esportazione PDF e verbale.',
