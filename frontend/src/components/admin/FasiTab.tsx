@@ -184,6 +184,21 @@ const STATO_COLORS: Record<FaseStato, string> = {
   CONCLUSA: 'bg-emerald-100 text-emerald-800 border-emerald-200',
 };
 
+// Tip della guida "Come configurare le fasi" — testo identico al vanilla
+// (admin.fasi.guide.* in it.json). I body contengono HTML deliberato.
+const GUIDE_TIPS: { emoji: string; title: string; body: string }[] = [
+  { emoji: '🗂', title: 'Vista per sezione', body: 'Vedi una card per ciascuna sezione del concorso. Le sezioni senza fasi mostrano un pulsante <em>Configura fasi</em> per partire da zero. Le fasi globali (valide per tutte le sezioni) appaiono in cima.' },
+  { emoji: '🧙', title: 'Wizard di creazione', body: 'Da <em>Configura fasi</em> scegli un template: <strong>fase unica</strong> (es. 5/10 candidati), <strong>eliminatoria + finale</strong>, <strong>eliminatoria + semifinale + finale</strong> (es. 200 candidati: 200 → 20 → 6) o <strong>personalizzato</strong>. Poi indichi nome e posti per ogni sotto-fase, infine la configurazione comune (commissione/scala/criteri/modo/tempo) che il sistema propaga a tutte.' },
+  { emoji: '🔗', title: 'Configurazione condivisa', body: 'Commissione, scala, criteri, modo e tempo sono "ereditati" dalle sotto-fasi (impostati dal wizard). Il bottone <strong>⚙ Configurazione condivisa</strong> in cima al gruppo permette di modificarli in blocco. Le sotto-fasi con valori divergenti mostrano un badge <strong>⚠ diverso tra fasi</strong>.' },
+  { emoji: '🔧', title: 'Override puntuali', body: 'Clicca la singola sotto-fase per cambiare un campo solo per quella (es. <em>Finale 15′</em> mentre il resto del gruppo è a 10′). I valori specifici compaiono in chiaro nella riga della sotto-fase.' },
+  { emoji: '🎻', title: 'Tracce parallele', body: "Ogni sezione procede in modo <strong>indipendente</strong>: puoi avviare la finale dei fiati mentre l'eliminatoria degli archi è ancora in corso. Le sotto-fasi della stessa sezione si concatenano in base al numero <strong>#ordine</strong>." },
+  { emoji: '🌐', title: 'Fasi globali', body: 'Il pulsante <strong>+ Fase globale</strong> in alto crea una fase senza scope di sezione: vale per tutti i candidati (utile per sorteggi iniziali o cerimonie). Una fase globale fa da spartiacque: ogni sezione la aspetta prima di partire.' },
+  { emoji: '🏆', title: 'Posti per la sotto-fase successiva', body: 'Vuoto = passano <em>tutti</em> i candidati ammessi dal verdetto. Imposta un numero per limitare il passaggio ai migliori N (es. 20 in semifinale, 6 in finale).' },
+  { emoji: '🗑', title: 'Eliminazione', body: '🗑 sulla riga elimina la singola sotto-fase. <strong>🗑 Elimina gruppo</strong> sul header del gruppo cancella tutte le sotto-fasi insieme (bloccato se almeno una è IN_CORSO; segnalato in modo evidente se ci sono fasi CONCLUSE con voti).' },
+  { emoji: '⚖', title: 'Spareggi ed ex aequo', body: 'Cascata fissa a 4 regole (ognuna abilitabile/disabilitabile): <strong>1. scomposizione del voto</strong> (vince il criterio col peso più alto) → <strong>2. voto del Presidente</strong> → <strong>3. età</strong> (più giovane vince) → <strong>4. ex aequo</strong> (stessa posizione; salta la successiva, montepremi diviso). Si configura nella <em>Sezione 6</em> del form fase (default ereditato dal concorso).' },
+  { emoji: '▶️', title: 'Flusso di lavoro', body: 'PIANIFICATA → IN_CORSO (avviata dal presidente con pre-flight check) → CONCLUSA. A fase chiusa i voti sono bloccati e gli ammessi diventano la base della sotto-fase seguente della stessa sezione.' },
+];
+
 // Criteri di default in creazione — identici a openFaseForm (peso decimale → %).
 const DEFAULT_CRITERI: CriterioFV[] = [
   { label: 'Tecnica', key: 'tecnica', peso: 35 },
@@ -2783,21 +2798,26 @@ export function FasiTab({ concorsoId }: { concorsoId: string }) {
           </span>
         </summary>
         <div className="px-4 pb-4 pt-1 text-[13px] text-slate-700 leading-relaxed">
-          <p className="mb-3">
-            Le <strong>fasi</strong> definiscono la struttura del concorso: eliminatoria, semifinale, finale.
-            Ogni fase ha i propri criteri di valutazione, commissione e scala di voto.
-          </p>
+          {/* Intro + 10 tip di guida — testo identico al vanilla (fasiGuidanceHtml).
+              I body contengono HTML (<strong>/<em>/<code>) deliberato → dangerouslySetInnerHTML. */}
+          <p
+            className="mb-3"
+            dangerouslySetInnerHTML={{
+              __html:
+                'La pagina è organizzata <strong>per sezione</strong>: ogni card è una "fase madre" che contiene una o più <em>sotto-fasi</em> (eliminatoria, semifinale, finale…). I candidati ammessi al termine di una sotto-fase passano automaticamente alla successiva della stessa sezione.',
+            }}
+          />
           <ul className="space-y-1.5 pl-1">
-            <li>🗂 <strong>Fasi per sezione</strong> — ogni sezione del concorso ha una "fase madre": la card che raggruppa la sua sequenza di sotto-fasi.</li>
-            <li>🧙 <strong>Wizard</strong> — su una sezione vuota usa <em>Configura fasi</em> per creare una fase unica o una sequenza (eliminatoria → semifinale → finale).</li>
-            <li>🔗 <strong>Configurazione condivisa</strong> — commissione, scala, metodo, modo, tempo e criteri si propagano a tutte le sotto-fasi del gruppo in un colpo solo.</li>
-            <li>🔧 <strong>Override</strong> — se una sotto-fase diverge su un campo condiviso, la card mostra un avviso ⚠ "diverso tra fasi" e la riga elenca i valori specifici.</li>
-            <li>🌐 <strong>Fasi globali</strong> — una fase senza sezioni vale per tutti i candidati del concorso.</li>
-            <li>🏆 <strong>Ammessi</strong> — numero di candidati che passano alla fase successiva. Vuoto = tutti.</li>
-            <li>▶️ <strong>Flusso</strong> — Avvia (PIANIFICATA → IN CORSO), Concludi (calcola gli ammessi), Sorteggio (ordine casuale), frecce per riordinare.</li>
+            {GUIDE_TIPS.map((tip) => (
+              <li key={tip.title}>
+                {tip.emoji} <strong>{tip.title}</strong> —{' '}
+                <span dangerouslySetInnerHTML={{ __html: tip.body }} />
+              </li>
+            ))}
           </ul>
           <p className="mt-3 text-xs text-slate-500 italic">
-            Il flusso di una fase è: PIANIFICATA → IN CORSO → CONCLUSA. Una fase IN CORSO non può essere eliminata.
+            Suggerimento: prima di configurare le fasi assicurati di aver definito sezioni,
+            candidati, commissari e (opzionalmente) commissioni.
           </p>
         </div>
       </details>
