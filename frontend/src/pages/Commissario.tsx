@@ -29,7 +29,6 @@ import { Link } from 'react-router-dom';
 import { http } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
-import { Button } from '@/components/ui/button';
 
 import type {
   Fase,
@@ -247,7 +246,7 @@ function FloatingTimer({ faseId, isPresidente, candidatoFaseId }: FloatingTimerP
   return (
     <div
       className={cn(
-        'fixed bottom-6 right-6 z-40 bg-white/95 backdrop-blur-md border-2 rounded-2xl px-4 py-3 shadow-lg flex items-center gap-3 transition-all',
+        'fixed bottom-6 right-6 z-40 bg-white/95 backdrop-blur-md border-2 rounded-2xl px-4 py-3 shadow-pop flex items-center gap-3 transition-all',
         borderCls,
       )}
       role="timer"
@@ -369,7 +368,7 @@ function CountdownConfirm({
   const nameLabel = anonimo ? '' : ` ${displayName(candidato)}`;
 
   return (
-    <div className="fixed inset-0 z-50 bg-slate-900/55 backdrop-blur-sm flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-50 bg-slate-900/55 backdrop-blur-sm flex items-center justify-center p-4 view-fade">
       <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden">
         <div className={cn(headerCls, 'text-white px-6 py-5 text-center')}>
           <div className="text-4xl mb-1">⏳</div>
@@ -399,7 +398,7 @@ function CountdownConfirm({
             />
           </div>
           <button
-            className="mt-5 w-full inline-flex items-center justify-center gap-2 text-base font-bold text-slate-700 bg-slate-100 hover:bg-slate-200 px-6 py-3 rounded-2xl transition"
+            className="c-btn c-btn--outline mt-5 w-full"
             onClick={onCancel}
           >
             {t('com.confirm.cancel')}
@@ -517,32 +516,38 @@ function PresidentePanel({
     const missing = total - fullyVoted;
 
     // Pre-flight for PIANIFICATA
-    // criteri may be a separate joined array OR embedded in fase.pesi (legacy).
-    // For the preflight we just need a count > 0 check.
     const numCriteri = Array.isArray(fase.criteri) && fase.criteri.length > 0
       ? fase.criteri.length
       : (fase as unknown as { pesi?: Record<string, number> }).pesi
         ? Object.keys((fase as unknown as { pesi: Record<string, number> }).pesi).length
-        : 4; // default 4-criterio legacy scheme is always available
+        : 4;
     const canStart = numCriteri > 0 && commIds.length > 0 && total > 0;
 
     const faseLabel = `${t('com.pres.phase_label', { ordine: fase.ordine })} · ${fase.nome}`;
 
     const isConfirmingEnd = confirmEndFaseId === fase.id;
 
+    // Resolve sezione title (like vanilla titleSezione)
+    const titleSezione = fase.nome;
+    // Commissione as subtitle
+    const subtitleCategoria = commissione?.nome ?? t('com.pres.scope_all', { defaultValue: 'Tutte le categorie' });
+
+    const modo = (fase as unknown as { modoValutazione?: string }).modoValutazione ?? 'autonoma';
+    const tempo = Number((fase as unknown as { tempoMinuti?: number }).tempoMinuti) || 0;
+    const passedPct = total ? Math.round((passed / total) * 100) : 0;
+
     return (
-      <article className="bg-white rounded-2xl border border-slate-200 shadow-sm p-5 sm:p-6 flex flex-col hover:shadow-md transition">
+      <article className="bg-white rounded-2xl border border-slate-200 shadow-soft p-5 sm:p-6 flex flex-col hover:shadow-md transition">
+        {/* Header matching vanilla: Sezione eyebrow, titleSezione h4, categoria subtitle */}
         <header className="flex items-start justify-between gap-3 pb-4 border-b border-slate-100">
           <div className="min-w-0 flex-1">
-            <p className="text-[11px] font-mono uppercase tracking-widest text-slate-500 font-medium">
-              {fase.nome}
-            </p>
-            <h4 className="font-bold text-slate-900 text-xl sm:text-2xl leading-tight mt-0.5 truncate">
-              {faseLabel}
+            <p className="text-[11px] font-mono uppercase tracking-[0.16em] text-ink-500 font-medium">Sezione</p>
+            <h4 className="font-bold text-ink-900 text-xl sm:text-2xl leading-tight mt-0.5 truncate">
+              {titleSezione}
             </h4>
-            {commissione && (
-              <p className="text-sm text-slate-600 mt-1 truncate">{commissione.nome}</p>
-            )}
+            <p className="text-sm text-ink-700 mt-1 truncate" title={subtitleCategoria}>
+              {subtitleCategoria}
+            </p>
           </div>
           <span
             className={cn(
@@ -554,24 +559,69 @@ function PresidentePanel({
           </span>
         </header>
 
+        {/* Fase + commissione tag row */}
+        <div className="mt-4 flex items-center gap-2 text-xs text-ink-700 flex-wrap">
+          <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-brand-50 border border-brand-100 text-brand-700 font-medium">
+            🏁 <span>{faseLabel}</span>
+          </span>
+          {commissione && (
+            <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-slate-50 border border-slate-200 text-ink-700">
+              ⚖ <span className="truncate max-w-[14rem]">{commissione.nome}</span>
+            </span>
+          )}
+        </div>
+
         <dl className="mt-4 grid grid-cols-2 gap-x-5 gap-y-3 text-sm">
-          <div className="text-slate-600">
-            <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Scala</div>
-            <div>{t('com.pres.scala', { scala: fase.scala })}</div>
+          <div className="flex items-center gap-2 text-ink-700 min-w-0">
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-wider text-ink-500 font-semibold leading-none">Tempo</div>
+              <div className="truncate font-medium">
+                {tempo > 0 ? t('com.pres.tempo_value', { min: tempo, defaultValue: `${tempo} min` }) : t('com.pres.tempo_off', { defaultValue: 'Libero' })}
+              </div>
+            </div>
           </div>
-          <div className="text-slate-600">
-            <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">Criteri</div>
-            <div>{t('com.pres.criteri_count', { n: numCriteri })}</div>
+          <div className="flex items-center gap-2 text-ink-700 min-w-0">
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-wider text-ink-500 font-semibold leading-none">Valutazione</div>
+              <div className="truncate font-medium">
+                {modo === 'sincrona' ? t('com.pres.modo_sync', { defaultValue: 'Sincrona' }) : t('com.pres.modo_async', { defaultValue: 'Autonoma' })} · {t('com.pres.scala', { scala: fase.scala })}
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-ink-700 min-w-0">
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-wider text-ink-500 font-semibold leading-none">Criteri</div>
+              <div className="truncate font-medium">{t('com.pres.criteri_count', { n: numCriteri })}</div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 text-ink-700 min-w-0">
+            <div className="min-w-0">
+              <div className="text-[10px] uppercase tracking-wider text-ink-500 font-semibold leading-none">Scala</div>
+              <div className="truncate font-medium">{t('com.pres.scala', { scala: fase.scala })}</div>
+            </div>
           </div>
         </dl>
 
         {/* PIANIFICATA — preflight */}
         {isPlanned && (
           <div className="mt-5 pt-5 border-t border-slate-200">
-            <h5 className="text-sm font-bold text-slate-800 uppercase tracking-wide mb-3">
-              {t('com.pres.preflight_title')}
-            </h5>
-            <ul className="space-y-2">
+            <div className="flex items-baseline justify-between mb-3">
+              <h5 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
+                {t('com.pres.preflight_title')}
+              </h5>
+              <span className="text-xs text-slate-500">3 controlli</span>
+            </div>
+            <div className={cn(
+              'rounded-lg border px-3 py-2 mb-3 text-sm font-semibold',
+              canStart
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                : 'bg-rose-50 border-rose-200 text-rose-900',
+            )}>
+              {canStart
+                ? `✓ Tutti i controlli passati — pronto ad avviare`
+                : `✗ Risolvi i blocchi prima di avviare`}
+            </div>
+            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
               <PreflightItem
                 ok={commIds.length > 0}
                 label={
@@ -591,17 +641,21 @@ function PresidentePanel({
             </ul>
             <div className="mt-5 pt-5 border-t border-slate-200 flex items-center justify-end">
               {canStart ? (
-                <Button
+                <button
                   onClick={() => handleStart(fase.id)}
                   disabled={saving}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                  className="inline-flex items-center gap-2 text-base font-bold text-white bg-emerald-600 hover:bg-emerald-700 px-6 py-3 rounded-xl shadow-md transition-transform hover:scale-[1.02] disabled:opacity-50 disabled:pointer-events-none"
                 >
                   ▶ {t('com.pres.start')}
-                </Button>
+                </button>
               ) : (
-                <Button disabled title={t('com.pres.cant_start_hint')}>
+                <button
+                  disabled
+                  title={t('com.pres.cant_start_hint')}
+                  className="inline-flex items-center gap-2 text-base font-medium text-slate-400 bg-slate-100 cursor-not-allowed px-6 py-3 rounded-xl"
+                >
                   ▶ {t('com.pres.start')}
-                </Button>
+                </button>
               )}
             </div>
           </div>
@@ -621,7 +675,7 @@ function PresidentePanel({
                 </span>
               </div>
               <div className="w-full h-3 bg-slate-200 rounded-full overflow-hidden">
-                <div className="h-full bg-gradient-to-r from-emerald-500 to-emerald-600" style={{ width: `${pct}%` }} />
+                <div className="h-full bg-gradient-to-r from-emerald-500 to-emerald-600 transition-all" style={{ width: `${pct}%` }} />
               </div>
               <div className="mt-2.5 grid grid-cols-3 gap-2 text-xs">
                 <div className="flex items-center gap-1.5 text-slate-700">
@@ -650,7 +704,7 @@ function PresidentePanel({
               </div>
               <div className="w-full h-3 bg-slate-200 rounded-full overflow-hidden">
                 <div
-                  className={cn('h-full', allComm ? 'bg-gradient-to-r from-emerald-500 to-emerald-600' : 'bg-gradient-to-r from-amber-400 to-amber-500')}
+                  className={cn('h-full transition-all', allComm ? 'bg-gradient-to-r from-emerald-500 to-emerald-600' : 'bg-gradient-to-r from-amber-400 to-amber-500')}
                   style={{ width: `${commPct}%` }}
                 />
               </div>
@@ -663,13 +717,16 @@ function PresidentePanel({
             {/* End fase */}
             {!isConfirmingEnd ? (
               <div className="mt-5 pt-5 border-t border-slate-200 flex justify-end">
-                <Button
+                <button
                   onClick={() => { setConfirmEndFaseId(fase.id); setEndChecked(false); }}
-                  className={cn(allComm ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700', 'text-white')}
                   disabled={saving}
+                  className={cn(
+                    'inline-flex items-center gap-2 text-base font-bold text-white px-6 py-3 rounded-xl shadow-md transition-transform hover:scale-[1.02] disabled:opacity-50 disabled:pointer-events-none',
+                    allComm ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700',
+                  )}
                 >
                   ■ {t('com.pres.end')}
-                </Button>
+                </button>
               </div>
             ) : (
               <div className="mt-5 pt-5 border-t border-slate-200 space-y-4">
@@ -692,21 +749,24 @@ function PresidentePanel({
                     type="checkbox"
                     checked={endChecked}
                     onChange={(e) => setEndChecked(e.target.checked)}
-                    className="mt-1 w-4 h-4 rounded border-slate-300"
+                    className="mt-1 w-4 h-4 rounded border-slate-300 text-brand-600"
                   />
                   <span className="text-xs text-slate-700">{t('com.pres.end_checkbox')}</span>
                 </label>
                 <div className="flex items-center justify-end gap-3">
-                  <Button variant="outline" size="sm" onClick={() => setConfirmEndFaseId(null)}>
+                  <button
+                    className="c-btn c-btn--outline c-btn--sm"
+                    onClick={() => setConfirmEndFaseId(null)}
+                  >
                     {t('common.cancel')}
-                  </Button>
-                  <Button
+                  </button>
+                  <button
                     onClick={() => handleEnd(fase.id)}
                     disabled={saving}
-                    className="bg-rose-600 hover:bg-rose-700 text-white"
+                    className="c-btn c-btn--danger disabled:opacity-50 disabled:pointer-events-none"
                   >
                     {t('com.pres.end_btn')}
-                  </Button>
+                  </button>
                 </div>
               </div>
             )}
@@ -724,21 +784,23 @@ function PresidentePanel({
                 <div className="text-xs uppercase tracking-wider text-slate-500 font-semibold mb-1">
                   {t('com.pres.outcome_total')}
                 </div>
-                <div className="text-3xl font-extrabold text-slate-900">{total}</div>
+                <div className="text-3xl font-extrabold text-slate-900 leading-none">{total}</div>
               </div>
               <div className="rounded-xl bg-emerald-50 border border-emerald-200 p-3">
                 <div className="text-xs uppercase tracking-wider text-emerald-700 font-semibold mb-1">
                   {t('com.pres.outcome_passed')}
                 </div>
-                <div className="text-3xl font-extrabold text-emerald-800">{passed}</div>
+                <div className="text-3xl font-extrabold text-emerald-800 leading-none">{passed}</div>
+                <div className="text-[10px] text-emerald-700 mt-1">{passedPct}%</div>
               </div>
               <div className="rounded-xl bg-rose-50 border border-rose-200 p-3">
                 <div className="text-xs uppercase tracking-wider text-rose-700 font-semibold mb-1">
                   {t('com.pres.outcome_eliminated')}
                 </div>
-                <div className="text-3xl font-extrabold text-rose-800">
+                <div className="text-3xl font-extrabold text-rose-800 leading-none">
                   {Math.max(0, total - passed)}
                 </div>
+                <div className="text-[10px] text-rose-700 mt-1">{Math.max(0, 100 - passedPct)}%</div>
               </div>
             </div>
           </div>
@@ -770,15 +832,16 @@ function PresidentePanel({
         </div>
       </header>
 
-      {/* KPI strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-        <KpiCard gradient="from-sky-400 to-cyan-500" value={fasi.length} label="Fasi presiedute" />
-        <KpiCard gradient="from-emerald-400 to-teal-500" value={totCand} label="Candidati totali" />
-        <KpiCard gradient="from-violet-500 to-purple-600" value={totValutati} label="Valutati" />
+      {/* KPI strip matching vanilla kpiGradientCard with icon circle */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+        <KpiCard gradient="from-sky-400 to-cyan-500" value={fasi.length} label="Fasi presiedute" icon="🏁" />
+        <KpiCard gradient="from-emerald-400 to-teal-500" value={totCand} label="Candidati totali" icon="🎓" />
+        <KpiCard gradient="from-violet-500 to-purple-600" value={totValutati} label="Valutati" icon="✓" />
         <KpiCard
           gradient="from-indigo-500 to-blue-600"
           value={`${pctComplete}%`}
           label="Completamento"
+          icon="📊"
           progress={pctComplete}
         />
       </div>
@@ -796,15 +859,23 @@ function KpiCard({
   gradient,
   value,
   label,
+  icon,
   progress,
 }: {
   gradient: string;
   value: string | number;
   label: string;
+  icon: string;
   progress?: number;
 }) {
   return (
     <div className={cn('relative rounded-2xl p-5 bg-gradient-to-br text-white shadow-md overflow-hidden', gradient)}>
+      <div className="flex items-start justify-between mb-3">
+        <div className="w-11 h-11 rounded-xl bg-white/95 text-slate-700 flex items-center justify-center shadow-sm text-lg">
+          {icon}
+        </div>
+        <span className="text-white/70 cursor-pointer leading-none text-lg" title="Altre opzioni">⋯</span>
+      </div>
       <div className="text-3xl sm:text-4xl font-extrabold leading-none mb-1.5 drop-shadow-sm">
         {value}
       </div>
@@ -1085,9 +1156,9 @@ function ScoringSheet({
         />
       )}
 
-      <section className="bg-gradient-to-br from-emerald-50/30 via-white to-emerald-50/20 -m-4 sm:-m-6 p-4 sm:p-6 rounded-3xl">
+      <section className="view-fade bg-gradient-to-br from-emerald-50/30 via-white to-emerald-50/20 -m-4 sm:-m-6 p-4 sm:p-6 rounded-3xl">
         {/* Header valutazione */}
-        <div className="bg-white rounded-3xl border border-slate-100 shadow-sm p-5 sm:p-6 mb-5">
+        <div className="bg-white rounded-3xl border border-slate-100 shadow-soft p-5 sm:p-6 mb-5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0">
               <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-amber-50 border border-amber-200 text-xs font-bold text-amber-700 uppercase tracking-wider">
@@ -1134,7 +1205,7 @@ function ScoringSheet({
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
-          {/* Sidebar storico */}
+          {/* 25% history sidebar */}
           <aside className="lg:col-span-1">
             <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
               {t('com.history_title')}
@@ -1164,9 +1235,9 @@ function ScoringSheet({
             </div>
           </aside>
 
-          {/* Scheda valutazione principale */}
+          {/* 75% main evaluation */}
           <div className="lg:col-span-3">
-            <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-7 shadow-sm">
+            <div className="bg-white rounded-3xl border border-slate-100 p-6 sm:p-7 shadow-soft">
               <div className="flex flex-wrap items-start justify-between gap-4 pb-5 border-b border-slate-100">
                 <div className="flex items-center gap-5 min-w-0">
                   <div className="text-5xl sm:text-6xl font-black tabular-nums bg-gradient-to-br from-brand-600 to-brand-800 bg-clip-text text-transparent leading-none shrink-0">
@@ -1202,11 +1273,12 @@ function ScoringSheet({
                     </div>
                   </div>
                 </div>
+
                 <div className="text-right shrink-0">
                   <div className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
                     {t('com.weighted_total')}
                   </div>
-                  <div className={cn('text-4xl sm:text-5xl font-extrabold leading-none mt-1', totaleCls)}>
+                  <div id="totale" className={cn('text-4xl sm:text-5xl font-extrabold leading-none mt-1', totaleCls)}>
                     {scoring.fmtVoto(totale, scala)}
                     <span className="text-lg font-medium text-slate-300">/{scala}</span>
                   </div>
@@ -1216,13 +1288,13 @@ function ScoringSheet({
                 </div>
               </div>
 
-              {/* Quick score stars */}
-              <div className="mt-6 bg-amber-50/50 border border-amber-100 rounded-xl px-4 py-3">
+              {/* Quick score stars — sun palette matching vanilla ring-sun-400 */}
+              <div className="mt-6 bg-sun-50/50 border border-sun-100 rounded-xl px-4 py-3">
                 <div className="flex items-center justify-between gap-4">
-                  <span className="text-xs font-semibold text-amber-700 uppercase tracking-wider">
+                  <span className="text-xs font-semibold text-sun-700 uppercase tracking-wider">
                     {t('com.quick_score')}
                   </span>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-1" data-pictogram="">
                     {[1, 2, 3, 4, 5].map((n) => {
                       const active = n <= currentStarLevel;
                       const target = Math.round(scala * (n / 5) * 10) / 10;
@@ -1233,7 +1305,7 @@ function ScoringSheet({
                           title={`${target}/${scala}`}
                           className={cn(
                             'w-9 h-9 rounded-xl flex items-center justify-center text-xl transition-all hover:scale-110',
-                            active ? 'bg-white ring-2 ring-amber-400 shadow-sm' : 'bg-white/50 text-slate-300',
+                            active ? 'bg-white ring-2 ring-sun-400 shadow-sm' : 'bg-white/50 text-slate-300',
                           )}
                           onClick={() => setAllVoti(target)}
                         >
@@ -1245,7 +1317,7 @@ function ScoringSheet({
                 </div>
               </div>
 
-              {/* Criteri sliders */}
+              {/* Criteri sliders — vote-range class from design system */}
               <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                 {criteri.map((c) => {
                   const val = draft.voti[c.key] ?? sliderMin;
@@ -1268,7 +1340,7 @@ function ScoringSheet({
                         step={step}
                         value={val}
                         onChange={(e) => updateVoto(c.key, Number(e.target.value))}
-                        className="mt-2 w-full appearance-none h-1.5 bg-slate-300 rounded-full cursor-pointer accent-brand-600"
+                        className="vote-range mt-2 w-full"
                       />
                       <div className="flex justify-between text-[10px] text-slate-400 mt-1">
                         <span>{sliderMin}</span>
@@ -1306,7 +1378,7 @@ function ScoringSheet({
                 <button
                   type="button"
                   disabled={saving}
-                  className="ml-auto inline-flex items-center justify-center gap-2 text-base font-bold text-white bg-gradient-to-br from-emerald-500 to-emerald-700 hover:from-emerald-600 hover:to-emerald-800 px-7 py-3.5 rounded-2xl shadow-lg transition disabled:opacity-60"
+                  className="ml-auto inline-flex items-center justify-center gap-2 text-base font-bold text-white bg-gradient-to-br from-emerald-500 to-emerald-700 hover:from-emerald-600 hover:to-emerald-800 px-7 py-3.5 rounded-2xl shadow-glow transition disabled:opacity-60"
                   onClick={() => setShowConfirm(true)}
                 >
                   {t('com.save_next')}
@@ -1426,28 +1498,28 @@ export default function Commissario() {
 
   if (!commissarioId) {
     return (
-      <section className="mx-auto max-w-2xl text-center py-16">
-        <h2 className="text-xl font-bold text-foreground">Account commissario senza profilo</h2>
-        <p className="text-sm text-muted-foreground mt-2">Contatta l'amministratore.</p>
+      <section className="view-fade mx-auto max-w-2xl text-center py-16">
+        <h2 className="text-xl font-bold text-slate-900">Account commissario senza profilo</h2>
+        <p className="text-sm text-slate-600 mt-2">Contatta l'amministratore.</p>
       </section>
     );
   }
 
   if (isLoading || !scoring) {
     return (
-      <section className="mx-auto max-w-2xl text-center py-16">
-        <h2 className="text-xl font-bold text-foreground">{t('common.loading')}</h2>
+      <section className="view-fade mx-auto max-w-2xl text-center py-16">
+        <h2 className="text-xl font-bold text-slate-900">{t('common.loading')}</h2>
       </section>
     );
   }
 
   if (!concorso) {
     return (
-      <section className="mx-auto max-w-2xl text-center py-16">
-        <h2 className="text-xl font-bold text-foreground">Nessun concorso assegnato</h2>
-        <p className="text-sm text-muted-foreground mt-2">Non risulti assegnato a nessun concorso.</p>
+      <section className="view-fade mx-auto max-w-2xl text-center py-16">
+        <h2 className="text-xl font-bold text-slate-900">Nessun concorso assegnato</h2>
+        <p className="text-sm text-slate-600 mt-2">Non risulti assegnato a nessun concorso.</p>
         <div className="mt-6">
-          <Link to="/" className="text-sm font-medium text-brand-600 hover:underline">
+          <Link to="/" className="c-btn c-btn--outline c-btn--sm">
             {t('app.dashboard')}
           </Link>
         </div>
@@ -1466,11 +1538,6 @@ export default function Commissario() {
   const faseAttiva = fasiList.find((f) => f.stato === 'IN_CORSO') ?? null;
 
   // Commissioni presiedute da questo commissario.
-  // NOTE: the server serialises the field as `presidenteCommissarioId`
-  // (Drizzle camelCase of `presidente_commissario_id`). The shared
-  // types/index.ts declares it as `presidenteId` (mismatch). We read the
-  // actual runtime field via a cast to avoid compile errors without touching
-  // the shared types file.
   const fasiPresidente = fasiList.filter((f) => {
     if (!f.commissioneId) return false;
     const com = commissioniList.find((c) => c.id === f.commissioneId);
@@ -1486,7 +1553,7 @@ export default function Commissario() {
 
   if (!faseAttiva) {
     return (
-      <section className="max-w-7xl mx-auto">
+      <section className="view-fade c-page max-w-7xl mx-auto" data-pres-fullpage="1">
         {isPresidenteFase ? (
           <PresidentePanel
             concorso={concorso}
@@ -1497,7 +1564,7 @@ export default function Commissario() {
             onFaseChanged={invalidateAll}
           />
         ) : (
-          <div className="bg-card border border-border rounded-lg shadow-sm p-10 text-center">
+          <div className="bg-card border border-border rounded-lg shadow-soft p-10 text-center">
             <div className="text-6xl mb-4">⏸️</div>
             <h2 className="text-2xl font-bold">{t('com.no_phase.title')}</h2>
             <p className="text-muted-foreground mt-2 text-base">{t('com.no_phase.desc')}</p>
@@ -1508,9 +1575,7 @@ export default function Commissario() {
           </div>
         )}
         <div className="mt-5 flex items-center justify-center gap-2">
-          <Link to="/">
-            <Button variant="outline" size="sm">{t('app.dashboard')}</Button>
-          </Link>
+          <Link to="/" className="c-btn c-btn--outline c-btn--sm">{t('app.dashboard')}</Link>
         </div>
       </section>
     );
@@ -1528,7 +1593,7 @@ export default function Commissario() {
   if (!isAssigned) {
     if (isPresidenteFase) {
       return (
-        <section className="max-w-7xl mx-auto">
+        <section className="view-fade c-page max-w-7xl mx-auto" data-pres-fullpage="1">
           <PresidentePanel
             concorso={concorso}
             fasi={fasiPresidente}
@@ -1537,16 +1602,14 @@ export default function Commissario() {
             valutazioni={valsAll}
             onFaseChanged={invalidateAll}
           />
-          <div className="mt-5 flex justify-center">
-            <Link to="/">
-              <Button variant="outline" size="sm">{t('app.dashboard')}</Button>
-            </Link>
+          <div className="mt-5 flex items-center justify-center gap-2">
+            <Link to="/" className="c-btn c-btn--outline c-btn--sm">{t('app.dashboard')}</Link>
           </div>
         </section>
       );
     }
     return (
-      <section className="max-w-2xl mx-auto text-center py-16">
+      <section className="view-fade max-w-2xl mx-auto text-center py-16">
         <div className="text-6xl mb-4">🚫</div>
         <h2 className="text-xl font-bold text-slate-900">{t('com.not_assigned.title')}</h2>
         <p className="text-slate-600 mt-2">
@@ -1557,8 +1620,8 @@ export default function Commissario() {
           <span className="font-medium">{concorso.nome}</span>
         </p>
         <div className="mt-6">
-          <Link to="/">
-            <Button>{t('com.back_to_menu')}</Button>
+          <Link to="/" className="text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 px-4 py-2 rounded-lg">
+            {t('com.back_to_menu')}
           </Link>
         </div>
       </section>
@@ -1572,8 +1635,6 @@ export default function Commissario() {
     .filter((cf) => cf.faseId === fase.id)
     .sort((a, b) => (a.posizione ?? 0) - (b.posizione ?? 0));
 
-  // We don't fetch the commissari list in this page, so we can't filter by
-  // `stato !== 'INATTIVO'`. Include all assigned IDs — conservative but safe.
   const activeCommIds = assignedIds;
 
   const faseCriteriKeys = scoring.getCriteri(fase).map((c) => c.key);
@@ -1621,7 +1682,7 @@ export default function Commissario() {
     const eta = ageFromDate(wCand?.dataNascita);
 
     return (
-      <section className={cn(isPresidenteFase ? 'max-w-7xl mx-auto py-8' : 'max-w-2xl mx-auto py-8')}>
+      <section className={cn('view-fade', isPresidenteFase ? 'c-page max-w-7xl mx-auto py-8' : 'max-w-2xl mx-auto py-8')}>
         {isPresidenteFase && (
           <PresidentePanel
             concorso={concorso}
@@ -1632,7 +1693,7 @@ export default function Commissario() {
             onFaseChanged={invalidateAll}
           />
         )}
-        <div className={cn('bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-sm', isPresidenteFase && 'max-w-2xl mx-auto')}>
+        <div className={cn('bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-soft', isPresidenteFase && 'max-w-2xl mx-auto')}>
           <div className="text-center">
             <div className="text-5xl mb-3">⏳</div>
             <div className="text-xs font-semibold text-amber-700 uppercase tracking-wider">
@@ -1680,15 +1741,55 @@ export default function Commissario() {
             </div>
             <div className="h-2 bg-slate-200 rounded-full overflow-hidden mb-3">
               <div
-                className="h-full bg-gradient-to-r from-amber-400 to-amber-500"
+                className="h-full bg-gradient-to-r from-amber-400 to-amber-500 transition-all"
                 style={{ width: `${totalCount ? (votedCount / totalCount) * 100 : 0}%` }}
               />
+            </div>
+            {/* Per-commissario status list (matching vanilla renderWaiting) */}
+            <div className="space-y-2">
+              {commInFase.map((cid) => {
+                const v = votedSet.has(cid);
+                const isMe = cid === commissarioId;
+                return (
+                  <div
+                    key={cid}
+                    className={cn(
+                      'flex items-center justify-between bg-white border rounded-lg px-3 py-2',
+                      v ? 'border-emerald-200' : 'border-slate-200',
+                    )}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <div className="w-7 h-7 rounded-full bg-slate-100 overflow-hidden flex items-center justify-center text-sm shrink-0">
+                        🧑‍⚖️
+                      </div>
+                      <span className={cn('text-sm truncate', isMe ? 'font-semibold text-slate-900' : 'text-slate-700')}>
+                        {isMe ? t('com.you_suffix', { defaultValue: '(tu)' }) : cid.substring(0, 8)}
+                      </span>
+                    </div>
+                    <span
+                      className={cn(
+                        'text-[11px] px-2 py-0.5 rounded-full font-semibold whitespace-nowrap',
+                        v ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800',
+                      )}
+                    >
+                      {v ? t('com.voted') : t('com.waiting_dot')}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
           <div className="mt-6 flex items-center justify-center gap-2">
-            <Button onClick={invalidateAll}>↻ {t('com.waiting.refresh')}</Button>
-            <Link to="/"><Button variant="outline">{t('com.change_role')}</Button></Link>
+            <button
+              className="text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 px-4 py-2 rounded-lg shadow-sm"
+              onClick={invalidateAll}
+            >
+              ↻ {t('com.waiting.refresh')}
+            </button>
+            <Link to="/" className="text-sm font-medium text-slate-700 hover:bg-slate-100 px-4 py-2 rounded-lg">
+              {t('com.change_role')}
+            </Link>
           </div>
         </div>
       </section>
@@ -1699,7 +1800,7 @@ export default function Commissario() {
 
   if (!currentCf) {
     return (
-      <section className={cn(isPresidenteFase ? 'max-w-7xl mx-auto py-8' : 'max-w-2xl mx-auto text-center py-16')}>
+      <section className={cn('view-fade', isPresidenteFase ? 'c-page max-w-7xl mx-auto py-8' : 'max-w-2xl mx-auto text-center py-16')}>
         {isPresidenteFase && (
           <PresidentePanel
             concorso={concorso}
@@ -1710,7 +1811,7 @@ export default function Commissario() {
             onFaseChanged={invalidateAll}
           />
         )}
-        <div className={cn(isPresidenteFase && 'bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-sm max-w-2xl mx-auto text-center')}>
+        <div className={cn(isPresidenteFase && 'bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-soft max-w-2xl mx-auto text-center')}>
           <div className="text-6xl mb-4">✅</div>
           <h2 className="text-xl font-bold text-slate-900">{t('com.all_done.title')}</h2>
           <p className="text-slate-600 mt-2">
@@ -1720,7 +1821,9 @@ export default function Commissario() {
             {isPresidenteFase ? t('com.all_done.help_pres') : t('com.all_done.help')}
           </p>
           <div className="mt-6">
-            <Link to="/"><Button>{t('com.back_to_menu')}</Button></Link>
+            <Link to="/" className="text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 px-4 py-2 rounded-lg">
+              {t('com.back_to_menu')}
+            </Link>
           </div>
         </div>
       </section>

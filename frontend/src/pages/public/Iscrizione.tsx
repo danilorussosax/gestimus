@@ -8,6 +8,9 @@
  *
  * Anti-spam: honeypot (campo "website" invisibile) + startedAt (min-time-on-page).
  * Draft persistito in localStorage.
+ *
+ * Presentation: c-page / c-field / c-input / c-select / c-textarea / c-btn
+ * (sistema legacy.css), palette brand/ink/amber/emerald/rose.
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -17,7 +20,7 @@ import { z } from 'zod';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
-import { publicApi, type ConcorsoDetailPublic, type ProgrammaBrano, type MembroGruppo } from '@/api/public';
+import { publicApi, type ConcorsoDetailPublic } from '@/api/public';
 import { httpErrorMessage } from '@/lib/api';
 import { GdprBadge } from './Privacy';
 
@@ -120,36 +123,44 @@ const schema = z.object({
 
 type FormValues = z.infer<typeof schema>;
 
-// ─── Section header ───────────────────────────────────────────────────────────
+// ─── Section header (stile vanilla) ──────────────────────────────────────────
 
 function SectionHeader({ num, title, subtitle }: { num: string; title: string; subtitle: string }) {
   return (
     <header className="flex items-center gap-3 mb-1">
-      <span className="w-7 h-7 rounded-full bg-primary/10 text-primary text-sm font-bold inline-flex items-center justify-center shrink-0">{num}</span>
+      <span className="w-7 h-7 rounded-full bg-brand-100 text-brand-700 text-sm font-bold inline-flex items-center justify-center shrink-0">{num}</span>
       <div>
-        <h2 className="font-semibold text-slate-900">{title}</h2>
+        <h2 className="font-semibold text-ink-900">{title}</h2>
         <p className="text-xs text-slate-600">{subtitle}</p>
       </div>
     </header>
   );
 }
 
-// ─── Field wrapper ────────────────────────────────────────────────────────────
+// ─── c-field wrapper ──────────────────────────────────────────────────────────
 
-function Field({ label, required, error, children }: { label: string; required?: boolean; error?: string; children: React.ReactNode }) {
+function CField({
+  label,
+  hint,
+  error,
+  className,
+  children,
+}: {
+  label?: string;
+  hint?: string;
+  error?: string;
+  className?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <div>
-      <label className="block text-sm font-medium text-slate-800 mb-1">
-        {label}{required && <span className="text-rose-600 ml-0.5">*</span>}
-      </label>
+    <div className={`c-field${className ? ` ${className}` : ''}`}>
+      {label && <span className="c-field__label">{label}</span>}
       {children}
+      {hint && <p className="c-field__hint">{hint}</p>}
       {error && <p className="text-xs text-rose-600 mt-0.5">{error}</p>}
     </div>
   );
 }
-
-const inputCls = 'w-full border border-slate-300 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 bg-white';
-const selectCls = inputCls;
 
 // ─── Upload allegato helper ───────────────────────────────────────────────────
 
@@ -169,7 +180,6 @@ export default function Iscrizione() {
   // Carica draft
   const savedDraft = loadDraft();
 
-   
   const form = useForm<FormValues, unknown, FormValues>({
     resolver: zodResolver(schema) as any,
     defaultValues: {
@@ -244,7 +254,6 @@ export default function Iscrizione() {
     queryFn: () => publicApi.listConcorsiAperti(),
     staleTime: 60_000,
   });
-  // Prendi il primo concorso aperto (o nessuno)
   const firstConcorso = concorsiQ.data?.[0];
 
   const concorsoQ = useQuery({
@@ -312,12 +321,12 @@ export default function Iscrizione() {
 
       // Upload allegati (best-effort)
       if (res.uploadToken) {
-        for (const [field, tipo] of Object.entries(ALLEGATO_TIPI)) {
+        for (const [field, tipoAllegato] of Object.entries(ALLEGATO_TIPI)) {
           const inp = fileRefs[field]?.current;
           const file = inp?.files?.[0];
           if (!file) continue;
           try {
-            await publicApi.uploadAllegato(res.uploadToken, tipo, file);
+            await publicApi.uploadAllegato(res.uploadToken, tipoAllegato, file);
           } catch (err) {
             console.warn('Upload allegato fallito:', field, err);
           }
@@ -336,413 +345,519 @@ export default function Iscrizione() {
     },
   });
 
-  // ── Success ─────────────────────────────────────────────────────────────
+  // ── Success ─────────────────────────────────────────────────────────────────
   if (success) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center p-4">
-        <div className="bg-white border border-emerald-200 rounded-3xl shadow-lg p-10 text-center max-w-2xl w-full">
+      <section className="view-fade c-page max-w-2xl mx-auto py-10 text-center">
+        <div className="bg-white border border-emerald-200 rounded-3xl shadow-soft p-10">
           <div className="text-6xl mb-4">🎉</div>
-          <h1 className="text-2xl font-black text-slate-900 mb-2">Iscrizione inviata</h1>
+          <h1 className="text-2xl font-black text-ink-900 mb-2">Iscrizione inviata</h1>
           <p className="text-slate-700 leading-relaxed mb-3">
             La tua iscrizione a <strong>{concorso?.nome}</strong> è stata ricevuta correttamente.
           </p>
           <p className="text-sm text-slate-600 mb-1">Riceverai una mail di conferma a:</p>
-          <p className="font-mono text-primary font-semibold mb-4">{success.email}</p>
-          <p className="text-xs text-slate-500">Numero pratica: <code className="bg-slate-100 px-2 py-0.5 rounded font-mono text-[11px]">{success.id}</code></p>
-          <p className="text-sm text-slate-600 mt-6 leading-relaxed">L'organizzazione esaminerà la tua candidatura e ti contatterà con l'esito.</p>
-          <a href="/" className="inline-block mt-6 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">Chiudi</a>
+          <p className="font-mono text-brand-700 font-semibold mb-4">{success.email}</p>
+          <p className="text-xs text-slate-500">
+            Numero pratica:{' '}
+            <code className="bg-slate-100 px-2 py-0.5 rounded font-mono text-[11px]">{success.id}</code>
+          </p>
+          <p className="text-sm text-slate-600 mt-6 leading-relaxed">
+            L'organizzazione esaminerà la tua candidatura e ti contatterà con l'esito.
+          </p>
+          <a href="/" className="c-btn c-btn--outline c-btn--sm mt-6">Chiudi</a>
         </div>
-      </div>
+      </section>
     );
   }
 
-  // ── Caricamento ──────────────────────────────────────────────────────────
+  // ── Caricamento ──────────────────────────────────────────────────────────────
   if (concorsiQ.isLoading || concorsoQ.isLoading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center">
+      <section className="view-fade min-h-[60vh] flex items-center justify-center c-page">
         <div className="text-center">
-          <svg className="w-8 h-8 text-primary animate-spin mx-auto mb-3" viewBox="0 0 24 24" fill="none">
+          <svg
+            className="w-8 h-8 text-brand-500 mx-auto mb-3"
+            style={{ animation: 'spin 1.4s linear infinite' }}
+            viewBox="0 0 24 24" fill="none"
+          >
             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
           </svg>
-          <p className="text-slate-700 font-medium">{t('iscr.loading')}</p>
+          <p className="text-ink-900 font-medium">{t('iscr.loading')}</p>
         </div>
-      </div>
+      </section>
     );
   }
 
-  // ── Nessun concorso aperto ───────────────────────────────────────────────
+  // ── Nessun concorso aperto ───────────────────────────────────────────────────
   if (!concorso) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center p-4">
-        <div className="bg-white rounded-3xl shadow-lg border border-slate-200 max-w-xl w-full p-10 text-center">
+      <section className="view-fade min-h-[60vh] flex items-center justify-center c-page">
+        <div className="bg-white rounded-3xl shadow-soft border border-slate-200 max-w-xl w-full p-10 text-center">
           <div className="text-5xl mb-4">📭</div>
-          <h1 className="text-2xl font-bold text-slate-900 mb-2">{t('iscr.closed.title')}</h1>
+          <h1 className="text-2xl font-bold text-ink-900 mb-2">{t('iscr.closed.title')}</h1>
           <p className="text-slate-600 leading-relaxed">{t('iscr.closed.subtitle')}</p>
-          <a href="/" className="inline-block mt-6 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">{t('iscr.closed.cta')}</a>
+          <a href="/" className="c-btn c-btn--outline c-btn--sm mt-6">{t('iscr.closed.cta')}</a>
         </div>
-      </div>
+      </section>
     );
   }
 
-  // ── Form ────────────────────────────────────────────────────────────────
+  // ── Form ─────────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 py-8 px-4">
-      <div className="max-w-3xl mx-auto pb-10">
+    <section className="view-fade c-page max-w-3xl mx-auto pb-10">
 
-        {/* Header concorso */}
-        <header className="bg-white border border-slate-200 rounded-3xl shadow-sm p-5 mb-6 flex items-start gap-4">
-          {concorso.logo
-            ? <img src={concorso.logo} alt="" className="w-16 h-16 rounded-2xl object-contain border border-slate-100 shrink-0" />
-            : <div className="w-16 h-16 rounded-2xl bg-primary/10 text-primary flex items-center justify-center text-2xl shrink-0">🎼</div>
-          }
-          <div className="min-w-0 flex-1">
-            <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-primary font-bold">{t('iscr.header.eyebrow')}</p>
-            <h1 className="text-2xl font-black text-slate-900 leading-tight truncate">{concorso.nome}</h1>
-            <p className="text-sm text-slate-600 mt-1">
-              {t('iscr.header.edition', { anno: concorso.anno })}
-              {concorso.dataInizio && ` · ${concorso.dataInizio}`}
+      {/* Header concorso */}
+      <header className="bg-white border border-slate-200 rounded-3xl shadow-soft p-5 mb-6 flex items-start gap-4">
+        {concorso.logo
+          ? <img src={concorso.logo} alt="" className="w-16 h-16 rounded-2xl object-contain border border-slate-100 shrink-0" />
+          : <div className="w-16 h-16 rounded-2xl bg-brand-50 text-brand-700 flex items-center justify-center text-2xl shrink-0">🎼</div>
+        }
+        <div className="min-w-0 flex-1">
+          <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-brand-700 font-bold">
+            {t('iscr.header.eyebrow')}
+          </p>
+          <h1 className="text-2xl font-black text-ink-900 leading-tight truncate">{concorso.nome}</h1>
+          <p className="text-sm text-slate-600 mt-1">
+            {t('iscr.header.edition', { anno: concorso.anno })}
+            {concorso.dataInizio && ` · ${concorso.dataInizio}`}
+          </p>
+          {concorso.iscrizioniScadenza && (
+            <p className="text-xs text-amber-700 mt-1">
+              {t('iscr.header.deadline', { date: new Date(concorso.iscrizioniScadenza).toLocaleString() })}
             </p>
-            {concorso.iscrizioniScadenza && (
-              <p className="text-xs text-amber-700 mt-1">{t('iscr.header.deadline', { date: new Date(concorso.iscrizioniScadenza).toLocaleDateString('it-IT') })}</p>
+          )}
+        </div>
+        <a href="/privacy" target="_blank" rel="noreferrer" className="hidden sm:block shrink-0" title="Informativa privacy (Regolamento UE 2016/679)">
+          <GdprBadge />
+        </a>
+      </header>
+
+      {/* Notice GDPR mobile */}
+      <div className="sm:hidden bg-emerald-50 border border-emerald-200 rounded-2xl p-3 mb-4 flex items-center gap-3">
+        <GdprBadge />
+        <p className="text-xs text-emerald-900 leading-snug flex-1">{t('iscr.gdpr.note')}</p>
+      </div>
+
+      <form
+        onSubmit={handleSubmit((vals) => submitMut.mutate(vals))}
+        className="space-y-6"
+        autoComplete="off"
+        noValidate
+      >
+        {/* Honeypot anti-spam (invisibile per utenti) */}
+        <div aria-hidden="true" style={{ position: 'absolute', left: '-10000px', top: 'auto', width: '1px', height: '1px', overflow: 'hidden' }}>
+          <label>Lascia vuoto questo campo<input type="text" tabIndex={-1} autoComplete="off" {...register('website')} /></label>
+        </div>
+        <input type="hidden" {...register('startedAt', { value: startedAtRef.current })} />
+
+        {/* ── Sezione 1: Anagrafica ── */}
+        <SectionHeader num="1" title={t('iscr.section.1.title')} subtitle={t('iscr.section.1.subtitle')} />
+        <div className="bg-white border border-slate-200 rounded-3xl shadow-soft p-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+            <label className="c-field">
+              <span className="c-field__label">Tipo iscrizione *</span>
+              <select className="c-input" {...register('tipo')}>
+                <option value="individuale">Individuale</option>
+                <option value="gruppo">Gruppo / Ensemble</option>
+                <option value="orchestra">Orchestra</option>
+              </select>
+            </label>
+
+            <label className="c-field">
+              <span className="c-field__label">Sesso</span>
+              <select className="c-input" {...register('sesso')}>
+                <option value="">— Seleziona —</option>
+                <option value="M">Maschio</option>
+                <option value="F">Femmina</option>
+                <option value="altro">Altro / preferisco non specificare</option>
+              </select>
+            </label>
+
+            <label className="c-field">
+              <span className="c-field__label">Nome *</span>
+              <input className="c-input" {...register('nome')} />
+              {errors.nome && <p className="text-xs text-rose-600 mt-0.5">{errors.nome.message}</p>}
+            </label>
+
+            <label className="c-field">
+              <span className="c-field__label">Cognome *</span>
+              <input className="c-input" {...register('cognome')} />
+              {errors.cognome && <p className="text-xs text-rose-600 mt-0.5">{errors.cognome.message}</p>}
+            </label>
+
+            <label className="c-field">
+              <span className="c-field__label">Data di nascita *</span>
+              <input type="date" className="c-input" {...register('data_nascita')} />
+              {errors.data_nascita && <p className="text-xs text-rose-600 mt-0.5">{errors.data_nascita.message}</p>}
+            </label>
+
+            <label className="c-field">
+              <span className="c-field__label">Luogo di nascita</span>
+              <input className="c-input" placeholder="Città (Provincia)" {...register('luogo_nascita')} />
+            </label>
+
+            <label className="c-field">
+              <span className="c-field__label">Nazionalità *</span>
+              <input className="c-input" list="naz-list" placeholder="es. Italiana" {...register('nazionalita')} />
+              <datalist id="naz-list">{NATIONALITIES.map((n) => <option key={n} value={n} />)}</datalist>
+              {errors.nazionalita && <p className="text-xs text-rose-600 mt-0.5">{errors.nazionalita.message}</p>}
+            </label>
+
+            <label className="c-field">
+              <span className="c-field__label">Codice fiscale</span>
+              <input className="c-input font-mono uppercase" maxLength={16} placeholder="RSSMRA80A01H501U" {...register('codice_fiscale')} />
+            </label>
+
+          </div>
+
+          {/* Tutore (se minorenne) */}
+          {isMinore && (
+            <div className="mt-5 bg-amber-50 border border-amber-200 rounded-2xl p-4">
+              <p className="font-bold text-amber-900 flex items-center gap-1.5">⚠ Candidato minorenne</p>
+              <p className="text-xs text-amber-800 mt-1 mb-3">Inserisci i dati di un genitore/tutore (obbligatori).</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <label className="c-field">
+                  <span className="c-field__label">Nome tutore *</span>
+                  <input className="c-input" {...register('tutore_nome')} />
+                </label>
+                <label className="c-field">
+                  <span className="c-field__label">Cognome tutore *</span>
+                  <input className="c-input" {...register('tutore_cognome')} />
+                </label>
+                <label className="c-field">
+                  <span className="c-field__label">Email tutore *</span>
+                  <input type="email" className="c-input" {...register('tutore_email')} />
+                </label>
+                <label className="c-field">
+                  <span className="c-field__label">Telefono tutore</span>
+                  <input type="tel" className="c-input" {...register('tutore_telefono')} />
+                </label>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* ── Sezione 2: Contatti ── */}
+        <SectionHeader num="2" title={t('iscr.section.2.title')} subtitle={t('iscr.section.2.subtitle')} />
+        <div className="bg-white border border-slate-200 rounded-3xl shadow-soft p-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+            <label className="c-field sm:col-span-2">
+              <span className="c-field__label">Email *</span>
+              <input type="email" className="c-input" placeholder="nome@esempio.it" {...register('email')} />
+              {errors.email && <p className="text-xs text-rose-600 mt-0.5">{errors.email.message}</p>}
+            </label>
+
+            <label className="c-field">
+              <span className="c-field__label">Telefono</span>
+              <input type="tel" className="c-input" placeholder="+39 ..." {...register('telefono')} />
+            </label>
+
+            <label className="c-field">
+              <span className="c-field__label">CAP</span>
+              <input className="c-input" maxLength={10} {...register('cap')} />
+            </label>
+
+            <label className="c-field sm:col-span-2">
+              <span className="c-field__label">Indirizzo</span>
+              <input className="c-input" placeholder="Via, civico" {...register('indirizzo')} />
+            </label>
+
+            <label className="c-field">
+              <span className="c-field__label">Città</span>
+              <input className="c-input" {...register('citta')} />
+            </label>
+
+            <label className="c-field">
+              <span className="c-field__label">Provincia</span>
+              <input className="c-input" maxLength={3} placeholder="MI" {...register('provincia')} />
+            </label>
+
+            <label className="c-field">
+              <span className="c-field__label">Paese</span>
+              <input className="c-input" {...register('paese')} />
+            </label>
+
+          </div>
+        </div>
+
+        {/* ── Sezione 3: Dati artistici ── */}
+        <SectionHeader num="3" title={t('iscr.section.3.title')} subtitle={t('iscr.section.3.subtitle')} />
+        <div className="bg-white border border-slate-200 rounded-3xl shadow-soft p-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+            <label className="c-field">
+              <span className="c-field__label">Strumento *</span>
+              <input className="c-input" placeholder="es. Pianoforte" {...register('strumento')} />
+              {errors.strumento && <p className="text-xs text-rose-600 mt-0.5">{errors.strumento.message}</p>}
+            </label>
+
+            <label className="c-field">
+              <span className="c-field__label">Anni di studio</span>
+              <input type="number" min={0} max={80} className="c-input" {...register('anni_studio')} />
+            </label>
+
+            {sezioni.length > 0 && (
+              <>
+                <label className="c-field">
+                  <span className="c-field__label">Sezione</span>
+                  <select
+                    className="c-input"
+                    {...register('sezione')}
+                    onChange={(e) => { setValue('sezione', e.target.value); setValue('categoria', ''); }}
+                  >
+                    <option value="">— Nessuna —</option>
+                    {sezioni.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
+                  </select>
+                </label>
+
+                <label className="c-field">
+                  <span className="c-field__label">Categoria{categorieDellaSezione.length > 0 ? ' *' : ''}</span>
+                  <select
+                    className="c-input"
+                    disabled={categorieDellaSezione.length === 0}
+                    {...register('categoria')}
+                  >
+                    <option value="">{categorieDellaSezione.length === 0 ? '— Seleziona prima una sezione —' : '— Scegli categoria —'}</option>
+                    {categorieDellaSezione.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
+                  </select>
+                </label>
+              </>
             )}
-          </div>
-          <a href="/privacy" target="_blank" rel="noreferrer" className="hidden sm:block shrink-0" title="Informativa privacy GDPR">
-            <GdprBadge />
-          </a>
-        </header>
 
-        <form
-          onSubmit={handleSubmit((vals) => submitMut.mutate(vals))}
-          className="space-y-6"
-          autoComplete="off"
-          noValidate
-        >
-          {/* Honeypot anti-spam (invisibile per utenti) */}
-          <div aria-hidden="true" style={{ position: 'absolute', left: '-10000px', top: 'auto', width: '1px', height: '1px', overflow: 'hidden' }}>
-            <label>Lascia vuoto<input type="text" tabIndex={-1} autoComplete="off" {...register('website')} /></label>
-          </div>
-          <input type="hidden" {...register('startedAt', { value: startedAtRef.current })} />
+            <label className="c-field sm:col-span-2">
+              <span className="c-field__label">Scuola/Conservatorio di provenienza</span>
+              <input className="c-input" {...register('scuola_provenienza')} />
+            </label>
 
-          {/* ── Sezione 1: Anagrafica ── */}
-          <SectionHeader num="1" title={t('iscr.section.1.title')} subtitle={t('iscr.section.1.subtitle')} />
-          <div className="bg-white border border-slate-200 rounded-3xl shadow-sm p-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Field label="Tipo iscrizione" required>
-                <select className={selectCls} {...register('tipo')}>
-                  <option value="individuale">Individuale</option>
-                  <option value="gruppo">Gruppo / Ensemble</option>
-                  <option value="orchestra">Orchestra</option>
-                </select>
-              </Field>
-              <Field label="Sesso">
-                <select className={selectCls} {...register('sesso')}>
-                  <option value="">— Seleziona —</option>
-                  <option value="M">Maschio</option>
-                  <option value="F">Femmina</option>
-                  <option value="altro">Altro / preferisco non specificare</option>
-                </select>
-              </Field>
-              <Field label="Nome" required error={errors.nome?.message}>
-                <input className={inputCls} {...register('nome')} />
-              </Field>
-              <Field label="Cognome" required error={errors.cognome?.message}>
-                <input className={inputCls} {...register('cognome')} />
-              </Field>
-              <Field label="Data di nascita" required error={errors.data_nascita?.message}>
-                <input type="date" className={inputCls} {...register('data_nascita')} />
-              </Field>
-              <Field label="Luogo di nascita">
-                <input className={inputCls} placeholder="Città (Provincia)" {...register('luogo_nascita')} />
-              </Field>
-              <Field label="Nazionalità" required error={errors.nazionalita?.message}>
-                <input className={inputCls} list="naz-list" placeholder="es. Italiana" {...register('nazionalita')} />
-                <datalist id="naz-list">{NATIONALITIES.map((n) => <option key={n} value={n} />)}</datalist>
-              </Field>
-              <Field label="Codice fiscale">
-                <input className={`${inputCls} font-mono uppercase`} maxLength={16} placeholder="RSSMRA80A01H501U" {...register('codice_fiscale')} />
-              </Field>
-            </div>
-
-            {/* Tutore (se minorenne) */}
-            {isMinore && (
-              <div className="mt-5 bg-amber-50 border border-amber-200 rounded-2xl p-4">
-                <p className="font-bold text-amber-900 flex items-center gap-1.5">⚠ Candidato minorenne</p>
-                <p className="text-xs text-amber-800 mt-1 mb-3">Inserisci i dati di un genitore/tutore (obbligatori per i minorenni).</p>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <Field label="Nome tutore" required>
-                    <input className={inputCls} {...register('tutore_nome')} />
-                  </Field>
-                  <Field label="Cognome tutore">
-                    <input className={inputCls} {...register('tutore_cognome')} />
-                  </Field>
-                  <Field label="Email tutore" required>
-                    <input type="email" className={inputCls} {...register('tutore_email')} />
-                  </Field>
-                  <Field label="Telefono tutore">
-                    <input type="tel" className={inputCls} {...register('tutore_telefono')} />
-                  </Field>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* ── Sezione 2: Contatti ── */}
-          <SectionHeader num="2" title={t('iscr.section.2.title')} subtitle={t('iscr.section.2.subtitle')} />
-          <div className="bg-white border border-slate-200 rounded-3xl shadow-sm p-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Field label="Email" required error={errors.email?.message} >
-                <div className="sm:col-span-2">
-                  <input type="email" className={inputCls} placeholder="nome@esempio.it" {...register('email')} />
-                </div>
-              </Field>
-              <Field label="Telefono">
-                <input type="tel" className={inputCls} placeholder="+39 ..." {...register('telefono')} />
-              </Field>
-              <Field label="CAP">
-                <input className={inputCls} maxLength={10} {...register('cap')} />
-              </Field>
-              <div className="sm:col-span-2">
-                <Field label="Indirizzo">
-                  <input className={inputCls} placeholder="Via, civico" {...register('indirizzo')} />
-                </Field>
-              </div>
-              <Field label="Città">
-                <input className={inputCls} {...register('citta')} />
-              </Field>
-              <Field label="Provincia">
-                <input className={inputCls} maxLength={3} placeholder="MI" {...register('provincia')} />
-              </Field>
-              <Field label="Paese">
-                <input className={inputCls} {...register('paese')} />
-              </Field>
-            </div>
-          </div>
-
-          {/* ── Sezione 3: Dati artistici ── */}
-          <SectionHeader num="3" title={t('iscr.section.3.title')} subtitle={t('iscr.section.3.subtitle')} />
-          <div className="bg-white border border-slate-200 rounded-3xl shadow-sm p-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <Field label="Strumento" required error={errors.strumento?.message}>
-                <input className={inputCls} placeholder="es. Pianoforte" {...register('strumento')} />
-              </Field>
-              <Field label="Anni di studio">
-                <input type="number" min={0} max={80} className={inputCls} {...register('anni_studio')} />
-              </Field>
-              {sezioni.length > 0 && (
-                <>
-                  <Field label="Sezione">
-                    <select className={selectCls} {...register('sezione')} onChange={(e) => { setValue('sezione', e.target.value); setValue('categoria', ''); }}>
-                      <option value="">— Nessuna —</option>
-                      {sezioni.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
-                    </select>
-                  </Field>
-                  <Field label={`Categoria${categorieDellaSezione.length > 0 ? ' *' : ''}`}>
-                    <select className={selectCls} disabled={categorieDellaSezione.length === 0} {...register('categoria')}>
-                      <option value="">{categorieDellaSezione.length === 0 ? '— Seleziona prima una sezione —' : '— Scegli categoria —'}</option>
-                      {categorieDellaSezione.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
-                    </select>
-                  </Field>
-                </>
-              )}
-              <div className="sm:col-span-2">
-                <Field label="Scuola/Conservatorio di provenienza">
-                  <input className={inputCls} {...register('scuola_provenienza')} />
-                </Field>
-              </div>
-              <div className="sm:col-span-2">
-                <Field label="Docenti preparatori">
-                  <textarea
-                    className={`${inputCls} resize-none`}
-                    rows={3}
-                    placeholder="Un docente per riga (es. Mario Bianchi — Conservatorio di Milano)"
-                    {...register('docenti_preparatori_text')}
-                  />
-                </Field>
-              </div>
-            </div>
-          </div>
-
-          {/* ── Sezione 3b: Composizione gruppo (condizionale) ── */}
-          {isGruppo && (
-            <>
-              <SectionHeader
-                num="3b"
-                title={tipo === 'orchestra' ? "Composizione dell'orchestra" : 'Composizione del gruppo'}
-                subtitle={tipo === 'orchestra' ? "Nome dell'orchestra e membri." : "Nome dell'ensemble e membri."}
+            <label className="c-field sm:col-span-2">
+              <span className="c-field__label">Docenti preparatori</span>
+              <textarea
+                className="c-textarea"
+                rows={3}
+                placeholder="Un docente per riga (es. Mario Bianchi — Conservatorio di Milano)"
+                {...register('docenti_preparatori_text')}
               />
-              <div className="bg-white border border-primary/20 rounded-3xl shadow-sm p-6">
-                <Field label={tipo === 'orchestra' ? "Nome dell'orchestra" : 'Nome del gruppo / ensemble'}>
-                  <input
-                    className={inputCls}
-                    placeholder={tipo === 'orchestra' ? 'es. Orchestra Giovanile di Milano' : 'es. Quartetto Brillante'}
-                    {...register('gruppo_nome')}
-                  />
-                </Field>
-                <p className="text-xs text-slate-600 mt-4 mb-2">Membri (oltre al referente compilato sopra):</p>
-                <div className="space-y-2">
-                  {membriArray.fields.map((field, idx) => (
-                    <div key={field.id} className="grid grid-cols-12 gap-2">
-                      <input placeholder="Nome" className={`${inputCls} col-span-3`} {...register(`membri.${idx}.nome`)} />
-                      <input placeholder="Cognome" className={`${inputCls} col-span-3`} {...register(`membri.${idx}.cognome`)} />
-                      <input placeholder="Strumento" className={`${inputCls} col-span-4`} {...register(`membri.${idx}.strumento`)} />
-                      <input type="date" className={`${inputCls} col-span-2 text-xs`} {...register(`membri.${idx}.data_nascita`)} />
-                      <button type="button" className="col-span-12 text-xs text-rose-600 hover:text-rose-800 text-left" onClick={() => membriArray.remove(idx)}>− rimuovi</button>
-                    </div>
-                  ))}
+            </label>
+
+          </div>
+        </div>
+
+        {/* ── Sezione 3b: Composizione gruppo (condizionale) ── */}
+        {isGruppo && (
+          <>
+            <SectionHeader
+              num="3b"
+              title={tipo === 'orchestra' ? "Composizione dell'orchestra" : 'Composizione del gruppo'}
+              subtitle={tipo === 'orchestra' ? "Nome dell'orchestra e membri." : "Nome dell'ensemble e membri."}
+            />
+            <div className="bg-white border border-brand-200 rounded-3xl shadow-soft p-6">
+              <label className="c-field">
+                <span className="c-field__label">
+                  {tipo === 'orchestra' ? "Nome dell'orchestra" : 'Nome del gruppo / ensemble'}
+                </span>
+                <input
+                  className="c-input"
+                  placeholder={tipo === 'orchestra' ? 'es. Orchestra Giovanile di Milano' : 'es. Quartetto Brillante'}
+                  {...register('gruppo_nome')}
+                />
+              </label>
+
+              <p className="text-xs text-slate-600 mt-3 mb-2">Membri (oltre al referente compilato sopra):</p>
+              <div className="space-y-2">
+                {membriArray.fields.map((field, idx) => (
+                  <div key={field.id} className="grid grid-cols-12 gap-2">
+                    <input placeholder="Nome" className="c-input col-span-3" {...register(`membri.${idx}.nome`)} />
+                    <input placeholder="Cognome" className="c-input col-span-3" {...register(`membri.${idx}.cognome`)} />
+                    <input placeholder="Strumento" className="c-input col-span-4" {...register(`membri.${idx}.strumento`)} />
+                    <input type="date" className="c-input col-span-2 text-xs" {...register(`membri.${idx}.data_nascita`)} />
+                    <button
+                      type="button"
+                      className="col-span-12 text-xs text-rose-600 hover:text-rose-800 self-start text-left"
+                      onClick={() => membriArray.remove(idx)}
+                    >
+                      − rimuovi
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                className="mt-2 text-xs font-medium text-brand-700 hover:text-brand-900"
+                onClick={() => membriArray.append({ nome: '', cognome: '', strumento: '', data_nascita: '' })}
+              >
+                + Aggiungi membro
+              </button>
+            </div>
+          </>
+        )}
+
+        {/* ── Sezione 4: Programma ── */}
+        <SectionHeader num="4" title={t('iscr.section.4.title')} subtitle={t('iscr.section.4.subtitle')} />
+        <div className="bg-white border border-slate-200 rounded-3xl shadow-soft p-6">
+          {errors.programma?.root?.message && (
+            <p className="text-xs text-rose-600 mb-2">{errors.programma.root.message}</p>
+          )}
+          <div className="space-y-2">
+            {programmaArray.fields.map((field, idx) => (
+              <div key={field.id} className="grid grid-cols-12 gap-2">
+                <div className="col-span-5">
+                  <input placeholder="Titolo brano" className="c-input" {...register(`programma.${idx}.titolo`)} />
+                  {errors.programma?.[idx]?.titolo && (
+                    <p className="text-xs text-rose-600 mt-0.5">{errors.programma[idx]?.titolo?.message}</p>
+                  )}
                 </div>
+                <input placeholder="Autore/Compositore" className="c-input col-span-5" {...register(`programma.${idx}.autore`)} />
+                <input
+                  type="number" min={0} max={120} step={0.5} placeholder="min"
+                  className="c-input col-span-2"
+                  {...register(`programma.${idx}.durata_min`)}
+                />
                 <button
                   type="button"
-                  className="mt-2 text-xs font-medium text-primary hover:text-primary/80"
-                  onClick={() => membriArray.append({ nome: '', cognome: '', strumento: '', data_nascita: '' })}
+                  className="col-span-12 text-xs text-rose-600 hover:text-rose-800 self-start text-left"
+                  onClick={() => programmaArray.remove(idx)}
                 >
-                  + Aggiungi membro
+                  − rimuovi
                 </button>
               </div>
-            </>
-          )}
-
-          {/* ── Sezione 4: Programma ── */}
-          <SectionHeader num="4" title={t('iscr.section.4.title')} subtitle={t('iscr.section.4.subtitle')} />
-          <div className="bg-white border border-slate-200 rounded-3xl shadow-sm p-6">
-            {errors.programma?.root?.message && <p className="text-xs text-rose-600 mb-2">{errors.programma.root.message}</p>}
-            <div className="space-y-2">
-              {programmaArray.fields.map((field, idx) => (
-                <div key={field.id} className="grid grid-cols-12 gap-2">
-                  <div className="col-span-5">
-                    <input placeholder="Titolo brano" className={inputCls} {...register(`programma.${idx}.titolo`)} />
-                    {errors.programma?.[idx]?.titolo && <p className="text-xs text-rose-600 mt-0.5">{errors.programma[idx]?.titolo?.message}</p>}
-                  </div>
-                  <input placeholder="Autore/Compositore" className={`${inputCls} col-span-5`} {...register(`programma.${idx}.autore`)} />
-                  <input type="number" min={0} max={120} step={0.5} placeholder="min" className={`${inputCls} col-span-2`} {...register(`programma.${idx}.durata_min`)} />
-                  <button type="button" className="col-span-12 text-xs text-rose-600 hover:text-rose-800 text-left" onClick={() => programmaArray.remove(idx)}>− rimuovi</button>
-                </div>
-              ))}
-            </div>
-            <button
-              type="button"
-              className="mt-2 text-xs font-medium text-primary hover:text-primary/80"
-              onClick={() => programmaArray.append({ titolo: '', autore: '', durata_min: undefined })}
-            >
-              + Aggiungi brano
-            </button>
-            <div className="mt-4">
-              <Field label="Note libere (opzionale)">
-                <textarea className={`${inputCls} resize-none`} rows={2} placeholder="Qualsiasi informazione utile all'organizzazione" {...register('note_libere')} />
-              </Field>
-            </div>
+            ))}
           </div>
+          <button
+            type="button"
+            className="mt-2 text-xs font-medium text-brand-700 hover:text-brand-900"
+            onClick={() => programmaArray.append({ titolo: '', autore: '', durata_min: undefined })}
+          >
+            + Aggiungi brano
+          </button>
+          <label className="c-field mt-4">
+            <span className="c-field__label">Note libere (opzionale)</span>
+            <textarea
+              className="c-textarea"
+              rows={2}
+              placeholder="Qualsiasi informazione utile all'organizzazione"
+              {...register('note_libere')}
+            />
+          </label>
+        </div>
 
-          {/* ── Sezione 5: Allegati ── */}
-          <SectionHeader num="5" title={t('iscr.section.5.title')} subtitle={t('iscr.section.5.subtitle')} />
-          <div className="bg-white border border-slate-200 rounded-3xl shadow-sm p-6">
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {(['foto', 'documento_identita', 'ricevuta_pagamento'] as const).map((field) => {
-                const labels: Record<string, string> = {
-                  foto: '📷 Foto candidato',
-                  documento_identita: '📄 Documento d\'identità',
-                  ricevuta_pagamento: '💳 Ricevuta pagamento quota',
-                };
-                const hints: Record<string, string> = {
-                  foto: 'JPG/PNG/WebP, max 2 MB.',
-                  documento_identita: 'PDF/JPG/PNG, max 2 MB.',
-                  ricevuta_pagamento: 'PDF/JPG/PNG, max 2 MB.',
-                };
-                return (
-                  <div key={field}>
-                    <label className="block text-sm font-medium text-slate-800 mb-1">{labels[field]}</label>
-                    <input
-                      ref={fileRefs[field]}
-                      type="file"
-                      accept={field === 'foto' ? 'image/*' : '.pdf,image/*'}
-                      className={inputCls}
-                    />
-                    <p className="text-[11px] text-slate-500 mt-1">{hints[field]}</p>
-                  </div>
-                );
-              })}
-              {isMinore && (
-                <div>
-                  <label className="block text-sm font-medium text-slate-800 mb-1">✍ Autorizzazione minore</label>
-                  <input ref={fileRefs.autorizzazione_minore} type="file" accept=".pdf,image/*" className={inputCls} />
-                  <p className="text-[11px] text-slate-500 mt-1">Modulo firmato dal tutore. PDF/JPG/PNG, max 2 MB.</p>
-                </div>
-              )}
+        {/* ── Sezione 5: Allegati ── */}
+        <SectionHeader num="5" title={t('iscr.section.5.title')} subtitle={t('iscr.section.5.subtitle')} />
+        <div className="bg-white border border-slate-200 rounded-3xl shadow-soft p-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+
+            <div className="c-field">
+              <span className="c-field__label">📷 Foto candidato</span>
+              <input ref={fileRefs.foto} type="file" accept="image/*" className="c-input" />
+              <p className="text-[11px] text-slate-500 mt-1">JPG/PNG/WebP, max 2 MB. Ridimensionata automaticamente.</p>
             </div>
-          </div>
 
-          {/* ── Sezione 6: Privacy ── */}
-          <SectionHeader num="6" title={t('iscr.section.6.title')} subtitle={t('iscr.section.6.subtitle')} />
-          <div className="bg-white border border-slate-200 rounded-3xl shadow-sm p-6">
-            <div className="space-y-3">
-              <label className="flex items-start gap-3 text-sm text-slate-800">
-                <Controller
-                  control={control}
-                  name="consenso_privacy"
-                  render={({ field }) => (
-                    <input
-                      type="checkbox"
-                      className="mt-1 rounded border-slate-300"
-                      checked={field.value}
-                      onChange={(e) => field.onChange(e.target.checked ? true : (undefined))}
-                    />
-                  )}
-                />
-                <span>
-                  <strong>Privacy *</strong> — Acconsento al trattamento dei dati personali secondo l'
-                  <a href="/privacy" target="_blank" rel="noreferrer" className="text-primary underline">informativa GDPR</a>
-                  {' '}per le finalità di gestione del concorso.
+            <div className="c-field">
+              <span className="c-field__label">📄 Documento d'identità</span>
+              <input ref={fileRefs.documento_identita} type="file" accept=".pdf,image/*" className="c-input" />
+              <p className="text-[11px] text-slate-500 mt-1">PDF/JPG/PNG, max 2 MB.</p>
+            </div>
+
+            <div className="c-field">
+              <span className="c-field__label">💳 Ricevuta pagamento quota</span>
+              <input ref={fileRefs.ricevuta_pagamento} type="file" accept=".pdf,image/*" className="c-input" />
+              <p className="text-[11px] text-slate-500 mt-1">PDF/JPG/PNG, max 2 MB.</p>
+            </div>
+
+            {isMinore && (
+              <div className="c-field">
+                <span className="c-field__label">✍ Autorizzazione minore</span>
+                <input ref={fileRefs.autorizzazione_minore} type="file" accept=".pdf,image/*" className="c-input" />
+                <p className="text-[11px] text-slate-500 mt-1">Modulo firmato dal tutore. PDF/JPG/PNG, max 2 MB.</p>
+              </div>
+            )}
+
+          </div>
+        </div>
+
+        {/* ── Sezione 6: Privacy ── */}
+        <SectionHeader num="6" title={t('iscr.section.6.title')} subtitle={t('iscr.section.6.subtitle')} />
+        <div className="bg-white border border-slate-200 rounded-3xl shadow-soft p-6">
+          <div className="space-y-3">
+
+            <label className="flex items-start gap-3 text-sm text-ink-800">
+              <Controller
+                control={control}
+                name="consenso_privacy"
+                render={({ field }) => (
+                  <input
+                    type="checkbox"
+                    className="mt-1 rounded border-slate-300"
+                    checked={!!field.value}
+                    onChange={(e) => field.onChange(e.target.checked ? true : (undefined))}
+                  />
+                )}
+              />
+              <span>
+                <strong>Privacy *</strong> — Acconsento al trattamento dei dati personali secondo l'
+                <a href="/privacy" target="_blank" rel="noreferrer" className="text-brand-700 underline">informativa GDPR</a>
+                {' '}per le finalità di gestione del concorso.
+              </span>
+            </label>
+            {errors.consenso_privacy && <p className="text-xs text-rose-600">{errors.consenso_privacy.message}</p>}
+
+            <label className="flex items-start gap-3 text-sm text-ink-800">
+              <input type="checkbox" className="mt-1 rounded border-slate-300" {...register('consenso_immagini')} />
+              <span>Autorizzo l'uso delle immagini (foto/video) realizzate durante il concorso per i materiali promozionali dell'ente.</span>
+            </label>
+
+            <label className="flex items-start gap-3 text-sm text-ink-800">
+              <Controller
+                control={control}
+                name="consenso_regolamento"
+                render={({ field }) => (
+                  <input
+                    type="checkbox"
+                    className="mt-1 rounded border-slate-300"
+                    checked={!!field.value}
+                    onChange={(e) => field.onChange(e.target.checked ? true : (undefined))}
+                  />
+                )}
+              />
+              <span><strong>Regolamento *</strong> — Dichiaro di aver letto e accettato il regolamento del concorso.</span>
+            </label>
+            {errors.consenso_regolamento && <p className="text-xs text-rose-600">{errors.consenso_regolamento.message}</p>}
+
+          </div>
+        </div>
+
+        {/* Submit sticky */}
+        <div className="sticky bottom-0 bg-gradient-to-t from-white via-white to-transparent pt-4 pb-2 -mx-2 px-2">
+          <button
+            type="submit"
+            disabled={submitMut.isPending}
+            className="c-btn c-btn--primary c-btn--xl w-full justify-center"
+          >
+            {submitMut.isPending ? (
+              <>
+                <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                </svg>
+                <span>{t('iscr.submit.loading')}</span>
+              </>
+            ) : (
+              <>
+                <span>{t('iscr.submit')}</span>
+                <span className="c-btn__icon" aria-hidden="true">
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                  </svg>
                 </span>
-              </label>
-              {errors.consenso_privacy && <p className="text-xs text-rose-600">{errors.consenso_privacy.message}</p>}
+              </>
+            )}
+          </button>
+          <p className="text-[11px] text-center text-slate-500 mt-2">{t('iscr.submit.tip')}</p>
+        </div>
 
-              <label className="flex items-start gap-3 text-sm text-slate-800">
-                <input type="checkbox" className="mt-1 rounded border-slate-300" {...register('consenso_immagini')} />
-                <span>Autorizzo l'uso delle immagini (foto/video) realizzate durante il concorso per i materiali promozionali dell'ente.</span>
-              </label>
-
-              <label className="flex items-start gap-3 text-sm text-slate-800">
-                <Controller
-                  control={control}
-                  name="consenso_regolamento"
-                  render={({ field }) => (
-                    <input
-                      type="checkbox"
-                      className="mt-1 rounded border-slate-300"
-                      checked={field.value}
-                      onChange={(e) => field.onChange(e.target.checked ? true : (undefined))}
-                    />
-                  )}
-                />
-                <span><strong>Regolamento *</strong> — Dichiaro di aver letto e accettato il regolamento del concorso.</span>
-              </label>
-              {errors.consenso_regolamento && <p className="text-xs text-rose-600">{errors.consenso_regolamento.message}</p>}
-            </div>
-          </div>
-
-          {/* Submit sticky */}
-          <div className="sticky bottom-0 bg-gradient-to-t from-slate-50 via-slate-50 to-transparent pt-4 pb-2">
-            <button
-              type="submit"
-              disabled={submitMut.isPending}
-              className="w-full bg-primary text-primary-foreground rounded-2xl py-3.5 text-base font-bold flex items-center justify-center gap-2 disabled:opacity-70 hover:bg-primary/90 transition-colors"
-            >
-              {submitMut.isPending ? (
-                <>
-                  <svg className="w-5 h-5 animate-spin" viewBox="0 0 24 24" fill="none"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" /></svg>
-                  {t('iscr.submit.loading')}
-                </>
-              ) : (
-                <>
-                  {t('iscr.submit')}
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" /></svg>
-                </>
-              )}
-            </button>
-            <p className="text-[11px] text-center text-slate-500 mt-2">{t('iscr.submit.tip')}</p>
-          </div>
-        </form>
-      </div>
-    </div>
+      </form>
+    </section>
   );
 }

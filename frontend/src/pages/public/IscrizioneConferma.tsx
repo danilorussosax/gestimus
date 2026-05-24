@@ -6,6 +6,7 @@
  * Chiama POST /api/public/iscrizioni/:token/verify.
  *
  * Pagina pubblica — NON usa AppLayout.
+ * Presentation: c-page / c-btn / brand/ink/emerald/rose (legacy.css).
  */
 
 import { useEffect } from 'react';
@@ -40,12 +41,16 @@ export default function IscrizioneConferma() {
   })();
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 to-slate-100 flex items-center justify-center p-4">
-      <div className={`bg-white border ${isError ? 'border-rose-200' : 'border-emerald-200'} rounded-3xl shadow-lg p-8 text-center max-w-xl w-full`}>
+    <section className="view-fade c-page max-w-xl mx-auto py-10">
+      <div className={`bg-white border ${isError ? 'border-rose-200' : 'border-emerald-200'} rounded-3xl shadow-soft p-8 text-center`}>
+
         {isLoading ? (
           <>
             <div className="inline-flex items-center justify-center w-16 h-16 mb-4 rounded-full bg-slate-100">
-              <svg className="w-8 h-8 text-slate-400 animate-spin" viewBox="0 0 24 24" fill="none">
+              <svg
+                className="w-8 h-8 text-slate-400 animate-spin"
+                viewBox="0 0 24 24" fill="none"
+              >
                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                 <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
               </svg>
@@ -54,31 +59,30 @@ export default function IscrizioneConferma() {
           </>
         ) : isError ? (
           <>
-            <div className="text-5xl mb-4">⚠️</div>
+            <div className="text-5xl mb-3">⚠</div>
             <h1 className="text-xl font-bold text-rose-900 mb-2">Impossibile verificare l'email</h1>
-            <p className="text-sm text-slate-700">{errorMsg}</p>
-            <p className="text-xs text-slate-500 mt-3">Se il problema persiste, contatta l'organizzazione del concorso.</p>
-            <a href="/" className="inline-block mt-6 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
-              Torna alla home
-            </a>
+            <p className="text-sm text-slate-700">
+              {errorMsg === 'not_found' || errorMsg.includes('non valido') || errorMsg.includes('già util')
+                ? 'Link non valido o già usato.'
+                : errorMsg}
+            </p>
+            <a href="/" className="c-btn c-btn--outline c-btn--sm mt-6">Chiudi</a>
           </>
         ) : (
           <>
-            <div className="text-5xl mb-4">✅</div>
+            <div className="text-5xl mb-3">✅</div>
             <h1 className="text-xl font-bold text-emerald-900 mb-2">Email verificata</h1>
             <p className="text-sm text-slate-700">
-              Grazie! La tua iscrizione è stata confermata ed è in attesa di revisione da parte dell'organizzazione.
+              Grazie! L'iscrizione è in attesa di revisione.
             </p>
             {mut.data?.alreadyVerified && (
               <p className="text-xs text-slate-500 mt-2">Nota: l'email era già stata verificata in precedenza.</p>
             )}
-            <p className="text-xs text-slate-500 mt-4">Riceverai una comunicazione quando la tua domanda sarà stata esaminata.</p>
-            <a href="/" className="inline-block mt-6 px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors">
-              Chiudi
-            </a>
+            <a href="/" className="c-btn c-btn--outline c-btn--sm mt-6">Chiudi</a>
           </>
         )}
+
       </div>
-    </div>
+    </section>
   );
 }

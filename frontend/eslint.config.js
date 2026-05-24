@@ -63,6 +63,7 @@ export default tseslint.config(
       'react-hooks/incompatible-library': 'off', // false-positive su react-hook-form watch()
       'react-hooks/set-state-in-effect': 'off', // pattern fetch-then-setState legittimo
       'react-hooks/static-components': 'off', // sub-view definite nel render (pattern legittimo senza Compiler)
+      'react-hooks/refs': 'warn', // ring-buffer ref letto in render (sparkline): warn
       'react-hooks/use-memo': 'warn', // dep-list non-"simple": warn, non blocca
       'react-hooks/exhaustive-deps': 'warn', // dep-array: warn, non blocca
       'react-hooks/immutability': 'off', // gestita da TS readonly + convenzioni
