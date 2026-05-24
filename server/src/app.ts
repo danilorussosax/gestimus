@@ -95,7 +95,10 @@ export async function createApp(): Promise<FastifyInstance> {
   // essere serviti come asset statici (sorgenti server, env, lockfile, .git).
   // fastifyStatic non serve i dotfile di default, ma `server/`, `package.json`,
   // ecc. sì — quindi li rifiutiamo esplicitamente prima dello static handler.
-  const BLOCKED_STATIC = [/^\/server\//, /^\/node_modules\//, /^\/\.git\//, /^\/package(-lock)?\.json$/i, /\.env/i, /^\/tsconfig/i];
+  // Gli allegati delle iscrizioni (documenti d'identità, autorizzazioni minori)
+  // sono SENSIBILI → mai serviti come statici. Si scaricano solo via endpoint
+  // autenticato admin (GET /api/iscrizioni/allegati/:id/download).
+  const BLOCKED_STATIC = [/^\/server\//, /^\/node_modules\//, /^\/\.git\//, /^\/package(-lock)?\.json$/i, /\.env/i, /^\/tsconfig/i, /^\/uploads\/[^/]+\/iscrizione\//i];
   app.addHook('onRequest', async (req, reply) => {
     const path = req.url.split('?')[0]!;
     if (BLOCKED_STATIC.some((re) => re.test(path))) {

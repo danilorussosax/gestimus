@@ -287,10 +287,28 @@ function openIscrizioneDetail(/** @type {any} */ isc, /** @type {any} */ concors
 
         ${isc.note_admin ? `<section><h3 class="font-mono text-[10px] uppercase tracking-wider text-slate-500 mb-2">Note admin</h3><p class="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs whitespace-pre-wrap">${escapeHtml(isc.note_admin)}</p></section>` : ''}
         ${isc.rejected_reason ? `<section><h3 class="font-mono text-[10px] uppercase tracking-wider text-rose-700 mb-2">Motivo del rifiuto</h3><p class="bg-rose-50 border border-rose-200 rounded-lg p-3 text-xs whitespace-pre-wrap">${escapeHtml(isc.rejected_reason)}</p></section>` : ''}
+        <section><h3 class="font-mono text-[10px] uppercase tracking-wider text-slate-500 mb-2">Allegati</h3><div data-allegati class="text-xs text-slate-500">Caricamento…</div></section>
       </div>
     `,
     primaryLabel: isc.stato === 'approved' || isc.stato === 'rejected' ? null : '✓ Approva',
     secondaryLabel: 'Chiudi',
+    onMount: async (body) => {
+      const host = body.querySelector('[data-allegati]');
+      if (!host) return;
+      try {
+        const allegati = await db.listAllegatiIscrizione(isc.id);
+        if (!allegati.length) { host.innerHTML = '<span class="italic text-slate-400">Nessun allegato</span>'; return; }
+        const labelTipo = /** @type {Record<string,string>} */ ({ foto: '📷 Foto', documento: '📄 Documento', ricevuta: '💳 Ricevuta', altro: '✍ Altro' });
+        const kb = (/** @type {any} */ n) => n ? `${Math.round(Number(n) / 1024)} KB` : '';
+        host.innerHTML = `<ul class="space-y-1.5">${allegati.map((/** @type {any} */ a) => `
+          <li class="flex items-center justify-between gap-3 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+            <span class="min-w-0 truncate text-slate-700">${escapeHtml(labelTipo[a.tipo] || a.tipo)} · ${escapeHtml(a.nomeFile || '')} <span class="text-slate-400">${kb(a.sizeBytes)}</span></span>
+            <a href="/api/iscrizioni/allegati/${encodeURIComponent(a.id)}/download" target="_blank" rel="noopener" class="shrink-0 text-brand-700 font-semibold hover:underline">⬇ Scarica</a>
+          </li>`).join('')}</ul>`;
+      } catch {
+        host.innerHTML = '<span class="text-rose-600">Errore nel caricamento allegati</span>';
+      }
+    },
     onPrimary: async (body) => {
       try {
         await db.approveIscrizione(isc.id);

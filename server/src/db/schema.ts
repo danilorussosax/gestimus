@@ -691,6 +691,9 @@ export const iscrizioni = pgTable(
     consensiGdpr: jsonb('consensi_gdpr'),
     noteLibere: text('note_libere'),
     emailVerificationToken: text('email_verification_token'),
+    // Token capability per l'upload degli allegati (no-auth): consente di
+    // caricare file SOLO su questa iscrizione, finestra limitata + cap + RL.
+    uploadToken: text('upload_token'),
     emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
     approvataAt: timestamp('approvata_at', { withTimezone: true }),
     candidatoId: uuid('candidato_id').references(() => candidati.id, { onDelete: 'set null' }),

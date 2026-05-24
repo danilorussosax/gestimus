@@ -590,6 +590,29 @@ function validate(/** @type {any} */ d) {
   return errs;
 }
 
+// Carica gli allegati selezionati nel form verso l'endpoint pubblico, usando il
+// uploadToken capability ritornato dalla submit. Mappa i campi del form ai `tipo`
+// ammessi dal DB. Best-effort per file (un fallito non blocca gli altri).
+const ALLEGATO_TIPI = /** @type {Record<string,string>} */ ({
+  foto: 'foto',
+  documento_identita: 'documento',
+  ricevuta_pagamento: 'ricevuta',
+  autorizzazione_minore: 'altro',
+});
+async function uploadAllegati(/** @type {HTMLElement} */ form, /** @type {string} */ uploadToken) {
+  for (const [field, tipo] of Object.entries(ALLEGATO_TIPI)) {
+    const input = /** @type {HTMLInputElement|null} */ (form.querySelector(`input[name="${field}"]`));
+    const file = input?.files?.[0];
+    if (!file) continue;
+    const fd = new FormData();
+    fd.append('file', file);
+    const r = await fetch(`/api/public/iscrizioni/${encodeURIComponent(uploadToken)}/allegati?tipo=${tipo}`, {
+      method: 'POST', credentials: 'include', body: fd,
+    });
+    if (!r.ok) throw new Error(`allegato ${field}: HTTP ${r.status}`);
+  }
+}
+
 async function submit(/** @type {any} */ root, /** @type {any} */ state) {
   // N75: guard anti doppio-submit all'ENTRY. Prima il flag submitting veniva
   // settato dopo la validazione → due click rapidi passavano entrambi e
@@ -626,9 +649,15 @@ async function submit(/** @type {any} */ root, /** @type {any} */ state) {
       website,
       startedAt,
     };
-    const { id } = await db.createIscrizione(payload);
+    const res = /** @type {any} */ (await db.createIscrizione(payload));
+    const iscrizioneId = res?.iscrizioneId || res?.id;
+    // Upload allegati selezionati (best-effort: l'iscrizione è già creata).
+    if (res?.uploadToken && form) {
+      try { await uploadAllegati(/** @type {HTMLElement} */ (form), res.uploadToken); }
+      catch (err) { console.error('upload allegati:', err); toast('Iscrizione inviata, ma alcuni allegati non sono stati caricati. Potrai inviarli su richiesta.', 'warn'); }
+    }
     clearDraft();
-    renderSuccess(root, state.concorso, id, d.email);
+    renderSuccess(root, state.concorso, iscrizioneId, d.email);
   } catch (e) {
     console.error('createIscrizione:', e);
     let msg = (/** @type {any} */ (e))?.message || 'Errore di rete';

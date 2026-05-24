@@ -1,7 +1,9 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { and, desc, eq, gte, inArray, max, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { candidati, categorie, concorsi, iscrizioni, sezioni } from '../db/schema.js';
+import { candidati, categorie, concorsi, iscrizioni, iscrizioniAllegati, sezioni } from '../db/schema.js';
+import { saveFile } from '../services/storage.js';
+import { readFile } from 'node:fs/promises';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { sendMail } from '../services/email.js';
@@ -224,6 +226,9 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
       //    vede l'iscrizione della prima → 409 deterministico (l'indice unique
       //    parziale uniq_iscrizioni_concorso_email_active resta la rete finale).
       const emailToken = generateToken();
+      // Token capability per l'upload allegati: torna nella risposta 201 e
+      // autorizza SOLO il caricamento di file su questa iscrizione.
+      const uploadToken = generateToken();
       const todayStr = todayISODate();
       const outcome = await req.dbTx(async (tx) => {
         const crows = await tx
@@ -325,6 +330,7 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
             consensiGdpr: data.consensiGdpr as object,
             noteLibere: data.noteLibere,
             emailVerificationToken: emailToken,
+            uploadToken,
             ipAddress: req.ip,
             userAgent: req.headers['user-agent'] ?? null,
           })
@@ -373,7 +379,81 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
         req.log.warn({ err: e, iscrizioneId: created.id }, 'email send failed (iscrizione verify)');
       }
 
-      return reply.code(201).send({ ok: true, iscrizioneId: created.id });
+      // uploadToken capability → il client carica gli allegati subito dopo.
+      return reply.code(201).send({ ok: true, iscrizioneId: created.id, uploadToken });
+    },
+  );
+
+  /**
+   * POST /public/iscrizioni/:uploadToken/allegati — upload allegato (no-auth).
+   * Capability: il token autorizza SOLO questa iscrizione. Difese: rate-limit,
+   * cap 6 allegati/iscrizione, validazione mime+magic-byte+size in saveFile.
+   * I file finiscono sotto uploads/<tenant>/iscrizione/<id>/ → NON serviti come
+   * statici (BLOCKED_STATIC): scaricabili solo via endpoint admin.
+   */
+  app.post(
+    '/iscrizioni/:uploadToken/allegati',
+    {
+      config: {
+        rateLimit: { max: 20, timeWindow: '1 hour', errorResponseBuilder: () => ({ statusCode: 429, error: 'troppi upload, riprova più tardi' }) },
+      },
+    },
+    async (req, reply) => {
+      const { uploadToken } = z.object({ uploadToken: z.string().min(10).max(200) }).parse(req.params);
+      const { tipo } = z.object({ tipo: z.enum(['foto', 'documento', 'ricevuta', 'altro']) }).parse(req.query);
+      return req.dbTx(async (tx) => {
+        const isc = await tx
+          .select({ id: iscrizioni.id })
+          .from(iscrizioni)
+          .where(eq(iscrizioni.uploadToken, uploadToken))
+          .limit(1);
+        if (isc.length === 0) return reply.notFound();
+        const iscId = isc[0]!.id;
+        const existing = await tx
+          .select({ id: iscrizioniAllegati.id })
+          .from(iscrizioniAllegati)
+          .where(eq(iscrizioniAllegati.iscrizioneId, iscId));
+        if (existing.length >= 6) return reply.code(409).send({ error: 'numero massimo di allegati raggiunto' });
+
+        const file = await req.file();
+        if (!file) return reply.badRequest('file mancante (field "file")');
+        let buffer: Buffer;
+        try {
+          buffer = await file.toBuffer();
+        } catch (err) {
+          if ((err as { code?: string }).code === 'FST_REQ_FILE_TOO_LARGE') {
+            return reply.code(413).send({ error: `file troppo grande (max ${env.UPLOADS_MAX_FILE_SIZE_MB} MB)` });
+          }
+          throw err;
+        }
+        let stored;
+        try {
+          stored = await saveFile({
+            tenantSlug: req.tenant!.slug,
+            resource: 'iscrizione',
+            id: iscId,
+            buffer,
+            mimeType: file.mimetype,
+            originalFilename: file.filename,
+          });
+        } catch (err) {
+          const e = err as { code?: string; message?: string };
+          if (e.code === 'UNSUPPORTED_MIME') return reply.code(415).send({ error: e.message });
+          if (e.code === 'MIME_MISMATCH') return reply.code(415).send({ error: e.message });
+          if (e.code === 'FILE_TOO_LARGE') return reply.code(413).send({ error: e.message });
+          throw err;
+        }
+        await tx.insert(iscrizioniAllegati).values({
+          tenantId: req.tenant!.id,
+          iscrizioneId: iscId,
+          tipo,
+          nomeFile: file.filename,
+          path: stored.path,
+          sizeBytes: stored.sizeBytes,
+          mimeType: stored.mimeType,
+        });
+        return reply.code(201).send({ ok: true });
+      });
     },
   );
 
@@ -437,6 +517,47 @@ export const iscrizioniAdminRoutes: FastifyPluginAsync = async (app) => {
   // (email, telefono, indirizzo, data nascita) → solo admin. Prima GET / e
   // GET /:id richiedevano solo auth, quindi un commissario leggeva tutte le PII.
   app.addHook('preHandler', requireRole('admin'));
+
+  // Allegati di un'iscrizione: metadata (no path filesystem nel payload).
+  app.get('/:id/allegati', async (req) => {
+    const { id } = z.object({ id: uuid }).parse(req.params);
+    return req.dbTx(async (tx) =>
+      tx
+        .select({
+          id: iscrizioniAllegati.id,
+          tipo: iscrizioniAllegati.tipo,
+          nomeFile: iscrizioniAllegati.nomeFile,
+          sizeBytes: iscrizioniAllegati.sizeBytes,
+          mimeType: iscrizioniAllegati.mimeType,
+          createdAt: iscrizioniAllegati.createdAt,
+        })
+        .from(iscrizioniAllegati)
+        .where(eq(iscrizioniAllegati.iscrizioneId, id))
+        .orderBy(iscrizioniAllegati.createdAt),
+    );
+  });
+
+  // Download di un allegato: SOLO admin (i documenti sono privati, non statici).
+  // Lo streaming via buffer va bene: i file sono cappati a UPLOADS_MAX_FILE_SIZE_MB.
+  app.get('/allegati/:id/download', async (req, reply) => {
+    const { id } = z.object({ id: uuid }).parse(req.params);
+    return req.dbTx(async (tx) => {
+      const rows = await tx
+        .select()
+        .from(iscrizioniAllegati)
+        .where(eq(iscrizioniAllegati.id, id))
+        .limit(1);
+      if (rows.length === 0) return reply.notFound();
+      const a = rows[0]!;
+      const buf = await readFile(a.path).catch(() => null);
+      if (!buf) return reply.notFound();
+      const safeName = (a.nomeFile || 'allegato').replace(/[^\w.\-]+/g, '_');
+      reply.header('Content-Type', a.mimeType || 'application/octet-stream');
+      reply.header('X-Content-Type-Options', 'nosniff');
+      reply.header('Content-Disposition', `attachment; filename="${safeName}"`);
+      return reply.send(buf);
+    });
+  });
 
   app.get('/', async (req) => {
     const q = z

@@ -214,7 +214,10 @@ describe('RLS isolamento tenant (22 tabelle)', () => {
           });
         });
       },
-      pgErrorMatching(/row violates row-level security|new row violates/i),
+      // La scrittura cross-tenant è rifiutata a due strati (difesa in profondità):
+      // il trigger di coerenza tenant scatta PRIMA (tenant_id mismatch); se non ci
+      // fosse, interverrebbe la RLS WITH CHECK. Accettiamo entrambi i messaggi.
+      pgErrorMatching(/row violates row-level security|new row violates|tenant_id mismatch/i),
     );
   });
 

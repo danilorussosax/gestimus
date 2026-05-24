@@ -8,7 +8,9 @@ import {
   candidatiMembri,
   commissari,
   iscrizioni,
+  iscrizioniAllegati,
 } from '../db/schema.js';
+import { deleteFile } from '../services/storage.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit, computeAuditLogSig } from '../services/audit.js';
 import { dbSuper } from '../db/client.js';
@@ -90,7 +92,22 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
         raw.write(`,"iscrizioni":${JSON.stringify(iscrizioniList.map((i) => ({
           ...i,
           emailVerificationToken: i.emailVerificationToken ? '[REDACTED]' : null,
+          uploadToken: i.uploadToken ? '[REDACTED]' : null,
         })))}`);
+
+        // Allegati (metadata, no path filesystem): elenco dei file forniti.
+        const allegatiList = await tx
+          .select({
+            id: iscrizioniAllegati.id,
+            iscrizioneId: iscrizioniAllegati.iscrizioneId,
+            tipo: iscrizioniAllegati.tipo,
+            nomeFile: iscrizioniAllegati.nomeFile,
+            sizeBytes: iscrizioniAllegati.sizeBytes,
+            mimeType: iscrizioniAllegati.mimeType,
+            createdAt: iscrizioniAllegati.createdAt,
+          })
+          .from(iscrizioniAllegati);
+        raw.write(`,"iscrizioniAllegati":${JSON.stringify(allegatiList)}`);
 
         // R15 (GDPR Art.15): include anche le registrazioni di trattamento
         // (audit_log) del tenant — diritto di accesso completo. Gira sotto RLS
@@ -141,7 +158,24 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) return reply.badRequest(parsed.error.message);
 
     const REDACTED = '[ERASED]';
-    const touched = { commissari: 0, candidati: 0, candidatiMembri: 0, iscrizioni: 0, accounts: 0 };
+    const touched = { commissari: 0, candidati: 0, candidatiMembri: 0, iscrizioni: 0, accounts: 0, allegati: 0 };
+
+    // GDPR: l'erase di un'iscrizione deve cancellare anche i file allegati
+    // (documenti sensibili) dal disco + le righe. Best-effort sul filesystem.
+    const purgeAllegati = async (tx: any, iscrizioneIds: string[]) => {
+      if (iscrizioneIds.length === 0) return;
+      const rows = await tx
+        .select({ id: iscrizioniAllegati.id, path: iscrizioniAllegati.path })
+        .from(iscrizioniAllegati)
+        .where(inArray(iscrizioniAllegati.iscrizioneId, iscrizioneIds));
+      for (const r of rows) {
+        try { await deleteFile(r.path); } catch { /* file già assente: ok */ }
+      }
+      if (rows.length > 0) {
+        await tx.delete(iscrizioniAllegati).where(inArray(iscrizioniAllegati.iscrizioneId, iscrizioneIds));
+        touched.allegati += rows.length;
+      }
+    };
 
     // N9: redaction COMPLETA di tutti i campi PII (prima ne restavano molti).
     const commissarioRedaction = {
@@ -213,6 +247,7 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
           .where(eq(iscrizioni.id, parsed.data.iscrizioneId))
           .returning();
         touched.iscrizioni += res.length;
+        await purgeAllegati(tx, [parsed.data.iscrizioneId]);
       }
 
       if (parsed.data.email) {
@@ -223,6 +258,7 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
           .where(sql`lower(${iscrizioni.email}) = ${email}`)
           .returning();
         touched.iscrizioni += isc.length;
+        await purgeAllegati(tx, isc.map((i) => i.id));
 
         const com = await tx
           .update(commissari)

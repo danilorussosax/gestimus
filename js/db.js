@@ -1932,6 +1932,11 @@ export const db = {
     return (rows || []).map(mapIscrizione);
   },
 
+  /** Metadata degli allegati di un'iscrizione (download via endpoint admin). */
+  async listAllegatiIscrizione(/** @type {any} */ iscrizioneId) {
+    return /** @type {any[]} */ (await api.get(`/api/iscrizioni/${iscrizioneId}/allegati`)) || [];
+  },
+
   async approveIscrizione(/** @type {any} */ iscrizioneId, /** @type {{ note?: any }} */ { note = '' } = {}) {
     const res = await api.post(`/api/iscrizioni/${iscrizioneId}/approve`, { note });
     // Approve crea il candidato collegato lato server: refresh delle liste impattate

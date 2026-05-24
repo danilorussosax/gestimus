@@ -116,7 +116,6 @@ Punti critici coperti, provati da test (`tests/crud/concurrency.test.ts`):
 |:---:|---|---|
 | Bassa | Lazy-load client per-vista | `db.loadAll` carica tutto in memoria; ok ai volumi attesi, da rivedere per tenant molto grandi (richiede test browser). **Refactor evolutivo, alto rischio.** |
 | Bassa | Split file frontend > 1500 LOC | Manutenibilità: restano `db.js`, `superadmin.js`, `fasi.js` (`i18n.js` già splittato per lingua). **Refactor evolutivo.** |
-| Bassa | TODO allegati iscrizione (`iscrizioni.js`) | Funzionalità incompleta. Quando cablata: erase GDPR deve cancellare righe+file, export includerli. |
 
 > **Round R15 follow-up (2026-05-24)** — chiuse le voci §9 concrete: CV commissario
 > (riscritto come campo testo), i18n EN/FR/ES (parità completa + CI enforcing),
@@ -222,3 +221,21 @@ Innalzamento a maturità produzione su due assi: type-safety piena e alta dispon
 - **Onesto**: il failover *automatico* è infrastruttura — l'app è già failover-aware e stateless, ma il cluster va provisionato/validato su nodi reali al deploy (qui non riproducibile). Scelta concordata: doc-only, niente modifiche al codice app.
 
 **Verifica:** `tsc -p tsconfig.frontend.json` (strict) → **0** · `node --check` tutti i `js/` · unit **47/47** · **E2E 21/21 verdi** · lint server pulito. ⚠️ HA non ancora montata su infra reale.
+
+---
+
+## 16. Cronologia — Round R19 (2026-05-24)
+
+Round di "maturità produzione": chiusura feature a metà, E2E profondo, 2 bug.
+
+**Bug:**
+- **Rate-limit 429 (non 500)**: `@fastify/rate-limit` lanciava un errore senza `statusCode` → l'error handler rispondeva 500. I 5 `errorResponseBuilder` ora ritornano `statusCode: 429` e l'handler legge `e.error` → 429 + messaggio corretto.
+- **Overlap card display**: blocchi sovrapposti nella stessa sezione/ora si accavallavano → assegnazione a **lane** (greedy interval partitioning), sotto-colonne affiancate.
+
+**Feature chiuse:**
+- **Email verifica iscrizioni**: era già completa (sendMail best-effort post-commit) → corretti i doc stale.
+- **Allegati iscrizione** (era TODO): upload pubblico `POST /api/public/iscrizioni/:uploadToken/allegati` (token capability + rate-limit + cap 6/iscrizione, validazione mime+magic-byte+size via `saveFile`); **documenti privati** (foto/documento/ricevuta/altro) — esclusi dallo static (`BLOCKED_STATIC`), scaricabili **solo da admin** (`GET /api/iscrizioni/allegati/:id/download`); GDPR: export include i metadata, **erase cancella file+righe**. Frontend: upload post-submit; admin: lista+download nel dettaglio iscrizione. Verificato end-to-end (upload 201 · static 404 · no-auth 401 · erase cancella il file).
+
+**E2E profondo:** +`fase-flow` (ciclo fase→risultati) +`gdpr` (export Art.20) → 9 spec / **24 test**. Il test RLS cross-tenant su `valutazioni` (prima sempre skippato per assenza di candidati_fase nel seed) ora gira: matcher allargato (difesa a 2 strati — trigger coerenza tenant + RLS WITH CHECK).
+
+**Verifica:** server **154/154** (0 skip) · frontend strict **0** · **E2E 24/24** · lint ok.
