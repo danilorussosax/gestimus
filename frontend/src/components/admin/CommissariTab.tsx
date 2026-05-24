@@ -1,10 +1,15 @@
 // =============================================================================
 // CommissariTab — gestione commissari (admin)
 //
-// Features:
-//  - Griglia ATTIVI + sezione ARCHIVIO (INATTIVI)
-//  - Create / Edit dialog con foto upload e CV testo
-//  - Archivia (passa a INATTIVO) / Riattiva / Elimina
+// Layout/structure matches the vanilla commissari.js source exactly:
+//  - Header + "Aggiungi" button
+//  - ATTIVI grid (1/2/3 col) with commissario cards
+//  - Empty state (dashed border)
+//  - Archivio INATTIVI section below dashed border-t
+//  - Create/Edit Dialog with foto preview, CV textarea, bio
+// Presentation uses Tailwind classes mirroring vanilla (bg-white, border-slate-*,
+// rounded-2xl, ring-amber-400, etc) because legacy.css maps them to CSS vars.
+// Data wiring from '@/api/commissari' hooks is fully preserved.
 // =============================================================================
 
 import { useState, useRef, useCallback } from 'react';
@@ -12,17 +17,9 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
-import {
-  Plus, Pencil, Trash2, Archive, ArchiveRestore, UserCircle2, Mail, Phone, FileText,
-} from 'lucide-react';
+import { Plus, Pencil, Trash2, Archive, ArchiveRestore, FileText, Mail, Phone } from 'lucide-react';
 
-import { cn } from '@/lib/utils';
 import { fileUrl, httpErrorMessage } from '@/lib/api';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
   Dialog,
   DialogContent,
@@ -74,30 +71,22 @@ const commissarioSchema = z.object({
 type CommissarioFormValues = z.infer<typeof commissarioSchema>;
 
 // ---------------------------------------------------------------------------
-// CvPreviewDialog
+// CvPreviewDialog — readonly view of the CV text (mirrors vanilla openCvText)
 // ---------------------------------------------------------------------------
-function CvPreviewDialog({
-  cv,
-  open,
-  onClose,
-}: {
-  cv: string;
-  open: boolean;
-  onClose: () => void;
-}) {
+function CvPreviewDialog({ cv, open, onClose }: { cv: string; open: boolean; onClose: () => void }) {
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-2xl">
         <DialogHeader>
           <DialogTitle>Curriculum vitae</DialogTitle>
         </DialogHeader>
-        <div className="max-h-[60vh] overflow-y-auto whitespace-pre-wrap break-words text-sm font-mono leading-relaxed text-foreground/90 rounded-lg bg-muted/40 p-4">
-          {cv || <span className="italic text-muted-foreground">Vuoto</span>}
+        <div className="whitespace-pre-wrap break-words text-sm text-slate-800 leading-relaxed max-h-[60vh] overflow-y-auto font-mono">
+          {cv || <span className="italic text-slate-400">Vuoto</span>}
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onClose}>
+          <button type="button" className="c-btn c-btn--outline" onClick={onClose}>
             Chiudi
-          </Button>
+          </button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -105,7 +94,7 @@ function CvPreviewDialog({
 }
 
 // ---------------------------------------------------------------------------
-// CommissarioFormDialog
+// CommissarioFormDialog — create / edit dialog mirroring vanilla openCommissarioForm
 // ---------------------------------------------------------------------------
 interface FormDialogProps {
   open: boolean;
@@ -125,6 +114,8 @@ function CommissarioFormDialog({ open, onOpenChange, concorsoId, existing }: For
   const fotoInputRef = useRef<HTMLInputElement>(null);
   const [cvPreviewOpen, setCvPreviewOpen] = useState(false);
   const [cvEditing, setCvEditing] = useState(false);
+
+  const todayISO = new Date().toISOString().slice(0, 10);
 
   const form = useForm<CommissarioFormValues>({
     resolver: zodResolver(commissarioSchema),
@@ -178,15 +169,11 @@ function CommissarioFormDialog({ open, onOpenChange, concorsoId, existing }: For
         await updateCommissario.mutateAsync({ id: existing.id, body });
         toast.success('Commissario aggiornato');
       } else {
-        const created = await createCommissario.mutateAsync({
-          concorsoId,
-          ...body,
-        });
+        const created = await createCommissario.mutateAsync({ concorsoId, ...body });
         savedId = created.id;
         toast.success('Commissario aggiunto');
       }
 
-      // Upload foto if selected
       if (fotoFile && savedId) {
         await uploadFoto.mutateAsync({ id: savedId, file: fotoFile });
       }
@@ -200,197 +187,233 @@ function CommissarioFormDialog({ open, onOpenChange, concorsoId, existing }: For
   const isPending =
     createCommissario.isPending || updateCommissario.isPending || uploadFoto.isPending;
 
+  const inputCls =
+    'c-input mt-1';
+
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-2xl">
+        <DialogContent className="sm:max-w-3xl">
           <DialogHeader>
             <DialogTitle>
-              {isEdit ? `Modifica commissario` : 'Nuovo commissario'}
+              {isEdit ? 'Modifica commissario' : 'Nuovo commissario'}
             </DialogTitle>
             {isEdit && existing && (
               <DialogDescription>{displayName(existing)}</DialogDescription>
             )}
           </DialogHeader>
 
-          <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 overflow-y-auto max-h-[70dvh] pr-1">
-            {/* Foto + dati principali */}
-            <div className="flex items-start gap-4">
-              {/* Foto avatar */}
-              <div className="shrink-0">
-                <div
-                  className={cn(
-                    'h-20 w-20 rounded-full overflow-hidden bg-muted border-2 border-border flex items-center justify-center',
-                    currentFotoUrl && 'border-primary/40',
-                  )}
-                >
-                  {currentFotoUrl ? (
-                    <img src={currentFotoUrl} alt="" className="h-full w-full object-cover" />
-                  ) : (
-                    <UserCircle2 className="h-10 w-10 text-muted-foreground/40" />
-                  )}
-                </div>
-                <div className="mt-2 flex flex-col gap-1">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="text-xs h-7 px-2"
-                    onClick={() => fotoInputRef.current?.click()}
-                  >
-                    {currentFotoUrl ? 'Cambia' : 'Foto'}
-                  </Button>
-                  {currentFotoUrl && (
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="ghost"
-                      className="text-xs h-7 px-2 text-destructive hover:text-destructive"
-                      onClick={handleClearFoto}
-                    >
-                      Rimuovi
-                    </Button>
-                  )}
-                </div>
-                <input
-                  ref={fotoInputRef}
-                  type="file"
-                  accept="image/*"
-                  className="hidden"
-                  onChange={handleFotoChange}
-                />
-              </div>
-
-              {/* Nome + cognome */}
-              <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-sm font-medium mb-1">
-                    Nome <span className="text-destructive">*</span>
-                  </label>
-                  <Input {...form.register('nome')} placeholder="Mario" />
-                  {form.formState.errors.nome && (
-                    <p className="mt-1 text-xs text-destructive">{form.formState.errors.nome.message}</p>
-                  )}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium mb-1">Cognome</label>
-                  <Input {...form.register('cognome')} placeholder="Rossi" />
-                </div>
-              </div>
-            </div>
-
-            {/* Grid campi */}
+          <form
+            onSubmit={form.handleSubmit(onSubmit)}
+            id="commissario-frm"
+            className="space-y-5 overflow-y-auto max-h-[70dvh] pr-1"
+            autoComplete="off"
+          >
+            {/* ---- Dati anagrafici ---- */}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium mb-1">Specialità</label>
-                <Input
+              <label className="block">
+                <span className="text-sm font-medium text-slate-700">
+                  Nome <span className="text-rose-500">*</span>
+                </span>
+                <input {...form.register('nome')} required className={inputCls} />
+                {form.formState.errors.nome && (
+                  <p className="mt-1 text-xs text-rose-600">{form.formState.errors.nome.message}</p>
+                )}
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-slate-700">
+                  Cognome <span className="text-rose-500">*</span>
+                </span>
+                <input {...form.register('cognome')} className={inputCls} />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-slate-700">
+                  Specialità <span className="text-rose-500">*</span>
+                </span>
+                <input
                   {...form.register('specialita')}
+                  className={inputCls}
                   placeholder="Es. Pianoforte classico"
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Data di nascita</label>
-                <Input
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-slate-700">Data di nascita</span>
+                <input
                   type="date"
                   {...form.register('dataNascita')}
-                  max={new Date().toISOString().slice(0, 10)}
+                  max={todayISO}
+                  className={inputCls}
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Nazionalità</label>
-                <Input {...form.register('nazionalita')} placeholder="Es. Italiana" />
-              </div>
-              <div>
-                <label className="block text-sm font-medium mb-1">Email</label>
-                <Input
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-slate-700">Nazionalità</span>
+                <input
+                  {...form.register('nazionalita')}
+                  className={inputCls}
+                  placeholder="Es. Italiana"
+                />
+              </label>
+              <label className="block">
+                <span className="text-sm font-medium text-slate-700">Email</span>
+                <input
                   type="email"
                   {...form.register('email')}
+                  className={inputCls}
                   placeholder="mario@esempio.it"
                 />
                 {form.formState.errors.email && (
-                  <p className="mt-1 text-xs text-destructive">{form.formState.errors.email.message}</p>
+                  <p className="mt-1 text-xs text-rose-600">{form.formState.errors.email.message}</p>
                 )}
-              </div>
-              <div className="sm:col-span-2">
-                <label className="block text-sm font-medium mb-1">Telefono</label>
-                <Input
+              </label>
+              <label className="block sm:col-span-2">
+                <span className="text-sm font-medium text-slate-700">Telefono</span>
+                <input
                   type="tel"
                   {...form.register('telefono')}
+                  className={inputCls}
                   placeholder="+39 333 000 0000"
                 />
+              </label>
+            </div>
+
+            {/* ---- Foto + CV ---- */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-4 border-t border-slate-200">
+              {/* Foto */}
+              <div>
+                <span className="text-sm font-medium text-slate-700 block mb-2">Foto</span>
+                <div className="flex items-center gap-3">
+                  <div className="w-20 h-20 rounded-full bg-slate-100 border-2 border-slate-200 overflow-hidden flex items-center justify-center shrink-0">
+                    {currentFotoUrl ? (
+                      <img src={currentFotoUrl} alt="" className="w-full h-full object-cover" />
+                    ) : (
+                      <span className="text-3xl text-slate-400">🧑‍⚖️</span>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <button
+                      type="button"
+                      className="inline-flex items-center px-3 py-1.5 text-sm font-medium text-brand-700 bg-brand-50 hover:bg-brand-100 rounded-lg transition"
+                      onClick={() => fotoInputRef.current?.click()}
+                    >
+                      {currentFotoUrl ? 'Cambia foto' : 'Carica foto'}
+                    </button>
+                    {currentFotoUrl && (
+                      <button
+                        type="button"
+                        className="ml-1 text-xs font-medium text-rose-600 hover:text-rose-800"
+                        onClick={handleClearFoto}
+                      >
+                        Rimuovi
+                      </button>
+                    )}
+                    <input
+                      ref={fotoInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={handleFotoChange}
+                    />
+                    <p className="text-[10px] text-slate-500 mt-1.5">
+                      JPG o PNG, max 2 MB. Verrà ridimensionata.
+                    </p>
+                  </div>
+                </div>
               </div>
-            </div>
 
-            {/* Bio */}
-            <div>
-              <label className="block text-sm font-medium mb-1">Biografia</label>
-              <Textarea
-                {...form.register('bio')}
-                rows={3}
-                placeholder="Breve presentazione del commissario…"
-              />
-            </div>
-
-            {/* CV */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-sm font-medium">Curriculum vitae (testo)</label>
-                <div className="flex items-center gap-2">
+              {/* CV */}
+              <div>
+                <span className="text-sm font-medium text-slate-700 block mb-2">
+                  Curriculum vitae (testo)
+                </span>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <button
+                    type="button"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition"
+                    onClick={() => setCvEditing((v) => !v)}
+                  >
+                    {cvEditing
+                      ? 'Chiudi'
+                      : cvValue.trim().length > 0
+                        ? 'Modifica CV'
+                        : 'Aggiungi CV'}
+                  </button>
                   {cvValue.trim().length > 0 && (
                     <>
                       <button
                         type="button"
-                        className="text-xs text-emerald-700 hover:text-emerald-900 font-medium"
+                        className="text-xs font-medium text-emerald-700 hover:text-emerald-900 px-2 py-1 rounded-lg"
                         onClick={() => setCvPreviewOpen(true)}
                       >
                         Visualizza
                       </button>
-                      <span className="text-xs text-muted-foreground">
-                        {cvValue.length} car.
-                      </span>
+                      <button
+                        type="button"
+                        className="text-xs font-medium text-rose-600 hover:text-rose-800 px-2 py-1 rounded-lg"
+                        onClick={() => {
+                          form.setValue('cv', '');
+                          setCvEditing(false);
+                        }}
+                      >
+                        Rimuovi
+                      </button>
+                      <span className="text-[11px] text-slate-500">{cvValue.length} car.</span>
                     </>
                   )}
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="outline"
-                    className="text-xs h-7 px-2"
-                    onClick={() => setCvEditing((v) => !v)}
-                  >
-                    {cvEditing
-                      ? 'Comprimi'
-                      : cvValue.trim().length > 0
-                        ? 'Modifica'
-                        : 'Aggiungi'}
-                  </Button>
                 </div>
+                {cvEditing && (
+                  <textarea
+                    {...form.register('cv')}
+                    rows={6}
+                    className="c-textarea mt-2 font-mono text-[13px]"
+                    placeholder="Incolla il testo del CV o scrivi una nota biografica estesa…"
+                  />
+                )}
+                <p className="text-[10px] text-slate-500 mt-1.5">
+                  Testo libero (plain text o Markdown).
+                </p>
               </div>
-              {cvEditing && (
-                <Textarea
-                  {...form.register('cv')}
-                  rows={8}
-                  placeholder="Incolla il testo del CV o scrivi una nota biografica estesa…"
-                  className="font-mono text-xs"
-                />
-              )}
             </div>
 
-            <p className="text-xs text-muted-foreground bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-              Per nominare un commissario <strong>presidente</strong>, vai al tab{' '}
-              <em>Commissioni</em> e selezionalo come presidente di una commissione.
-            </p>
+            {/* ---- Bio ---- */}
+            <div className="pt-4 border-t border-slate-200">
+              <label className="block">
+                <span className="text-sm font-medium text-slate-700">Biografia</span>
+                <textarea
+                  {...form.register('bio')}
+                  rows={3}
+                  className="c-textarea mt-1"
+                  placeholder="Breve presentazione del commissario…"
+                />
+              </label>
+            </div>
+
+            {/* ---- Nota presidente ---- */}
+            <div className="pt-4 border-t border-slate-200">
+              <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5 text-xs text-amber-900 flex items-start gap-2">
+                <span className="text-base shrink-0">🎯</span>
+                <p>
+                  Per nominare un commissario <strong>presidente</strong>, vai al tab{' '}
+                  <em>Commissioni</em>, apri (o crea) la commissione e seleziona il presidente dal
+                  menù "Presidente della commissione".
+                </p>
+              </div>
+            </div>
 
             <DialogFooter>
-              <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              <button
+                type="button"
+                className="c-btn c-btn--outline"
+                onClick={() => onOpenChange(false)}
+              >
                 Annulla
-              </Button>
-              <Button type="submit" disabled={isPending}>
+              </button>
+              <button type="submit" className="c-btn c-btn--primary" disabled={isPending}>
                 {isPending
                   ? 'Salvataggio…'
                   : isEdit
                     ? 'Salva modifiche'
                     : 'Aggiungi commissario'}
-              </Button>
+              </button>
             </DialogFooter>
           </form>
         </DialogContent>
@@ -408,7 +431,7 @@ function CommissarioFormDialog({ open, onOpenChange, concorsoId, existing }: For
 }
 
 // ---------------------------------------------------------------------------
-// CommissarioCard
+// CommissarioCard — active commissario tile (mirrors commissarioCardHtml)
 // ---------------------------------------------------------------------------
 interface CardProps {
   commissario: CommissarioRecord;
@@ -423,66 +446,62 @@ function CommissarioCard({ commissario: c, onEdit, onArchive, onDelete, isPresid
   const [cvOpen, setCvOpen] = useState(false);
   const fotoSrc = c.foto ? fileUrl(c.foto) : null;
 
+  const ringCls = isPresidente ? 'ring-2 ring-amber-400' : 'ring-2 ring-white';
+  const cardCls = isPresidente ? 'border-amber-300 bg-amber-50/40' : 'border-slate-200';
+
   return (
     <>
       <div
-        className={cn(
-          'rounded-2xl border bg-card p-4 flex items-start gap-3 transition-colors',
-          isPresidente
-            ? 'border-amber-300 bg-amber-50/40 ring-1 ring-amber-200'
-            : 'border-border hover:border-border/80',
-        )}
+        className={`bg-white border ${cardCls} rounded-2xl p-4 flex items-start gap-3 hover:border-slate-300 transition`}
       >
         {/* Avatar */}
         <div
-          className={cn(
-            'h-14 w-14 rounded-full overflow-hidden shrink-0 flex items-center justify-center bg-gradient-to-br from-amber-100 to-orange-100',
-            isPresidente ? 'ring-2 ring-amber-400' : 'ring-2 ring-white',
-          )}
+          className={`w-14 h-14 rounded-full bg-gradient-to-br from-amber-100 to-orange-100 overflow-hidden flex items-center justify-center text-2xl text-amber-700 shrink-0 ${ringCls} shadow-soft`}
         >
           {fotoSrc ? (
-            <img src={fotoSrc} alt="" className="h-full w-full object-cover" />
+            <img src={fotoSrc} alt="" className="w-full h-full object-cover" />
           ) : (
-            <UserCircle2 className="h-8 w-8 text-amber-600" />
+            <span>🧑‍⚖️</span>
           )}
         </div>
 
         {/* Info */}
         <div className="flex-1 min-w-0">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <h4 className="font-semibold text-foreground truncate">{displayName(c)}</h4>
+          <div className="flex items-center gap-2 flex-wrap">
+            <h4 className="font-semibold text-slate-900 truncate">{displayName(c)}</h4>
             {isPresidente && (
-              <Badge variant="warning" className="text-[10px] px-1.5 py-0.5">
+              <span className="text-[10px] font-bold px-1.5 py-0.5 bg-amber-500 text-white rounded-full">
                 Presidente
-              </Badge>
+              </span>
             )}
             {c.nazionalita && (
-              <Badge variant="muted" className="text-[10px] px-1.5 py-0.5">
+              <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded-full font-medium">
                 {c.nazionalita}
-              </Badge>
+              </span>
             )}
           </div>
-          <p className="text-xs text-muted-foreground truncate mt-0.5">
+          <p className="text-xs text-slate-600 truncate mt-0.5">
             {c.specialita ?? '—'}
             {age != null && ` · ${age} anni`}
           </p>
           {c.email && (
-            <p className="text-[11px] text-muted-foreground truncate mt-0.5 flex items-center gap-1">
+            <p className="text-[11px] text-slate-500 truncate mt-0.5 flex items-center gap-1">
               <Mail className="h-3 w-3 shrink-0" />
               {c.email}
             </p>
           )}
           {c.telefono && (
-            <p className="text-[11px] text-muted-foreground truncate flex items-center gap-1">
+            <p className="text-[11px] text-slate-500 truncate flex items-center gap-1">
               <Phone className="h-3 w-3 shrink-0" />
               {c.telefono}
             </p>
           )}
-          <div className="mt-2 flex flex-wrap gap-1.5">
+          <div className="mt-2 flex items-center gap-1.5 flex-wrap">
             {c.cv && (
               <button
                 onClick={() => setCvOpen(true)}
-                className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-full font-medium transition-colors"
+                className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-full font-medium"
+                title="Visualizza CV"
               >
                 <FileText className="h-3 w-3" />
                 CV
@@ -499,36 +518,31 @@ function CommissarioCard({ commissario: c, onEdit, onArchive, onDelete, isPresid
           </div>
         </div>
 
-        {/* Actions */}
+        {/* Actions — edit / archive / delete */}
         <div className="flex flex-col gap-1 shrink-0">
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 px-2 text-xs text-primary hover:bg-primary/10"
+          <button
             onClick={onEdit}
+            className="text-xs text-brand-600 hover:bg-brand-50 px-2 py-1 rounded-lg font-medium flex items-center gap-1"
           >
             <Pencil className="h-3 w-3" />
             Modifica
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 px-2 text-xs text-amber-700 hover:bg-amber-50"
+          </button>
+          <button
             onClick={onArchive}
+            className="text-xs text-amber-700 hover:bg-amber-50 px-2 py-1 rounded-lg font-medium flex items-center gap-1"
             title="Archivia commissario"
           >
             <Archive className="h-3 w-3" />
             Archivia
-          </Button>
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10"
+          </button>
+          <button
             onClick={onDelete}
+            className="text-xs text-rose-600 hover:bg-rose-50 px-2 py-1 rounded-lg font-medium flex items-center gap-1"
+            title="Elimina commissario"
           >
             <Trash2 className="h-3 w-3" />
             Elimina
-          </Button>
+          </button>
         </div>
       </div>
 
@@ -540,7 +554,7 @@ function CommissarioCard({ commissario: c, onEdit, onArchive, onDelete, isPresid
 }
 
 // ---------------------------------------------------------------------------
-// ArchivioCard (INATTIVO)
+// ArchivioCard — INATTIVO row (compact, mirrors archivioCardHtml style)
 // ---------------------------------------------------------------------------
 function ArchivioCard({
   commissario: c,
@@ -553,39 +567,36 @@ function ArchivioCard({
 }) {
   const fotoSrc = c.foto ? fileUrl(c.foto) : null;
   return (
-    <div className="rounded-xl border border-border bg-muted/30 p-3 flex items-center gap-3">
-      <div className="h-10 w-10 rounded-full overflow-hidden shrink-0 flex items-center justify-center bg-muted">
+    <div className="bg-white border border-slate-200 rounded-2xl p-4 flex items-center gap-3 hover:border-slate-300 transition opacity-70">
+      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-100 to-orange-100 overflow-hidden flex items-center justify-center text-lg text-amber-700 shrink-0 ring-2 ring-white shadow-soft">
         {fotoSrc ? (
-          <img src={fotoSrc} alt="" className="h-full w-full object-cover" />
+          <img src={fotoSrc} alt="" className="w-full h-full object-cover" />
         ) : (
-          <UserCircle2 className="h-6 w-6 text-muted-foreground" />
+          <span>🧑‍⚖️</span>
         )}
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-sm font-medium text-muted-foreground truncate">{displayName(c)}</p>
+        <p className="text-sm font-semibold text-slate-700 truncate">{displayName(c)}</p>
         {c.specialita && (
-          <p className="text-xs text-muted-foreground/60 truncate">{c.specialita}</p>
+          <p className="text-xs text-slate-500 truncate">{c.specialita}</p>
         )}
       </div>
       <div className="flex items-center gap-1 shrink-0">
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-7 px-2 text-xs text-emerald-700 hover:bg-emerald-50"
+        <button
           onClick={onReactivate}
+          className="text-xs text-emerald-700 hover:bg-emerald-50 px-2 py-1 rounded-lg font-medium flex items-center gap-1"
           title="Riattiva commissario"
         >
           <ArchiveRestore className="h-3 w-3" />
           Riattiva
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10"
+        </button>
+        <button
           onClick={onDelete}
+          className="text-xs text-rose-600 hover:bg-rose-50 px-2 py-1 rounded-lg font-medium flex items-center gap-1"
+          title="Elimina commissario"
         >
           <Trash2 className="h-3 w-3" />
-        </Button>
+        </button>
       </div>
     </div>
   );
@@ -629,11 +640,7 @@ export default function CommissariTab({ concorsoId }: { concorsoId: string }) {
   };
 
   const handleDelete = async (c: CommissarioRecord) => {
-    if (
-      !confirm(
-        `Eliminare definitivamente "${displayName(c)}"? L'operazione non è reversibile.`,
-      )
-    )
+    if (!confirm(`Eliminare definitivamente "${displayName(c)}"? L'operazione non è reversibile.`))
       return;
     try {
       await deleteCommissario.mutateAsync(c.id);
@@ -648,54 +655,51 @@ export default function CommissariTab({ concorsoId }: { concorsoId: string }) {
   // ---------------------------------------------------------------------------
   if (isLoading) {
     return (
-      <div className="space-y-3">
-        <Skeleton className="h-24 w-full rounded-2xl" />
-        <Skeleton className="h-24 w-full rounded-2xl" />
-        <Skeleton className="h-24 w-2/3 rounded-2xl" />
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+        {[1, 2, 3].map((i) => (
+          <div
+            key={i}
+            className="bg-white border border-slate-200 rounded-2xl p-4 h-24 animate-pulse"
+          />
+        ))}
       </div>
     );
   }
 
   if (isError) {
     return (
-      <p className="text-sm text-destructive">Errore nel caricamento dei commissari.</p>
+      <p className="text-sm text-rose-600">Errore nel caricamento dei commissari.</p>
     );
   }
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">
-            Commissari
-          </h3>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            {attivi.length} attivi · {inattivi.length} in archivio
-          </p>
-        </div>
-        <Button size="sm" onClick={() => setDialog({ open: true })}>
-          <Plus className="h-4 w-4" />
-          Aggiungi commissario
-        </Button>
-      </div>
-
-      {/* Active list */}
-      {attivi.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border py-14 text-center">
-          <UserCircle2 className="mx-auto h-10 w-10 text-muted-foreground/40 mb-3" />
-          <p className="text-sm text-muted-foreground italic">
-            Nessun commissario attivo — aggiungine uno.
-          </p>
-          <Button
-            size="sm"
-            variant="outline"
-            className="mt-4"
+    <div className="view-fade">
+      {/* ---- Header ---- */}
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+        <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">Commissari</h3>
+        <div className="flex items-center gap-2">
+          <button
+            className="c-btn c-btn--primary c-btn--sm flex items-center gap-1.5"
             onClick={() => setDialog({ open: true })}
           >
             <Plus className="h-4 w-4" />
-            Aggiungi il primo commissario
-          </Button>
+            Aggiungi commissario
+          </button>
+        </div>
+      </div>
+
+      <p className="text-sm text-slate-600 mb-4">
+        {attivi.length} attivi
+        {inattivi.length > 0 && ` · ${inattivi.length} in archivio`}
+      </p>
+
+      {/* ---- ATTIVI grid ---- */}
+      {attivi.length === 0 ? (
+        <div className="bg-white border-2 border-dashed border-slate-200 rounded-2xl py-12 text-center">
+          <div className="text-4xl mb-2">🧑‍⚖️</div>
+          <p className="text-sm text-slate-500 italic">
+            Nessun commissario — aggiungine uno con il pulsante in alto.
+          </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
@@ -712,26 +716,33 @@ export default function CommissariTab({ concorsoId }: { concorsoId: string }) {
         </div>
       )}
 
-      {/* Archivio */}
-      {inattivi.length > 0 && (
-        <div className="pt-6 border-t-2 border-dashed border-primary/10">
-          <h4 className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-3">
-            Archivio ({inattivi.length})
-          </h4>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {inattivi.map((c) => (
-              <ArchivioCard
-                key={c.id}
-                commissario={c}
-                onReactivate={() => handleReactivate(c)}
-                onDelete={() => handleDelete(c)}
-              />
-            ))}
-          </div>
-        </div>
-      )}
+      {/* ---- Archivio INATTIVI ---- */}
+      <div className="mt-8 pt-6 border-t-2 border-dashed border-brand-100">
+        {inattivi.length > 0 && (
+          <>
+            <div className="flex flex-wrap items-center gap-3 mb-3">
+              <div>
+                <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider">
+                  Archivio commissari
+                </h3>
+                <p className="text-xs text-slate-500">{inattivi.length} commissari archiviati</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
+              {inattivi.map((c) => (
+                <ArchivioCard
+                  key={c.id}
+                  commissario={c}
+                  onReactivate={() => handleReactivate(c)}
+                  onDelete={() => handleDelete(c)}
+                />
+              ))}
+            </div>
+          </>
+        )}
+      </div>
 
-      {/* Form dialog */}
+      {/* ---- Form dialog ---- */}
       <CommissarioFormDialog
         open={dialog.open}
         onOpenChange={(v) => setDialog((p) => ({ ...p, open: v }))}

@@ -11,17 +11,10 @@
 import { useState, useMemo } from 'react';
 import { toast } from 'sonner';
 import {
-  ChevronRight, RefreshCw, Download, CheckCircle2, XCircle,
-  AlertCircle, Mail, Phone, MapPin, Music, Shield, Paperclip,
-  ExternalLink,
+  ChevronRight, Download, ExternalLink,
 } from 'lucide-react';
 
-import { cn } from '@/lib/utils';
 import { httpErrorMessage } from '@/lib/api';
-import { Button } from '@/components/ui/button';
-import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
   Dialog,
   DialogContent,
@@ -30,7 +23,6 @@ import {
   DialogFooter,
   DialogDescription,
 } from '@/components/ui/dialog';
-import { Label } from '@/components/ui/label';
 
 import {
   useIscrizioni,
@@ -81,65 +73,47 @@ function fmtBytes(n: number | null): string {
 }
 
 // ---------------------------------------------------------------------------
-// Stato badges / pills
+// Stato badge — mirrors vanilla iscrizioneRowHtml colors exactly
 // ---------------------------------------------------------------------------
 
 type StatoDbAll = IscrizioneStatoDb | '';
 
-const STATO_CONFIG: Record<
-  IscrizioneStatoDb,
-  { label: string; color: string; pill: string; icon: React.ReactNode }
-> = {
-  BOZZA: {
-    label: 'Bozza',
-    color: 'bg-slate-100 text-slate-700',
-    pill: 'bg-slate-100 text-slate-700 border-slate-200',
-    icon: null,
-  },
-  INVIATA: {
-    label: 'In attesa',
-    color: 'bg-amber-100 text-amber-800',
-    pill: 'bg-amber-50 text-amber-800 border-amber-200',
-    icon: <AlertCircle className="h-3 w-3" />,
-  },
-  EMAIL_VERIFICATA: {
-    label: 'Email verificata',
-    color: 'bg-sky-100 text-sky-800',
-    pill: 'bg-sky-50 text-sky-800 border-sky-200',
-    icon: <Mail className="h-3 w-3" />,
-  },
-  APPROVATA: {
-    label: 'Approvata',
-    color: 'bg-emerald-100 text-emerald-800',
-    pill: 'bg-emerald-50 text-emerald-800 border-emerald-200',
-    icon: <CheckCircle2 className="h-3 w-3" />,
-  },
-  RIFIUTATA: {
-    label: 'Rifiutata',
-    color: 'bg-rose-100 text-rose-800',
-    pill: 'bg-rose-50 text-rose-800 border-rose-200',
-    icon: <XCircle className="h-3 w-3" />,
-  },
+const STATO_COLORS: Record<IscrizioneStatoDb, string> = {
+  BOZZA:           'bg-slate-100 text-slate-700',
+  INVIATA:         'bg-amber-100 text-amber-800',
+  EMAIL_VERIFICATA:'bg-sky-100 text-sky-800',
+  APPROVATA:       'bg-emerald-100 text-emerald-800',
+  RIFIUTATA:       'bg-rose-100 text-rose-800',
+};
+
+const STATO_LABEL: Record<IscrizioneStatoDb, string> = {
+  BOZZA:           'Bozza',
+  INVIATA:         'In attesa',
+  EMAIL_VERIFICATA:'Verificata',
+  APPROVATA:       'Approvata',
+  RIFIUTATA:       'Rifiutata',
 };
 
 function StatoBadge({ stato }: { stato: IscrizioneStatoDb }) {
-  const cfg = STATO_CONFIG[stato];
-  if (!cfg) return <span className="text-xs text-muted-foreground">{stato}</span>;
+  const color = STATO_COLORS[stato] ?? 'bg-slate-100 text-slate-700';
   return (
-    <span
-      className={cn(
-        'inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider',
-        cfg.color,
-      )}
-    >
-      {cfg.icon}
-      {cfg.label}
+    <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${color}`}>
+      {STATO_LABEL[stato] ?? stato}
     </span>
   );
 }
 
+// Detail-dialog stato badge (full label, matches vanilla detail header)
+const STATO_DETAIL_COLORS: Record<IscrizioneStatoDb, string> = {
+  BOZZA:           'bg-slate-100 text-slate-700',
+  INVIATA:         'bg-amber-100 text-amber-800',
+  EMAIL_VERIFICATA:'bg-sky-100 text-sky-800',
+  APPROVATA:       'bg-emerald-100 text-emerald-800',
+  RIFIUTATA:       'bg-rose-100 text-rose-800',
+};
+
 // ---------------------------------------------------------------------------
-// Reject dialog
+// Reject dialog — keeps shadcn Dialog for a11y but styled with legacy classes
 // ---------------------------------------------------------------------------
 
 interface RejectDialogProps {
@@ -162,9 +136,8 @@ function RejectDialog({ open, iscrizione, onCancel, onConfirm, isPending }: Reje
     <Dialog open={open} onOpenChange={(v) => !v && onCancel()}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle className="flex items-center gap-2 text-rose-700">
-            <XCircle className="h-5 w-5" />
-            Rifiuta iscrizione
+          <DialogTitle className="text-rose-700">
+            ✕ Rifiuta iscrizione
           </DialogTitle>
           <DialogDescription>
             Rifiutare l&apos;iscrizione di <strong>{iscrizione ? displayName(iscrizione) : ''}</strong>?
@@ -172,8 +145,11 @@ function RejectDialog({ open, iscrizione, onCancel, onConfirm, isPending }: Reje
           </DialogDescription>
         </DialogHeader>
         <div>
-          <Label className="mb-1 block">Motivo del rifiuto <span className="text-muted-foreground text-xs">(opzionale)</span></Label>
-          <Textarea
+          <label className="c-label">
+            Motivo del rifiuto <span className="text-slate-500 text-xs">(opzionale)</span>
+          </label>
+          <textarea
+            className="c-textarea"
             value={reason}
             onChange={(e) => setReason(e.target.value)}
             rows={3}
@@ -181,10 +157,15 @@ function RejectDialog({ open, iscrizione, onCancel, onConfirm, isPending }: Reje
           />
         </div>
         <DialogFooter>
-          <Button variant="outline" onClick={onCancel}>Annulla</Button>
-          <Button variant="destructive" onClick={handleConfirm} disabled={isPending}>
+          <button type="button" className="c-btn c-btn--outline" onClick={onCancel}>Annulla</button>
+          <button
+            type="button"
+            className="c-btn c-btn--destructive"
+            onClick={handleConfirm}
+            disabled={isPending}
+          >
             {isPending ? 'Rifiuto in corso…' : 'Rifiuta iscrizione'}
-          </Button>
+          </button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -192,7 +173,7 @@ function RejectDialog({ open, iscrizione, onCancel, onConfirm, isPending }: Reje
 }
 
 // ---------------------------------------------------------------------------
-// AllegatiSection (inside detail dialog)
+// AllegatiSection (inside detail dialog) — mirrors vanilla onMount allegati
 // ---------------------------------------------------------------------------
 
 function AllegatiSection({ iscrizioneId }: { iscrizioneId: string }) {
@@ -220,20 +201,20 @@ function AllegatiSection({ iscrizioneId }: { iscrizioneId: string }) {
   useState(() => { void load(); });
 
   const TIPO_LABEL: Record<string, string> = {
-    foto: 'Foto',
-    documento: 'Documento',
-    ricevuta: 'Ricevuta',
-    altro: 'Altro',
+    foto:      '📷 Foto',
+    documento: '📄 Documento',
+    ricevuta:  '💳 Ricevuta',
+    altro:     '✍ Altro',
   };
 
   if (loading) {
-    return <p className="text-xs text-muted-foreground italic">Caricamento allegati…</p>;
+    return <span className="text-xs text-slate-500 italic">Caricamento…</span>;
   }
   if (error) {
-    return <p className="text-xs text-destructive">{error}</p>;
+    return <span className="text-xs text-rose-600">{error}</span>;
   }
   if (!allegati || allegati.length === 0) {
-    return <p className="text-xs text-muted-foreground italic">Nessun allegato.</p>;
+    return <span className="text-xs text-slate-400 italic">Nessun allegato</span>;
   }
 
   return (
@@ -241,25 +222,21 @@ function AllegatiSection({ iscrizioneId }: { iscrizioneId: string }) {
       {allegati.map((a) => (
         <li
           key={a.id}
-          className="flex items-center justify-between gap-3 bg-muted/30 border border-border rounded-lg px-3 py-2"
+          className="flex items-center justify-between gap-3 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2"
         >
-          <div className="flex items-center gap-2 min-w-0">
-            <Paperclip className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-            <span className="text-xs text-foreground truncate">
-              {TIPO_LABEL[a.tipo] ?? a.tipo} · {a.nomeFile}
-              {a.sizeBytes && (
-                <span className="text-muted-foreground ml-1">{fmtBytes(a.sizeBytes)}</span>
-              )}
-            </span>
-          </div>
+          <span className="min-w-0 truncate text-xs text-slate-700">
+            {TIPO_LABEL[a.tipo] ?? a.tipo} · {a.nomeFile}
+            {a.sizeBytes != null && (
+              <span className="text-slate-400 ml-1">{fmtBytes(a.sizeBytes)}</span>
+            )}
+          </span>
           <a
             href={iscrizioniApi.downloadAllegatoUrl(a.id)}
             target="_blank"
             rel="noopener noreferrer"
-            className="shrink-0 text-xs text-primary font-semibold hover:underline flex items-center gap-1"
+            className="shrink-0 text-xs text-brand-700 font-semibold hover:underline"
           >
-            <Download className="h-3 w-3" />
-            Scarica
+            ⬇ Scarica
           </a>
         </li>
       ))}
@@ -268,7 +245,7 @@ function AllegatiSection({ iscrizioneId }: { iscrizioneId: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// IscrizioneDetailDialog
+// IscrizioneDetailDialog — mirrors vanilla openIscrizioneDetail modal
 // ---------------------------------------------------------------------------
 
 interface DetailDialogProps {
@@ -317,159 +294,141 @@ function IscrizioneDetailDialog({
   const gdpr = isc.consensiGdpr ?? {};
 
   const gdprLabels: Record<string, string> = {
-    privacy: 'Privacy (GDPR)',
-    immagini: 'Uso immagini',
+    privacy:     'Privacy (GDPR)',
+    immagini:    'Uso immagini',
     regolamento: 'Accettazione regolamento',
-    newsletter: 'Newsletter',
+    newsletter:  'Newsletter',
   };
+
+  const detailStatoCls = STATO_DETAIL_COLORS[isc.stato] ?? 'bg-slate-100 text-slate-700';
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
       <DialogContent className="sm:max-w-2xl max-h-[90dvh] flex flex-col">
         <DialogHeader>
-          <div className="flex items-start justify-between gap-3">
-            <div>
-              <DialogTitle>
-                {displayName(isc)} · {isc.strumento ?? '—'}
-              </DialogTitle>
-              <div className="flex items-center gap-2 mt-1.5">
-                <StatoBadge stato={isc.stato} />
-                <span className="text-xs text-muted-foreground">
-                  Inviata il {fmtDateTime(isc.createdAt)}
-                </span>
-              </div>
-            </div>
-          </div>
+          <DialogTitle>
+            {displayName(isc)} · {isc.strumento ?? '—'}
+          </DialogTitle>
         </DialogHeader>
 
         <div className="overflow-y-auto flex-1 space-y-5 text-sm pr-1">
+          {/* ---- Header: stato + data ---- */}
+          <div className="flex items-center justify-between gap-3 flex-wrap pb-3 border-b border-slate-100">
+            <div className="flex items-center gap-2">
+              <span className={`text-xs font-bold uppercase tracking-wider px-2 py-1 rounded ${detailStatoCls}`}>
+                {isc.stato}
+              </span>
+              <span className="text-xs text-slate-500">
+                creata il {fmtDateTime(isc.createdAt)}
+              </span>
+            </div>
+          </div>
+
           {/* ---- Anagrafica ---- */}
           <section>
-            <h3 className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
-              Anagrafica
-            </h3>
+            <h3 className="font-mono text-[10px] uppercase tracking-wider text-slate-500 mb-2">Anagrafica</h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2 text-xs">
               <div>
-                <span className="text-muted-foreground">Nato il:</span>{' '}
+                <span className="text-slate-500">Nato il:</span>{' '}
                 <strong>{fmtDate(isc.dataNascita)}</strong>
-                {age != null && <span className="text-muted-foreground ml-1">({age} anni)</span>}
+                {age != null && <span className="text-slate-400 ml-1">({age} anni)</span>}
               </div>
               <div>
-                <span className="text-muted-foreground">Luogo nascita:</span>{' '}
+                <span className="text-slate-500">Luogo nascita:</span>{' '}
                 <strong>{isc.luogoNascita ?? '—'}</strong>
               </div>
               <div>
-                <span className="text-muted-foreground">Nazionalità:</span>{' '}
+                <span className="text-slate-500">Nazionalità:</span>{' '}
                 <strong>{isc.nazionalita ?? '—'}</strong>
               </div>
-              {isc.sesso && (
-                <div>
-                  <span className="text-muted-foreground">Sesso:</span>{' '}
-                  <strong>{isc.sesso}</strong>
-                </div>
-              )}
-              {isc.codiceFiscale && (
-                <div className="col-span-2">
-                  <span className="text-muted-foreground">Codice fiscale:</span>{' '}
-                  <strong className="font-mono">{isc.codiceFiscale}</strong>
-                </div>
-              )}
+              <div>
+                <span className="text-slate-500">Sesso:</span>{' '}
+                <strong>{isc.sesso ?? '—'}</strong>
+              </div>
+              <div className="col-span-2">
+                <span className="text-slate-500">Codice fiscale:</span>{' '}
+                <strong className="font-mono">{isc.codiceFiscale ?? '—'}</strong>
+              </div>
             </div>
           </section>
 
           {/* ---- Contatti ---- */}
           <section>
-            <h3 className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
-              Contatti
-            </h3>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1.5 text-xs">
-              <div className="flex items-center gap-1.5">
-                <Mail className="h-3 w-3 text-muted-foreground shrink-0" />
-                <a href={`mailto:${isc.email}`} className="text-primary hover:underline truncate">
-                  {isc.email}
-                </a>
-              </div>
-              {isc.telefono && (
-                <div className="flex items-center gap-1.5">
-                  <Phone className="h-3 w-3 text-muted-foreground shrink-0" />
-                  <a href={`tel:${isc.telefono}`} className="hover:underline">
-                    {isc.telefono}
+            <h3 className="font-mono text-[10px] uppercase tracking-wider text-slate-500 mb-2">Contatti</h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2 text-xs">
+              <div className="col-span-2">
+                <span className="text-slate-500">Email:</span>{' '}
+                <strong>
+                  <a href={`mailto:${isc.email}`} className="text-brand-700 hover:underline">
+                    {isc.email}
                   </a>
-                </div>
-              )}
-              {(isc.indirizzo || isc.citta) && (
-                <div className="flex items-start gap-1.5 sm:col-span-2">
-                  <MapPin className="h-3 w-3 text-muted-foreground shrink-0 mt-0.5" />
-                  <span>
-                    {[isc.indirizzo, isc.citta, isc.cap, isc.provincia && `(${isc.provincia})`, isc.paese]
-                      .filter(Boolean)
-                      .join(', ')}
-                  </span>
-                </div>
-              )}
+                </strong>
+              </div>
+              <div>
+                <span className="text-slate-500">Telefono:</span>{' '}
+                <strong>
+                  <a href={`tel:${isc.telefono ?? ''}`} className="hover:underline">
+                    {isc.telefono ?? '—'}
+                  </a>
+                </strong>
+              </div>
+              <div className="col-span-3">
+                <span className="text-slate-500">Indirizzo:</span>{' '}
+                <strong>
+                  {[isc.indirizzo ?? '—', isc.citta ?? '—', isc.cap ?? '', isc.provincia ? `(${isc.provincia})` : '—', isc.paese ?? '—']
+                    .filter(Boolean)
+                    .join(', ')}
+                </strong>
+              </div>
             </div>
           </section>
 
           {/* ---- Tutore (minorenne) ---- */}
           {(isMinor || tutore?.nome) && (
             <section className="bg-amber-50 border border-amber-200 rounded-xl p-3">
-              <h3 className="font-mono text-[10px] uppercase tracking-wider text-amber-800 mb-2 flex items-center gap-1">
-                <AlertCircle className="h-3.5 w-3.5" />
-                Candidato minorenne · dati tutore
+              <h3 className="font-mono text-[10px] uppercase tracking-wider text-amber-800 mb-2">
+                ⚠ Candidato minorenne · dati tutore
               </h3>
               <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">
                 <div>
                   <span className="text-slate-600">Nome:</span>{' '}
                   <strong>{[tutore?.nome, tutore?.cognome].filter(Boolean).join(' ') || '—'}</strong>
                 </div>
-                {tutore?.email && (
-                  <div>
-                    <span className="text-slate-600">Email:</span>{' '}
-                    <strong>{tutore.email}</strong>
-                  </div>
-                )}
-                {tutore?.telefono && (
-                  <div>
-                    <span className="text-slate-600">Telefono:</span>{' '}
-                    <strong>{tutore.telefono}</strong>
-                  </div>
-                )}
+                <div>
+                  <span className="text-slate-600">Email:</span>{' '}
+                  <strong>{tutore?.email ?? '—'}</strong>
+                </div>
+                <div>
+                  <span className="text-slate-600">Telefono:</span>{' '}
+                  <strong>{tutore?.telefono ?? '—'}</strong>
+                </div>
               </div>
             </section>
           )}
 
           {/* ---- Dati artistici ---- */}
           <section>
-            <h3 className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1">
-              <Music className="h-3.5 w-3.5" />
-              Dati artistici
-            </h3>
+            <h3 className="font-mono text-[10px] uppercase tracking-wider text-slate-500 mb-2">Dati artistici</h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-x-4 gap-y-2 text-xs">
-              {isGruppo && (
-                <div>
-                  <span className="text-muted-foreground">Tipo:</span>{' '}
-                  <strong>{isc.tipoGruppo ?? 'gruppo'}</strong>
-                </div>
-              )}
               <div>
-                <span className="text-muted-foreground">Strumento:</span>{' '}
+                <span className="text-slate-500">Tipo:</span>{' '}
+                <strong>{isGruppo ? (isc.tipoGruppo ?? 'gruppo') : 'individuale'}</strong>
+              </div>
+              <div>
+                <span className="text-slate-500">Strumento:</span>{' '}
                 <strong>{isc.strumento ?? '—'}</strong>
               </div>
-              {isc.anniStudio != null && (
-                <div>
-                  <span className="text-muted-foreground">Anni studio:</span>{' '}
-                  <strong>{isc.anniStudio}</strong>
-                </div>
-              )}
-              {isc.scuolaProvenienza && (
-                <div className="col-span-3">
-                  <span className="text-muted-foreground">Scuola / Conservatorio:</span>{' '}
-                  <strong>{isc.scuolaProvenienza}</strong>
-                </div>
-              )}
+              <div>
+                <span className="text-slate-500">Anni studio:</span>{' '}
+                <strong>{isc.anniStudio != null ? String(isc.anniStudio) : '—'}</strong>
+              </div>
+              <div className="col-span-3">
+                <span className="text-slate-500">Scuola/Conservatorio:</span>{' '}
+                <strong>{isc.scuolaProvenienza ?? '—'}</strong>
+              </div>
               {docenti.length > 0 && (
                 <div className="col-span-3">
-                  <span className="text-muted-foreground">Docenti:</span>{' '}
+                  <span className="text-slate-500">Docenti:</span>{' '}
                   <strong>{docenti.join(' · ')}</strong>
                 </div>
               )}
@@ -479,16 +438,16 @@ function IscrizioneDetailDialog({
           {/* ---- Membri gruppo ---- */}
           {isGruppo && membri.length > 0 && (
             <section>
-              <h3 className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
+              <h3 className="font-mono text-[10px] uppercase tracking-wider text-slate-500 mb-2">
                 {isc.tipoGruppo === 'orchestra' ? "Membri dell'orchestra" : 'Membri del gruppo'}
-                {isc.gruppoNome && ` — ${isc.gruppoNome}`}
+                {isc.gruppoNome ? ` (${isc.gruppoNome})` : ''}
               </h3>
               <ul className="space-y-1 text-xs">
                 {membri.map((m, i) => (
                   <li key={i}>
                     · <strong>{[m.nome, m.cognome].filter(Boolean).join(' ')}</strong>
-                    {m.strumento && ` — ${m.strumento}`}
-                    {m.data_nascita && ` (${fmtDate(m.data_nascita)})`}
+                    {m.strumento ? ` — ${m.strumento}` : ''}
+                    {m.data_nascita ? ` (${fmtDate(m.data_nascita)})` : ''}
                   </li>
                 ))}
               </ul>
@@ -496,67 +455,57 @@ function IscrizioneDetailDialog({
           )}
 
           {/* ---- Programma ---- */}
-          {programma.length > 0 && (
-            <section>
-              <h3 className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
-                Programma musicale ({programma.length} brani)
-              </h3>
+          <section>
+            <h3 className="font-mono text-[10px] uppercase tracking-wider text-slate-500 mb-2">
+              Programma musicale ({programma.length} brani)
+            </h3>
+            {programma.length > 0 ? (
               <ol className="space-y-1 text-xs list-decimal pl-5">
                 {programma.map((p, i) => (
                   <li key={i}>
                     <strong>{p.titolo ?? '—'}</strong>
-                    {p.autore && ` — ${p.autore}`}
+                    {p.autore ? ` — ${p.autore}` : ' — autore sconosciuto'}
                     {p.durata_min != null && (
-                      <span className="text-muted-foreground"> ({p.durata_min} min)</span>
+                      <span className="text-slate-500"> ({p.durata_min} min)</span>
                     )}
                   </li>
                 ))}
               </ol>
-            </section>
-          )}
-
-          {/* ---- Consensi GDPR ---- */}
-          <section className="bg-muted/40 border border-border rounded-xl p-3">
-            <h3 className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1">
-              <Shield className="h-3.5 w-3.5" />
-              Consensi GDPR
-            </h3>
-            {Object.keys(gdpr).length === 0 ? (
-              <p className="text-xs text-muted-foreground italic">Nessun dato consensi.</p>
             ) : (
-              <div className="text-xs space-y-1">
-                {Object.entries(gdpr).map(([key, val]) => (
-                  <div key={key} className="flex items-center gap-1.5">
-                    {val ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600 shrink-0" />
-                    ) : (
-                      <XCircle className="h-3.5 w-3.5 text-rose-500 shrink-0" />
-                    )}
-                    <span className={cn(!val && 'text-muted-foreground')}>
-                      {gdprLabels[key] ?? key}
-                    </span>
-                  </div>
-                ))}
-              </div>
+              <p className="text-xs italic text-slate-500">Nessun brano inserito.</p>
             )}
           </section>
 
           {/* ---- Note libere ---- */}
           {isc.noteLibere && (
             <section>
-              <h3 className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground mb-2">
-                Note del candidato
-              </h3>
-              <p className="bg-muted/30 border border-border rounded-lg p-3 text-xs whitespace-pre-wrap">
+              <h3 className="font-mono text-[10px] uppercase tracking-wider text-slate-500 mb-2">Note del candidato</h3>
+              <p className="bg-slate-50 border border-slate-200 rounded-lg p-3 text-xs whitespace-pre-wrap">
                 {isc.noteLibere}
               </p>
             </section>
           )}
 
+          {/* ---- Consensi GDPR ---- */}
+          <section className="bg-slate-50 border border-slate-200 rounded-xl p-3">
+            <h3 className="font-mono text-[10px] uppercase tracking-wider text-slate-500 mb-2">Consensi</h3>
+            {Object.keys(gdpr).length === 0 ? (
+              <p className="text-xs text-slate-500 italic">Nessun dato consensi.</p>
+            ) : (
+              <div className="text-xs space-y-1">
+                {Object.entries(gdpr).map(([key, val]) => (
+                  <p key={key}>
+                    {val ? '✅' : '❌'} {gdprLabels[key] ?? key}
+                  </p>
+                ))}
+              </div>
+            )}
+          </section>
+
           {/* ---- Note admin / motivo rifiuto ---- */}
           {isc.note && (
             <section>
-              <h3 className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground mb-2">Note admin</h3>
+              <h3 className="font-mono text-[10px] uppercase tracking-wider text-slate-500 mb-2">Note admin</h3>
               <p className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-xs whitespace-pre-wrap">
                 {isc.note}
               </p>
@@ -565,16 +514,13 @@ function IscrizioneDetailDialog({
 
           {/* ---- Allegati ---- */}
           <section>
-            <h3 className="font-mono text-[10px] uppercase tracking-wider text-muted-foreground mb-2 flex items-center gap-1">
-              <Paperclip className="h-3.5 w-3.5" />
-              Allegati
-            </h3>
+            <h3 className="font-mono text-[10px] uppercase tracking-wider text-slate-500 mb-2">Allegati</h3>
             <AllegatiSection iscrizioneId={isc.id} />
           </section>
 
-          {/* ---- IP / user agent (debug) ---- */}
+          {/* ---- IP / timestamps (debug) ---- */}
           {(isc.ipAddress || isc.emailVerifiedAt) && (
-            <section className="text-[10px] text-muted-foreground space-y-0.5 border-t pt-3">
+            <section className="text-[10px] text-slate-500 space-y-0.5 border-t pt-3">
               {isc.emailVerifiedAt && <p>Email verificata il {fmtDateTime(isc.emailVerifiedAt)}</p>}
               {isc.approvataAt && <p>Approvata il {fmtDateTime(isc.approvataAt)}</p>}
               {isc.ipAddress && <p>IP: {isc.ipAddress}</p>}
@@ -582,34 +528,28 @@ function IscrizioneDetailDialog({
           )}
         </div>
 
+        {/* Footer — mirrors vanilla modal footer: Chiudi / Rifiuta / Approva */}
         <DialogFooter className="pt-2 gap-2 flex-wrap">
-          <Button variant="outline" onClick={onClose}>
+          <button type="button" className="c-btn c-btn--outline" onClick={onClose}>
             Chiudi
-          </Button>
+          </button>
           {isActive && (
             <>
-              <Button
-                variant="outline"
-                className="text-rose-700 border-rose-300 hover:bg-rose-50"
+              <button
+                type="button"
+                className="c-btn c-btn--outline text-rose-700 border-rose-300 hover:bg-rose-50"
                 onClick={onReject}
               >
-                <XCircle className="h-4 w-4" />
-                Rifiuta
-              </Button>
-              <Button
-                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                ✕ Rifiuta
+              </button>
+              <button
+                type="button"
+                className="c-btn c-btn--primary"
                 onClick={onApprove}
                 disabled={isApprovePending}
               >
-                {isApprovePending ? (
-                  'Approvazione…'
-                ) : (
-                  <>
-                    <CheckCircle2 className="h-4 w-4" />
-                    Approva iscrizione
-                  </>
-                )}
-              </Button>
+                {isApprovePending ? 'Approvazione…' : '✓ Approva'}
+              </button>
             </>
           )}
         </DialogFooter>
@@ -639,12 +579,12 @@ export function IscrizioniTab({ concorsoId }: { concorsoId: string }) {
 
   // Counts per filter pills
   const counts = useMemo(() => ({
-    total: iscrizioni.length,
-    BOZZA: iscrizioni.filter((i) => i.stato === 'BOZZA').length,
-    INVIATA: iscrizioni.filter((i) => i.stato === 'INVIATA').length,
-    EMAIL_VERIFICATA: iscrizioni.filter((i) => i.stato === 'EMAIL_VERIFICATA').length,
-    APPROVATA: iscrizioni.filter((i) => i.stato === 'APPROVATA').length,
-    RIFIUTATA: iscrizioni.filter((i) => i.stato === 'RIFIUTATA').length,
+    total:           iscrizioni.length,
+    BOZZA:           iscrizioni.filter((i) => i.stato === 'BOZZA').length,
+    INVIATA:         iscrizioni.filter((i) => i.stato === 'INVIATA').length,
+    EMAIL_VERIFICATA:iscrizioni.filter((i) => i.stato === 'EMAIL_VERIFICATA').length,
+    APPROVATA:       iscrizioni.filter((i) => i.stato === 'APPROVATA').length,
+    RIFIUTATA:       iscrizioni.filter((i) => i.stato === 'RIFIUTATA').length,
   }), [iscrizioni]);
 
   const filtered = useMemo(
@@ -670,7 +610,7 @@ export function IscrizioniTab({ concorsoId }: { concorsoId: string }) {
   const handleReject = async (isc: IscrizioneFull, reason: string) => {
     try {
       await rejectMutation.mutateAsync({ id: isc.id, reason });
-      toast.success(`Iscrizione rifiutata`);
+      toast.success('Iscrizione rifiutata');
       setRejectDialog(null);
       setDetail(null);
     } catch (e) {
@@ -706,99 +646,113 @@ export function IscrizioniTab({ concorsoId }: { concorsoId: string }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `iscrizioni.csv`;
+    a.download = 'iscrizioni.csv';
     a.click();
     URL.revokeObjectURL(url);
     toast.success(`${filtered.length} iscrizioni esportate`);
   };
 
   // -------------------------------------------------------------------------
+  // Filter pill helper — mirrors vanilla iscFilterPill exactly
+  // -------------------------------------------------------------------------
+
+  const FILTER_PILLS: { stato: StatoDbAll; label: string; count: number; colors: string }[] = [
+    { stato: '',               label: 'Tutte',           count: counts.total,           colors: 'bg-slate-100 text-slate-700 border-slate-200' },
+    { stato: 'INVIATA',        label: 'In attesa',       count: counts.INVIATA,         colors: 'bg-amber-50 text-amber-800 border-amber-200' },
+    { stato: 'EMAIL_VERIFICATA', label: 'Email verificata', count: counts.EMAIL_VERIFICATA, colors: 'bg-sky-50 text-sky-800 border-sky-200' },
+    { stato: 'APPROVATA',      label: 'Approvate',       count: counts.APPROVATA,       colors: 'bg-emerald-50 text-emerald-800 border-emerald-200' },
+    { stato: 'RIFIUTATA',      label: 'Rifiutate',       count: counts.RIFIUTATA,       colors: 'bg-rose-50 text-rose-800 border-rose-200' },
+  ];
+
+  // -------------------------------------------------------------------------
   // Render
   // -------------------------------------------------------------------------
+
   if (isLoading) {
     return (
-      <div className="space-y-3">
-        {[1, 2, 3, 4].map((i) => (
-          <Skeleton key={i} className="h-12 w-full rounded-xl" />
-        ))}
-      </div>
+      <div className="text-center py-10 text-slate-500">Caricamento…</div>
     );
   }
 
   if (isError) {
-    return <p className="text-sm text-destructive">Errore nel caricamento delle iscrizioni.</p>;
+    return (
+      <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-sm text-rose-800">
+        Errore nel caricamento delle iscrizioni.
+      </div>
+    );
   }
 
-  const FILTER_PILLS: { stato: StatoDbAll; label: string; count: number }[] = [
-    { stato: '', label: 'Tutte', count: counts.total },
-    { stato: 'INVIATA', label: 'In attesa', count: counts.INVIATA },
-    { stato: 'EMAIL_VERIFICATA', label: 'Email verificata', count: counts.EMAIL_VERIFICATA },
-    { stato: 'APPROVATA', label: 'Approvate', count: counts.APPROVATA },
-    { stato: 'RIFIUTATA', label: 'Rifiutate', count: counts.RIFIUTATA },
-  ];
-
   return (
-    <div className="space-y-5">
+    <div>
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+        <p className="text-sm text-slate-600">
           {filtered.length} iscrizioni
-          {filterStato && ` filtrate per "${STATO_CONFIG[filterStato]?.label ?? filterStato}"`}
+          {filterStato ? ` (filtrate per "${filterStato}")` : ''}
         </p>
-        <div className="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            className="gap-1.5"
-            onClick={handleRefresh}
-            disabled={isRefreshing}
-          >
-            <RefreshCw className={cn('h-3.5 w-3.5', isRefreshing && 'animate-spin')} />
-            Aggiorna
-          </Button>
-          <Button size="sm" variant="outline" className="gap-1.5" onClick={handleExportCsv}>
-            <Download className="h-3.5 w-3.5" />
-            Esporta CSV
-          </Button>
+        <div className="flex items-center gap-1.5">
           <a
             href="#/iscrizione"
             target="_blank"
             rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-700 border border-emerald-300 hover:bg-emerald-50 px-3 py-1.5 rounded-md transition-colors"
+            className="c-btn c-btn--outline c-btn--sm !gap-1 text-emerald-700 border-emerald-300 hover:bg-emerald-50"
+            title="Apri il form pubblico di iscrizione in una nuova scheda"
           >
-            <ExternalLink className="h-3.5 w-3.5" />
-            Form pubblico
+            <ExternalLink size={14} />
+            <span>Form pubblico</span>
           </a>
+          <button
+            type="button"
+            className="c-btn c-btn--ghost c-btn--sm !gap-1"
+            onClick={handleRefresh}
+            disabled={isRefreshing}
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width={14}
+              height={14}
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className={isRefreshing ? 'animate-spin' : ''}
+            >
+              <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+              <path d="M21 3v5h-5" />
+              <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+              <path d="M8 16H3v5" />
+            </svg>
+            <span>Aggiorna</span>
+          </button>
+          <button
+            type="button"
+            className="c-btn c-btn--ghost c-btn--sm !gap-1"
+            onClick={handleExportCsv}
+          >
+            <Download size={14} />
+            <span>Esporta CSV</span>
+          </button>
         </div>
       </div>
 
-      {/* Filter pills */}
-      <div className="flex flex-wrap gap-1.5">
-        {FILTER_PILLS.map(({ stato, label, count }) => {
+      {/* Filter pills — mirrors vanilla iscFilterPill */}
+      <div className="flex flex-wrap gap-1.5 mb-4">
+        {FILTER_PILLS.map(({ stato, label, count, colors }) => {
           const active = filterStato === stato;
-          const colors =
-            stato === '' ? 'bg-slate-100 text-slate-700 border-slate-200'
-            : stato === 'INVIATA' ? 'bg-amber-50 text-amber-800 border-amber-200'
-            : stato === 'EMAIL_VERIFICATA' ? 'bg-sky-50 text-sky-800 border-sky-200'
-            : stato === 'APPROVATA' ? 'bg-emerald-50 text-emerald-800 border-emerald-200'
-            : 'bg-rose-50 text-rose-800 border-rose-200';
+          const cls = active ? 'bg-brand-600 text-white border-brand-600' : colors;
           return (
             <button
               key={stato}
               type="button"
+              data-isc-filter={stato}
               onClick={() => setFilterStato(stato)}
-              className={cn(
-                'inline-flex items-center gap-1.5 text-xs font-medium border px-3 py-1.5 rounded-full transition-all',
-                active ? 'bg-primary text-primary-foreground border-primary' : colors,
-                'hover:brightness-95',
-              )}
+              className={`text-xs font-medium border ${cls} px-3 py-1.5 rounded-full inline-flex items-center gap-1.5 hover:brightness-95 transition`}
             >
-              {label}
+              <span>{label}</span>
               <span
-                className={cn(
-                  'text-[10px] font-bold px-1.5 py-0.5 rounded-full',
-                  active ? 'bg-white/20 text-white' : 'bg-white text-slate-600',
-                )}
+                className={`text-[10px] font-bold ${active ? 'bg-white/20 text-white' : 'bg-white text-slate-600'} px-1.5 py-0.5 rounded-full`}
               >
                 {count}
               </span>
@@ -807,36 +761,33 @@ export function IscrizioniTab({ concorsoId }: { concorsoId: string }) {
         })}
       </div>
 
-      {/* Empty state */}
+      {/* Main content */}
       {iscrizioni.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border py-14 text-center">
-          <Mail className="mx-auto h-10 w-10 text-muted-foreground/40 mb-3" />
-          <p className="text-sm text-muted-foreground italic">
-            Nessuna iscrizione ricevuta.
-          </p>
-          <p className="text-xs text-muted-foreground mt-1">
-            Le iscrizioni inviate dal form pubblico compariranno qui.
-          </p>
+        /* Empty — no iscrizioni at all */
+        <div className="bg-white border-2 border-dashed border-slate-200 rounded-2xl py-12 text-center">
+          <div className="text-4xl mb-2">📭</div>
+          <p className="text-sm text-slate-500 italic">Nessuna iscrizione.</p>
+          <p className="text-sm text-slate-500 italic mt-1">Le iscrizioni inviate dal form pubblico compariranno qui.</p>
           <a
             href="#/iscrizione"
             target="_blank"
             rel="noopener noreferrer"
-            className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium bg-primary text-primary-foreground hover:bg-primary/90 px-4 py-2 rounded-md transition-colors"
+            className="c-btn c-btn--primary c-btn--sm mt-5 inline-flex items-center gap-1.5"
           >
-            <ExternalLink className="h-4 w-4" />
-            Apri form di iscrizione pubblico
+            <ExternalLink size={14} />
+            <span>Apri form di iscrizione pubblico</span>
           </a>
         </div>
       ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border py-10 text-center">
-          <p className="text-sm text-muted-foreground italic">
-            Nessuna iscrizione con questo stato.
-          </p>
+        /* Empty filtered */
+        <div className="bg-white border-2 border-dashed border-slate-200 rounded-2xl py-12 text-center">
+          <p className="text-sm text-slate-500 italic">Nessuna iscrizione con questo stato.</p>
         </div>
       ) : (
-        <div className="bg-card border border-border rounded-2xl overflow-hidden">
+        /* Table — mirrors vanilla exactly */
+        <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden">
           <table className="w-full text-sm">
-            <thead className="bg-muted/40 text-xs uppercase tracking-wider text-muted-foreground">
+            <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-600">
               <tr>
                 <th className="text-left px-3 py-2.5">Data</th>
                 <th className="text-left px-3 py-2.5">Candidato</th>
@@ -846,75 +797,58 @@ export function IscrizioniTab({ concorsoId }: { concorsoId: string }) {
                 <th className="text-right px-3 py-2.5">Azioni</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-border">
-              {filtered.map((isc) => (
-                <tr
-                  key={isc.id}
-                  className="hover:bg-muted/30 transition-colors cursor-pointer"
-                  onClick={() => setDetail(isc)}
-                >
-                  <td className="px-3 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
-                    <span className="block">{fmtDate(isc.createdAt)}</span>
-                    <span className="text-muted-foreground/60">
-                      {new Date(isc.createdAt).toLocaleTimeString('it-IT', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </span>
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <p className="font-medium text-foreground">{displayName(isc)}</p>
-                    {isc.isGruppo && isc.gruppoNome && (
-                      <p className="text-[11px] text-purple-700">{isc.gruppoNome}</p>
-                    )}
-                  </td>
-                  <td className="px-3 py-2.5 text-xs text-muted-foreground hidden sm:table-cell truncate max-w-40">
-                    {isc.email}
-                  </td>
-                  <td className="px-3 py-2.5 text-xs text-muted-foreground hidden md:table-cell">
-                    {isc.strumento ?? '—'}
-                  </td>
-                  <td className="px-3 py-2.5">
-                    <StatoBadge stato={isc.stato} />
-                  </td>
-                  <td className="px-3 py-2.5 text-right" onClick={(e) => e.stopPropagation()}>
-                    <div className="inline-flex items-center gap-1">
-                      {(isc.stato === 'INVIATA' || isc.stato === 'EMAIL_VERIFICATA') && (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 px-2 text-[11px] text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800"
-                            onClick={() => handleApprove(isc)}
-                            disabled={approveMutation.isPending}
-                            title="Approva iscrizione"
-                          >
-                            <CheckCircle2 className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 px-2 text-[11px] text-rose-600 hover:bg-rose-50 hover:text-rose-700"
-                            onClick={() => setRejectDialog(isc)}
-                            title="Rifiuta iscrizione"
-                          >
-                            <XCircle className="h-3.5 w-3.5" />
-                          </Button>
-                        </>
+            <tbody className="divide-y divide-slate-100">
+              {filtered.map((isc) => {
+                const created = new Date(isc.createdAt).toLocaleDateString('it-IT', {
+                  day: '2-digit', month: 'short', year: '2-digit',
+                });
+                const ora = new Date(isc.createdAt).toLocaleTimeString('it-IT', {
+                  hour: '2-digit', minute: '2-digit',
+                });
+                return (
+                  <tr
+                    key={isc.id}
+                    className="hover:bg-slate-50 transition-colors cursor-pointer"
+                    onClick={() => setDetail(isc)}
+                  >
+                    <td className="px-3 py-2.5 text-xs text-slate-600 whitespace-nowrap">
+                      {created}<br />
+                      <span className="text-slate-400">{ora}</span>
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <p className="font-medium text-slate-900">{isc.nome} {isc.cognome ?? ''}</p>
+                      {isc.isGruppo && isc.tipoGruppo !== 'orchestra' && isc.gruppoNome && (
+                        <p className="text-[11px] text-purple-700">{isc.gruppoNome}</p>
                       )}
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        className="h-7 px-2 text-muted-foreground hover:text-foreground"
-                        onClick={() => setDetail(isc)}
+                      {isc.isGruppo && isc.tipoGruppo === 'orchestra' && isc.gruppoNome && (
+                        <p className="text-[11px] text-indigo-700">{isc.gruppoNome}</p>
+                      )}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-slate-600 hidden sm:table-cell">
+                      {isc.email}
+                    </td>
+                    <td className="px-3 py-2.5 text-xs text-slate-700 hidden md:table-cell">
+                      {isc.strumento ?? '—'}
+                    </td>
+                    <td className="px-3 py-2.5">
+                      <StatoBadge stato={isc.stato} />
+                    </td>
+                    <td
+                      className="px-3 py-2.5 text-right"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        type="button"
+                        className="c-btn c-btn--ghost c-btn--sm !px-2"
                         title="Vedi dettagli"
+                        onClick={() => setDetail(isc)}
                       >
-                        <ChevronRight className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </td>
-                </tr>
-              ))}
+                        <ChevronRight size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
@@ -925,7 +859,7 @@ export function IscrizioniTab({ concorsoId }: { concorsoId: string }) {
         open={!!detail}
         iscrizione={detail}
         onClose={() => setDetail(null)}
-        onApprove={() => detail && handleApprove(detail)}
+        onApprove={() => { if (detail) void handleApprove(detail); }}
         onReject={() => {
           if (detail) { setRejectDialog(detail); setDetail(null); }
         }}
@@ -937,7 +871,7 @@ export function IscrizioniTab({ concorsoId }: { concorsoId: string }) {
         open={!!rejectDialog}
         iscrizione={rejectDialog}
         onCancel={() => setRejectDialog(null)}
-        onConfirm={(reason) => rejectDialog && handleReject(rejectDialog, reason)}
+        onConfirm={(reason) => { if (rejectDialog) void handleReject(rejectDialog, reason); }}
         isPending={rejectMutation.isPending}
       />
     </div>

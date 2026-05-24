@@ -34,6 +34,8 @@ import { AuditTab } from '@/components/admin/AuditTab';
 import CommissariTab from '@/components/admin/CommissariTab';
 import CommissioniTab from '@/components/admin/CommissioniTab';
 import SezioniTab from '@/components/admin/SezioniTab';
+import AdminDashboard from '@/pages/admin/Dashboard';
+import { ImpostazioniConcorsoTab } from '@/components/admin/ImpostazioniConcorsoTab';
 
 import { useCandidati } from '@/api/candidati';
 import { useCommissari } from '@/api/commissari';
@@ -238,7 +240,7 @@ function WorkspaceInner({
 
   function getCount(tab: TabDef): number | null {
     if (!tab.countKey) return null;
-    return (counts as Counts)[tab.countKey];
+    return (counts)[tab.countKey];
   }
 
   const statoTag =
@@ -418,7 +420,7 @@ function WorkspaceInner({
 
           {/* Tab content */}
           <div>
-            {activeTab === 'dashboard'   && <DashboardPlaceholder />}
+            {activeTab === 'dashboard'   && <AdminDashboard embedded />}
             {activeTab === 'sezioni'     && <SezioniTab     concorsoId={concorsoId} />}
             {activeTab === 'commissari'  && <CommissariTab  concorsoId={concorsoId} />}
             {activeTab === 'commissioni' && <CommissioniTab concorsoId={concorsoId} />}
@@ -428,18 +430,7 @@ function WorkspaceInner({
             {activeTab === 'candidati'   && <CandidatiTab   concorsoId={concorsoId} />}
             {activeTab === 'risultati'   && <RisultatiTab   concorsoId={concorsoId} />}
             {activeTab === 'audit'       && <AuditTab       concorsoId={concorsoId} />}
-            {activeTab === 'impostazioni' && (
-              <div className="c-tile text-center py-10 flex flex-col items-center gap-4">
-                <Settings size={32} className="text-brand-600 opacity-60" />
-                <p className="text-ink-700 text-sm">
-                  Le impostazioni del concorso si trovano nella pagina dedicata.
-                </p>
-                <Link to="/admin/impostazioni" className="c-btn c-btn--outline c-btn--sm">
-                  <Settings size={14} />
-                  <span>Vai alle Impostazioni</span>
-                </Link>
-              </div>
-            )}
+            {activeTab === 'impostazioni' && <ImpostazioniConcorsoTab concorsoId={concorsoId} />}
           </div>
 
         </div>

@@ -2,10 +2,13 @@
 // CandidatiTab — gestione candidati di un concorso (admin)
 //
 // Features:
-//  - Griglia candidati con filtri stato/sezione/ricerca testo
+//  - Griglia candidati con filtri sezione/tipo/ricerca testo
 //  - Create/Edit dialog completo (anagrafica, contatti, artistici, sezione/categoria, foto)
 //  - Delete con confirm
 //  - Photo upload via http.upload
+//
+// Presentation: legacy.css design system (c-btn, c-field, c-input, c-select,
+//   c-textarea, c-tag, c-tile — matching candidati.js vanilla source exactly).
 // =============================================================================
 
 import { useState, useRef, useCallback, useMemo } from 'react';
@@ -14,18 +17,11 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { toast } from 'sonner';
 import {
-  Plus, Pencil, Trash2, Search, UserCircle2, Music, Users,
-  X, RefreshCw,
+  Plus, Pencil, Trash2, Search, GraduationCap, Users, Music,
+  X, Filter,
 } from 'lucide-react';
 
-import { cn } from '@/lib/utils';
 import { fileUrl, httpErrorMessage } from '@/lib/api';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
-import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import {
   Dialog,
   DialogContent,
@@ -34,14 +30,6 @@ import {
   DialogFooter,
   DialogDescription,
 } from '@/components/ui/dialog';
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from '@/components/ui/select';
-import { Label } from '@/components/ui/label';
 
 import { useCandidati, candidatiApi, type CandidatoFull } from '@/api/candidati';
 import type { Sezione, Categoria } from '@/types';
@@ -65,8 +53,11 @@ function ageFromDate(dateStr: string | null | undefined): number | null {
   return age >= 0 ? age : null;
 }
 
-function initials(c: Pick<CandidatoFull, 'nome' | 'cognome'>): string {
-  return [(c.nome ?? '')[0], (c.cognome ?? '')[0]].filter(Boolean).join('').toUpperCase() || '?';
+function fmtDate(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('it-IT');
 }
 
 // ---------------------------------------------------------------------------
@@ -258,6 +249,10 @@ function CandidatoFormDialog({
   const isPending =
     createMutation.isPending || updateMutation.isPending || isUploadingFoto;
 
+  const inputCls = 'c-input';
+  const selectCls = 'c-select';
+  const textareaCls = 'c-textarea';
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-3xl max-h-[90dvh] flex flex-col">
@@ -272,328 +267,374 @@ function CandidatoFormDialog({
 
         <form
           onSubmit={form.handleSubmit(onSubmit)}
-          className="space-y-6 overflow-y-auto flex-1 pr-1"
+          className="space-y-5 overflow-y-auto flex-1 pr-1"
+          autoComplete="off"
         >
-          {/* ---- Foto + nome/tipo ---- */}
-          <div className="flex items-start gap-4">
-            {/* Foto avatar */}
-            <div className="shrink-0 flex flex-col items-center gap-2">
-              <div
-                className={cn(
-                  'h-20 w-20 rounded-full overflow-hidden bg-muted border-2 border-border flex items-center justify-center',
-                  currentFotoUrl && 'border-primary/40',
-                )}
-              >
-                {currentFotoUrl ? (
-                  <img src={currentFotoUrl} alt="" className="h-full w-full object-cover" />
-                ) : (
-                  <UserCircle2 className="h-10 w-10 text-muted-foreground/40" />
-                )}
+          {/* ---- Foto + anagrafica base ---- */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {/* foto: span completo + centrato */}
+            <div className="sm:col-span-2 flex items-center gap-4">
+              <div className="w-20 h-20 rounded-full bg-slate-100 border-2 border-slate-200 overflow-hidden flex items-center justify-center shrink-0">
+                {currentFotoUrl
+                  ? <img src={currentFotoUrl} alt="" className="w-full h-full object-cover" />
+                  : <span className="text-3xl text-slate-400">👤</span>}
               </div>
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                className="text-xs h-7 px-2 w-full"
-                onClick={() => fotoInputRef.current?.click()}
-              >
-                {currentFotoUrl ? 'Cambia foto' : 'Aggiungi foto'}
-              </Button>
-              {(fotoFile || fotoPreview) && (
-                <Button
+              <div className="flex-1 min-w-0">
+                <button
                   type="button"
-                  size="sm"
-                  variant="ghost"
-                  className="text-xs h-7 px-2 text-destructive hover:text-destructive w-full"
-                  onClick={() => { setFotoFile(null); setFotoPreview(null); }}
+                  className="c-btn c-btn--sm c-btn--outline"
+                  onClick={() => fotoInputRef.current?.click()}
                 >
-                  Rimuovi
-                </Button>
-              )}
-              <input
-                ref={fotoInputRef}
-                type="file"
-                accept="image/*"
-                className="hidden"
-                onChange={handleFotoChange}
-              />
+                  {currentFotoUrl ? 'Cambia foto' : 'Aggiungi foto'}
+                </button>
+                {(fotoFile || fotoPreview) && (
+                  <button
+                    type="button"
+                    className="c-btn c-btn--sm c-btn--ghost ml-1 text-rose-600"
+                    onClick={() => { setFotoFile(null); setFotoPreview(null); }}
+                  >
+                    Rimuovi
+                  </button>
+                )}
+                <input
+                  ref={fotoInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handleFotoChange}
+                />
+                <p className="text-[10px] text-slate-500 mt-1.5">
+                  JPG, PNG, WebP — max 2 MB. Verrà ridimensionata automaticamente.
+                </p>
+              </div>
             </div>
 
-            {/* Nome + cognome + tipo */}
-            <div className="flex-1 grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <Label className="mb-1 block">Nome <span className="text-destructive">*</span></Label>
-                <Input {...form.register('nome')} placeholder="Mario" />
-                {form.formState.errors.nome && (
-                  <p className="mt-1 text-xs text-destructive">{form.formState.errors.nome.message}</p>
-                )}
-              </div>
-              <div>
-                <Label className="mb-1 block">Cognome {!isGroupLike && <span className="text-destructive">*</span>}</Label>
-                <Input {...form.register('cognome')} placeholder="Rossi" />
-              </div>
-              <div>
-                <Label className="mb-1 block">Strumento <span className="text-destructive">*</span></Label>
-                <Input {...form.register('strumento')} placeholder="es. Pianoforte" />
-                {form.formState.errors.strumento && (
-                  <p className="mt-1 text-xs text-destructive">{form.formState.errors.strumento.message}</p>
-                )}
-              </div>
-              <div>
-                <Label className="mb-1 block">Tipo</Label>
-                <Select
-                  value={tipo}
-                  onValueChange={(v) => {
-                    form.setValue('tipo', v as 'individuale' | 'gruppo' | 'orchestra');
-                    if (v === 'individuale') form.setValue('gruppoNome', '');
+            {/* Nome */}
+            <label className="c-field">
+              <span className="c-field__label">
+                Nome <span className="text-rose-500">*</span>
+              </span>
+              <input
+                {...form.register('nome')}
+                className={inputCls}
+                placeholder="Mario"
+              />
+              {form.formState.errors.nome && (
+                <span className="c-field__hint text-rose-500">{form.formState.errors.nome.message}</span>
+              )}
+            </label>
+
+            {/* Cognome */}
+            <label className="c-field">
+              <span className="c-field__label">
+                Cognome {!isGroupLike && <span className="text-rose-500">*</span>}
+              </span>
+              <input
+                {...form.register('cognome')}
+                className={inputCls}
+                placeholder="Rossi"
+              />
+            </label>
+
+            {/* Strumento */}
+            <label className="c-field">
+              <span className="c-field__label">
+                Strumento <span className="text-rose-500">*</span>
+              </span>
+              <input
+                {...form.register('strumento')}
+                className={inputCls}
+                placeholder="es. Pianoforte"
+              />
+              {form.formState.errors.strumento && (
+                <span className="c-field__hint text-rose-500">{form.formState.errors.strumento.message}</span>
+              )}
+            </label>
+
+            {/* Tipo */}
+            <label className="c-field">
+              <span className="c-field__label">Tipo</span>
+              <select
+                {...form.register('tipo')}
+                className={selectCls}
+                onChange={(e) => {
+                  form.setValue('tipo', e.target.value as 'individuale' | 'gruppo' | 'orchestra');
+                  if (e.target.value === 'individuale') form.setValue('gruppoNome', '');
+                }}
+              >
+                <option value="individuale">Individuale</option>
+                <option value="gruppo">Gruppo / Ensemble</option>
+                <option value="orchestra">Orchestra</option>
+              </select>
+            </label>
+
+            {/* Data di nascita (solo individuale) */}
+            {!isGroupLike && (
+              <label className="c-field">
+                <span className="c-field__label">
+                  Data di nascita <span className="text-rose-500">*</span>
+                </span>
+                <input
+                  type="date"
+                  {...form.register('dataNascita')}
+                  className={inputCls}
+                  max={new Date().toISOString().slice(0, 10)}
+                />
+              </label>
+            )}
+
+            {/* Nazionalità (solo individuale) */}
+            {!isGroupLike && (
+              <label className="c-field">
+                <span className="c-field__label">
+                  Nazionalità <span className="text-rose-500">*</span>
+                </span>
+                <input
+                  {...form.register('nazionalita')}
+                  className={inputCls}
+                  list="naz-list"
+                  placeholder="es. Italiana"
+                />
+                <datalist id="naz-list">
+                  {['Italiana', 'Tedesca', 'Francese', 'Spagnola', 'Inglese', 'Statunitense', 'Cinese', 'Giapponese', 'Russa', 'Brasiliana'].map((n) => (
+                    <option key={n} value={n} />
+                  ))}
+                </datalist>
+              </label>
+            )}
+
+            {/* Sesso (solo individuale) */}
+            {!isGroupLike && (
+              <label className="c-field">
+                <span className="c-field__label">Sesso</span>
+                <select {...form.register('sesso')} className={selectCls}>
+                  <option value="">— Seleziona —</option>
+                  <option value="M">Maschio</option>
+                  <option value="F">Femmina</option>
+                  <option value="altro">Altro / preferisco non specificare</option>
+                </select>
+              </label>
+            )}
+
+            {/* Luogo di nascita (solo individuale) */}
+            {!isGroupLike && (
+              <label className="c-field">
+                <span className="c-field__label">Luogo di nascita</span>
+                <input
+                  {...form.register('luogoNascita')}
+                  className={inputCls}
+                  placeholder="Città (Provincia)"
+                />
+              </label>
+            )}
+
+            {/* Codice fiscale (solo individuale, col-span-2) */}
+            {!isGroupLike && (
+              <label className="c-field sm:col-span-2">
+                <span className="c-field__label">Codice fiscale</span>
+                <input
+                  {...form.register('codiceFiscale')}
+                  className={`${inputCls} font-mono uppercase`}
+                  maxLength={16}
+                  placeholder="RSSMRA80A01H501U"
+                  onChange={(e) => {
+                    e.target.value = e.target.value.toUpperCase();
+                    form.setValue('codiceFiscale', e.target.value);
                   }}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="individuale">Individuale</SelectItem>
-                    <SelectItem value="gruppo">Gruppo / Ensemble</SelectItem>
-                    <SelectItem value="orchestra">Orchestra</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
+                />
+              </label>
+            )}
           </div>
 
-          {/* ---- Gruppo nome (condizionale) ---- */}
+          {/* ---- Gruppo/Orchestra: nome ensemble (condizionale) ---- */}
           {isGroupLike && (
-            <div className="border border-purple-200 bg-purple-50/40 rounded-xl p-4 space-y-3">
-              <div className="flex items-center gap-2">
-                <Users className="h-4 w-4 text-purple-600" />
-                <span className="text-sm font-semibold text-purple-800">
-                  {tipo === 'orchestra' ? "Orchestra" : "Gruppo / Ensemble"}
+            <div
+              className="pt-4 border-t border-slate-200 space-y-4"
+            >
+              <label className="c-field">
+                <span className="c-field__label">
+                  {tipo === 'orchestra' ? "Nome dell'orchestra" : 'Nome del gruppo / ensemble'}
                 </span>
-              </div>
-              <div>
-                <Label className="mb-1 block">
-                  {tipo === 'orchestra' ? "Nome dell'orchestra" : "Nome del gruppo / ensemble"}
-                </Label>
-                <Input
+                <input
                   {...form.register('gruppoNome')}
+                  className={inputCls}
                   placeholder={tipo === 'orchestra' ? 'es. Orchestra Giovanile di Milano' : 'es. Quartetto Brillante'}
                 />
-              </div>
+              </label>
             </div>
           )}
 
-          {/* ---- Anagrafica ---- */}
-          <fieldset className="space-y-3">
-            <legend className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2 border-b border-border pb-1 w-full">
-              Anagrafica
-            </legend>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {!isGroupLike && (
-                <>
-                  <div>
-                    <Label className="mb-1 block">Data di nascita {!isGroupLike && <span className="text-destructive">*</span>}</Label>
-                    <Input
-                      type="date"
-                      {...form.register('dataNascita')}
-                      max={new Date().toISOString().slice(0, 10)}
-                    />
-                  </div>
-                  <div>
-                    <Label className="mb-1 block">Nazionalità</Label>
-                    <Input {...form.register('nazionalita')} placeholder="es. Italiana" />
-                  </div>
-                  <div>
-                    <Label className="mb-1 block">Sesso</Label>
-                    <Select
-                      value={form.watch('sesso') ?? ''}
-                      onValueChange={(v) => form.setValue('sesso', v)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="— Seleziona —" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="">— Non specificato —</SelectItem>
-                        <SelectItem value="M">Maschio</SelectItem>
-                        <SelectItem value="F">Femmina</SelectItem>
-                        <SelectItem value="altro">Altro / preferisco non specificare</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div>
-                    <Label className="mb-1 block">Luogo di nascita</Label>
-                    <Input {...form.register('luogoNascita')} placeholder="Città (Provincia)" />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <Label className="mb-1 block">Codice fiscale</Label>
-                    <Input
-                      {...form.register('codiceFiscale')}
-                      maxLength={16}
-                      className="font-mono uppercase"
-                      placeholder="RSSMRA80A01H501U"
-                      onChange={(e) => {
-                        e.target.value = e.target.value.toUpperCase();
-                        form.setValue('codiceFiscale', e.target.value);
-                      }}
-                    />
-                  </div>
-                </>
-              )}
-            </div>
-          </fieldset>
-
           {/* ---- Contatti ---- */}
-          <fieldset className="space-y-3">
-            <legend className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2 border-b border-border pb-1 w-full">
-              Contatti
-            </legend>
+          <div className="pt-4 border-t border-slate-200">
+            <header className="mb-3">
+              <h4 className="text-sm font-semibold text-slate-700">Contatti</h4>
+              <p className="text-[11px] text-slate-500">Email e recapiti per comunicazioni dell'organizzazione.</p>
+            </header>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <Label className="mb-1 block">Email</Label>
-                <Input type="email" {...form.register('email')} placeholder="nome@esempio.it" />
+              <label className="c-field">
+                <span className="c-field__label">Email</span>
+                <input
+                  type="email"
+                  {...form.register('email')}
+                  className={inputCls}
+                  placeholder="nome@esempio.it"
+                />
                 {form.formState.errors.email && (
-                  <p className="mt-1 text-xs text-destructive">{form.formState.errors.email.message}</p>
+                  <span className="c-field__hint text-rose-500">{form.formState.errors.email.message}</span>
                 )}
-              </div>
-              <div>
-                <Label className="mb-1 block">Telefono</Label>
-                <Input type="tel" {...form.register('telefono')} placeholder="+39 333 000 0000" />
-              </div>
-              <div className="sm:col-span-2">
-                <Label className="mb-1 block">Indirizzo</Label>
-                <Input {...form.register('indirizzo')} placeholder="Via, civico" />
-              </div>
-              <div>
-                <Label className="mb-1 block">Città</Label>
-                <Input {...form.register('citta')} />
-              </div>
-              <div>
-                <Label className="mb-1 block">CAP</Label>
-                <Input {...form.register('cap')} maxLength={10} />
-              </div>
-              <div>
-                <Label className="mb-1 block">Provincia</Label>
-                <Input {...form.register('provincia')} maxLength={3} placeholder="MI" />
-              </div>
-              <div>
-                <Label className="mb-1 block">Paese</Label>
-                <Input {...form.register('paese')} />
-              </div>
+              </label>
+              <label className="c-field">
+                <span className="c-field__label">Telefono</span>
+                <input
+                  type="tel"
+                  {...form.register('telefono')}
+                  className={inputCls}
+                  placeholder="+39 ..."
+                />
+              </label>
+              <label className="c-field sm:col-span-2">
+                <span className="c-field__label">Indirizzo</span>
+                <input
+                  {...form.register('indirizzo')}
+                  className={inputCls}
+                  placeholder="Via, civico"
+                />
+              </label>
+              <label className="c-field">
+                <span className="c-field__label">Città</span>
+                <input {...form.register('citta')} className={inputCls} />
+              </label>
+              <label className="c-field">
+                <span className="c-field__label">CAP</span>
+                <input {...form.register('cap')} className={inputCls} maxLength={10} />
+              </label>
+              <label className="c-field">
+                <span className="c-field__label">Provincia</span>
+                <input {...form.register('provincia')} className={inputCls} maxLength={3} placeholder="MI" />
+              </label>
+              <label className="c-field">
+                <span className="c-field__label">Paese</span>
+                <input {...form.register('paese')} className={inputCls} />
+              </label>
             </div>
-          </fieldset>
+          </div>
 
           {/* ---- Studi musicali ---- */}
-          <fieldset className="space-y-3">
-            <legend className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2 border-b border-border pb-1 w-full">
-              Studi musicali
-            </legend>
+          <div className="pt-4 border-t border-slate-200">
+            <header className="mb-3">
+              <h4 className="text-sm font-semibold text-slate-700">Studi musicali</h4>
+              <p className="text-[11px] text-slate-500">Esperienza e provenienza.</p>
+            </header>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div>
-                <Label className="mb-1 block">Anni di studio</Label>
-                <Input
+              <label className="c-field">
+                <span className="c-field__label">Anni di studio</span>
+                <input
                   type="number"
                   min={0}
                   max={80}
                   {...form.register('anniStudio')}
+                  className={inputCls}
                 />
-              </div>
-              <div className="sm:col-span-2">
-                <Label className="mb-1 block">Scuola / Conservatorio di provenienza</Label>
-                <Input {...form.register('scuolaProvenienza')} />
-              </div>
+              </label>
+              <label className="c-field sm:col-span-2">
+                <span className="c-field__label">Scuola / Conservatorio di provenienza</span>
+                <input {...form.register('scuolaProvenienza')} className={inputCls} />
+              </label>
             </div>
-          </fieldset>
-
-          {/* ---- Docenti preparatori ---- */}
-          <div>
-            <Label className="mb-1 block">
-              Docenti preparatori{' '}
-              <span className="text-xs text-muted-foreground">(uno per riga)</span>
-            </Label>
-            <Textarea
-              {...form.register('docentiPreparatori')}
-              rows={3}
-              placeholder="Prof. Mario Rossi&#10;Prof.ssa Anna Bianchi"
-            />
           </div>
 
-          {/* ---- Sezione / Categoria ---- */}
+          {/* ---- Docenti preparatori ---- */}
+          <div className="pt-4 border-t border-slate-200">
+            <label className="c-field">
+              <span className="c-field__label">
+                Docenti preparatori{' '}
+                <span className="text-[11px] text-slate-500 font-normal">(uno per riga)</span>
+              </span>
+              <textarea
+                {...form.register('docentiPreparatori')}
+                rows={3}
+                className={textareaCls}
+                placeholder="Prof. Mario Rossi&#10;Prof.ssa Anna Bianchi"
+              />
+            </label>
+          </div>
+
+          {/* ---- Sezione e categoria ---- */}
           {sezioni.length > 0 && (
-            <fieldset className="space-y-3">
-              <legend className="text-xs font-bold uppercase tracking-wider text-muted-foreground mb-2 border-b border-border pb-1 w-full">
-                Sezione e categoria
-              </legend>
+            <div className="pt-4 border-t border-slate-200">
+              <header className="mb-3">
+                <h4 className="text-sm font-semibold text-slate-700">Sezione e categoria</h4>
+                <p className="text-[11px] text-slate-500">
+                  Un candidato appartiene a una sola sezione e a una sola categoria all'interno di essa.
+                </p>
+              </header>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <Label className="mb-1 block">Sezione</Label>
-                  <Select
-                    value={sezioneId ?? ''}
-                    onValueChange={(v) => {
-                      form.setValue('sezioneId', v);
+                <label className="c-field">
+                  <span className="c-field__label">Sezione</span>
+                  <select
+                    {...form.register('sezioneId')}
+                    className={selectCls}
+                    onChange={(e) => {
+                      form.setValue('sezioneId', e.target.value);
                       form.setValue('categoriaId', '');
                     }}
                   >
-                    <SelectTrigger>
-                      <SelectValue placeholder="— Nessuna sezione —" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="">— Nessuna sezione —</SelectItem>
-                      {sezioni.map((s) => (
-                        <SelectItem key={s.id} value={s.id}>
-                          {s.nome}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                    <option value="">— Nessuna sezione —</option>
+                    {sezioni.map((s) => (
+                      <option key={s.id} value={s.id}>{s.nome}</option>
+                    ))}
+                  </select>
+                </label>
                 {filteredCategorie.length > 0 && (
-                  <div>
-                    <Label className="mb-1 block">Categoria</Label>
-                    <Select
-                      value={form.watch('categoriaId') ?? ''}
-                      onValueChange={(v) => form.setValue('categoriaId', v)}
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="— Nessuna categoria —" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="">— Nessuna categoria —</SelectItem>
-                        {filteredCategorie.map((c) => (
-                          <SelectItem key={c.id} value={c.id}>
-                            {c.nome}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  <label className="c-field">
+                    <span className="c-field__label">Categoria</span>
+                    <select {...form.register('categoriaId')} className={selectCls}>
+                      <option value="">— Nessuna categoria —</option>
+                      {filteredCategorie.map((c) => (
+                        <option key={c.id} value={c.id}>{c.nome}</option>
+                      ))}
+                    </select>
+                  </label>
                 )}
               </div>
-            </fieldset>
+            </div>
           )}
 
           {/* ---- Note libere ---- */}
-          <div>
-            <Label className="mb-1 block">
-              Note libere{' '}
-              <span className="text-xs text-muted-foreground">(opzionale)</span>
-            </Label>
-            <Textarea
-              {...form.register('noteLibere')}
-              rows={2}
-              placeholder="Qualsiasi informazione utile all'organizzazione"
-            />
+          <div className="pt-4 border-t border-slate-200">
+            <label className="c-field">
+              <span className="c-field__label">
+                Note libere{' '}
+                <span className="text-[11px] text-slate-500 font-normal">(opzionale)</span>
+              </span>
+              <textarea
+                {...form.register('noteLibere')}
+                rows={2}
+                className={textareaCls}
+                placeholder="Qualsiasi informazione utile all'organizzazione"
+              />
+            </label>
           </div>
 
           <DialogFooter className="pt-2">
-            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            <button
+              type="button"
+              className="c-btn c-btn--outline"
+              onClick={() => onOpenChange(false)}
+            >
               Annulla
-            </Button>
-            <Button type="submit" disabled={isPending}>
+            </button>
+            <button
+              type="submit"
+              className="c-btn c-btn--primary"
+              disabled={isPending}
+            >
               {isPending
                 ? 'Salvataggio…'
                 : isEdit
                   ? 'Salva modifiche'
                   : 'Aggiungi candidato'}
-            </Button>
+            </button>
           </DialogFooter>
         </form>
       </DialogContent>
@@ -625,12 +666,16 @@ function DeleteConfirmDialog({ open, candidato, onCancel, onConfirm, isPending }
           </DialogDescription>
         </DialogHeader>
         <DialogFooter>
-          <Button variant="outline" onClick={onCancel}>
+          <button className="c-btn c-btn--outline" onClick={onCancel}>
             Annulla
-          </Button>
-          <Button variant="destructive" onClick={onConfirm} disabled={isPending}>
+          </button>
+          <button
+            className="c-btn c-btn--danger"
+            onClick={onConfirm}
+            disabled={isPending}
+          >
             {isPending ? 'Eliminazione…' : 'Elimina'}
-          </Button>
+          </button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -638,7 +683,7 @@ function DeleteConfirmDialog({ open, candidato, onCancel, onConfirm, isPending }
 }
 
 // ---------------------------------------------------------------------------
-// CandidatoCard
+// CandidatoCard  (matches candidatoCardHtml from candidati.js)
 // ---------------------------------------------------------------------------
 
 interface CandidatoCardProps {
@@ -650,82 +695,87 @@ interface CandidatoCardProps {
 }
 
 function CandidatoCard({ candidato: c, sezione, categoria, onEdit, onDelete }: CandidatoCardProps) {
-  const isGroupLike = c.tipo === 'gruppo' || c.tipo === 'orchestra';
+  const isOrchestra = c.tipo === 'orchestra';
+  const isGroupLike = c.tipo === 'gruppo' || isOrchestra;
   const age = ageFromDate(c.dataNascita);
   const fotoSrc = c.fotoUrl ? fileUrl(c.fotoUrl) : null;
-  const docenti = (c.docentiPreparatori ?? []);
+  const docenti = c.docentiPreparatori ?? [];
 
   return (
     <div
-      className={cn(
-        'rounded-2xl border bg-card p-4 flex items-start gap-3 transition-colors',
-        isGroupLike
-          ? 'border-purple-200 bg-purple-50/30 hover:border-purple-300'
-          : 'border-border hover:border-border/80',
-      )}
+      className={[
+        'bg-white border rounded-2xl p-4 flex items-start gap-3 hover:border-slate-300 transition',
+        isGroupLike ? 'border-purple-200 bg-purple-50/30' : 'border-slate-200',
+      ].join(' ')}
     >
       {/* Avatar */}
-      <Avatar
-        className={cn(
-          'h-14 w-14 shrink-0 ring-2 ring-white shadow-sm',
-          isGroupLike ? 'bg-purple-100' : 'bg-muted',
-        )}
+      <div
+        className={[
+          'w-14 h-14 rounded-full overflow-hidden flex items-center justify-center text-2xl text-slate-400 shrink-0 ring-2 ring-white shadow-soft',
+          isGroupLike ? 'bg-purple-100' : 'bg-slate-100',
+        ].join(' ')}
       >
-        {fotoSrc && <AvatarImage src={fotoSrc} alt={displayName(c)} className="object-cover" />}
-        <AvatarFallback className={cn(isGroupLike ? 'bg-purple-100 text-purple-700' : 'bg-muted')}>
-          {isGroupLike ? (
-            c.tipo === 'orchestra' ? <Music className="h-6 w-6" /> : <Users className="h-6 w-6" />
-          ) : (
-            <span className="text-sm font-semibold">{initials(c)}</span>
-          )}
-        </AvatarFallback>
-      </Avatar>
+        {fotoSrc ? (
+          <img src={fotoSrc} alt="" className="w-full h-full object-cover" />
+        ) : isGroupLike ? (
+          isOrchestra
+            ? <Music className="h-6 w-6 text-purple-500" />
+            : <Users className="h-6 w-6 text-purple-500" />
+        ) : (
+          <span>👤</span>
+        )}
+      </div>
 
       {/* Info */}
       <div className="flex-1 min-w-0">
-        <div className="flex flex-wrap items-center gap-1.5 mb-0.5">
+        {/* numero + badge tipo */}
+        <div className="flex items-center gap-2">
           {c.numeroCandidato != null && (
-            <span className="font-mono text-[11px] text-muted-foreground">
+            <span className="font-mono text-[11px] text-slate-500">
               #{String(c.numeroCandidato).padStart(3, '0')}
             </span>
           )}
           {isGroupLike && (
-            <Badge
-              variant="outline"
-              className="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-700 border-purple-200 font-bold uppercase tracking-wider"
-            >
-              {c.tipo === 'orchestra' ? 'Orchestra' : 'Gruppo'}
-            </Badge>
+            <span className="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded-full font-bold uppercase tracking-wider">
+              {isOrchestra ? 'Orchestra' : 'Gruppo'}
+            </span>
           )}
           {!isGroupLike && c.nazionalita && (
-            <Badge variant="muted" className="text-[10px] px-1.5 py-0.5">
+            <span className="text-[10px] px-1.5 py-0.5 bg-slate-100 text-slate-700 rounded-full font-medium">
               {c.nazionalita}
-            </Badge>
+            </span>
           )}
         </div>
 
-        <h4 className="font-semibold text-foreground truncate">{displayName(c)}</h4>
+        <h4 className="font-semibold text-slate-900 truncate mt-0.5">{displayName(c)}</h4>
 
         {c.gruppoNome && (
           <p className="text-[11px] text-purple-700 truncate">{c.gruppoNome}</p>
         )}
 
-        <p className="text-xs text-muted-foreground truncate mt-0.5">
+        <p className="text-xs text-slate-600 truncate">
           {c.strumento ?? '—'}
           {!isGroupLike && age != null && ` · ${age} anni`}
         </p>
 
+        {/* Data di nascita */}
+        {!isGroupLike && c.dataNascita && (
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            Nato/a il {fmtDate(c.dataNascita)}
+          </p>
+        )}
+
         {/* Sezione / categoria badges */}
         {(sezione || categoria) && (
-          <div className="mt-1.5 flex flex-wrap gap-1">
+          <div className="mt-1.5 flex items-center gap-1 flex-wrap">
             {sezione && (
-              <span className="text-[10px] px-1.5 py-0.5 bg-primary/10 text-primary rounded-full font-medium">
+              <span className="text-[10px] px-1.5 py-0.5 bg-brand-50 text-brand-700 rounded-full font-medium">
                 {sezione.nome}
               </span>
             )}
             {categoria && (
               <span className="text-[10px] px-1.5 py-0.5 bg-cyan-50 text-cyan-700 rounded-full font-medium">
-                {categoria.nome}
+                📑 {categoria.nome}
               </span>
             )}
           </div>
@@ -733,39 +783,35 @@ function CandidatoCard({ candidato: c, sezione, categoria, onEdit, onDelete }: C
 
         {/* Docenti */}
         {docenti.length > 0 && (
-          <div className="mt-1.5">
+          <div className="mt-1.5 flex items-center gap-1 flex-wrap">
             <span
               className="text-[10px] px-1.5 py-0.5 bg-violet-50 text-violet-700 rounded-full font-medium"
               title={docenti.join(' · ')}
             >
               {docenti.length === 1
-                ? `1 docente`
-                : `${docenti.length} docenti`}
+                ? '1 docente preparatore'
+                : `${docenti.length} docenti preparatori`}
             </span>
           </div>
         )}
       </div>
 
-      {/* Actions */}
+      {/* Actions — matches vanilla (data-edit, data-del buttons) */}
       <div className="flex flex-col gap-1 shrink-0">
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-7 px-2 text-xs text-primary hover:bg-primary/10"
+        <button
+          className="text-xs text-brand-600 hover:bg-brand-50 px-2 py-1 rounded-lg font-medium"
           onClick={onEdit}
         >
-          <Pencil className="h-3 w-3" />
+          <Pencil className="inline h-3 w-3 mr-0.5" />
           Modifica
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          className="h-7 px-2 text-xs text-destructive hover:bg-destructive/10"
+        </button>
+        <button
+          className="text-xs text-rose-600 hover:bg-rose-50 px-2 py-1 rounded-lg font-medium"
           onClick={onDelete}
         >
-          <Trash2 className="h-3 w-3" />
+          <Trash2 className="inline h-3 w-3 mr-0.5" />
           Elimina
-        </Button>
+        </button>
       </div>
     </div>
   );
@@ -833,13 +879,13 @@ export function CandidatiTab({ concorsoId }: { concorsoId: string }) {
   };
 
   // ---------------------------------------------------------------------------
-  // Skeleton
+  // Loading / error states
   // ---------------------------------------------------------------------------
   if (isLoading) {
     return (
-      <div className="space-y-3">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
         {[1, 2, 3].map((i) => (
-          <Skeleton key={i} className="h-24 w-full rounded-2xl" />
+          <div key={i} className="bg-white border border-slate-200 rounded-2xl p-4 h-24 animate-pulse" />
         ))}
       </div>
     );
@@ -847,39 +893,45 @@ export function CandidatiTab({ concorsoId }: { concorsoId: string }) {
 
   if (isError) {
     return (
-      <p className="text-sm text-destructive">Errore nel caricamento dei candidati.</p>
+      <p className="text-sm text-rose-600">Errore nel caricamento dei candidati.</p>
     );
   }
 
   return (
-    <div className="space-y-5">
-      {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-muted-foreground">
+    <div className="space-y-4 view-fade">
+      {/* ---- Header: count + add button (matches renderCandidati toolbar) ---- */}
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
+        <p className="text-sm text-slate-600">
           {candidati.length} candidat{candidati.length === 1 ? 'o' : 'i'}
-          {filtered.length !== candidati.length && ` · ${filtered.length} mostrati`}
+          {filtered.length !== candidati.length && ` · ${filtered.length} mostrat${filtered.length === 1 ? 'o' : 'i'}`}
         </p>
-        <Button size="sm" onClick={() => setDialog({ open: true })}>
-          <Plus className="h-4 w-4" />
-          Aggiungi candidato
-        </Button>
+        <div className="flex items-center gap-2">
+          <button
+            className="c-btn c-btn--sm c-btn--primary"
+            onClick={() => setDialog({ open: true })}
+          >
+            <Plus className="h-4 w-4" />
+            Aggiungi candidato
+          </button>
+        </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-wrap gap-2">
-        {/* Text search */}
+      {/* ---- Filters ---- */}
+      <div className="flex flex-wrap gap-2 mb-2">
+        {/* Ricerca testo */}
         <div className="relative flex-1 min-w-48">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-          <Input
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+          <input
+            type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Cerca per nome, strumento, email…"
-            className="pl-8 h-9"
+            placeholder="Cerca per nome, strumento…"
+            className="c-input pl-8 h-9 text-sm"
           />
           {search && (
             <button
               type="button"
-              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
               onClick={() => setSearch('')}
             >
               <X className="h-3.5 w-3.5" />
@@ -887,76 +939,71 @@ export function CandidatiTab({ concorsoId }: { concorsoId: string }) {
           )}
         </div>
 
-        {/* Sezione filter */}
+        {/* Filtro sezione */}
         {sezioni.length > 0 && (
-          <Select
-            value={filterSezioneId}
-            onValueChange={setFilterSezioneId}
-          >
-            <SelectTrigger className="h-9 w-44">
-              <SelectValue placeholder="Tutte le sezioni" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="">Tutte le sezioni</SelectItem>
+          <div className="relative">
+            <Filter className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
+            <select
+              value={filterSezioneId}
+              onChange={(e) => setFilterSezioneId(e.target.value)}
+              className="c-select pl-7 h-9 text-sm w-44"
+            >
+              <option value="">Tutte le sezioni</option>
               {sezioni.map((s) => (
-                <SelectItem key={s.id} value={s.id}>{s.nome}</SelectItem>
+                <option key={s.id} value={s.id}>{s.nome}</option>
               ))}
-            </SelectContent>
-          </Select>
+            </select>
+          </div>
         )}
 
-        {/* Tipo filter */}
-        <Select value={filterTipo} onValueChange={setFilterTipo}>
-          <SelectTrigger className="h-9 w-40">
-            <SelectValue placeholder="Tutti i tipi" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="">Tutti i tipi</SelectItem>
-            <SelectItem value="individuale">Individuale</SelectItem>
-            <SelectItem value="gruppo">Gruppo</SelectItem>
-            <SelectItem value="orchestra">Orchestra</SelectItem>
-          </SelectContent>
-        </Select>
+        {/* Filtro tipo */}
+        <select
+          value={filterTipo}
+          onChange={(e) => setFilterTipo(e.target.value)}
+          className="c-select h-9 text-sm w-40"
+        >
+          <option value="">Tutti i tipi</option>
+          <option value="individuale">Individuale</option>
+          <option value="gruppo">Gruppo</option>
+          <option value="orchestra">Orchestra</option>
+        </select>
 
-        {/* Clear filters */}
+        {/* Reset filtri */}
         {(search || filterSezioneId || filterTipo) && (
-          <Button
-            size="sm"
-            variant="ghost"
-            className="h-9 text-xs text-muted-foreground"
+          <button
+            type="button"
+            className="c-btn c-btn--sm c-btn--ghost text-slate-500"
             onClick={() => { setSearch(''); setFilterSezioneId(''); setFilterTipo(''); }}
           >
-            <RefreshCw className="h-3.5 w-3.5 mr-1" />
-            Reset filtri
-          </Button>
+            <X className="h-3.5 w-3.5" />
+            Reset
+          </button>
         )}
       </div>
 
-      {/* Empty state */}
+      {/* ---- Empty state (no candidati) ---- */}
       {candidati.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border py-14 text-center">
-          <UserCircle2 className="mx-auto h-10 w-10 text-muted-foreground/40 mb-3" />
-          <p className="text-sm text-muted-foreground italic">
-            Nessun candidato — aggiungine uno.
-          </p>
-          <Button
-            size="sm"
-            variant="outline"
-            className="mt-4"
+        <div className="bg-white border-2 border-dashed border-slate-200 rounded-2xl py-12 text-center">
+          <GraduationCap className="mx-auto h-10 w-10 text-slate-300 mb-2" />
+          <p className="text-sm text-slate-500 italic">Nessun candidato — aggiungine uno.</p>
+          <button
+            className="c-btn c-btn--sm c-btn--outline mt-4"
             onClick={() => setDialog({ open: true })}
           >
             <Plus className="h-4 w-4" />
             Aggiungi il primo candidato
-          </Button>
+          </button>
         </div>
       ) : filtered.length === 0 ? (
-        <div className="flex flex-col items-center justify-center rounded-2xl border-2 border-dashed border-border py-10 text-center">
-          <Search className="mx-auto h-8 w-8 text-muted-foreground/40 mb-2" />
-          <p className="text-sm text-muted-foreground italic">
+        /* ---- Empty state (filtri) ---- */
+        <div className="bg-white border-2 border-dashed border-slate-200 rounded-2xl py-10 text-center">
+          <Search className="mx-auto h-8 w-8 text-slate-300 mb-2" />
+          <p className="text-sm text-slate-500 italic">
             Nessun candidato corrisponde ai filtri selezionati.
           </p>
         </div>
       ) : (
+        /* ---- Grid (matches .grid.grid-cols-1.sm:grid-cols-2.xl:grid-cols-3) ---- */
         <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
           {filtered.map((c) => (
             <CandidatoCard
@@ -971,7 +1018,7 @@ export function CandidatiTab({ concorsoId }: { concorsoId: string }) {
         </div>
       )}
 
-      {/* Form dialog */}
+      {/* ---- Form dialog ---- */}
       <CandidatoFormDialog
         open={dialog.open}
         onOpenChange={(v) => setDialog((p) => ({ ...p, open: v }))}
@@ -982,7 +1029,7 @@ export function CandidatiTab({ concorsoId }: { concorsoId: string }) {
         onSaved={() => setDialog({ open: false })}
       />
 
-      {/* Delete confirm */}
+      {/* ---- Delete confirm ---- */}
       <DeleteConfirmDialog
         open={deleteDialog.open}
         candidato={deleteDialog.candidato ?? null}

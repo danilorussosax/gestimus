@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -301,13 +301,13 @@ export default function Login() {
                 <p className="text-xs text-slate-600 mb-2">
                   Sei un candidato e vuoi iscriverti al concorso?
                 </p>
-                <a
-                  href="/iscrizione"
+                <Link
+                  to="/iscrizione"
                   className="c-btn c-btn--outline c-btn--sm inline-flex items-center gap-1.5"
                 >
                   <span>📝</span>
                   <span>Vai al form di iscrizione</span>
-                </a>
+                </Link>
               </div>
             </>
           )}

@@ -15,40 +15,36 @@ import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Shield, RefreshCw } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Skeleton } from '@/components/ui/skeleton';
-import { cn } from '@/lib/utils';
 import { auditApi } from '@/api/audit';
 import type { AuditEntry } from '@/types';
 
 // ─── Mappatura action → [emoji, label] ────────────────────────────────────────
 
 const ACTION_MAP: Record<string, [string, string]> = {
-  'concorso.create':      ['🆕', 'Concorso creato'],
-  'concorso.delete':      ['🗑', 'Concorso eliminato'],
-  'fase.start':           ['▶',  'Fase avviata'],
-  'fase.complete':        ['🏁', 'Fase conclusa'],
-  'fase.sorteggio':       ['🎲', 'Sorteggio ordine'],
-  'account.create':       ['🔑', 'Account creato'],
-  'account.delete':       ['🗑', 'Account eliminato'],
-  'account.update':       ['✏️', 'Account aggiornato'],
+  'concorso.create':        ['🆕', 'Concorso creato'],
+  'concorso.delete':        ['🗑', 'Concorso eliminato'],
+  'fase.start':             ['▶',  'Fase avviata'],
+  'fase.complete':          ['🏁', 'Fase conclusa'],
+  'fase.sorteggio':         ['🎲', 'Sorteggio ordine'],
+  'account.create':         ['🔑', 'Account creato'],
+  'account.delete':         ['🗑', 'Account eliminato'],
+  'account.update':         ['✏️', 'Account aggiornato'],
   'account.reset_password': ['🔓', 'Password reimpostata'],
-  'auth.login':           ['🔓', 'Login'],
-  'auth.logout':          ['🔒', 'Logout'],
-  'sala.create':          ['🏛',  'Sala creata'],
-  'sala.update':          ['✏️', 'Sala aggiornata'],
-  'sala.delete':          ['🗑', 'Sala eliminata'],
-  'evento.create':        ['📅', 'Blocco creato'],
-  'evento.update':        ['✏️', 'Blocco aggiornato'],
-  'evento.delete':        ['🗑', 'Blocco eliminato'],
-  'evento.genera_slot':   ['⏱',  'Slot generati'],
-  'evento.riordina_slot': ['↕️', 'Slot riordinati'],
-  'ente.update':          ['⚙️', 'Ente aggiornato'],
-  'branding.update':      ['🎨', 'Branding aggiornato'],
-  'calendario_pub.create':['🔗', 'Link pubblico creato'],
-  'calendario_pub.update':['🔗', 'Link pubblico aggiornato'],
-  'calendario_pub.delete':['🗑', 'Link pubblico rimosso'],
+  'auth.login':             ['🔓', 'Login'],
+  'auth.logout':            ['🔒', 'Logout'],
+  'sala.create':            ['🏛',  'Sala creata'],
+  'sala.update':            ['✏️', 'Sala aggiornata'],
+  'sala.delete':            ['🗑', 'Sala eliminata'],
+  'evento.create':          ['📅', 'Blocco creato'],
+  'evento.update':          ['✏️', 'Blocco aggiornato'],
+  'evento.delete':          ['🗑', 'Blocco eliminato'],
+  'evento.genera_slot':     ['⏱',  'Slot generati'],
+  'evento.riordina_slot':   ['↕️', 'Slot riordinati'],
+  'ente.update':            ['⚙️', 'Ente aggiornato'],
+  'branding.update':        ['🎨', 'Branding aggiornato'],
+  'calendario_pub.create':  ['🔗', 'Link pubblico creato'],
+  'calendario_pub.update':  ['🔗', 'Link pubblico aggiornato'],
+  'calendario_pub.delete':  ['🗑', 'Link pubblico rimosso'],
 };
 
 // ─── Row component ─────────────────────────────────────────────────────────────
@@ -61,34 +57,35 @@ function AuditRow({ entry }: { entry: AuditEntry }) {
     dateStyle: 'short',
     timeStyle: 'short',
   });
-  const targetSuffix = entry.targetId ? ` · ${entry.targetId.slice(0, 8)}…` : '';
+  const target = entry.targetId ? ` · ${entry.targetId.slice(0, 8)}…` : '';
 
   return (
-    <div className="flex items-start gap-3 border-b border-border px-4 py-3 last:border-b-0 hover:bg-muted/30 transition-colors">
+    <div className="flex items-start gap-3 px-4 py-3 border-b border-slate-100 last:border-b-0 hover:bg-canvas transition-colors">
       {/* Icon */}
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-primary/5 text-sm" aria-hidden>
+      <span
+        className="text-base shrink-0 w-7 h-7 rounded-md bg-brand-50 text-brand-600 flex items-center justify-center"
+        aria-hidden="true"
+      >
         {emoji}
       </span>
 
       {/* Content */}
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-foreground">
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-medium text-ink-900 truncate">
           {label}
-          {targetSuffix && (
-            <span className="font-normal text-muted-foreground">{targetSuffix}</span>
-          )}
-        </p>
-        <div className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+          {target && <span className="font-normal text-ink-500">{target}</span>}
+        </div>
+        <div className="text-xs text-ink-500 mt-0.5">
           {entry.actorEmail ? (
-            <span className="text-foreground/70">{entry.actorEmail}</span>
+            <span className="text-ink-700">{entry.actorEmail}</span>
           ) : (
-            <span className="italic">sistema</span>
+            <span className="text-ink-500 italic">sistema</span>
           )}
         </div>
       </div>
 
       {/* Timestamp */}
-      <div className="shrink-0 font-mono text-[11px] text-muted-foreground">{ts}</div>
+      <div className="text-[11px] text-ink-500 font-mono shrink-0">{ts}</div>
     </div>
   );
 }
@@ -139,28 +136,28 @@ export function AuditTab({ concorsoId }: AuditTabProps) {
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
         <div>
-          <h3 className="flex items-center gap-2 text-sm font-bold uppercase tracking-wider text-foreground">
-            <Shield className="h-4 w-4" />
+          <h3 className="text-sm font-bold text-ink-900 uppercase tracking-wider flex items-center gap-2">
+            <Shield size={14} aria-hidden="true" />
             {t('admin.audit.title')}
           </h3>
-          <p className="mt-0.5 text-xs text-muted-foreground">{t('admin.audit.subtitle')}</p>
+          <p className="text-xs text-ink-500 mt-0.5">{t('admin.audit.subtitle')}</p>
         </div>
 
         <div className="flex items-center gap-2">
           {/* Scope toggle */}
-          <div className="inline-flex items-center rounded-lg border border-border bg-background p-0.5">
+          <div className="inline-flex bg-canvas border border-slate-200 rounded-lg p-0.5">
             {(['concorso', 'all'] as const).map((s) => (
               <button
                 key={s}
+                type="button"
                 onClick={() => setScope(s)}
-                className={cn(
-                  'rounded-md px-3 py-1.5 text-xs font-medium transition-colors',
+                className={`text-xs font-medium px-3 py-1.5 rounded-md transition-colors ${
                   scope === s
-                    ? 'bg-card text-foreground shadow-sm'
-                    : 'text-muted-foreground hover:text-foreground',
-                )}
+                    ? 'bg-white text-ink-900 shadow-soft'
+                    : 'text-ink-700 hover:text-ink-900'
+                }`}
               >
                 {s === 'concorso' ? t('admin.audit.scope_only') : t('admin.audit.scope_all')}
               </button>
@@ -168,47 +165,51 @@ export function AuditTab({ concorsoId }: AuditTabProps) {
           </div>
 
           {/* Search */}
-          <Input
+          <input
+            type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder={t('admin.audit.search_ph')}
-            className="h-8 w-52 text-xs"
+            className="c-input text-xs h-8 w-56 px-3"
           />
 
           {/* Refresh */}
-          <Button
-            variant="ghost"
-            size="icon"
+          <button
+            type="button"
             onClick={() => void refetch()}
             aria-label={t('common.refresh')}
-            className="h-8 w-8"
+            className="c-btn c-btn--ghost !h-8 !w-8 !p-0"
           >
-            <RefreshCw className={cn('h-3.5 w-3.5', isFetching && 'animate-spin')} />
-          </Button>
+            <RefreshCw
+              size={14}
+              className={isFetching ? 'animate-spin' : ''}
+              aria-hidden="true"
+            />
+          </button>
         </div>
       </div>
 
-      {/* Table */}
-      <div className="overflow-hidden rounded-xl border border-border bg-card shadow-sm">
+      {/* List */}
+      <div className="bg-white ring-1 ring-slate-900/5 rounded-xl overflow-hidden shadow-soft">
         {isLoading ? (
-          <div className="space-y-px px-4 py-2">
+          <div className="space-y-0 divide-y divide-slate-100">
             {Array.from({ length: 8 }).map((_, i) => (
-              <div key={i} className="flex items-center gap-3 py-3">
-                <Skeleton className="h-7 w-7 rounded-md" />
+              <div key={i} className="flex items-center gap-3 px-4 py-3 animate-pulse">
+                <span className="w-7 h-7 rounded-md bg-slate-100 shrink-0" />
                 <div className="flex-1 space-y-1.5">
-                  <Skeleton className="h-3.5 w-48" />
-                  <Skeleton className="h-3 w-28" />
+                  <span className="block h-3.5 w-48 bg-slate-100 rounded" />
+                  <span className="block h-3 w-28 bg-slate-100 rounded" />
                 </div>
-                <Skeleton className="h-3 w-20" />
+                <span className="h-3 w-20 bg-slate-100 rounded shrink-0" />
               </div>
             ))}
           </div>
         ) : isError ? (
-          <div className="px-4 py-12 text-center text-sm text-destructive">
+          <div className="px-4 py-12 text-center text-sm text-rose-600">
             {t('admin.audit.error', { msg: 'errore di rete' })}
           </div>
         ) : filtered.length === 0 ? (
-          <div className="px-4 py-12 text-center text-sm text-muted-foreground">
+          <div className="px-4 py-12 text-center text-sm text-ink-500">
             {t('admin.audit.empty')}
           </div>
         ) : (

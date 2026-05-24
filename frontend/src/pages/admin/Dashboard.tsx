@@ -1,6 +1,11 @@
 /**
  * AdminDashboard — panoramica del concorso attivo.
  *
+ * Props:
+ *   embedded?: boolean — quando true (resa dentro AdminWorkspace) non mostra
+ *   il ConcorsoSelector né l'empty-state; usa direttamente il concorso attivo.
+ *   Default false (pagina standalone con selector in testa).
+ *
  * Struttura (replica del layout vanilla dashboard.js):
  *   1. ConcorsoSelector in testa; empty-state se nessun concorso selezionato.
  *   2. KPI strip: 3 stat cards (candidati / commissari / fasi concluse).
@@ -310,7 +315,7 @@ function FasiSummaryTable({
 }
 
 // ---------------------------------------------------------------------------
-// Empty state — nessun concorso selezionato
+// Empty state — nessun concorso selezionato (solo in modalità standalone)
 // ---------------------------------------------------------------------------
 
 function EmptyState() {
@@ -330,49 +335,40 @@ function EmptyState() {
 }
 
 // ---------------------------------------------------------------------------
-// Main component
+// Dashboard content — rendered when a concorso is selected
 // ---------------------------------------------------------------------------
 
-export default function AdminDashboard() {
-  const { activeId, activeConcorso } = useActiveConcorso();
-
-  // All counts fetched in parallel; disabled when no concorso selected
+function DashboardContent({ activeId }: { activeId: string }) {
   const results = useQueries({
     queries: [
       {
         queryKey: ['fasi', activeId],
-        queryFn: () => http.get<Fase[]>('fasi', { concorsoId: activeId! }),
-        enabled: Boolean(activeId),
+        queryFn: () => http.get<Fase[]>('fasi', { concorsoId: activeId }),
         staleTime: 30_000,
       },
       {
         queryKey: ['candidati', activeId],
-        queryFn: () => http.get<Candidato[]>('candidati', { concorsoId: activeId! }),
-        enabled: Boolean(activeId),
+        queryFn: () => http.get<Candidato[]>('candidati', { concorsoId: activeId }),
         staleTime: 30_000,
       },
       {
         queryKey: ['commissari', activeId],
-        queryFn: () => http.get<Commissario[]>('commissari', { concorsoId: activeId! }),
-        enabled: Boolean(activeId),
+        queryFn: () => http.get<Commissario[]>('commissari', { concorsoId: activeId }),
         staleTime: 30_000,
       },
       {
         queryKey: ['sezioni', activeId],
-        queryFn: () => http.get<Sezione[]>('sezioni', { concorsoId: activeId! }),
-        enabled: Boolean(activeId),
+        queryFn: () => http.get<Sezione[]>('sezioni', { concorsoId: activeId }),
         staleTime: 30_000,
       },
       {
         queryKey: ['commissioni', activeId],
-        queryFn: () => http.get<Commissione[]>('commissioni', { concorsoId: activeId! }),
-        enabled: Boolean(activeId),
+        queryFn: () => http.get<Commissione[]>('commissioni', { concorsoId: activeId }),
         staleTime: 30_000,
       },
       {
         queryKey: ['calendario/eventi', activeId],
-        queryFn: () => http.get<Evento[]>('calendario/eventi', { concorsoId: activeId! }),
-        enabled: Boolean(activeId),
+        queryFn: () => http.get<Evento[]>('calendario/eventi', { concorsoId: activeId }),
         staleTime: 30_000,
       },
     ],
@@ -380,24 +376,24 @@ export default function AdminDashboard() {
 
   const [fasiQ, candidatiQ, commissariQ, sezioniQ, commissioniQ, eventiQ] = results;
 
-  const fasi: Fase[]           = fasiQ.data        ?? [];
-  const candidati: Candidato[] = candidatiQ.data   ?? [];
-  const commissari: Commissario[] = commissariQ.data ?? [];
-  const sezioni: Sezione[]     = sezioniQ.data     ?? [];
-  const commissioni: Commissione[] = commissioniQ.data ?? [];
-  const eventi: Evento[]       = eventiQ.data      ?? [];
+  const fasi: Fase[]              = fasiQ.data        ?? [];
+  const candidati: Candidato[]    = candidatiQ.data   ?? [];
+  const commissari: Commissario[] = commissariQ.data  ?? [];
+  const sezioni: Sezione[]        = sezioniQ.data     ?? [];
+  const commissioni: Commissione[]= commissioniQ.data ?? [];
+  const eventi: Evento[]          = eventiQ.data      ?? [];
 
   const fasiConcluse = fasi.filter((f) => f.stato === 'CONCLUSA').length;
   const fasiInCorso  = fasi.filter((f) => f.stato === 'IN_CORSO').length;
   const fasiSorted   = [...fasi].sort((a, b) => a.ordine - b.ordine);
 
   const counts: CountsMap = {
-    sezioni: sezioni.length,
-    commissari: commissari.length,
+    sezioni:     sezioni.length,
+    commissari:  commissari.length,
     commissioni: commissioni.length,
-    fasi: fasi.length,
-    eventi: eventi.length,
-    candidati: candidati.length,
+    fasi:        fasi.length,
+    eventi:      eventi.length,
+    candidati:   candidati.length,
   };
 
   // Distribuzione strumenti top-8
@@ -422,13 +418,105 @@ export default function AdminDashboard() {
 
   const hasStats = candidati.length > 0 || fasi.length > 0;
 
-  // ---------------------------------------------------------------------------
-  // Render
-  // ---------------------------------------------------------------------------
+  return (
+    <div className="space-y-6">
+      {/* ---- KPI strip: candidati / commissari / fasi concluse ---- */}
+      <section className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <KpiCard
+          icon={<GraduationCap size={18} />}
+          value={candidati.length}
+          label="Candidati"
+          accent="brand"
+        />
+        <KpiCard
+          icon={<Gavel size={18} />}
+          value={commissari.length}
+          label="Commissari"
+          accent="sky"
+        />
+        <KpiCard
+          icon={<Flag size={18} />}
+          value={`${fasiConcluse}/${fasi.length}`}
+          label="Fasi concluse"
+          accent={fasiInCorso > 0 ? 'amber' : 'emerald'}
+        />
+      </section>
 
+      {/* ---- Sezioni del concorso — griglia di cards cliccabili ---- */}
+      <section>
+        <header className="mb-3">
+          <h3 className="text-sm font-semibold text-ink-900">Sezioni del concorso</h3>
+          <p className="text-xs text-ink-700">
+            Le stesse voci della sidebar a sinistra, in forma di accesso rapido.
+          </p>
+        </header>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3" id="dashboard-cards">
+          {SIDEBAR_TABS.map((tab) => (
+            <SectionCard
+              key={tab.id}
+              tab={tab}
+              count={tab.countKey !== null ? (counts[tab.countKey] ?? null) : null}
+            />
+          ))}
+        </div>
+      </section>
+
+      {/* ---- Statistiche del concorso ---- */}
+      {hasStats && (
+        <section>
+          <header className="mb-3">
+            <h3 className="text-sm font-semibold text-ink-900">Statistiche del concorso</h3>
+            <p className="text-xs text-ink-700">
+              Distribuzione candidati e riepilogo per fase.
+            </p>
+          </header>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <HorizontalBarChart
+              title="Candidati per strumento"
+              rows={strumentiSorted}
+              max={maxStrumenti}
+              barClass="bg-brand-500"
+              bgClass="bg-brand-50"
+            />
+            <HorizontalBarChart
+              title="Candidati per nazionalità"
+              rows={nazSorted}
+              max={maxNaz}
+              barClass="bg-amber-500"
+              bgClass="bg-amber-50"
+            />
+            {fasiSorted.length > 0 && (
+              <FasiSummaryTable fasi={fasiSorted} activeId={activeId} />
+            )}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main component
+// ---------------------------------------------------------------------------
+
+interface AdminDashboardProps {
+  /** Quando true (dentro AdminWorkspace) sopprime selector e empty-state. */
+  embedded?: boolean;
+}
+
+export default function AdminDashboard({ embedded = false }: AdminDashboardProps) {
+  const { activeId, activeConcorso } = useActiveConcorso();
+
+  // ---- Embedded mode: no selector, no empty-state prompt ----
+  if (embedded) {
+    if (!activeId) return null;
+    return <DashboardContent activeId={activeId} />;
+  }
+
+  // ---- Standalone mode: selector + title header ----
   return (
     <div className="c-page space-y-6">
-      {/* ---- Header: selector + titolo concorso ---- */}
+      {/* Header: selector + titolo concorso */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
           <p className="c-page-header__eyebrow">Dashboard</p>
@@ -442,85 +530,11 @@ export default function AdminDashboard() {
         <ConcorsoSelector className="sm:mt-0.5 shrink-0" />
       </div>
 
-      {/* ---- No concorso selected ---- */}
+      {/* No concorso selected */}
       {!activeId && <EmptyState />}
 
-      {/* ---- Content ---- */}
-      {activeId && (
-        <div className="space-y-6">
-          {/* ---- KPI strip: candidati / commissari / fasi concluse ---- */}
-          <section className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <KpiCard
-              icon={<GraduationCap size={18} />}
-              value={candidati.length}
-              label="Candidati"
-              accent="brand"
-            />
-            <KpiCard
-              icon={<Gavel size={18} />}
-              value={commissari.length}
-              label="Commissari"
-              accent="sky"
-            />
-            <KpiCard
-              icon={<Flag size={18} />}
-              value={`${fasiConcluse}/${fasi.length}`}
-              label="Fasi concluse"
-              accent={fasiInCorso > 0 ? 'amber' : 'emerald'}
-            />
-          </section>
-
-          {/* ---- Sezioni del concorso — griglia di cards cliccabili ---- */}
-          <section>
-            <header className="mb-3">
-              <h3 className="text-sm font-semibold text-ink-900">Sezioni del concorso</h3>
-              <p className="text-xs text-ink-700">
-                Le stesse voci della sidebar a sinistra, in forma di accesso rapido.
-              </p>
-            </header>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-              {SIDEBAR_TABS.map((tab) => (
-                <SectionCard
-                  key={tab.id}
-                  tab={tab}
-                  count={tab.countKey !== null ? (counts[tab.countKey] ?? null) : null}
-                />
-              ))}
-            </div>
-          </section>
-
-          {/* ---- Statistiche del concorso ---- */}
-          {hasStats && (
-            <section>
-              <header className="mb-3">
-                <h3 className="text-sm font-semibold text-ink-900">Statistiche del concorso</h3>
-                <p className="text-xs text-ink-700">
-                  Distribuzione candidati e riepilogo per fase.
-                </p>
-              </header>
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <HorizontalBarChart
-                  title="Candidati per strumento"
-                  rows={strumentiSorted}
-                  max={maxStrumenti}
-                  barClass="bg-brand-500"
-                  bgClass="bg-brand-50"
-                />
-                <HorizontalBarChart
-                  title="Candidati per nazionalità"
-                  rows={nazSorted}
-                  max={maxNaz}
-                  barClass="bg-amber-500"
-                  bgClass="bg-amber-50"
-                />
-                {fasiSorted.length > 0 && (
-                  <FasiSummaryTable fasi={fasiSorted} activeId={activeId} />
-                )}
-              </div>
-            </section>
-          )}
-        </div>
-      )}
+      {/* Content */}
+      {activeId && <DashboardContent activeId={activeId} />}
     </div>
   );
 }

@@ -32,12 +32,9 @@ import {
   ExternalLink,
   Eye,
   EyeOff,
-  RefreshCw,
   Link2,
+  GripVertical,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
   Dialog,
   DialogContent,
@@ -46,16 +43,6 @@ import {
   DialogFooter,
   DialogClose,
 } from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
-import { Checkbox } from '@/components/ui/checkbox';
-import { Skeleton } from '@/components/ui/skeleton';
-import { cn } from '@/lib/utils';
 import { http, httpErrorMessage } from '@/lib/api';
 import { calendarioApi } from '@/api/calendario';
 import type { Sala, Evento, Sezione, Fase, Categoria } from '@/types';
@@ -82,6 +69,8 @@ function fmtDay(iso: string) {
 function publicCalUrl(token: string, display = false) {
   return `${window.location.origin}/calendario?token=${encodeURIComponent(token)}${display ? '&display=1' : ''}`;
 }
+
+const SALA_NONE = '__none__';
 
 // ─── Zod schemas ─────────────────────────────────────────────────────────────
 
@@ -125,35 +114,6 @@ const SEZIONI_KEY = (cid: string) => ['sezioni', cid];
 const FASI_KEY = (cid: string) => ['fasi', cid];
 const CATEGORIE_KEY = (cid: string) => ['categorie', cid];
 
-// ─── Sala chip ────────────────────────────────────────────────────────────────
-
-interface SalaChipProps {
-  sala: Sala;
-  onEdit: () => void;
-  onDelete: () => void;
-}
-function SalaChip({ sala, onEdit, onDelete }: SalaChipProps) {
-  return (
-    <li className="inline-flex items-center gap-1.5 rounded-full bg-primary/5 py-1 pl-3 pr-1.5 text-sm">
-      <span className="text-foreground">{sala.nome}</span>
-      <button
-        onClick={onEdit}
-        className="rounded-full p-0.5 text-muted-foreground hover:text-primary"
-        aria-label="Modifica"
-      >
-        <Pencil className="h-3 w-3" />
-      </button>
-      <button
-        onClick={onDelete}
-        className="rounded-full p-0.5 text-muted-foreground hover:text-destructive"
-        aria-label="Elimina"
-      >
-        <Trash2 className="h-3 w-3" />
-      </button>
-    </li>
-  );
-}
-
 // ─── SalaDialog ───────────────────────────────────────────────────────────────
 
 interface SalaDialogProps {
@@ -165,6 +125,7 @@ interface SalaDialogProps {
 
 function SalaDialog({ open, sala, concorsoId, onClose }: SalaDialogProps) {
   const qc = useQueryClient();
+  const { t } = useTranslation();
   const {
     register,
     handleSubmit,
@@ -196,7 +157,7 @@ function SalaDialog({ open, sala, concorsoId, onClose }: SalaDialogProps) {
     >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>{sala ? 'Modifica sala' : 'Aggiungi sala'}</DialogTitle>
+          <DialogTitle>{sala ? t('cal.sale.title') : t('cal.sale.add')}</DialogTitle>
         </DialogHeader>
 
         <form
@@ -204,26 +165,26 @@ function SalaDialog({ open, sala, concorsoId, onClose }: SalaDialogProps) {
           onSubmit={handleSubmit((d) =>
             saveMut.mutate({ concorsoId, nome: d.nome, indirizzo: d.indirizzo || null }),
           )}
-          className="space-y-4"
+          className="space-y-3"
         >
-          <div className="space-y-1.5">
-            <Label htmlFor="sala-nome">Nome sala *</Label>
-            <Input id="sala-nome" {...register('nome')} />
-            {errors.nome && <p className="text-xs text-destructive">{errors.nome.message}</p>}
-          </div>
-          <div className="space-y-1.5">
-            <Label htmlFor="sala-ind">Indirizzo (opzionale)</Label>
-            <Input id="sala-ind" {...register('indirizzo')} />
-          </div>
+          <label className="block">
+            <span className="c-label">{t('cal.sale.nome')}</span>
+            <input id="sala-nome" className="c-input" {...register('nome')} />
+            {errors.nome && <p className="mt-1 text-xs text-destructive">{errors.nome.message}</p>}
+          </label>
+          <label className="block">
+            <span className="c-label">{t('cal.sale.indirizzo')}</span>
+            <input id="sala-ind" className="c-input" {...register('indirizzo')} />
+          </label>
         </form>
 
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="outline">Annulla</Button>
+            <button type="button" className="c-btn c-btn--outline">Annulla</button>
           </DialogClose>
-          <Button type="submit" form="sala-form" disabled={isSubmitting}>
+          <button type="submit" form="sala-form" className="c-btn c-btn--primary" disabled={isSubmitting}>
             Salva
-          </Button>
+          </button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -256,6 +217,7 @@ function BlockDialog({
   onClose,
 }: BlockDialogProps) {
   const qc = useQueryClient();
+  const { t } = useTranslation();
   const {
     register,
     handleSubmit,
@@ -347,145 +309,142 @@ function BlockDialog({
     >
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
-          <DialogTitle>{evento ? 'Modifica blocco' : 'Nuovo blocco'}</DialogTitle>
+          <DialogTitle>{evento ? t('cal.block.edit') : t('cal.block.add')}</DialogTitle>
         </DialogHeader>
 
         <form
           id="block-form"
           onSubmit={handleSubmit((d) => saveMut.mutate(d))}
-          className="space-y-4"
+          className="space-y-3"
         >
           {/* Tipo */}
-          <div className="space-y-1.5">
-            <Label>Tipo</Label>
-            <Select
+          <label className="block">
+            <span className="c-label">{t('cal.block.tipo')}</span>
+            <select
+              className="c-select"
               value={tipo}
-              onValueChange={(v) => setValue('tipo', v as 'ESIBIZIONE' | 'EVENTO')}
+              onChange={(e) => setValue('tipo', e.target.value as 'ESIBIZIONE' | 'EVENTO')}
             >
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="ESIBIZIONE">Esibizione</SelectItem>
-                <SelectItem value="EVENTO">Evento libero</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+              <option value="ESIBIZIONE">{t('cal.block.tipo.esibizione')}</option>
+              <option value="EVENTO">{t('cal.block.tipo.evento')}</option>
+            </select>
+          </label>
 
           {/* Titolo (solo EVENTO) */}
           {tipo === 'EVENTO' && (
-            <div className="space-y-1.5">
-              <Label>Titolo</Label>
-              <Input {...register('titolo')} placeholder="Titolo evento" />
-            </div>
+            <label className="block">
+              <span className="c-label">{t('cal.block.titolo')}</span>
+              <input className="c-input" {...register('titolo')} />
+            </label>
           )}
 
           {/* Esibizione fields */}
           {tipo === 'ESIBIZIONE' && (
             <div className="space-y-3">
-              <div className="space-y-1.5">
-                <Label>Fase</Label>
-                <Select
+              <label className="block">
+                <span className="c-label">{t('cal.block.fase')}</span>
+                <select
+                  className="c-select"
                   value={watch('faseId') ?? ''}
-                  onValueChange={(v) => setValue('faseId', v)}
+                  onChange={(e) => setValue('faseId', e.target.value)}
                 >
-                  <SelectTrigger><SelectValue placeholder="Nessuna fase" /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="">Nessuna fase</SelectItem>
-                    {fasi.map((f) => (
-                      <SelectItem key={f.id} value={f.id}>
-                        {f.ordine}. {f.nome}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+                  <option value="">{t('cal.block.nessuna_fase')}</option>
+                  {fasi.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.ordine}. {f.nome}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1.5">
-                  <Label>Sezione</Label>
-                  <Select
+                <label className="block">
+                  <span className="c-label">{t('cal.block.sezione')}</span>
+                  <select
+                    className="c-select"
                     value={watch('sezioneId') ?? ''}
-                    onValueChange={(v) => { setValue('sezioneId', v); setValue('categoriaId', ''); }}
+                    onChange={(e) => { setValue('sezioneId', e.target.value); setValue('categoriaId', ''); }}
                   >
-                    <SelectTrigger><SelectValue placeholder="Tutte le sezioni" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="">Tutte le sezioni</SelectItem>
-                      {sezioni.map((s) => (
-                        <SelectItem key={s.id} value={s.id}>{s.nome}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-1.5">
-                  <Label>Categoria</Label>
-                  <Select
+                    <option value="">{t('cal.block.tutte_sezioni')}</option>
+                    {sezioni.map((s) => (
+                      <option key={s.id} value={s.id}>{s.nome}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="c-label">{t('cal.block.categoria')}</span>
+                  <select
+                    className="c-select"
                     value={watch('categoriaId') ?? ''}
-                    onValueChange={(v) => setValue('categoriaId', v)}
+                    onChange={(e) => setValue('categoriaId', e.target.value)}
                     disabled={!watchedSezId}
                   >
-                    <SelectTrigger><SelectValue placeholder="Tutte le categorie" /></SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="">Tutte le categorie</SelectItem>
-                      {filteredCategorie.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>{c.nome}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                    <option value="">{t('cal.block.tutte_categorie')}</option>
+                    {filteredCategorie.map((c) => (
+                      <option key={c.id} value={c.id}>{c.nome}</option>
+                    ))}
+                  </select>
+                </label>
               </div>
 
-              <div className="space-y-1.5">
-                <Label>Durata per candidato (min)</Label>
-                <Input
+              <label className="block">
+                <span className="c-label">{t('cal.block.durata')}</span>
+                <input
                   type="number"
                   min={0}
+                  className="c-input"
                   {...register('durataCandidatoMinuti')}
                 />
-              </div>
+              </label>
             </div>
           )}
 
           {/* Data + ore */}
           <div className="grid grid-cols-3 gap-3">
-            <div className="space-y-1.5">
-              <Label>Data *</Label>
-              <Input type="date" {...register('data')} />
-              {errors.data && <p className="text-xs text-destructive">{errors.data.message}</p>}
-            </div>
-            <div className="space-y-1.5">
-              <Label>Ora inizio</Label>
-              <Input type="time" {...register('oraInizio')} />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Ora fine</Label>
-              <Input type="time" {...register('oraFine')} />
-            </div>
+            <label className="block">
+              <span className="c-label">{t('cal.block.data')}</span>
+              <input type="date" className="c-input" {...register('data')} />
+              {errors.data && <p className="mt-1 text-xs text-destructive">{errors.data.message}</p>}
+            </label>
+            <label className="block">
+              <span className="c-label">{t('cal.block.ora_inizio')}</span>
+              <input type="time" className="c-input" {...register('oraInizio')} />
+            </label>
+            <label className="block">
+              <span className="c-label">{t('cal.block.ora_fine')}</span>
+              <input type="time" className="c-input" {...register('oraFine')} />
+            </label>
           </div>
 
           {/* Sala */}
-          <div className="space-y-1.5">
-            <Label>Sala</Label>
-            <Select
+          <label className="block">
+            <span className="c-label">{t('cal.block.sala')}</span>
+            <select
+              className="c-select"
               value={watch('salaId') ?? ''}
-              onValueChange={(v) => setValue('salaId', v)}
+              onChange={(e) => setValue('salaId', e.target.value)}
             >
-              <SelectTrigger><SelectValue placeholder="Senza sala" /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">Senza sala</SelectItem>
-                {sale.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>{s.nome}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+              <option value="">{t('cal.sala.senza')}</option>
+              {sale.map((s) => (
+                <option key={s.id} value={s.id}>{s.nome}</option>
+              ))}
+            </select>
+          </label>
+
+          {/* Note */}
+          <label className="block">
+            <span className="c-label">{t('cal.block.note')}</span>
+            <input className="c-input" {...register('note')} />
+          </label>
         </form>
 
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="outline">Annulla</Button>
+            <button type="button" className="c-btn c-btn--outline">Annulla</button>
           </DialogClose>
-          <Button type="submit" form="block-form" disabled={isSubmitting}>
+          <button type="submit" form="block-form" className="c-btn c-btn--primary" disabled={isSubmitting}>
             Salva
-          </Button>
+          </button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -503,6 +462,7 @@ interface LinkDialogProps {
 
 function LinkDialog({ open, concorsoId, sezioni, onClose }: LinkDialogProps) {
   const qc = useQueryClient();
+  const { t } = useTranslation();
   const {
     register,
     handleSubmit,
@@ -546,85 +506,79 @@ function LinkDialog({ open, concorsoId, sezioni, onClose }: LinkDialogProps) {
     >
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Crea link pubblico</DialogTitle>
+          <DialogTitle>{t('cal.links.add')}</DialogTitle>
         </DialogHeader>
 
         <form
           id="link-form"
           onSubmit={handleSubmit((d) => createMut.mutate(d))}
-          className="space-y-4"
+          className="space-y-3"
         >
-          <div className="space-y-1.5">
-            <Label>Ambito</Label>
-            <Select
+          <label className="block">
+            <span className="c-label">{t('cal.links.scopo')}</span>
+            <select
+              className="c-select"
               value={scopo}
-              onValueChange={(v) => setValue('scopo', v as 'CONCORSO' | 'SEZIONE' | 'GIORNO')}
+              onChange={(e) => setValue('scopo', e.target.value as 'CONCORSO' | 'SEZIONE' | 'GIORNO')}
             >
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                <SelectItem value="CONCORSO">Intero concorso</SelectItem>
-                <SelectItem value="SEZIONE">Singola sezione</SelectItem>
-                <SelectItem value="GIORNO">Singola giornata</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
+              <option value="CONCORSO">{t('cal.links.scopo.concorso')}</option>
+              <option value="SEZIONE">{t('cal.links.scopo.sezione')}</option>
+              <option value="GIORNO">{t('cal.links.scopo.giorno')}</option>
+            </select>
+          </label>
 
           {scopo === 'SEZIONE' && (
-            <div className="space-y-1.5">
-              <Label>Sezione</Label>
-              <Select
+            <label className="block">
+              <span className="c-label">{t('cal.block.sezione')}</span>
+              <select
+                className="c-select"
                 value={watch('sezioneId') ?? ''}
-                onValueChange={(v) => setValue('sezioneId', v)}
+                onChange={(e) => setValue('sezioneId', e.target.value)}
               >
-                <SelectTrigger><SelectValue placeholder="Scegli sezione" /></SelectTrigger>
-                <SelectContent>
-                  {sezioni.map((s) => (
-                    <SelectItem key={s.id} value={s.id}>{s.nome}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+                {sezioni.map((s) => (
+                  <option key={s.id} value={s.id}>{s.nome}</option>
+                ))}
+              </select>
+            </label>
           )}
 
           {scopo === 'GIORNO' && (
-            <div className="space-y-1.5">
-              <Label>Giorno</Label>
-              <Input type="date" {...register('giorno')} />
-            </div>
+            <label className="block">
+              <span className="c-label">{t('cal.block.data')}</span>
+              <input type="date" className="c-input" {...register('giorno')} />
+            </label>
           )}
 
-          <div className="space-y-1.5">
-            <Label>Nome interno (opzionale)</Label>
-            <Input {...register('etichetta')} placeholder="es. Tabellone Archi" />
-          </div>
+          <label className="block">
+            <span className="c-label">{t('cal.links.etichetta')}</span>
+            <input className="c-input" {...register('etichetta')} />
+          </label>
 
-          <div className="flex flex-col gap-2">
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="mostra-nomi"
-                checked={watch('mostraNomi')}
-                onCheckedChange={(v) => setValue('mostraNomi', Boolean(v))}
-              />
-              <Label htmlFor="mostra-nomi">Mostra nomi candidati</Label>
-            </div>
-            <div className="flex items-center gap-2">
-              <Checkbox
-                id="mostra-comm"
-                checked={watch('mostraCommissione')}
-                onCheckedChange={(v) => setValue('mostraCommissione', Boolean(v))}
-              />
-              <Label htmlFor="mostra-comm">Mostra giuria</Label>
-            </div>
-          </div>
+          <label className="flex items-center gap-2 text-sm" style={{ color: 'hsl(var(--foreground))' }}>
+            <input
+              type="checkbox"
+              checked={watch('mostraNomi')}
+              onChange={(e) => setValue('mostraNomi', e.target.checked)}
+            />
+            {t('cal.links.mostra_nomi')}
+          </label>
+          <label className="flex items-center gap-2 text-sm" style={{ color: 'hsl(var(--foreground))' }}>
+            <input
+              type="checkbox"
+              checked={watch('mostraCommissione')}
+              onChange={(e) => setValue('mostraCommissione', e.target.checked)}
+            />
+            {t('cal.links.mostra_commissione')}
+          </label>
         </form>
 
         <DialogFooter>
           <DialogClose asChild>
-            <Button variant="outline">Annulla</Button>
+            <button type="button" className="c-btn c-btn--outline">Annulla</button>
           </DialogClose>
-          <Button type="submit" form="link-form" disabled={isSubmitting}>
+          <button type="submit" form="link-form" className="c-btn c-btn--primary" disabled={isSubmitting}>
             Crea
-          </Button>
+          </button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -675,13 +629,14 @@ function BlockCard({
   setDraggingSlot,
   onSlotReorder,
 }: BlockCardProps) {
+  const { t } = useTranslation();
   const sez = sezioni.find((s) => s.id === evento.sezioneId);
   const cat = categorie.find((c) => c.id === evento.categoriaId);
   const fase = fasi.find((f) => f.id === evento.faseId);
   const head =
     [sez?.nome, cat?.nome, fase?.nome].filter(Boolean).join(' · ') ||
     evento.titolo ||
-    (evento.tipo === 'EVENTO' ? 'Evento libero' : 'Esibizione');
+    (evento.tipo === 'EVENTO' ? t('cal.block.tipo.evento') : t('cal.block.tipo.esibizione'));
   const orario = [hhmm(evento.oraInizio), hhmm(evento.oraFine)].filter(Boolean).join('–');
 
   return (
@@ -694,41 +649,54 @@ function BlockCard({
         try { e.dataTransfer.setData('text/plain', evento.id); } catch { /* noop */ }
       }}
       onDragEnd={onDragEnd}
-      className="group cursor-move rounded-xl border border-border bg-card shadow-sm"
+      className="group cursor-move rounded-xl bg-white ring-1 shadow-soft"
+      style={{ '--tw-ring-color': 'hsl(var(--border))' } as React.CSSProperties}
     >
-      <header className="flex items-start justify-between gap-2 border-b border-border px-3 py-2">
+      <header
+        className="flex items-start justify-between gap-2 px-3 py-2"
+        style={{ borderBottom: '1px solid hsl(var(--border))' }}
+      >
         <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-foreground">{head}</p>
+          <p className="truncate text-sm font-semibold" style={{ color: 'hsl(var(--foreground))' }}>{head}</p>
           {orario && (
-            <p className="font-mono text-[11px] text-primary">{orario}</p>
+            <p className="font-mono text-[11px]" style={{ color: 'hsl(var(--primary))' }}>{orario}</p>
           )}
         </div>
         <div className="flex shrink-0 items-center gap-0.5 opacity-60 transition group-hover:opacity-100">
           <button
             onClick={onGeneraSlot}
-            title="Genera orari candidati"
-            className="rounded p-1 text-muted-foreground hover:text-primary"
+            title={t('cal.block.genera')}
+            className="p-1"
+            style={{ color: 'hsl(var(--muted-foreground))' }}
+            onMouseOver={(e) => (e.currentTarget.style.color = 'hsl(var(--primary))')}
+            onMouseOut={(e) => (e.currentTarget.style.color = 'hsl(var(--muted-foreground))')}
           >
-            <Clock className="h-3 w-3" />
+            <Clock className="h-[13px] w-[13px]" />
           </button>
           <button
             onClick={onEdit}
-            className="rounded p-1 text-muted-foreground hover:text-primary"
+            className="p-1"
+            style={{ color: 'hsl(var(--muted-foreground))' }}
+            onMouseOver={(e) => (e.currentTarget.style.color = 'hsl(var(--primary))')}
+            onMouseOut={(e) => (e.currentTarget.style.color = 'hsl(var(--muted-foreground))')}
           >
-            <Pencil className="h-3 w-3" />
+            <Pencil className="h-[13px] w-[13px]" />
           </button>
           <button
             onClick={onDelete}
-            className="rounded p-1 text-muted-foreground hover:text-destructive"
+            className="p-1"
+            style={{ color: 'hsl(var(--muted-foreground))' }}
+            onMouseOver={(e) => (e.currentTarget.style.color = 'hsl(var(--destructive))')}
+            onMouseOut={(e) => (e.currentTarget.style.color = 'hsl(var(--muted-foreground))')}
           >
-            <Trash2 className="h-3 w-3" />
+            <Trash2 className="h-[13px] w-[13px]" />
           </button>
         </div>
       </header>
 
       {evento.tipo === 'EVENTO' ? (
-        <p className="px-3 py-2 text-xs italic text-muted-foreground">
-          {evento.titolo || 'Evento libero'}
+        <p className="px-3 py-2 text-xs italic" style={{ color: 'hsl(var(--muted-foreground))' }}>
+          {evento.titolo || t('cal.block.tipo.evento')}
         </p>
       ) : (
         <ul
@@ -755,8 +723,8 @@ function BlockCard({
           }}
         >
           {slots.length === 0 ? (
-            <li className="px-2 py-1 text-[11px] italic text-muted-foreground">
-              Nessun candidato. Imposta fase/sezione/categoria e genera gli orari.
+            <li className="px-2 py-1 text-[11px] italic" style={{ color: 'hsl(var(--muted-foreground))' }}>
+              {t('cal.block.nessuno_slot')}
             </li>
           ) : (
             slots.map((slot) => (
@@ -771,12 +739,16 @@ function BlockCard({
                   try { e.dataTransfer.setData('text/plain', slot.id); } catch { /* noop */ }
                 }}
                 onDragEnd={() => setDraggingSlot(null)}
-                className="flex cursor-grab items-center gap-2 rounded-lg bg-background px-2 py-1 text-xs hover:bg-primary/5"
+                className="flex cursor-grab items-center gap-2 rounded-lg px-2 py-1 text-xs hover:bg-primary/5"
+                style={{ background: 'hsl(var(--background))' }}
               >
-                <span className="w-10 font-mono tabular-nums text-muted-foreground">
+                <span style={{ color: 'hsl(var(--muted-foreground))' }}>
+                  <GripVertical className="h-3 w-3" />
+                </span>
+                <span className="w-10 font-mono tabular-nums" style={{ color: 'hsl(var(--muted-foreground))' }}>
                   {hhmm(slot.oraPrevista) || '—'}
                 </span>
-                <span className="flex-1 truncate text-foreground">
+                <span className="flex-1 truncate" style={{ color: 'hsl(var(--foreground))' }}>
                   {String(slot.numeroCandidato ?? '').padStart(3, '0')} · cand.
                 </span>
               </li>
@@ -799,64 +771,63 @@ interface PubRowProps {
 }
 
 function PubRow({ pub, sezioni, onRevoke, onToggle }: PubRowProps) {
+  const { t } = useTranslation();
   const sez = sezioni.find((s) => s.id === pub.sezioneId);
   const scopoLabel =
     pub.scopo === 'CONCORSO'
-      ? 'Intero concorso'
+      ? t('cal.links.scopo.concorso')
       : pub.scopo === 'SEZIONE'
-      ? `Sezione: ${sez?.nome ?? '—'}`
-      : `Giorno: ${pub.giorno ?? '—'}`;
+      ? `${t('cal.links.scopo.sezione')}: ${sez?.nome ?? '—'}`
+      : `${t('cal.links.scopo.giorno')}: ${pub.giorno ?? '—'}`;
 
   async function copy() {
     try {
       await navigator.clipboard.writeText(publicCalUrl(pub.token, false));
-      toast.success('Link copiato');
+      toast.success(t('cal.links.copied'));
     } catch {
       toast.info(publicCalUrl(pub.token, false), { duration: 6000 });
     }
   }
 
   return (
-    <li className="flex flex-wrap items-center gap-2 rounded-xl border border-border px-3 py-2">
+    <li
+      className="flex flex-wrap items-center gap-2 rounded-xl px-3 py-2"
+      style={{ border: '1px solid hsl(var(--border))' }}
+    >
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-foreground">
+        <p className="truncate text-sm font-medium" style={{ color: 'hsl(var(--foreground))' }}>
           {pub.etichetta || scopoLabel}
         </p>
-        <p className="text-[11px] text-muted-foreground">
+        <p className="text-[11px]" style={{ color: 'hsl(var(--muted-foreground))' }}>
           {scopoLabel}
-          {pub.mostraNomi ? ' · 👤 nomi' : ''}
-          {pub.mostraCommissione ? ' · ⚖️ giuria' : ''}
-          {!pub.attivo ? ' · (disattivato)' : ''}
+          {pub.mostraNomi ? ' · 👤' : ''}
+          {pub.mostraCommissione ? ' ⚖️' : ''}
+          {!pub.attivo ? ' · (off)' : ''}
         </p>
       </div>
-      <div className="flex items-center gap-1">
-        <Button variant="ghost" size="sm" onClick={copy} className="h-7 text-xs">
-          <Copy className="mr-1 h-3 w-3" />
-          Copia
-        </Button>
-        <Button
-          variant="ghost"
-          size="sm"
-          asChild
-          className="h-7 text-xs"
-        >
-          <a href={publicCalUrl(pub.token, true)} target="_blank" rel="noopener noreferrer">
-            <ExternalLink className="mr-1 h-3 w-3" />
-            Tabellone
-          </a>
-        </Button>
-        <Button variant="ghost" size="icon" onClick={onToggle} className="h-7 w-7">
-          {pub.attivo ? <Eye className="h-3.5 w-3.5" /> : <EyeOff className="h-3.5 w-3.5" />}
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          onClick={onRevoke}
-          className="h-7 w-7 text-destructive hover:text-destructive"
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </Button>
-      </div>
+      <button onClick={copy} className="c-btn c-btn--ghost c-btn--sm">
+        <Copy className="h-[13px] w-[13px]" />
+        <span>{t('cal.links.copy')}</span>
+      </button>
+      <a
+        href={publicCalUrl(pub.token, true)}
+        target="_blank"
+        rel="noopener noreferrer"
+        className="c-btn c-btn--ghost c-btn--sm"
+      >
+        <ExternalLink className="h-[13px] w-[13px]" />
+        <span>{t('cal.links.display')}</span>
+      </a>
+      <button onClick={onToggle} className="c-btn c-btn--ghost c-btn--sm">
+        {pub.attivo ? <Eye className="h-[13px] w-[13px]" /> : <EyeOff className="h-[13px] w-[13px]" />}
+      </button>
+      <button
+        onClick={onRevoke}
+        className="c-btn c-btn--ghost c-btn--sm"
+        style={{ color: 'hsl(var(--destructive))' }}
+      >
+        <Trash2 className="h-[13px] w-[13px]" />
+      </button>
     </li>
   );
 }
@@ -953,17 +924,16 @@ export function CalendarioTab({ concorsoId }: CalendarioTabProps) {
 
   // ── Board data ─────────────────────────────────────────────────────────────
   const days = [...new Set(eventi.map((e) => e.data).filter(Boolean))].sort() as string[];
-  const SALA_NONE = '__none__';
   const lanes = [
     ...sale.map((s) => ({ id: s.id, nome: s.nome })),
-    { id: SALA_NONE, nome: 'Senza sala' },
+    { id: SALA_NONE, nome: t('cal.sala.senza') },
   ];
 
   // Drop handler for block (lane)
   const handleLaneDrop = useCallback(
     (e: React.DragEvent<HTMLDivElement>, day: string, salaId: string | null) => {
       e.preventDefault();
-      (e.currentTarget).classList.remove('ring-2', 'ring-primary');
+      e.currentTarget.classList.remove('ring-2', 'ring-primary');
       if (!draggingBlockId) return;
       const id = draggingBlockId;
       setDraggingBlockId(null);
@@ -975,51 +945,74 @@ export function CalendarioTab({ concorsoId }: CalendarioTabProps) {
     [draggingBlockId, eventi, updateEventoMut],
   );
 
-  // ── Render ─────────────────────────────────────────────────────────────────
   const isLoading = loadSale || loadEventi;
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h3 className="text-sm font-bold uppercase tracking-wider text-foreground">
+          <h3 className="text-sm font-bold uppercase tracking-wider" style={{ color: 'hsl(var(--foreground))' }}>
             {t('cal.title')}
           </h3>
-          <p className="text-sm text-muted-foreground">{t('cal.subtitle')}</p>
+          <p className="text-sm" style={{ color: 'hsl(var(--muted-foreground))' }}>{t('cal.subtitle')}</p>
         </div>
-        <Button onClick={() => setBlockDialog({ open: true, evento: null })}>
-          <Plus className="mr-1 h-4 w-4" />
-          {t('cal.block.add')}
-        </Button>
+        <button
+          className="c-btn c-btn--primary"
+          onClick={() => setBlockDialog({ open: true, evento: null })}
+        >
+          <Plus className="h-4 w-4" />
+          <span>{t('cal.block.add')}</span>
+        </button>
       </div>
 
       {/* Sale */}
-      <div className="rounded-2xl border border-border bg-card p-4">
+      <div className="rounded-2xl p-4" style={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}>
         <div className="mb-3 flex items-center justify-between">
-          <h4 className="text-sm font-bold text-foreground">{t('cal.sale.title')}</h4>
-          <Button
-            variant="outline"
-            size="sm"
+          <h4 className="text-sm font-bold" style={{ color: 'hsl(var(--foreground))' }}>{t('cal.sale.title')}</h4>
+          <button
+            className="c-btn c-btn--outline c-btn--sm"
             onClick={() => setSalaDialog({ open: true, sala: null })}
           >
-            <Plus className="mr-1 h-3.5 w-3.5" />
-            {t('cal.sale.add')}
-          </Button>
+            <Plus className="h-[14px] w-[14px]" />
+            <span>{t('cal.sale.add')}</span>
+          </button>
         </div>
         {loadSale ? (
-          <Skeleton className="h-8 w-48" />
+          <div className="h-8 w-48 animate-pulse rounded" style={{ background: 'hsl(var(--muted))' }} />
         ) : sale.length === 0 ? (
-          <p className="text-sm italic text-muted-foreground">{t('cal.sale.empty')}</p>
+          <p className="text-sm italic" style={{ color: 'hsl(var(--muted-foreground))' }}>{t('cal.sale.empty')}</p>
         ) : (
           <ul className="flex flex-wrap gap-2">
             {sale.map((s) => (
-              <SalaChip
+              <li
                 key={s.id}
-                sala={s}
-                onEdit={() => setSalaDialog({ open: true, sala: s })}
-                onDelete={() => { if (confirm('Eliminare questa sala?')) deleteSalaMut.mutate(s.id); }}
-              />
+                className="inline-flex items-center gap-2 rounded-full py-1 pl-3 pr-1.5"
+                style={{ background: 'hsl(var(--primary) / 0.06)' }}
+              >
+                <span className="text-sm" style={{ color: 'hsl(var(--foreground))' }}>{s.nome}</span>
+                <button
+                  onClick={() => setSalaDialog({ open: true, sala: s })}
+                  className="p-1"
+                  style={{ color: 'hsl(var(--muted-foreground))' }}
+                  onMouseOver={(e) => (e.currentTarget.style.color = 'hsl(var(--primary))')}
+                  onMouseOut={(e) => (e.currentTarget.style.color = 'hsl(var(--muted-foreground))')}
+                  aria-label="Modifica"
+                >
+                  <Pencil className="h-[13px] w-[13px]" />
+                </button>
+                <button
+                  onClick={() => { if (confirm(`Eliminare "${s.nome}"?`)) deleteSalaMut.mutate(s.id); }}
+                  className="p-1"
+                  style={{ color: 'hsl(var(--muted-foreground))' }}
+                  onMouseOver={(e) => (e.currentTarget.style.color = 'hsl(var(--destructive))')}
+                  onMouseOut={(e) => (e.currentTarget.style.color = 'hsl(var(--muted-foreground))')}
+                  aria-label="Elimina"
+                >
+                  <Trash2 className="h-[13px] w-[13px]" />
+                </button>
+              </li>
             ))}
           </ul>
         )}
@@ -1028,20 +1021,23 @@ export function CalendarioTab({ concorsoId }: CalendarioTabProps) {
       {/* Board */}
       {isLoading ? (
         <div className="space-y-3">
-          <Skeleton className="h-6 w-40" />
+          <div className="h-6 w-40 animate-pulse rounded" style={{ background: 'hsl(var(--muted))' }} />
           <div className="grid grid-cols-2 gap-3">
-            <Skeleton className="h-32 rounded-2xl" />
-            <Skeleton className="h-32 rounded-2xl" />
+            <div className="h-32 animate-pulse rounded-2xl" style={{ background: 'hsl(var(--muted))' }} />
+            <div className="h-32 animate-pulse rounded-2xl" style={{ background: 'hsl(var(--muted))' }} />
           </div>
         </div>
       ) : eventi.length === 0 ? (
-        <div className="rounded-2xl border-2 border-dashed border-border py-12 text-center">
-          <p className="text-sm italic text-muted-foreground">{t('cal.board.empty')}</p>
+        <div
+          className="rounded-2xl py-12 text-center"
+          style={{ border: '2px dashed hsl(var(--border))' }}
+        >
+          <p className="text-sm italic" style={{ color: 'hsl(var(--muted-foreground))' }}>{t('cal.board.empty')}</p>
         </div>
       ) : (
         days.map((day) => (
           <section key={day} className="space-y-2">
-            <h4 className="text-sm font-bold capitalize text-foreground">{fmtDay(day)}</h4>
+            <h4 className="text-sm font-bold capitalize" style={{ color: 'hsl(var(--foreground))' }}>{fmtDay(day)}</h4>
             <div
               className="grid gap-3 overflow-x-auto"
               style={{
@@ -1057,26 +1053,33 @@ export function CalendarioTab({ concorsoId }: CalendarioTabProps) {
                     key={lane.id}
                     data-lane={lane.id}
                     data-day={day}
-                    className="min-h-[80px] rounded-2xl bg-muted/30 p-2 ring-1 ring-border transition"
+                    className="min-h-[80px] rounded-2xl p-2 ring-1 transition"
+                    style={{
+                      background: 'hsl(var(--muted) / 0.4)',
+                      '--tw-ring-color': 'hsl(var(--border))',
+                    } as React.CSSProperties}
                     onDragOver={(e) => {
                       if (draggingBlockId) {
                         e.preventDefault();
                         dragOverLane.current = lane.id;
-                        e.currentTarget.classList.add('ring-2', 'ring-primary');
+                        e.currentTarget.style.outline = '2px solid hsl(var(--primary))';
+                        e.currentTarget.style.outlineOffset = '-2px';
                       }
                     }}
                     onDragLeave={(e) => {
-                      e.currentTarget.classList.remove('ring-2', 'ring-primary');
+                      e.currentTarget.style.outline = '';
+                      e.currentTarget.style.outlineOffset = '';
                     }}
-                    onDrop={(e) =>
-                      handleLaneDrop(
-                        e,
-                        day,
-                        lane.id === SALA_NONE ? null : lane.id,
-                      )
-                    }
+                    onDrop={(e) => {
+                      e.currentTarget.style.outline = '';
+                      e.currentTarget.style.outlineOffset = '';
+                      handleLaneDrop(e, day, lane.id === SALA_NONE ? null : lane.id);
+                    }}
                   >
-                    <p className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                    <p
+                      className="mb-2 px-1 text-[11px] font-semibold uppercase tracking-wide"
+                      style={{ color: 'hsl(var(--muted-foreground))' }}
+                    >
                       {lane.nome}
                     </p>
                     <div className="space-y-2">
@@ -1088,7 +1091,7 @@ export function CalendarioTab({ concorsoId }: CalendarioTabProps) {
                           sezioni={sezioni}
                           categorie={categorie}
                           fasi={fasi}
-                          slots={[]} // slot data would come from candidatiFase; omitted here for lightness
+                          slots={[]}
                           concorsoId={concorsoId}
                           onEdit={() => setBlockDialog({ open: true, evento: ev })}
                           onDelete={() => { if (confirm('Eliminare questo blocco?')) deleteEventoMut.mutate(ev.id); }}
@@ -1112,22 +1115,22 @@ export function CalendarioTab({ concorsoId }: CalendarioTabProps) {
       )}
 
       {/* Link pubblici */}
-      <div className="rounded-2xl border border-border bg-card p-4">
+      <div className="rounded-2xl p-4" style={{ background: 'hsl(var(--card))', border: '1px solid hsl(var(--border))' }}>
         <div className="mb-3 flex items-center justify-between">
-          <h4 className="flex items-center gap-2 text-sm font-bold text-foreground">
+          <h4 className="flex items-center gap-2 text-sm font-bold" style={{ color: 'hsl(var(--foreground))' }}>
             <Link2 className="h-4 w-4" />
             {t('cal.links.title')}
           </h4>
-          <Button variant="outline" size="sm" onClick={() => setLinkDialog(true)}>
-            <Plus className="mr-1 h-3.5 w-3.5" />
-            {t('cal.links.add')}
-          </Button>
+          <button className="c-btn c-btn--outline c-btn--sm" onClick={() => setLinkDialog(true)}>
+            <Plus className="h-[14px] w-[14px]" />
+            <span>{t('cal.links.add')}</span>
+          </button>
         </div>
 
         {loadPub ? (
-          <Skeleton className="h-12 w-full" />
+          <div className="h-12 w-full animate-pulse rounded" style={{ background: 'hsl(var(--muted))' }} />
         ) : pubblicazioni.length === 0 ? (
-          <p className="text-sm italic text-muted-foreground">{t('cal.links.empty')}</p>
+          <p className="text-sm italic" style={{ color: 'hsl(var(--muted-foreground))' }}>{t('cal.links.empty')}</p>
         ) : (
           <ul className="space-y-2">
             {pubblicazioni.map((pub) => (
@@ -1179,3 +1182,4 @@ export function CalendarioTab({ concorsoId }: CalendarioTabProps) {
 
 // Re-export for use as tab prop
 export type { CalendarioTabProps };
+export default CalendarioTab;
