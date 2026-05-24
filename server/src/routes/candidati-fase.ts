@@ -58,6 +58,10 @@ async function assertCanEditCandidatoFase(tx: any, req: FastifyRequest, reply: F
         eq(commissioniCommissari.commissarioId, commissarioId),
       ),
     )
+    // R15: FOR UPDATE come in valutazioni.ts (N88) — un admin che rimuove il
+    // commissario dalla commissione concorrentemente non può far passare l'edit
+    // dopo che la membership è stata revocata (TOCTOU).
+    .for('update')
     .limit(1);
   if (memberRows.length === 0) {
     reply.code(403).send({ error: 'solo i membri della commissione assegnata possono modificare questo candidato' });

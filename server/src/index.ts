@@ -3,12 +3,13 @@ import { createApp } from './app.js';
 import { env } from './env.js';
 import { shutdownPools } from './db/client.js';
 import { stopRealtimeHub } from './realtime/hub.js';
-import { runTenantCleanup } from './services/cleanup.js';
+import { runTenantCleanup, cleanupStaleBozze } from './services/cleanup.js';
 import { cleanupExpiredSessions } from './services/session.js';
 
 const app = await createApp();
 
 let cleanupTask: ReturnType<typeof cron.schedule> | null = null;
+let cleanupRunning = false;
 
 async function start() {
   try {
@@ -23,20 +24,39 @@ async function start() {
         );
       } else {
         cleanupTask = cron.schedule(env.CLEANUP_CRON_SCHEDULE, async () => {
-          app.log.info('cron: avvio cleanup tenant archiviati');
-          try {
-            const r = await runTenantCleanup();
-            app.log.info({ result: r }, 'cron: cleanup completato');
-          } catch (err) {
-            app.log.error({ err }, 'cron: errore durante cleanup');
+          // R15: guard di re-entrancy. node-cron fa partire il tick anche se il
+          // precedente è ancora in corso; senza guard la purga sessioni/bozze
+          // girerebbe in parallelo a se stessa (DELETE ridondanti, spreco).
+          if (cleanupRunning) {
+            app.log.warn('cron: tick saltato, cleanup precedente ancora in corso');
+            return;
           }
-          // M217: purga le sessioni scadute (altrimenti la tabella cresce senza
-          // limite — sono già invalide al lookup, ma vanno rimosse).
+          cleanupRunning = true;
           try {
-            const purged = await cleanupExpiredSessions();
-            if (purged > 0) app.log.info({ purged }, 'cron: sessioni scadute rimosse');
-          } catch (err) {
-            app.log.error({ err }, 'cron: errore pulizia sessioni');
+            app.log.info('cron: avvio cleanup tenant archiviati');
+            try {
+              const r = await runTenantCleanup();
+              app.log.info({ result: r }, 'cron: cleanup completato');
+            } catch (err) {
+              app.log.error({ err }, 'cron: errore durante cleanup');
+            }
+            // M217: purga le sessioni scadute (altrimenti la tabella cresce senza
+            // limite — sono già invalide al lookup, ma vanno rimosse).
+            try {
+              const purged = await cleanupExpiredSessions();
+              if (purged > 0) app.log.info({ purged }, 'cron: sessioni scadute rimosse');
+            } catch (err) {
+              app.log.error({ err }, 'cron: errore pulizia sessioni');
+            }
+            // R15: elimina le iscrizioni BOZZA non completate da >24h.
+            try {
+              const removed = await cleanupStaleBozze();
+              if (removed > 0) app.log.info({ removed }, 'cron: bozze iscrizione scadute rimosse');
+            } catch (err) {
+              app.log.error({ err }, 'cron: errore pulizia bozze');
+            }
+          } finally {
+            cleanupRunning = false;
           }
         });
         app.log.info(

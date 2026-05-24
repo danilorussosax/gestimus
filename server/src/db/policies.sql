@@ -252,6 +252,11 @@ BEGIN
       END IF;
     END IF;
   ELSIF TG_TABLE_NAME = 'eventi_calendario' THEN
+    -- R15: concorso_id (NOT NULL) deve essere dello stesso tenant.
+    SELECT tenant_id INTO parent_tenant FROM concorsi WHERE id = NEW.concorso_id;
+    IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+      RAISE EXCEPTION 'eventi_calendario: concorso_id di tenant differente';
+    END IF;
     -- FK nullable (fase/sezione/categoria/sala): se valorizzati, stesso tenant.
     IF NEW.fase_id IS NOT NULL THEN
       SELECT tenant_id INTO parent_tenant FROM fasi WHERE id = NEW.fase_id;
@@ -293,6 +298,11 @@ BEGIN
       END IF;
     END IF;
   ELSIF TG_TABLE_NAME = 'commissioni' THEN
+    -- R15: concorso_id (NOT NULL) deve essere dello stesso tenant.
+    SELECT tenant_id INTO parent_tenant FROM concorsi WHERE id = NEW.concorso_id;
+    IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+      RAISE EXCEPTION 'commissioni: concorso_id di tenant differente';
+    END IF;
     -- M166: presidente_commissario_id nullable.
     IF NEW.presidente_commissario_id IS NOT NULL THEN
       SELECT tenant_id INTO parent_tenant FROM commissari WHERE id = NEW.presidente_commissario_id;
@@ -301,6 +311,11 @@ BEGIN
       END IF;
     END IF;
   ELSIF TG_TABLE_NAME IN ('candidati', 'iscrizioni') THEN
+    -- R15: concorso_id (NOT NULL) deve essere dello stesso tenant.
+    SELECT tenant_id INTO parent_tenant FROM concorsi WHERE id = NEW.concorso_id;
+    IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+      RAISE EXCEPTION '%: concorso_id di tenant differente', TG_TABLE_NAME;
+    END IF;
     -- M166: sezione_id/categoria_id nullable.
     IF NEW.sezione_id IS NOT NULL THEN
       SELECT tenant_id INTO parent_tenant FROM sezioni WHERE id = NEW.sezione_id;
@@ -313,6 +328,33 @@ BEGIN
       IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
         RAISE EXCEPTION '%: categoria_id di tenant differente', TG_TABLE_NAME;
       END IF;
+    END IF;
+  ELSIF TG_TABLE_NAME = 'categorie' THEN
+    -- R15: sezione_id NOT NULL → la sezione parent deve essere dello stesso tenant.
+    SELECT tenant_id INTO parent_tenant FROM sezioni WHERE id = NEW.sezione_id;
+    IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+      RAISE EXCEPTION 'categorie: sezione_id di tenant differente (riga=% vs sezione=%)',
+        NEW.tenant_id, parent_tenant;
+    END IF;
+  ELSIF TG_TABLE_NAME = 'criteri' THEN
+    -- R15: fase_id NOT NULL → la fase parent deve essere dello stesso tenant.
+    SELECT tenant_id INTO parent_tenant FROM fasi WHERE id = NEW.fase_id;
+    IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+      RAISE EXCEPTION 'criteri: fase_id di tenant differente (riga=% vs fase=%)',
+        NEW.tenant_id, parent_tenant;
+    END IF;
+  ELSIF TG_TABLE_NAME = 'candidati_membri' THEN
+    -- R15: candidato_id NOT NULL → il candidato parent deve essere dello stesso tenant.
+    SELECT tenant_id INTO parent_tenant FROM candidati WHERE id = NEW.candidato_id;
+    IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+      RAISE EXCEPTION 'candidati_membri: candidato_id di tenant differente (riga=% vs candidato=%)',
+        NEW.tenant_id, parent_tenant;
+    END IF;
+  ELSIF TG_TABLE_NAME IN ('sezioni', 'fasi', 'commissari', 'sale', 'calendario_pubblicazioni') THEN
+    -- R15: figlie dirette del concorso con concorso_id NOT NULL → stesso tenant.
+    SELECT tenant_id INTO parent_tenant FROM concorsi WHERE id = NEW.concorso_id;
+    IF parent_tenant IS NULL OR parent_tenant <> NEW.tenant_id THEN
+      RAISE EXCEPTION '%: concorso_id di tenant differente', TG_TABLE_NAME;
     END IF;
   END IF;
   RETURN NEW;
@@ -378,6 +420,50 @@ CREATE TRIGGER trg_eventi_tenant_check
   BEFORE INSERT OR UPDATE ON eventi_calendario
   FOR EACH ROW EXECUTE FUNCTION check_junction_tenant_coherence();
 
+-- R15: tabelle figlie con FK NOT NULL a un parent che porta il tenant. RLS valida
+-- solo il tenant_id della riga, non che il FK punti a un parent dello stesso
+-- tenant (i check FK girano senza RLS). Chiudiamo il gap come per le altre figlie.
+DROP TRIGGER IF EXISTS trg_categorie_tenant_check ON categorie;
+CREATE TRIGGER trg_categorie_tenant_check
+  BEFORE INSERT OR UPDATE ON categorie
+  FOR EACH ROW EXECUTE FUNCTION check_junction_tenant_coherence();
+
+DROP TRIGGER IF EXISTS trg_criteri_tenant_check ON criteri;
+CREATE TRIGGER trg_criteri_tenant_check
+  BEFORE INSERT OR UPDATE ON criteri
+  FOR EACH ROW EXECUTE FUNCTION check_junction_tenant_coherence();
+
+DROP TRIGGER IF EXISTS trg_candidati_membri_tenant_check ON candidati_membri;
+CREATE TRIGGER trg_candidati_membri_tenant_check
+  BEFORE INSERT OR UPDATE ON candidati_membri
+  FOR EACH ROW EXECUTE FUNCTION check_junction_tenant_coherence();
+
+-- R15: coerenza concorso_id (defense-in-depth) sulle figlie dirette del concorso.
+DROP TRIGGER IF EXISTS trg_sezioni_tenant_check ON sezioni;
+CREATE TRIGGER trg_sezioni_tenant_check
+  BEFORE INSERT OR UPDATE ON sezioni
+  FOR EACH ROW EXECUTE FUNCTION check_junction_tenant_coherence();
+
+DROP TRIGGER IF EXISTS trg_fasi_tenant_check ON fasi;
+CREATE TRIGGER trg_fasi_tenant_check
+  BEFORE INSERT OR UPDATE ON fasi
+  FOR EACH ROW EXECUTE FUNCTION check_junction_tenant_coherence();
+
+DROP TRIGGER IF EXISTS trg_commissari_tenant_check ON commissari;
+CREATE TRIGGER trg_commissari_tenant_check
+  BEFORE INSERT OR UPDATE ON commissari
+  FOR EACH ROW EXECUTE FUNCTION check_junction_tenant_coherence();
+
+DROP TRIGGER IF EXISTS trg_sale_tenant_check ON sale;
+CREATE TRIGGER trg_sale_tenant_check
+  BEFORE INSERT OR UPDATE ON sale
+  FOR EACH ROW EXECUTE FUNCTION check_junction_tenant_coherence();
+
+DROP TRIGGER IF EXISTS trg_calpub_tenant_check ON calendario_pubblicazioni;
+CREATE TRIGGER trg_calpub_tenant_check
+  BEFORE INSERT OR UPDATE ON calendario_pubblicazioni
+  FOR EACH ROW EXECUTE FUNCTION check_junction_tenant_coherence();
+
 -- =====================================================================
 -- 4c. Indici performance + vincoli di integrità aggiuntivi
 -- =====================================================================
@@ -385,6 +471,25 @@ CREATE TRIGGER trg_eventi_tenant_check
 -- Index composito per query frequenti su candidati_fase
 CREATE INDEX IF NOT EXISTS idx_candidati_fase_fase_stato
   ON candidati_fase(fase_id, stato);
+
+-- R15: indici sui FK ON DELETE SET NULL non indicizzati. Senza, ogni DELETE del
+-- parent fa un seq-scan + lock della figlia per applicare il SET NULL → delete
+-- lenti/locking di commissari/commissioni su tenant grandi.
+CREATE INDEX IF NOT EXISTS idx_fasi_commissione
+  ON fasi(commissione_id);
+CREATE INDEX IF NOT EXISTS idx_commissioni_presidente
+  ON commissioni(presidente_commissario_id);
+
+-- R15: convalida il CHECK eta categorie se una migrazione l'ha lasciato NOT VALID
+-- (drift: db push lo crea validato, vecchi DB no → righe legacy mai verificate).
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'chk_categorie_eta_range' AND NOT convalidated
+  ) THEN
+    ALTER TABLE categorie VALIDATE CONSTRAINT chk_categorie_eta_range;
+  END IF;
+END $$;
 
 -- N26/N32: UNIQUE per-concorso su iscrizioni, PARZIALE su stato != 'RIFIUTATA'.
 -- Stessa email non può avere 2 iscrizioni attive allo stesso concorso, ma può

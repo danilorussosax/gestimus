@@ -141,12 +141,21 @@ export async function backupTenant(tenantId: string): Promise<BackupResult> {
   const gz = createGzip();
   const gzChunks: Buffer[] = [];
   gz.on('data', (c: Buffer) => gzChunks.push(c));
+  // R15: latch d'errore. Senza, un errore gzip a metà stream poteva lasciare un
+  // `await writeGz()` appeso indefinitamente → il backup del tenant si bloccava
+  // senza timeout nel job di cleanup. Ora ogni write rigetta subito se lo stream
+  // è già in errore.
+  let gzError: Error | null = null;
   const gzDone = new Promise<void>((res, rej) => {
     gz.once('end', res);
-    gz.once('error', rej);
+    gz.once('error', (e: Error) => { gzError = e; rej(e); });
   });
+  gzDone.catch(() => {}); // errore propagato anche da writeGz → evita unhandledRejection
   const writeGz = (s: string): Promise<void> =>
-    new Promise((res, rej) => gz.write(s, (e) => (e ? rej(e) : res())));
+    new Promise((res, rej) => {
+      if (gzError) return rej(gzError);
+      gz.write(s, (e) => (e ? rej(e) : res()));
+    });
 
   await writeGz(
     `{"format":${JSON.stringify(BACKUP_FORMAT_VERSION)}` +

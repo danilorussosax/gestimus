@@ -23,7 +23,7 @@ export function openStoricoCandidato(cand) {
   }).sort((a, b) => (b.concorso?.anno || 0) - (a.concorso?.anno || 0));
 
   modal({
-    title: t('admin.storico.title', { nome: escapeHtml(displayName(cand)) }),
+    title: t('admin.storico.title', { nome: displayName(cand) }),
     width: 'max-w-2xl',
     contentHtml: rows.length === 0 ? `
       <p class="text-sm text-slate-500 italic text-center py-8">${t('admin.storico.empty')}</p>

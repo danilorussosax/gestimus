@@ -119,6 +119,80 @@ export function renderLogin(root, onSuccess) {
   const btn   = root.querySelector('#login-btn');
   const btnLabel = btn.firstElementChild;
 
+  // Routing + benvenuto post-login, condiviso tra login diretto e 2FA.
+  const proceedAfterLogin = (account) => {
+    if (!account.attivo) throw new Error(t('login.error.disabled'));
+    const goto = (h) => {
+      if (location.hash !== h) history.replaceState(null, '', h);
+    };
+    if (account.role === 'superadmin') {
+      db.setRole('superadmin');
+      goto('#/superadmin');
+    } else if (account.role === 'admin') {
+      db.setRole('admin');
+      if (!db.state.meta.activeConcorsoId && db.state.concorsi.length > 0) {
+        db.setActiveConcorso(db.state.concorsi[0].id);
+      }
+      goto('#/');
+    } else if (account.role === 'commissario') {
+      if (!account.commissario) throw new Error(t('login.error.no_com'));
+      const com = db.state.commissari.find(c => c.id === account.commissario);
+      if (!com) throw new Error(t('login.error.no_com_record'));
+      const firstId = Array.isArray(com.concorsi_ids) ? com.concorsi_ids[0] : null;
+      if (firstId) db.setActiveConcorso(firstId);
+      db.setRole('commissario', com.id);
+      goto('#/');
+    } else {
+      throw new Error(t('login.error.no_role'));
+    }
+    toast(t('login.welcome_back', { name: account.nome || account.email }), 'success');
+    if (onSuccess) onSuccess(account);
+  };
+
+  // Step 2FA: sostituisce il form login con l'inserimento del codice.
+  const renderTotpStep = (challenge) => {
+    const card = form.closest('.bg-white');
+    form.classList.add('hidden');
+    const step = document.createElement('form');
+    step.id = 'totp-form';
+    step.className = 'mt-7 space-y-5';
+    step.innerHTML = `
+      <p class="font-mono text-[11px] uppercase tracking-[0.16em] text-brand-700 font-bold">${escapeHtml(t('login.2fa.eyebrow'))}</p>
+      <h2 class="mt-1.5 text-2xl font-black tracking-tight text-ink-900">${escapeHtml(t('login.2fa.title'))}</h2>
+      <p class="text-[15px] text-ink-700 mt-1 font-medium">${escapeHtml(t('login.2fa.help'))}</p>
+      <label class="c-field">
+        <span class="c-field__label">${escapeHtml(t('login.2fa.code'))}</span>
+        <input name="code" inputmode="text" autocomplete="one-time-code" autofocus required
+               class="c-input tracking-widest" placeholder="123456" />
+      </label>
+      <div id="totp-error" role="alert" aria-live="assertive"
+           class="hidden text-sm font-semibold text-red-800 bg-red-50 border border-red-200 rounded-xl px-3 py-2.5"></div>
+      <button id="totp-btn" type="submit" class="c-btn c-btn--primary c-btn--xl w-full justify-center">
+        <span>${escapeHtml(t('login.2fa.submit'))}</span>
+      </button>`;
+    card.insertBefore(step, form);
+    const codeInput = step.querySelector('[name="code"]');
+    const totpErr = step.querySelector('#totp-error');
+    const totpBtn = step.querySelector('#totp-btn');
+    codeInput.focus();
+    step.addEventListener('submit', async (ev) => {
+      ev.preventDefault();
+      totpErr.classList.add('hidden');
+      totpBtn.disabled = true;
+      try {
+        const account = await db.completeTotpLogin(challenge, codeInput.value.trim());
+        proceedAfterLogin(account);
+      } catch (err) {
+        let msg = err?.data?.error || err?.data?.message || err?.message || t('login.2fa.error');
+        if (err?.status === 401) msg = t('login.2fa.error');
+        totpErr.textContent = msg;
+        totpErr.classList.remove('hidden');
+        totpBtn.disabled = false;
+        codeInput.select();
+      }
+    });
+  };
+
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     errEl.classList.add('hidden');
@@ -127,41 +201,13 @@ export function renderLogin(root, onSuccess) {
     btnLabel.textContent = t('login.form.submitting');
     try {
       const account = await db.login(data.email.trim(), data.password);
-      if (!account.attivo) throw new Error(t('login.error.disabled'));
-      // Nota: db.login() chiama già loadAll() internamente (skip per superadmin).
-      // Una reload qui sarebbe ridondante per admin/commissario e crasherebbe per
-      // superadmin (endpoint per-tenant 500 senza tenant context).
-
-      // Set role+route in modo che il primo render mostri SUBITO la vista giusta.
-      // Usiamo history.replaceState al posto di `location.hash =` per evitare il
-      // doppio render dovuto all'evento hashchange asincrono.
-      const goto = (h) => {
-        if (location.hash !== h) history.replaceState(null, '', h);
-      };
-      if (account.role === 'superadmin') {
-        db.setRole('superadmin');
-        goto('#/superadmin');
-      } else if (account.role === 'admin') {
-        db.setRole('admin');
-        if (!db.state.meta.activeConcorsoId && db.state.concorsi.length > 0) {
-          db.setActiveConcorso(db.state.concorsi[0].id);
-        }
-        goto('#/');
-      } else if (account.role === 'commissario') {
-        if (!account.commissario) throw new Error(t('login.error.no_com'));
-        const com = db.state.commissari.find(c => c.id === account.commissario);
-        if (!com) throw new Error(t('login.error.no_com_record'));
-        // Anagrafica multi-concorso: attiva il primo concorso assegnato (la home
-        // commissario gli permetterà di sceglierne altri).
-        const firstId = Array.isArray(com.concorsi_ids) ? com.concorsi_ids[0] : null;
-        if (firstId) db.setActiveConcorso(firstId);
-        db.setRole('commissario', com.id);
-        goto('#/');
-      } else {
-        throw new Error(t('login.error.no_role'));
+      // 2FA: il login non ha emesso sessione, mostra lo step del secondo fattore.
+      if (account && account.mfaRequired) {
+        renderTotpStep(account.challenge);
+        return;
       }
-      toast(t('login.welcome_back', { name: account.nome || account.email }), 'success');
-      if (onSuccess) onSuccess(account);
+      // db.login() ha già chiamato loadAll() internamente (skip per superadmin).
+      proceedAfterLogin(account);
     } catch (err) {
       console.error('Login failed:', err);
       let msg = err?.message || t('login.error.generic');

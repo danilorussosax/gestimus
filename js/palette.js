@@ -2,6 +2,7 @@
 // Cerca su concorsi, candidati, commissari, fasi. Click → navigazione contestuale.
 
 import { db } from './db.js';
+import { pb } from './pb.js';
 import { displayName, escapeHtml } from './utils.js';
 import { icon } from './icons.js';
 import { t } from './i18n.js';
@@ -86,8 +87,11 @@ function search(index, q) {
 }
 
 function navigateTo(item) {
-  // Solo admin può atterrare nel pannello; altrimenti torna home.
-  if (db.state.meta.role !== 'admin') {
+  // R15: gate sul ruolo dell'account autenticato (fonte di verità), non su
+  // db.state.meta.role (mutabile client-side) — coerente con app.js. Ammette
+  // admin E superadmin (prima un superadmin veniva rimbalzato a home).
+  const authRole = pb.authStore.model?.role;
+  if (authRole !== 'admin' && authRole !== 'superadmin') {
     location.hash = '#/';
     return;
   }

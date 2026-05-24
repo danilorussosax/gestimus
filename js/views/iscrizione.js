@@ -24,9 +24,17 @@ function clearDraft() {
 
 function calcEta(iso) {
   if (!iso) return null;
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return null;
-  return Math.floor((Date.now() - d.getTime()) / (365.25 * 24 * 60 * 60 * 1000));
+  // R15: età in anni compiuti per componenti di calendario, non con la divisione
+  // naive per 365.25 giorni (che sbaglia di un giorno a cavallo del compleanno).
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso));
+  if (!m) return null;
+  const by = +m[1], bm = +m[2], bd = +m[3];
+  const now = new Date();
+  let age = now.getFullYear() - by;
+  const mo = now.getMonth() + 1;
+  const day = now.getDate();
+  if (mo < bm || (mo === bm && day < bd)) age -= 1;
+  return age;
 }
 
 export async function renderIscrizione(root) {

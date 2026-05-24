@@ -13,6 +13,26 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit, computeAuditLogSig } from '../services/audit.js';
 import { dbSuper } from '../db/client.js';
 
+// R15: scrub ricorsivo dell'email dell'interessato da un payload audit. Rimuove
+// qualunque CHIAVE il cui valore è l'email (a qualsiasi profondità, non solo la
+// top-level `email`) e reda le occorrenze dell'email dentro gli array. Le email
+// possono finire annidate o sotto chiavi diverse (es. `to`, `adminEmail`).
+function scrubEmailDeep(value: unknown, email: string): unknown {
+  if (typeof value === 'string') {
+    return value.toLowerCase() === email ? '[redacted]' : value;
+  }
+  if (Array.isArray(value)) return value.map((v) => scrubEmailDeep(v, email));
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof v === 'string' && v.toLowerCase() === email) continue; // droppa la chiave
+      out[k] = scrubEmailDeep(v, email);
+    }
+    return out;
+  }
+  return value;
+}
+
 const erasureBody = z.object({
   email: z.string().email().optional(),
   commissarioId: z.string().uuid().optional(),
@@ -265,7 +285,13 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
         .filter((x): x is string => !!x);
       const accountIds = result.accountIds;
       const orConds = [];
-      if (email) orConds.push(sql`lower(${auditLog.payload} ->> 'email') = ${email}`);
+      if (email) {
+        // Cattura l'email sia top-level sia annidata/altre chiavi: match sul testo
+        // del payload (le wildcard LIKE nell'email sono escapate; gli scrub veri
+        // avvengono ricorsivamente sotto, qui serve solo a SELEZIONARE le righe).
+        const likeEmail = '%' + email.replace(/[%_\\]/g, '\\$&') + '%';
+        orConds.push(sql`${auditLog.payload}::text ILIKE ${likeEmail}`);
+      }
       if (targetIds.length) orConds.push(inArray(auditLog.targetId, targetIds));
       if (accountIds.length) orConds.push(inArray(auditLog.actorAccountId, accountIds));
       if (orConds.length > 0) {
@@ -276,9 +302,8 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
         for (const r of rows) {
           const isOwnAction = !!r.actorAccountId && accountIds.includes(r.actorAccountId);
           let payload = r.payload as Record<string, unknown> | null;
-          if (payload && typeof payload === 'object' && 'email' in payload) {
-            payload = { ...payload };
-            delete payload.email;
+          if (email && payload && typeof payload === 'object') {
+            payload = scrubEmailDeep(payload, email) as Record<string, unknown>;
           }
           const ip = isOwnAction ? null : r.ip;
           const userAgent = isOwnAction ? null : r.userAgent;

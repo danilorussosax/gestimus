@@ -13,8 +13,8 @@ export type AccountRecord = typeof accounts.$inferSelect;
 export type SessionRecord = typeof sessions.$inferSelect;
 
 export type SessionValidation =
-  | { account: AccountRecord; session: SessionRecord }
-  | { account: null; session: null };
+  | { account: AccountRecord; session: SessionRecord; refreshed: boolean }
+  | { account: null; session: null; refreshed: false };
 
 function generateSessionToken(): string {
   const bytes = randomBytes(20);
@@ -54,7 +54,7 @@ export async function createSession(
  * Auto-cleanup: sessioni scadute vengono cancellate.
  */
 export async function validateSessionToken(token: string): Promise<SessionValidation> {
-  if (!token || token.length < 16) return { account: null, session: null };
+  if (!token || token.length < 16) return { account: null, session: null, refreshed: false };
 
   const sessionId = tokenToSessionId(token);
 
@@ -68,30 +68,32 @@ export async function validateSessionToken(token: string): Promise<SessionValida
     .where(eq(sessions.id, sessionId))
     .limit(1);
 
-  if (row.length === 0) return { account: null, session: null };
+  if (row.length === 0) return { account: null, session: null, refreshed: false };
 
   const { session, account } = row[0]!;
 
   // Scadenza
   if (session.expiresAt.getTime() < Date.now()) {
     await dbSuper.delete(sessions).where(eq(sessions.id, sessionId));
-    return { account: null, session: null };
+    return { account: null, session: null, refreshed: false };
   }
 
   // Account disattivato
   if (!account.attivo) {
     await dbSuper.delete(sessions).where(eq(sessions.id, sessionId));
-    return { account: null, session: null };
+    return { account: null, session: null, refreshed: false };
   }
 
   // Refresh se entro la seconda metà della TTL
+  let refreshed = false;
   if (Date.now() >= session.expiresAt.getTime() - REFRESH_THRESHOLD_MS) {
     const newExpiresAt = new Date(Date.now() + SESSION_TTL_MS);
     await dbSuper.update(sessions).set({ expiresAt: newExpiresAt }).where(eq(sessions.id, sessionId));
     session.expiresAt = newExpiresAt;
+    refreshed = true;
   }
 
-  return { account, session };
+  return { account, session, refreshed };
 }
 
 export async function invalidateSession(sessionId: string): Promise<void> {

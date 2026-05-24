@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
+import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { dbSuper } from '../db/client.js';
@@ -7,13 +7,22 @@ import { verifyPassword } from '../services/password.js';
 import { createSession, invalidateSession } from '../services/session.js';
 import { clearSessionCookie, requireAuth, setSessionCookie } from '../middleware/auth.js';
 import { writeAudit, writePlatformAudit } from '../services/audit.js';
+import {
+  createMfaChallenge,
+  generateRecoveryCodes,
+  generateTotpSecret,
+  hashRecoveryCode,
+  totpUri,
+  verifyMfaChallenge,
+  verifyTotp,
+} from '../services/totp.js';
 
 // M152: traccia forensica dei tentativi di login (successo e fallimento).
 // Best-effort: un errore di audit non deve mai far fallire il login. Tenant →
 // audit_log (RLS); superadmin/platform → platform_audit_log.
 async function auditLogin(
   req: FastifyRequest,
-  action: 'auth.login' | 'auth.login_failed',
+  action: 'auth.login' | 'auth.login_failed' | 'auth.totp_enabled' | 'auth.totp_disabled',
   email: string,
   actorAccountId: string | null,
 ): Promise<void> {
@@ -34,6 +43,24 @@ const loginBody = z.object({
   email: z.string().email(),
   password: z.string().min(1).max(200),
 });
+
+// Emette la sessione (cookie), aggiorna lastLoginAt e audita il login.
+// Condiviso tra login diretto (no 2FA) e verify-totp (2FA superato).
+async function finishLogin(
+  req: FastifyRequest,
+  reply: FastifyReply,
+  account: typeof accounts.$inferSelect,
+): Promise<{ account: { id: string; email: string; role: string; tenantId: string }; expiresAt: Date }> {
+  const { token, expiresAt } = await createSession(account.id, account.tenantId);
+  setSessionCookie(reply, token, expiresAt);
+  // M192: aggiorna anche updatedAt per coerenza (lastLoginAt è una mutazione).
+  await dbSuper.update(accounts).set({ lastLoginAt: new Date(), updatedAt: new Date() }).where(eq(accounts.id, account.id));
+  await auditLogin(req, 'auth.login', account.email, account.id);
+  return {
+    account: { id: account.id, email: account.email, role: account.role, tenantId: account.tenantId },
+    expiresAt,
+  };
+}
 
 export const authRoutes: FastifyPluginAsync = async (app) => {
   /**
@@ -92,22 +119,65 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(401).send({ error: 'credenziali non valide' });
     }
 
-    const { token, expiresAt } = await createSession(account.id, account.tenantId);
-    setSessionCookie(reply, token, expiresAt);
+    // 2FA: se attivo, NON emettere la sessione. Ritorna un challenge firmato che
+    // prova "password corretta"; il client lo riusa su /login/verify-totp col
+    // codice TOTP (o un recovery code) per ottenere la sessione.
+    if (account.totpEnabled && account.totpSecret) {
+      return { mfaRequired: true, challenge: createMfaChallenge(account.id) };
+    }
 
-    // M192: aggiorna anche updatedAt per coerenza (lastLoginAt è una mutazione).
-    await dbSuper.update(accounts).set({ lastLoginAt: new Date(), updatedAt: new Date() }).where(eq(accounts.id, account.id));
-    await auditLogin(req, 'auth.login', normalizedEmail, account.id);
+    return finishLogin(req, reply, account);
+  });
 
-    return {
-      account: {
-        id: account.id,
-        email: account.email,
-        role: account.role,
-        tenantId: account.tenantId,
+  /**
+   * POST /auth/login/verify-totp
+   * Body: { challenge, code }  — code = TOTP 6 cifre oppure recovery code.
+   * Secondo fattore: completa il login per gli account con 2FA attivo.
+   */
+  app.post('/login/verify-totp', {
+    config: {
+      rateLimit: {
+        max: 10,
+        timeWindow: '15 minutes',
+        errorResponseBuilder: () => ({ error: 'troppi tentativi, riprova tra qualche minuto' }),
       },
-      expiresAt,
-    };
+    },
+  }, async (req, reply) => {
+    const parsed = z
+      .object({ challenge: z.string().min(1), code: z.string().min(1).max(40) })
+      .safeParse(req.body);
+    if (!parsed.success) return reply.badRequest('challenge/code non validi');
+
+    const accountId = verifyMfaChallenge(parsed.data.challenge);
+    if (!accountId) return reply.code(401).send({ error: 'challenge scaduto o non valido, rifai il login' });
+
+    const rows = await dbSuper.select().from(accounts).where(eq(accounts.id, accountId)).limit(1);
+    const account = rows[0];
+    if (!account || !account.attivo || !account.totpEnabled || !account.totpSecret) {
+      return reply.code(401).send({ error: 'credenziali non valide' });
+    }
+
+    const code = parsed.data.code.trim();
+    let verified = false;
+    if (/^\d{6}$/.test(code)) {
+      verified = verifyTotp(account.totpSecret, code);
+    } else {
+      // Recovery code: confronto sull'hash; se valido viene CONSUMATO (one-time).
+      const codeHash = hashRecoveryCode(code);
+      const remaining = (account.totpRecoveryCodes ?? []).filter((h) => h !== codeHash);
+      if (remaining.length < (account.totpRecoveryCodes ?? []).length) {
+        verified = true;
+        await dbSuper.update(accounts).set({ totpRecoveryCodes: remaining }).where(eq(accounts.id, account.id));
+      }
+    }
+
+    if (!verified) {
+      await auditLogin(req, 'auth.login_failed', account.email, account.id);
+      return reply.code(401).send({ error: 'codice 2FA non valido' });
+    }
+
+    await dbSuper.update(accounts).set({ totpLastUsedAt: new Date() }).where(eq(accounts.id, account.id));
+    return finishLogin(req, reply, account);
   });
 
   /**
@@ -145,5 +215,85 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       commissarioId: a.commissarioId,
       totpEnabled: a.totpEnabled,
     };
+  });
+
+  // --- Setup 2FA (TOTP) per l'account autenticato ---------------------------
+
+  /**
+   * POST /auth/totp/setup — genera un secret PENDING (totpEnabled resta false)
+   * e ritorna secret + otpauth URI da scansionare. Non attiva ancora il 2FA.
+   */
+  app.post('/totp/setup', {
+    config: { rateLimit: { max: 10, timeWindow: '15 minutes' } },
+    preHandler: [requireAuth],
+  }, async (req) => {
+    const a = req.account!;
+    const secret = generateTotpSecret();
+    await dbSuper
+      .update(accounts)
+      .set({ totpSecret: secret, totpEnabled: false, updatedAt: new Date() })
+      .where(eq(accounts.id, a.id));
+    return { secret, uri: totpUri(secret, a.email) };
+  });
+
+  /**
+   * POST /auth/totp/enable { code } — verifica il codice contro il secret
+   * pending; se valido attiva il 2FA e ritorna i recovery code UNA SOLA VOLTA
+   * (nel DB solo gli hash).
+   */
+  app.post('/totp/enable', {
+    config: { rateLimit: { max: 10, timeWindow: '15 minutes' } },
+    preHandler: [requireAuth],
+  }, async (req, reply) => {
+    const a = req.account!;
+    const parsed = z.object({ code: z.string().min(6).max(10) }).safeParse(req.body);
+    if (!parsed.success) return reply.badRequest('codice non valido');
+    const rows = await dbSuper.select().from(accounts).where(eq(accounts.id, a.id)).limit(1);
+    const acc = rows[0];
+    if (!acc?.totpSecret) return reply.code(409).send({ error: 'setup 2FA non avviato' });
+    if (acc.totpEnabled) return reply.code(409).send({ error: '2FA già attivo' });
+    if (!verifyTotp(acc.totpSecret, parsed.data.code)) {
+      return reply.code(400).send({ error: 'codice non valido, riprova' });
+    }
+    const codes = generateRecoveryCodes();
+    await dbSuper
+      .update(accounts)
+      .set({
+        totpEnabled: true,
+        totpRecoveryCodes: codes.map(hashRecoveryCode),
+        totpLastUsedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(accounts.id, a.id));
+    await auditLogin(req, 'auth.totp_enabled', a.email, a.id);
+    return { ok: true, recoveryCodes: codes };
+  });
+
+  /**
+   * POST /auth/totp/disable { password } — disattiva il 2FA previa riconferma
+   * della password (evita che una sessione rubata possa togliere il 2FA).
+   */
+  app.post('/totp/disable', {
+    config: { rateLimit: { max: 10, timeWindow: '15 minutes' } },
+    preHandler: [requireAuth],
+  }, async (req, reply) => {
+    const a = req.account!;
+    const parsed = z.object({ password: z.string().min(1).max(200) }).safeParse(req.body);
+    if (!parsed.success) return reply.badRequest('password richiesta');
+    if (!(await verifyPassword(parsed.data.password, a.passwordHash))) {
+      return reply.code(401).send({ error: 'password non valida' });
+    }
+    await dbSuper
+      .update(accounts)
+      .set({
+        totpEnabled: false,
+        totpSecret: null,
+        totpRecoveryCodes: null,
+        totpLastUsedAt: null,
+        updatedAt: new Date(),
+      })
+      .where(eq(accounts.id, a.id));
+    await auditLogin(req, 'auth.totp_disabled', a.email, a.id);
+    return { ok: true };
   });
 };

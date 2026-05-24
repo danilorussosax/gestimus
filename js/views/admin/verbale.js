@@ -4,7 +4,7 @@
 
 import { db } from '../../db.js';
 import { escapeHtml, toast, confirmDialog, displayName } from '../../utils.js';
-import { fmtVoto, getScala, getMetodoMedia, getModoValutazione, mediaCandidato, METODI_MEDIA } from '../../scoring.js';
+import { fmtVoto, getScala, getMetodoMedia, getModoValutazione, METODI_MEDIA } from '../../scoring.js';
 import { icon } from '../../icons.js';
 import { t } from '../../i18n.js';
 import { rankFase } from './common.js';
@@ -180,21 +180,22 @@ function buildVerbaleContext(concorso, fase = null) {
   const commissariInline = commissariNoPres.map(c => displayName(c)).join(', ');
   const fasiList = fasi.map(f => `${f.ordine}. ${f.nome}`).join('\n');
 
-  const finale = fasi.find(f => f.ordine === fasi.length && f.stato === 'CONCLUSA');
+  // R15: la fase finale è quella con ORDINE massimo (non `ordine === fasi.length`:
+  // dopo la cancellazione di una fase gli ordini hanno buchi e il confronto
+  // fallirebbe — stesso bug chiuso in db.js M211). Podio costruito con rankFase
+  // (stesso motore tiebreak della classifica ufficiale), non con sort su media
+  // grezza, così verbale e classifica non possono divergere sugli ex aequo.
+  const finale = fasi.reduce((mx, f) => (f.ordine > (mx?.ordine ?? -Infinity) ? f : mx), null);
   let podio = '—';
   let vincitore = '—';
-  if (finale) {
-    const cfs = db.candidatiFaseList(finale.id);
-    const rows = cfs.map(cf => {
-      const cand = db.state.candidati.find(c => c.id === cf.candidato_id);
-      const vs = db.valutazioniByCandidatoFase(cf.id);
-      return { cand, media: mediaCandidato(vs, finale) };
-    }).sort((a,b) => b.media - a.media);
+  if (finale && finale.stato === 'CONCLUSA') {
+    const rows = rankFase(finale, db.candidatiFaseList(finale.id));
     if (rows.length > 0) {
       vincitore = displayName(rows[0].cand);
-      podio = rows.slice(0, 3).map((r, i) => {
-        const place = i === 0 ? t('admin.risultati.first_prize') : i === 1 ? t('admin.risultati.second_prize') : t('admin.risultati.third_prize');
-        return `${i+1}. ${displayName(r.cand)} — ${place} (${t('admin.risultati.media_label', { value: r.media.toFixed(2) })})`;
+      podio = rows.filter(r => (r.posizione_finale ?? Infinity) <= 3).map((r) => {
+        const pos = r.posizione_finale ?? 1;
+        const place = pos === 1 ? t('admin.risultati.first_prize') : pos === 2 ? t('admin.risultati.second_prize') : t('admin.risultati.third_prize');
+        return `${pos}. ${displayName(r.cand)} — ${place} (${t('admin.risultati.media_label', { value: r.media.toFixed(2) })})`;
       }).join('\n');
     }
   }

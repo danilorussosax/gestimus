@@ -88,7 +88,7 @@ export function renderConcorsoSelector(root) {
       const coms = db.commissariByConcorso(c.id).length;
       confirmDialog({
         title: t('admin.concorso.delete_title'),
-        message: t('admin.concorso.delete_msg', { nome: escapeHtml(c.nome), candidati: cs, fasi: fs, commissari: coms }),
+        message: t('admin.concorso.delete_msg', { nome: c.nome, candidati: cs, fasi: fs, commissari: coms }),
         danger: true,
         onConfirm: async () => {
           try {
@@ -207,8 +207,8 @@ export function openEditConcorso(concorso, onSaved) {
             <span>Accetta iscrizioni dal frontend pubblico</span>
           </label>
           <label class="c-field mt-3">
-            <span class="c-field__label">Data/ora di chiusura iscrizioni (opzionale)</span>
-            <input name="iscrizioni_chiusura" type="datetime-local" class="c-input" value="${escapeHtml((concorso.iscrizioni_chiusura || '').slice(0, 16))}" />
+            <span class="c-field__label">Data di chiusura iscrizioni (opzionale)</span>
+            <input name="iscrizioni_chiusura" type="date" class="c-input" value="${escapeHtml((concorso.iscrizioni_chiusura || '').slice(0, 10))}" />
             <span class="text-[11px] text-slate-500 mt-1 block">Oltre questa data il form pubblico chiude le iscrizioni automaticamente. Lascia vuoto per nessun limite temporale.</span>
           </label>
         </div>
@@ -241,8 +241,10 @@ export function openEditConcorso(concorso, onSaved) {
       const anonimo = body.querySelector('[name="anonimo"]').checked;
       const iscrizioni_aperte = body.querySelector('[name="iscrizioni_aperte"]').checked;
       const iscrizioniChiusuraRaw = body.querySelector('[name="iscrizioni_chiusura"]').value;
-      // datetime-local → ISO con timezone, oppure '' per nessun limite
-      const iscrizioni_chiusura = iscrizioniChiusuraRaw ? new Date(iscrizioniChiusuraRaw).toISOString() : '';
+      // R15: la colonna iscrizioni_scadenza è DATE-only e il server valida con
+      // z.string().date() (YYYY-MM-DD). Inviare un timestamp ISO completo
+      // (new Date(...).toISOString()) faceva fallire l'intero PATCH del concorso.
+      const iscrizioni_chiusura = iscrizioniChiusuraRaw ? iscrizioniChiusuraRaw.slice(0, 10) : '';
       const logoFile = body.querySelector('[name="logo"]').files[0] || null;
       if (!nome) { toast(t('admin.concorso.required_nome') || 'Il nome è obbligatorio', 'error'); return false; }
       // Tiebreak default: invia array solo se l'admin ha toccato qualcosa.

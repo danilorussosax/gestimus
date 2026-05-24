@@ -82,9 +82,18 @@ self.addEventListener('fetch', (event) => {
 
   // Navigation: HTML → network-first per cogliere i deploy, fallback offline
   if (req.mode === 'navigate') {
-    event.respondWith(
-      fetch(req).catch(() => caches.match('./index.html'))
-    );
+    event.respondWith((async () => {
+      try {
+        const res = await fetch(req);
+        // R15: coerente con la strategia JS (M215) — una risposta non-ok
+        // (500/502 dal server, non un errore di rete) NON va servita come
+        // pagina: preferisci la shell in cache.
+        if (res.ok) return res;
+        return (await caches.match('./index.html')) || res;
+      } catch {
+        return (await caches.match('./index.html')) || Response.error();
+      }
+    })());
     return;
   }
 

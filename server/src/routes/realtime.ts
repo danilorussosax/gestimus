@@ -86,6 +86,13 @@ export const realtimeRoutes: FastifyPluginAsync = async (app) => {
     req.raw.on('close', close);
     req.raw.on('error', close);
 
+    // Race: se il client si è disconnesso DURANTE `await subscribe()` (sopra),
+    // l'evento 'close' è già stato emesso prima che i listener fossero attaccati
+    // → andrebbe perso, lasciando subscriber/keepAlive/maxDuration appesi fino
+    // allo scadere di MAX_SSE_DURATION_MS (1h). Recuperiamo qui: se il socket è
+    // già distrutto, teardown immediato (close è idempotente).
+    if (req.raw.destroyed) close();
+
     // Hold open: Fastify aspetta che chiudiamo manualmente
     return reply;
   });

@@ -143,6 +143,26 @@ export const accountsRoutes: FastifyPluginAsync = async (app) => {
           return reply.badRequest('commissario non trovato nel tenant corrente');
         }
       }
+      // R15: invariante role↔commissarioId. Un account 'commissario' DEVE avere
+      // un commissarioId (tenant-valido); un 'admin' NON deve averne uno — un
+      // binding residuo lascerebbe l'authz commissario-scoped incoerente. Calcola
+      // il risultato del patch e correggi/rifiuta di conseguenza.
+      const cur = await tx
+        .select({ role: accounts.role, commissarioId: accounts.commissarioId })
+        .from(accounts)
+        .where(eq(accounts.id, id))
+        .limit(1);
+      if (cur.length === 0) return reply.notFound();
+      const resultRole = parsed.data.role ?? cur[0]!.role;
+      const resultCommissarioId =
+        parsed.data.commissarioId !== undefined ? parsed.data.commissarioId : cur[0]!.commissarioId;
+      if (resultRole === 'commissario') {
+        if (!resultCommissarioId) {
+          return reply.badRequest('un account commissario richiede un commissarioId valido');
+        }
+      } else if (resultCommissarioId !== null) {
+        parsed.data.commissarioId = null; // ruolo non-commissario → azzera il binding
+      }
       // L16: blocca demozione/disattivazione dell'ultimo admin del tenant.
       const demoting = parsed.data.role && parsed.data.role !== 'admin';
       const disabling = parsed.data.attivo === false;

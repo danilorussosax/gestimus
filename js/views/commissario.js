@@ -873,9 +873,12 @@ function tickDisplay() {
   if (!panel) return;
   const disp = panel.querySelector('[data-timer-display]');
   if (disp) disp.textContent = formatTime(s.remainingMs);
-  // Beep allo zero (una volta sola per record)
-  if (s.expired && timerCtx.runtime && timerCtx.lastBeepAt !== timerCtx.runtime.id + ':' + timerCtx.runtime.duration_seconds) {
-    timerCtx.lastBeepAt = timerCtx.runtime.id + ':' + timerCtx.runtime.duration_seconds;
+  // Beep allo zero (una volta sola per record).
+  // R15: dedup su id + started_at (non duration_seconds). started_at cambia su
+  // reset/restart (→ ri-arma il beep) ma NON su bonus → aggiungere tempo a un
+  // timer scaduto non rifà suonare il beep quando il bonus si esaurisce.
+  if (s.expired && timerCtx.runtime && timerCtx.lastBeepAt !== timerCtx.runtime.id + ':' + timerCtx.runtime.started_at) {
+    timerCtx.lastBeepAt = timerCtx.runtime.id + ':' + timerCtx.runtime.started_at;
     beep();
     rerenderTimer(); // bordo rosso lampeggia
   }

@@ -180,7 +180,10 @@ export const candidatiRoutes: FastifyPluginAsync = async (app) => {
       // toccare la sezione, propaghiamo la sezione della nuova categoria così
       // i due campi restano coerenti.
       const data = { ...parsed.data };
-      if (data.categoriaId && data.sezioneId === undefined) {
+      // R15: deriva la sezione dalla categoria anche quando sezioneId è azzerato
+      // esplicitamente (null), non solo quando è omesso (undefined) — altrimenti
+      // resta una categoria senza sezione (stato incoerente).
+      if (data.categoriaId && (data.sezioneId === undefined || data.sezioneId === null)) {
         const cat = await tx.select({ sezioneId: categorie.sezioneId }).from(categorie).where(eq(categorie.id, data.categoriaId)).limit(1);
         if (cat.length > 0) data.sezioneId = cat[0]!.sezioneId;
       }

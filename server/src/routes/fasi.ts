@@ -292,6 +292,22 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) return reply.badRequest(parsed.error.message);
     return req.dbTx(async (tx) => {
       const { sezioniIds, ...faseFields } = parsed.data;
+      // R15: i trigger DB congelano le VALUTAZIONI di una fase CONCLUSA, ma non i
+      // PARAMETRI con cui vengono interpretate. Modificare scala/metodoMedia/pesi/
+      // ammessi/modoValutazione/tiebreakStrategy dopo la conclusione riscrive
+      // silenziosamente una graduatoria già finalizzata (valore legale del verbale).
+      // Leggiamo lo stato sotto FOR UPDATE e rifiutiamo l'edit di questi campi.
+      const SCORING_FIELDS = ['scala', 'metodoMedia', 'pesi', 'ammessi', 'modoValutazione', 'tiebreakStrategy'];
+      const lockRows = await tx
+        .select({ stato: fasi.stato })
+        .from(fasi)
+        .where(eq(fasi.id, id))
+        .limit(1)
+        .for('update');
+      if (lockRows.length === 0) return reply.notFound();
+      if (lockRows[0]!.stato === 'CONCLUSA' && SCORING_FIELDS.some((k) => k in faseFields)) {
+        return reply.code(409).send({ error: 'fase conclusa: i parametri di valutazione non sono più modificabili' });
+      }
       // Aggiorna i campi base solo se ne è stato passato almeno uno (oltre a sezioniIds)
       let updated;
       if (Object.keys(faseFields).length > 0) {

@@ -383,7 +383,7 @@ export function openImportModal(concorso, kind, onSaved) {
 
         // Build preview
         const cols = isCand
-          ? ['nome', 'cognome', 'strumento', 'data_nascita', 'nazionalita', 'sezioni_ids', 'categorie_ids']
+          ? ['nome', 'cognome', 'strumento', 'data_nascita', 'nazionalita', 'sezione_id', 'categoria_id']
           : ['nome', 'cognome', 'specialita', 'email', 'telefono', 'data_nascita'];
         const colLabels = isCand
           ? [t('admin.import.col.nome'), t('admin.import.col.cognome'), t('admin.import.col.strumento'), t('admin.import.col.nascita'), t('admin.import.col.naz'), t('admin.import.col.sezioni'), t('admin.import.col.categorie')]
@@ -396,11 +396,11 @@ export function openImportModal(concorso, kind, onSaved) {
         bodyRows.innerHTML = parsed.map(p => {
           const cells = cols.map(c => {
             let v = p.data[c];
-            if (Array.isArray(v)) {
-              if (c === 'sezioni_ids')   v = v.map(id => sezById[id] || id).join(', ');
-              else if (c === 'categorie_ids') v = v.map(id => catById[id] || id).join(', ');
-              else v = v.join(', ');
-            }
+            // R15: buildImportRow scrive id SINGOLI (sezione_id/categoria_id), non
+            // array plurali → la preview leggeva chiavi inesistenti e restava vuota.
+            if (c === 'sezione_id') v = v ? (sezById[v] || v) : '';
+            else if (c === 'categoria_id') v = v ? (catById[v] || v) : '';
+            else if (Array.isArray(v)) v = v.join(', ');
             return `<td class="px-2 py-1 border-b border-slate-100 text-slate-700">${escapeHtml(v ?? '')}</td>`;
           }).join('');
           const statusCell = p.errors.length === 0

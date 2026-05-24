@@ -623,7 +623,23 @@ export const db = {
   currentAccount() { return pb.authStore.model || null; },
 
   async login(email, password) {
-    await api.post('/auth/login', { email, password });
+    const res = await api.post('/auth/login', { email, password });
+    // 2FA attivo: il server non ha emesso sessione, serve il secondo fattore.
+    if (res && res.mfaRequired) {
+      return { mfaRequired: true, challenge: res.challenge };
+    }
+    return await this._finishAuth();
+  },
+
+  // Completa il login dopo il challenge 2FA (codice TOTP o recovery code).
+  async completeTotpLogin(challenge, code) {
+    await api.post('/auth/login/verify-totp', { challenge, code });
+    return await this._finishAuth();
+  },
+
+  // Popola authStore + dati e ritorna la shape account legacy. Condiviso tra
+  // login diretto e completamento 2FA.
+  async _finishAuth() {
     const me = await refreshAuth();
     // Super-admin non carica i dati per-tenant (endpoint richiedono tenant context).
     if (me && me.role !== 'superadmin') {
@@ -640,6 +656,11 @@ export const db = {
       tenantId: me.tenantId,
     };
   },
+
+  // ---------- 2FA / TOTP (account corrente) ----------
+  async totpSetup() { return await api.post('/auth/totp/setup', {}); },
+  async totpEnable(code) { return await api.post('/auth/totp/enable', { code }); },
+  async totpDisable(password) { return await api.post('/auth/totp/disable', { password }); },
 
   // M7: la logout ora è async e attende l'invalidazione server-side della
   // sessione PRIMA di pulire lo stato locale. Senza l'await, un re-login

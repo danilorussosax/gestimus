@@ -7,6 +7,22 @@ import { writeAudit } from '../services/audit.js';
 import { parsePagination } from '../lib/pagination.js';
 
 const uuid = z.string().uuid();
+
+// R15 (M208): stessa derivazione chiave del client (js/scoring.js slugifyKey).
+// Lo scoring mappa i voti per chiave-da-nome: due criteri il cui nome produce la
+// stessa chiave (es. "Tempo" / "Tèmpo", o troncamento a 30 char) collassano in
+// una sola, fondendo pesi/voti. Bloccarlo qui, alla creazione, è il fix corretto
+// (cambiare la derivazione in lettura romperebbe il match coi voti già salvati).
+function slugifyKey(s: string): string {
+  return String(s || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 30) || 'crit';
+}
+
 const createBody = z.object({
   faseId: uuid,
   nome: z.string().min(1).max(255),
@@ -112,6 +128,12 @@ export const criteriRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) return reply.badRequest(parsed.error.message);
 
     const items = parsed.data.criteri;
+    // R15 (M208): rifiuta nomi che generano la STESSA chiave di scoring → eviterebbe
+    // che pesi/voti di due criteri si fondano silenziosamente.
+    const keys = items.map((c) => slugifyKey(c.nome));
+    if (new Set(keys).size !== keys.length) {
+      return reply.badRequest('due o più criteri generano la stessa chiave (nomi troppo simili): rinominane uno');
+    }
     const sum = items.reduce((s, c) => s + c.peso, 0);
     // N58: normalizzazione a 100 con metodo largest-remainder (Hamilton):
     // Math.round() su ogni peso non garantisce somma 100 (es. 3×33.33→99).

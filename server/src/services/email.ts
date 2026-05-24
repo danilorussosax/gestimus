@@ -87,6 +87,11 @@ async function getTransporter(tenantId: string | null): Promise<{ transporter: T
     auth: { user: cfg.user, pass: cfg.password },
   });
 
+  // R15: chiudi il transporter precedente prima di sovrascriverlo. Su refresh TTL
+  // l'entry scaduta veniva rimpiazzata senza .close(), lasciando aperto il pool
+  // SMTP del vecchio transporter fino alla GC (nodemailer non auto-chiude).
+  cache.get(cacheKey)?.transporter.close();
+
   cache.set(cacheKey, {
     transporter,
     from: cfg.from,

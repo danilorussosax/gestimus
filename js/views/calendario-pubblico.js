@@ -10,6 +10,14 @@ import { exportCalendarioPdf } from '../calendario-pdf.js';
 
 let pollTimer = null;
 
+// R15: il poll del display-mode è module-level. renderCalendarioPubblico lo
+// azzera/riarma solo quando si naviga DI NUOVO sul calendario; navigando verso
+// un'altra vista il timer continuava a girare e ogni 45s sovrascriveva l'HTML
+// della vista corrente. app.js chiama questo cleanup a ogni render.
+export function unmountCalendarioPolling() {
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+}
+
 function parseParams() {
   const q = new URLSearchParams((location.hash.split('?')[1]) || '');
   return { token: q.get('token') || '', display: q.get('display') === '1' };

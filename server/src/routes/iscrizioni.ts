@@ -8,6 +8,7 @@ import { sendMail } from '../services/email.js';
 import { env } from '../env.js';
 import { parsePagination } from '../lib/pagination.js';
 import { todayISODate, ageYears } from '../lib/date.js';
+import { checkCandidatiLimit } from '../lib/plan-limits.js';
 import { generateToken } from '../lib/token.js';
 
 const uuid = z.string().uuid();
@@ -86,7 +87,11 @@ const iscrizioneCreateBody = z.object({
 });
 
 const MIN_TIME_ON_PAGE_MS = 3000;
-const GDPR_MIN_AGE_TUTORE = 16;
+// R15: tutore obbligatorio per TUTTI i minori (< 18). In Italia la partecipazione
+// a un concorso e il relativo trattamento dati di un minore richiedono il consenso
+// di chi esercita la responsabilità genitoriale fino ai 18 anni (non solo i 16
+// dell'età di consenso digitale GDPR Art. 8).
+const GDPR_MIN_AGE_TUTORE = 18;
 
 // =====================================================================
 // Plugin PUBBLICO: niente auth, niente requireTenant — ma tenant è risolto
@@ -97,7 +102,10 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
    * GET /public/concorsi → concorsi del tenant con iscrizioni aperte e non scadute.
    * Niente auth, ma serve tenant context (subdomain).
    */
-  app.get('/concorsi', async (req, reply) => {
+  app.get('/concorsi', {
+    // R15: endpoint pubblico (no auth) → rate-limit per-IP contro scraping/enumerazione.
+    config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+  }, async (req, reply) => {
     if (!req.tenant) return reply.code(400).send({ error: 'tenant context richiesto' });
     return req.dbTx(async (tx) => {
       const today = todayISODate();
@@ -121,7 +129,9 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
   /**
    * GET /public/concorsi/:id → dettagli + sezioni + categorie (per popolare il form).
    */
-  app.get('/concorsi/:id', async (req, reply) => {
+  app.get('/concorsi/:id', {
+    config: { rateLimit: { max: 60, timeWindow: '1 minute' } },
+  }, async (req, reply) => {
     if (!req.tenant) return reply.code(400).send({ error: 'tenant context richiesto' });
     const { id } = z.object({ id: uuid }).parse(req.params);
     return req.dbTx(async (tx) => {
@@ -473,6 +483,13 @@ export const iscrizioniAdminRoutes: FastifyPluginAsync = async (app) => {
         if (isc.stato === 'APPROVATA' && isc.candidatoId) {
           return { ok: true, alreadyApproved: true, candidatoId: isc.candidatoId };
         }
+
+        // R15: approvare un'iscrizione CREA un candidato → deve rispettare il
+        // limite di piano per concorso, esattamente come il create diretto
+        // (candidati.ts). Senza questo, un tenant capped poteva sforare il tetto
+        // approvando iscrizioni pubbliche.
+        const limitErr = await checkCandidatiLimit(tx, req.tenant!.id, isc.concorsoId);
+        if (limitErr) return reply.code(403).send({ error: limitErr });
 
         // N112: hashtextextended (64-bit) invece di hashtext (32-bit) per
         // azzerare la probabilità di collisione del lock advisory tra concorsi

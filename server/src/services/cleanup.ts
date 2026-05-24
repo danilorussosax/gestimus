@@ -1,6 +1,6 @@
-import { and, eq, isNotNull, lte, sql } from 'drizzle-orm';
+import { and, eq, isNotNull, lt, lte, sql } from 'drizzle-orm';
 import { dbSuper, superPool } from '../db/client.js';
-import { platformAuditLog, tenants } from '../db/schema.js';
+import { iscrizioni, platformAuditLog, tenants } from '../db/schema.js';
 import { backupTenant, pruneOldBackups } from './backup.js';
 import { computePlatformAuditSig } from './audit.js';
 import { env } from '../env.js';
@@ -30,6 +30,22 @@ export type CleanupResult = {
 // ma stabile: due istanze che girano il cron in contemporanea non devono
 // processare gli stessi tenant (doppio backup + DELETE race).
 const CLEANUP_ADVISORY_LOCK_KEY = 994_001;
+
+// R15: TTL delle iscrizioni in stato BOZZA. L'indice unique parziale considera
+// "attiva" ogni iscrizione non RIFIUTATA → una BOZZA abbandonata bloccherebbe
+// per sempre la re-iscrizione con la stessa email/concorso. Le BOZZA non
+// completate entro 24h vengono eliminate, liberando la re-iscrizione (la
+// finestra di 24h consente di recuperare/completare la bozza nel frattempo).
+const BOZZA_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** Elimina le iscrizioni in BOZZA più vecchie di 24h. Ritorna il numero rimosso. */
+export async function cleanupStaleBozze(): Promise<number> {
+  const cutoff = new Date(Date.now() - BOZZA_TTL_MS);
+  const res = await dbSuper
+    .delete(iscrizioni)
+    .where(and(eq(iscrizioni.stato, 'BOZZA'), lt(iscrizioni.createdAt, cutoff)));
+  return res.rowCount ?? 0;
+}
 
 export async function runTenantCleanup(): Promise<CleanupResult> {
   const result: CleanupResult = {

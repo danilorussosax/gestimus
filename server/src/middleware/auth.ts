@@ -39,12 +39,18 @@ export async function registerAuthMiddleware(app: FastifyInstance): Promise<void
   app.decorateRequest('account', null);
   app.decorateRequest('session', null);
 
-  app.addHook('onRequest', async (req) => {
+  app.addHook('onRequest', async (req, reply) => {
     const token = req.cookies[env.SESSION_COOKIE_NAME];
     if (!token) return;
     const result = await validateSessionToken(token);
     req.account = result.account;
     req.session = result.session;
+    // R15: se la sessione è stata auto-rinnovata lato DB, ri-emetti il cookie con
+    // la nuova scadenza — altrimenti il browser lo lascia scadere all'orario
+    // originale e l'utente viene sloggato a metà finestra nonostante il refresh.
+    if (result.refreshed && result.session) {
+      setSessionCookie(reply, token, result.session.expiresAt);
+    }
   });
 }
 

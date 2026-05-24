@@ -8,7 +8,8 @@ import { renderCommissario, unmountFloatingTimer } from './views/commissario.js'
 import { renderLogin } from './views/login.js';
 import { renderIscrizione } from './views/iscrizione.js';
 import { renderPrivacy } from './views/privacy.js';
-import { renderCalendarioPubblico } from './views/calendario-pubblico.js';
+import { renderCalendarioPubblico, unmountCalendarioPolling } from './views/calendario-pubblico.js';
+import { openAccountSecurity } from './views/account-security.js';
 import { renderDashboard } from './views/admin-dashboard.js';
 import { renderImpostazioni } from './views/admin-impostazioni.js';
 import { renderUsers } from './views/admin-users.js';
@@ -40,6 +41,11 @@ function currentRoute() {
 
 function render() {
   if (!db.initialized) return;
+
+  // R15: azzera il poll del calendario pubblico a ogni navigazione; se la rotta
+  // è davvero il calendario, renderCalendarioPubblico lo riarma. Evita che il
+  // timer display-mode continui a sovrascrivere altre viste dopo il cambio rotta.
+  unmountCalendarioPolling();
 
   const ente = db.getEnte() || db.getEntePublic();
   document.title = ente?.nome ? `${ente.nome} — Gestimus` : 'Gestimus — Gestionale Concorso Musicale';
@@ -214,6 +220,10 @@ function updateHeader() {
     badge.style.borderColor = '';
     logoutBtn.classList.add('hidden');
   }
+
+  // Pulsante 2FA: visibile per ogni utente autenticato (mirrors logout).
+  const securityBtn = $('#security-btn');
+  if (securityBtn) securityBtn.classList.toggle('hidden', logoutBtn.classList.contains('hidden'));
 }
 
 // Apply translations to all [data-i18n] elements in the document
@@ -384,6 +394,8 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
     }
   });
 }
+
+$('#security-btn').addEventListener('click', () => { openAccountSecurity(); });
 
 $('#logout-btn').addEventListener('click', async () => {
   await db.logout(); // invalida la sessione server-side, poi pulisce authStore + role meta
