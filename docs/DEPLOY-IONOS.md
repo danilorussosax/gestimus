@@ -19,7 +19,7 @@ Guida pratica per pubblicare **Gestimus** (stack Fastify + Postgres + Drizzle) s
                         │  resolve subdomain → tenant_id
                         ▼
                   ┌────────────────────────────┐
-                  │  PostgreSQL 16             │  RLS per tabella
+                  │  PostgreSQL 18             │  RLS per tabella
                   │  database "gestimus"       │  app.tenant_id per sessione
                   │  socket /var/run/postgresql│  LISTEN/NOTIFY → SSE
                   └────────────────────────────┘
@@ -83,11 +83,20 @@ Per il certificato **wildcard** TLS:
 ```bash
 ssh root@<IP-VPS>
 
-# Pacchetti di sistema
+# Pacchetti di sistema (senza Postgres: serve PG18, non nei repo Ubuntu 24.04)
 apt update && apt upgrade -y
 apt install -y nginx certbot python3-certbot-dns-ionos \
-  postgresql-16 postgresql-contrib \
   fail2ban ufw git curl ca-certificates
+
+# PostgreSQL 18 dal repo ufficiale PGDG (Ubuntu 24.04 ferma a PG16 nei repo base,
+# ma il backend richiede uuidv7() nativo introdotto in PG18)
+install -d /usr/share/postgresql-common/pgdg
+curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+  -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc
+echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] \
+https://apt.postgresql.org/pub/repos/apt noble-pgdg main" >/etc/apt/sources.list.d/pgdg.list
+apt update
+apt install -y postgresql-18 postgresql-contrib-18
 
 # Node 22 LTS (NodeSource)
 curl -fsSL https://deb.nodesource.com/setup_22.x | bash -
@@ -160,7 +169,7 @@ Certificate is saved at: /etc/letsencrypt/live/gestimus.it/fullchain.pem
 ## Step 6 — PostgreSQL + bootstrap del database
 
 ```bash
-# Postgres 16 è già installato + avviato dall'apt step. Verifica:
+# Postgres 18 è già installato + avviato dall'apt step. Verifica:
 systemctl status postgresql
 
 # Bootstrap ruoli + DB gestimus

@@ -7,7 +7,7 @@
 🇮🇹 Italiano · [🇬🇧 English](README.en.md)
 
 [![CI](https://github.com/danilorussosax/gestimus/actions/workflows/ci.yml/badge.svg)](https://github.com/danilorussosax/gestimus/actions/workflows/ci.yml)
-![Node](https://img.shields.io/badge/Node-24.15%20LTS-339933)
+![Node](https://img.shields.io/badge/Node-22%20LTS-339933)
 ![Fastify](https://img.shields.io/badge/Fastify-5-202020)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-336791)
 ![Drizzle](https://img.shields.io/badge/Drizzle%20ORM-strict%20TS-c5f74f)
@@ -44,8 +44,9 @@ L'architettura è **multitenant nativa**: un singolo backend ospita N enti indip
 - **Permessi fase granulari**: avvio/conclusione/sorteggio/timer di una fase eseguibili sia da admin sia dal presidente della commissione assegnata (`assertCanManageFase` server-side)
 - **Restrizione fasi**: una fase può essere limitata a una o più sezioni specifiche (tracce parallele) o aperta a tutte; al `start` il backend pre-popola `candidati_fase` filtrati per quelle sezioni (idempotente)
 - **Sorteggio ordine** candidati con seed riproducibile (mulberry32)
-- **Risultati**: classifica live, podio, export CSV (RFC 4180 + BOM UTF-8, anti-formula-injection) e PDF protocollo. Firma del presidente della **fase finale** (non del concorso).
+- **Risultati**: classifica live, export CSV (RFC 4180 + BOM UTF-8, anti-formula-injection) e PDF protocollo. Firma del presidente della **fase finale** (non del concorso).
 - **Verbale** con template + tag dinamici (`<concorso>`, `<presidente>`, `<fase_presidente>`, `<fase_classifica>`, ecc.) — le firme nel PDF si stampano solo se il template referenzia esplicitamente tag commissione/commissari E la fase ha commissione assegnata
+- **Calendario / scheduling**: board drag-and-drop a due livelli (eventi × sale) per pianificare candidati e fasi su slot temporali; export PDF del calendario; pagina pubblica dedicata (`calendario-pubblico`) consultabile senza login
 - **Tab Impostazioni concorso** inline (niente più modale "Modifica"): anagrafica, logo, iscrizioni pubbliche, tiebreak default + zona pericolosa con **conferma "type-to-delete"** GitHub-style
 - **Branding ente**: logo + colori + dati di contatto memorizzati in `brandingPublic`/`enteSettings` JSONB; PATCH server merge-style (non overwrite)
 - **Audit log** append-only di tutte le operazioni
@@ -77,6 +78,8 @@ L'architettura è **multitenant nativa**: un singolo backend ospita N enti indip
 - **`valutazioni`** con unique index `(candidato_fase, commissario, criterio)` + clamp voto + freeze su fase CONCLUSA, garantito da trigger DB
 - **`iscrizioni`** con validazione server-side dei consensi GDPR + stato concorso + scadenza
 - **Auth**: session cookie `HttpOnly` `SameSite=Strict`, password Argon2id, no JWT in localStorage
+- **2FA TOTP** opzionale self-service (enroll con QR + codici di recupero) dalla vista *Sicurezza account*; il super-admin può richiederla per gli account del tenant
+- **`audit_log` tamper-evident**: HMAC per riga (catena per-tenant) per rilevare manomissioni; lo scrub GDPR redige le PII storiche e ri-firma le righe
 - **`accounts`** con regola di creazione chiusa (no privilege escalation pubblica) + check anti self-promote del campo `role`
 - **Form pubblico** con honeypot + rate-limit applicativo (oltre al rate-limit nginx in `deploy/nginx-snippet-rl.conf`)
 - **GDPR export/erase** endpoint per-tenant con audit trail
@@ -102,7 +105,7 @@ Italiano (master), Inglese, Francese, Spagnolo. Le chiavi non tradotte ricadono 
                       │   set app.tenant_id (per session)
                       ▼
                 ┌────────────────────────┐
-                │  PostgreSQL 16         │  RLS policy per tabella
+                │  PostgreSQL 18         │  RLS policy per tabella
                 │  database "gestimus"   │  isolamento per tenant_id
                 │   :5432                │  LISTEN/NOTIFY → SSE
                 └────────────────────────┘
@@ -115,7 +118,7 @@ Un **singolo processo Node/Fastify** + un **singolo database Postgres**. La sepa
 - **Frontend**: HTML + JavaScript vanilla (no framework), Tailwind CSS, service worker per PWA
 - **Backend**: Node.js 22 LTS + Fastify 5 + TypeScript strict
 - **ORM**: Drizzle + drizzle-kit migrations
-- **Database**: PostgreSQL 16 con multitenancy logica via Row-Level Security
+- **Database**: PostgreSQL 18 con multitenancy logica via Row-Level Security (`uuidv7()` nativo per le PK time-ordered)
 - **Auth**: session cookie HttpOnly + Argon2id (`@node-rs/argon2`)
 - **Realtime**: Postgres `LISTEN/NOTIFY` + SSE plugin Fastify
 - **Storage**: filesystem locale strutturato per tenant
@@ -128,15 +131,15 @@ Un **singolo processo Node/Fastify** + un **singolo database Postgres**. La sepa
 
 ## Quick start in locale
 
-Richiede macOS o Linux, **Node 22 LTS**, **PostgreSQL 16**.
+Richiede macOS o Linux, **Node 22 LTS**, **PostgreSQL 18** (le PK usano `uuidv7()` nativo, disponibile solo da PG18).
 
 ```bash
 git clone https://github.com/danilorussosax/gestimus.git
 cd gestimus
 
 # 1. Postgres locale (macOS via Homebrew, o usa Docker)
-brew install postgresql@16
-brew services start postgresql@16
+brew install postgresql@18
+brew services start postgresql@18
 createdb gestimus
 
 # 2. Backend
@@ -173,7 +176,7 @@ Schema, ruoli DB, RLS, soft-delete tenant, backup pre-archiviazione e flusso sup
 
 La piattaforma è progettata per girare su una **VPS Linux** dietro nginx + Let's Encrypt wildcard. I componenti minimi:
 
-1. **VPS Ubuntu 24.04** con PostgreSQL 16 + Node 22 LTS
+1. **VPS Ubuntu 24.04** con PostgreSQL 18 + Node 22 LTS
 2. **DNS wildcard** per il dominio (`*.gestimus.it` + root)
 3. **nginx** reverse-proxy `*.gestimus.it → 127.0.0.1:4000` (un solo upstream, non più un processo per ente)
 4. **systemd unit** per il processo Gestimus + variabili `DATABASE_URL_*`, `SESSION_COOKIE_SECRET`, `GESTIMUS_SECRET_KEY`
@@ -190,12 +193,16 @@ gestimus/
 │   ├── app.js                   # router + bootstrap
 │   ├── db.js                    # data layer (client REST verso il backend)
 │   ├── api.js                   # client HTTP tipizzato
-│   ├── i18n.js                  # traduzioni IT/EN/FR/ES
+│   ├── i18n.js                  # loader i18n (fallback chain + langchange event)
+│   ├── i18n/                    # dizionari splittati per lingua: it.js · en.js · fr.js · es.js
 │   ├── scoring.js               # algoritmi calcolo media + suggerimenti
 │   ├── tiebreak.js              # logiche spareggio
+│   ├── calendario-pdf.js        # export PDF del calendario scheduling
 │   ├── icons.js                 # set icone Carbon SVG
 │   └── views/                   # view per ruolo
-│       └── home.js · login.js · iscrizione.js · admin*.js · commissario.js · superadmin.js
+│       ├── home.js · login.js · iscrizione.js · commissario.js · superadmin.js
+│       ├── account-security.js  # 2FA TOTP self-service · calendario-pubblico.js · privacy.js
+│       └── admin/               # dashboard · fasi · candidati · commissari · commissioni · risultati · verbale · calendario · audit · …
 ├── server/                      # backend Fastify + Drizzle
 │   ├── src/
 │   │   ├── db/                  # schema Drizzle + policy RLS (policies.sql)
@@ -203,8 +210,8 @@ gestimus/
 │   │   ├── services/            # auth (Argon2id) · session · storage · email · crypto SMTP
 │   │   ├── middleware/          # tenant resolver (subdomain → tenant_id) + auth guard
 │   │   └── realtime/            # hub SSE + bridge LISTEN/NOTIFY
-│   ├── scripts/                 # bootstrap-db · apply-policies · seed-dev · reset-dev
-│   ├── tests/                   # rls/ · auth/ · crud/ · realtime/ (48 test)
+│   ├── scripts/                 # bootstrap-db · apply-policies · seed-dev · reset-dev · migrations/
+│   ├── tests/                   # rls/ · auth/ · crud/ · realtime/ (~112 test)
 │   ├── drizzle.config.ts
 │   └── package.json
 ├── tests/
@@ -245,6 +252,7 @@ npm run test:e2e         # playwright (richiede server in esecuzione)
 | File | Contenuto |
 |------|-----------|
 | [`docs/MIGRATION_POSTGRES.md`](docs/MIGRATION_POSTGRES.md) | **Architettura tecnica completa** — schema DB, policy RLS, struttura moduli backend, soft-delete tenant con cleanup configurabile, 2FA TOTP, milestone roadmap |
+| [`docs/AUDIT.md`](docs/AUDIT.md) | **Stato sicurezza/hardening** — fotografia corrente + cronologia dei round di audit (voci aperte/chiuse, tamper-evidence, GDPR) |
 | [`docs/LISTINO.md`](docs/LISTINO.md) | **Listino piani commerciali** — documento per i clienti finali |
 | [`docs/DEPLOY-IONOS.md`](docs/DEPLOY-IONOS.md) | **Guida deploy IONOS** per il nuovo stack Fastify + Postgres (systemd single unit, certbot DNS-01, backup PG) |
 | [`docs/manuale-admin.md`](docs/manuale-admin.md) | **Manuale operativo per l'admin di ente** — consultabile in-app da *Admin → Manuale* (TOC sticky, stampa A4 / esportazione PDF). Le immagini referenziate vivono in `docs/screenshots/`. |

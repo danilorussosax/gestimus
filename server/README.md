@@ -2,11 +2,11 @@
 
 Backend di produzione. Per il contesto strategico e il piano di migrazione storico, vedi [`../docs/MIGRATION_POSTGRES.md`](../docs/MIGRATION_POSTGRES.md).
 
-**Status:** stack stabilizzato sul nuovo backend Postgres + Fastify + Drizzle. UI super-admin con metriche realtime. Schema iscrizioni esteso. Permessi per-fase granulari (admin + presidente di commissione).
+**Status:** stack stabilizzato sul nuovo backend Postgres + Fastify + Drizzle. UI super-admin con metriche realtime. Schema iscrizioni esteso. Permessi per-fase granulari (admin + presidente di commissione). 2FA TOTP, calendario/scheduling con board drag-and-drop, audit-log tamper-evident (HMAC per riga).
 
 ## Stack
 
-- PostgreSQL 16 (UUIDv7 via funzione `uuidv7()`)
+- PostgreSQL 18 (UUIDv7 via funzione nativa `uuidv7()`, disponibile da PG18)
 - Node.js 22 LTS
 - Fastify 5 + `@fastify/cookie` + `@fastify/rate-limit` + `@fastify/sensible` + `@fastify/multipart` + `@fastify/static`
 - Drizzle ORM + drizzle-kit
@@ -18,13 +18,15 @@ Backend di produzione. Per il contesto strategico e il piano di migrazione stori
 
 ## Setup locale (prima volta)
 
-### 1. PostgreSQL 16 su macOS
+### 1. PostgreSQL 18 su macOS
+
+> Serve PG18: le PK usano `uuidv7()` **nativo**, che non esiste in PG ≤ 17.
 
 ```bash
-brew install postgresql@16
-brew services start postgresql@16
+brew install postgresql@18
+brew services start postgresql@18
 
-# Aggiungere al PATH (zshrc): export PATH="/opt/homebrew/opt/postgresql@16/bin:$PATH"
+# Aggiungere al PATH (zshrc): export PATH="/opt/homebrew/opt/postgresql@18/bin:$PATH"
 
 # Crea il tuo utente Postgres se non c'è (su macOS Homebrew di solito è automatico):
 psql -d postgres -c "SELECT current_user;"  # deve rispondere senza errori
@@ -135,13 +137,26 @@ curl -c super.txt -H "Host: platform.gestimus.local" -H "Content-Type: applicati
   http://127.0.0.1:4000/auth/login
 ```
 
+### 2FA TOTP
+
+Endpoint sotto `/auth/` (sessione richiesta tranne `login`):
+
+- `POST /auth/login` → se l'account ha il 2FA attivo risponde con `{ totpRequired: true }` (nessun cookie di sessione emesso)
+- `POST /auth/login/verify-totp` → completa il login con il codice TOTP (o un codice di recupero)
+- `POST /auth/totp/setup` → genera secret + otpauth URI (QR) per l'enroll
+- `POST /auth/totp/enable` → conferma con un codice e attiva il 2FA (restituisce i codici di recupero)
+- `POST /auth/totp/disable` → disattiva il 2FA
+
+Implementazione in `src/services/totp.ts`, test in `tests/auth/totp.test.ts`.
+
 ## Test automatici
 
 ```bash
-npm run test:rls       # isolamento tenant via RLS (5 test)
-npm run test:auth      # login/logout/me + cross-tenant guard (9 test)
-npm run test:crud      # smoke E2E CRUD su tutte le entità (5 test)
-npm test               # tutto
+npm run test:rls       # isolamento tenant via RLS (~8 test)
+npm run test:auth      # login/logout/me + cross-tenant guard + TOTP (~15 test)
+npm run test:crud      # CRUD entità + trigger + privacy + calendario + cleanup + platform (~86 test)
+npm run test:realtime  # LISTEN/NOTIFY → SSE (~3 test)
+npm test               # tutto (~112 test)
 ```
 
 ## Endpoint dominio (richiedono auth)
@@ -172,6 +187,8 @@ Tutti i path sono sotto `/api/`. Richiedono cookie di sessione. Mutazioni (POST/
 | Iscrizioni (pubblico) | `GET /api/public/concorsi`, `GET /api/public/concorsi/:id`, `POST /api/public/iscrizioni`, `GET /api/public/iscrizioni/:token/verify` | Form auto-service **senza auth**. Anti-spam: honeypot + min-time-on-page (3s) + rate-limit (3/h per IP). GDPR Art. 8: tutore obbligatorio sotto i 16 anni. Schema esteso: `luogoNascita`, `sesso`, `codiceFiscale`, `indirizzo`, `citta`, `cap`, `provincia`, `paese`, `anniStudio`, `scuolaProvenienza`, `gruppoNome`, `noteLibere`. Validazione cross-concorso + auto-derive sezione dalla categoria. Email verification token generato (placeholder, l'invio email reale viene effettuato quando configurato SMTP del tenant). |
 | Iscrizioni (admin) | `GET /api/iscrizioni`, `POST /api/iscrizioni/:id/approve`, `POST /api/iscrizioni/:id/reject` | Lista filtrabile per concorso/stato. **Approve crea automaticamente il candidato** con numero progressivo e lo collega all'iscrizione. |
 | Platform metrics | `GET /api/platform/system`, `GET /api/platform/runtime` | Solo super-admin. `system` campiona `process.cpuUsage()` su 200ms per restituire CPU% del processo + RSS/heap + uptime. `runtime` aggrega req/min, latency p50/p95, error rate per tenant su sliding window 60s (in memoria, niente persistence). |
+| Calendario (admin) | `/api/calendario/sale`, `/api/calendario/eventi` (+ `:id/genera-slot`, `:id/riordina-slot`), `/api/calendario/pubblicazioni` | Scheduling a due livelli (eventi × sale) + generazione/riordino slot. CRUD solo `role=admin`. `pubblicazioni` controlla cosa è esposto nella pagina pubblica. |
+| Calendario (pubblico) | `GET /api/public/calendario/:token` | Board di pianificazione consultabile **senza auth** via token di pubblicazione (rate-limit 60/min). |
 
 Ogni mutazione produce automaticamente una entry in `audit_log` con `actor_account_id`, `action`, `target_*`, `ip`, `user_agent`.
 
@@ -181,6 +198,7 @@ Ogni mutazione produce automaticamente una entry in `audit_log` con `actor_accou
 - **Freeze fase CONCLUSA**: trigger `trg_freeze_valutazioni` solleva su INSERT/UPDATE/DELETE quando la fase è in stato `CONCLUSA`.
 - **No-resurrection fase**: trigger `trg_fase_no_resurrection` impedisce transizioni `CONCLUSA → IN_CORSO/PIANIFICATA`.
 - **Audit append-only**: `REVOKE UPDATE, DELETE ON audit_log, platform_audit_log FROM gestimus_app` → solo super-admin può cancellare (per finalità GDPR).
+- **Audit tamper-evident**: ogni riga di `audit_log` porta un HMAC (catena per-tenant) calcolato server-side; lo scrub GDPR (`/api/privacy/erase`) redige le PII storiche e **ri-firma** le righe per mantenere la catena verificabile.
 
 ### Permessi granulari per-fase
 
@@ -227,20 +245,22 @@ server/
 │   ├── env.ts              # config con Zod
 │   ├── db/
 │   │   ├── client.ts       # dbApp + dbSuper pools
-│   │   ├── schema.ts       # Drizzle schema TS (24 tabelle)
+│   │   ├── schema.ts       # Drizzle schema TS (28 tabelle)
 │   │   └── policies.sql    # RLS + ruoli + helper function
 │   ├── middleware/
 │   │   ├── tenant.ts             # risoluzione tenant da subdomain + req.dbTx helper
 │   │   ├── auth.ts               # sessione cookie + requireAuth/requireRole
 │   │   └── runtime-metrics.ts    # hook onRequest/onResponse → sliding window per-tenant
-│   ├── routes/                   # 18 plugin Fastify (auth + 17 risorse)
+│   ├── routes/                   # 23 plugin Fastify (auth + risorse di dominio + calendario + platform)
 │   ├── realtime/                 # hub SSE + bridge LISTEN/NOTIFY
 │   └── services/
 │       ├── password.ts     # Argon2id hash/verify
 │       ├── session.ts      # create/validate/invalidate session
+│       ├── totp.ts         # 2FA TOTP: secret, otpauth URI, verify, recovery codes
 │       ├── crypto-smtp.ts  # AES-256-GCM encrypt/decrypt password SMTP
-│       ├── audit.ts        # writeAudit + writePlatformAudit
-│       ├── backup.ts       # snapshot PG → S3-like / locale
+│       ├── email.ts        # invio email via SMTP tenant-aware
+│       ├── audit.ts        # writeAudit + writePlatformAudit + HMAC catena
+│       ├── backup.ts       # snapshot PG in streaming (no OOM) + restore tenant
 │       ├── cleanup.ts      # job cleanup tenant archiviati
 │       └── storage.ts      # save/list/delete file per tenant
 ├── scripts/
@@ -248,10 +268,10 @@ server/
 │   ├── apply-policies.ts   # applica policies.sql
 │   └── seed-dev.ts         # tenant + account demo (con password Argon2)
 └── tests/
-    ├── rls/
-    │   └── isolation.test.ts   # 5 test isolamento cross-tenant
-    └── auth/
-        └── login.test.ts       # 9 test login/logout/me + cross-tenant
+    ├── rls/        # isolation.test.ts — isolamento cross-tenant
+    ├── auth/       # login.test.ts + totp.test.ts
+    ├── crud/       # smoke · routes · triggers · privacy · calendario · cleanup · platform · concurrency · smtp · crypto-smtp · storage
+    └── realtime/   # notify.test.ts — LISTEN/NOTIFY → SSE
 ```
 
 ## Migrations recenti
@@ -261,8 +281,13 @@ Le migrazioni "incrementali" (ALTER TABLE) applicate dopo `db:push` iniziale sta
 ```bash
 ls server/scripts/migrations/
 # 2026_05_22_iscrizioni_extend_fields.sql           — luogoNascita, sesso, CF, indirizzo, ecc.
-# 2026_05_23_valutazioni_voto_numeric.sql           — voto: integer → numeric(5,2)
+# 2026_05_23_valutazioni_voto_numeric.sql (+widen)  — voto: integer → numeric(5,2)
 # 2026_05_23_backfill_candidati_fase_completato.sql — backfill stato COMPLETATO su fasi già CONCLUSE
+# 2026_05_23_calendario_scheduling.sql              — tabelle sale/eventi/slot/pubblicazioni (calendario)
+# 2026_05_23_audit_sig.sql                          — colonna HMAC su audit_log (tamper-evidence)
+# 2026_05_23_candidati_extend_fields.sql · categorie_eta_check.sql · commissari_unique_email.sql
+# 2026_05_23_{perf,fk,constraints}_indexes*.sql     — indici performance + FK + unique partial
+# (elenco completo nella cartella: 17 file ordinati per data)
 ```
 
 Applicazione:
@@ -279,7 +304,9 @@ npm run db:push
 - ✅ **Fase 6**: super-admin UI (gestione enti, soft-delete + cleanup, SMTP, stats, 2FA TOTP)
 - ✅ **Fase 7**: stabilizzazione — permessi per-fase granulari, schema iscrizioni esteso, candidato N:1 sezione/categoria, finalizzazione candidati_fase al conclude, doppia conferma type-to-delete, branding merge JSONB, validazioni cross-concorso, CSV import con tipo gruppo
 - ✅ **Fase 8**: metriche realtime — endpoint `/api/platform/system` (CPU sampling 200ms), `/api/platform/runtime` (sliding window 60s per-tenant), sparkline client + KPI per-tenant
-- **In corso**: invio email reale per verifica iscrizioni (SMTP tenant-aware è pronto, manca solo l'edge `sendMail({to, subject, body})` con il link verifica).
+- ✅ **Fase 9**: hardening + GDPR — 2FA TOTP (`/auth/totp/*`), audit-log tamper-evident (HMAC per riga + ri-firma sullo scrub), export/erase GDPR, backup tenant in streaming + restore disaster-recovery
+- ✅ **Fase 10**: calendario / scheduling — board drag-and-drop a due livelli (eventi × sale), generazione slot, pagina pubblica via token, export PDF
+- **In corso**: invio email reale per verifica iscrizioni (SMTP tenant-aware + `services/email.ts` pronti, in rifinitura il link di verifica).
 
 ## Smoke checklist manuale (Fase 5c)
 
@@ -304,7 +331,3 @@ Dopo `npm run dev`, apri `http://ente1.gestimus.local:4000/` e verifica i flussi
 
 ### Isolamento RLS (sanity check)
 - [ ] Apri tab `ente1.gestimus.local:4000` + altra tab `ente2.gestimus.local:4000` — i dati sono completamente separati anche se condividono lo stesso pool DB
-- **Fase 4**: realtime LISTEN/NOTIFY (timer fase) + storage file upload + email tenant-aware
-- **Fase 5**: frontend adapter `js/db.js`
-- **Fase 6**: super-admin UI (soft-delete + cleanup config + SMTP + stats)
-- **Fase 10**: 2FA TOTP (post-migrazione, toggle UI super-admin)

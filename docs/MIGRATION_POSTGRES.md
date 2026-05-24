@@ -58,7 +58,7 @@ Il driver è eliminare la dipendenza da **script shell SSH** per le operazioni a
 
 ### Razionale delle scelte
 
-- **PostgreSQL 16** vs MySQL: RLS nativa indispensabile per multitenancy logica sicura, `jsonb` con indici GIN per i `criteri` dinamici delle fasi, window functions complete per gli algoritmi di scoring statistici, `LISTEN/NOTIFY` come canale realtime gratis. UUIDv7 ottenuto via funzione PL/pgSQL custom `uuidv7()` (chiavi primarie time-ordered che migliorano insert performance e località cache rispetto a UUIDv4 random).
+- **PostgreSQL 18** vs MySQL: RLS nativa indispensabile per multitenancy logica sicura, `jsonb` con indici GIN per i `criteri` dinamici delle fasi, window functions complete per gli algoritmi di scoring statistici, `LISTEN/NOTIFY` come canale realtime gratis. UUIDv7 ottenuto via la funzione **nativa** `uuidv7()` introdotta in PG18 (chiavi primarie time-ordered che migliorano insert performance e località cache rispetto a UUIDv4 random) — questo è il motivo per cui PG18 è il minimo richiesto.
 - **Drizzle** vs Sequelize/Prisma: query SQL-like leggibili, zero overhead, integrazione naturale con `SET LOCAL` per RLS, schema TypeScript first-class, migrazioni dichiarative.
 - **Fastify** vs Express/Hono: maturità su VPS Node (Hono brilla su edge, qui non serve), ecosistema plugin (rate-limit, cookie, multipart, SSE, helmet) ufficiali e stabili.
 - **Lucia v3** vs custom: session-based con cookie HttpOnly (più sicuro di JWT per app web), integrazione Drizzle, controllo totale (no SaaS dipendency).
@@ -88,7 +88,7 @@ Il driver è eliminare la dipendenza da **script shell SSH** per le operazioni a
                                   └──────┬──────────────┘
                                          │
                                   ┌──────▼──────────────┐
-                                  │  PostgreSQL 16      │
+                                  │  PostgreSQL 18      │
                                   │  (porta 5432, local)│
                                   │  RLS su tutte le    │
                                   │  tabelle dominio    │
@@ -925,7 +925,7 @@ Decisioni già chiuse:
 - ✅ **2FA**: post-migrazione (Fase 10) con toggle UI super-admin per tenant + super-admin stesso
 - ✅ **Soft-delete tenant**: progettato in sezione 17, integrato nel piano da subito
 - ✅ **Comunicazione clienti / maintenance window**: non applicabile (no prod)
-- ✅ **Stack**: PostgreSQL 16 + Node 22 + Fastify 5 + Drizzle + Lucia v3 + TypeScript strict
+- ✅ **Stack**: PostgreSQL 18 + Node 22 + Fastify 5 + Drizzle + sessioni server-side custom (cookie HttpOnly + Argon2id) + TypeScript strict
 
 Residue (non bloccanti per partire):
 - [ ] **Nome subdomain super-admin**: `platform.gestimus.local` per dev. In prod sarà `platform.gestimus.it` o `admin.gestimus.it`?

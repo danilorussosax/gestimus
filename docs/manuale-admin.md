@@ -4,7 +4,7 @@
 > **Data**: 23 maggio 2026
 > **Destinatari**: Amministratori di tenant Gestimus (conservatori, accademie, festival, enti che organizzano concorsi musicali).
 > **Lingua interfaccia**: italiano, inglese, francese, spagnolo (vedi cap. 14).
-> **Stack attuale**: Fastify 5 + PostgreSQL 16 + Drizzle ORM (migrato da PocketBase a maggio 2026).
+> **Stack attuale**: Fastify 5 + PostgreSQL 18 + Drizzle ORM (migrato da PocketBase a maggio 2026).
 
 Questo manuale spiega come configurare e condurre un concorso musicale completo con Gestimus dal punto di vista dell'**amministratore di tenant** (ruolo `admin`). Non è un manuale di installazione: per setup e deploy fare riferimento a `README.md`, `server/README.md` e `docs/DEPLOY-IONOS.md`.
 
@@ -34,7 +34,8 @@ Questo manuale spiega come configurare e condurre un concorso musicale completo 
 13. [Dashboard e statistiche](#13-dashboard-e-statistiche)
 14. [Multi-lingua](#14-multi-lingua)
 15. [Sicurezza e integrità dati](#15-sicurezza-e-integrita-dati)
-16. [FAQ e troubleshooting](#16-faq-e-troubleshooting)
+16. [Calendario e scheduling](#16-calendario-e-scheduling)
+17. [FAQ e troubleshooting](#17-faq-e-troubleshooting)
 
 <!-- page-break -->
 
@@ -61,7 +62,7 @@ Gestimus distingue tre ruoli nella collezione `accounts`:
 ### 1.3 Architettura semplificata
 
 - **Frontend**: applicazione web vanilla JS, SPA con hash-routing (`#/`, `#/admin`, `#/commissario`, `#/iscrizione`). Service worker per PWA e fallback offline; aggiornamenti realtime via Server-Sent Events.
-- **Backend**: singolo processo Node.js 22 + Fastify 5 + Drizzle ORM su PostgreSQL 16. Integrità garantita da middleware (`assertCanManageFase`, `requireAdmin`), trigger DB (`clamp_voto`, freeze fase CONCLUSA) e validazione Zod sulle route REST.
+- **Backend**: singolo processo Node.js 22 + Fastify 5 + Drizzle ORM su PostgreSQL 18. Integrità garantita da middleware (`assertCanManageFase`, `requireAdmin`), trigger DB (`clamp_voto`, freeze fase CONCLUSA) e validazione Zod sulle route REST.
 - **Multitenant**: un solo processo Node + un solo database Postgres condiviso, con isolamento per `tenant_id` via Row-Level Security. Provisioning/sospensione/archiviazione dei tenant interamente dalla UI super-admin (vedi `docs/MIGRATION_POSTGRES.md` per i dettagli).
 
 ![Schermata di login](./screenshots/01-login.png)
@@ -113,6 +114,17 @@ Il reset password **non passa per email**: la collezione `accounts` è gestita d
 | Inserire/modificare voti | — | — | ✓ | ✓ |
 | Modificare voti dopo CONCLUSA | — | — | — | — |
 | Approvare iscrizioni | ✓ | ✓ | — | — |
+
+### 2.5 Sicurezza account — autenticazione a due fattori (2FA)
+
+Ogni utente può proteggere il proprio account con un secondo fattore TOTP (Google Authenticator, Authy, 1Password, ecc.) dalla vista **Sicurezza account**.
+
+1. Aprire *Sicurezza account* (menu account).
+2. Cliccare *Attiva 2FA*: compare un **QR code** (e la chiave in chiaro come fallback) da inquadrare con l'app authenticator.
+3. Inserire il codice a 6 cifre generato dall'app per confermare l'attivazione.
+4. Salvare i **codici di recupero** mostrati una sola volta: servono per accedere se si perde il dispositivo.
+
+Da quel momento il login richiede password **+** codice TOTP. Per disattivare il 2FA serve un codice valido (o un codice di recupero). Il super-admin può richiedere il 2FA per gli account del tenant. Attivazione/disattivazione sono registrate in audit.
 
 <!-- page-break -->
 
@@ -1051,7 +1063,30 @@ Backup quotidiano del database Postgres (logico, `pg_dump`) + filesystem `upload
 
 <!-- page-break -->
 
-## 16. FAQ e troubleshooting
+## 16. Calendario e scheduling
+
+La tab **Calendario** (sidebar admin) permette di pianificare lo svolgimento del concorso su una **board drag-and-drop a due livelli**: gli *eventi* (sessioni/fasi) e le *sale* in cui si svolgono.
+
+### 16.1 Sale ed eventi
+
+- **Sale**: gli spazi fisici (es. *Auditorium*, *Sala A*). Si creano/rinominano/eliminano dalla board.
+- **Eventi**: blocchi temporali collegati a una fase (e opzionalmente a sezione/categoria). Ogni evento occupa una sala in una data/ora.
+
+### 16.2 Slot dei candidati
+
+Per ogni evento si possono **generare gli slot** dei candidati (un turno per candidato) e poi **riordinarli** trascinandoli. L'ordine può seguire il sorteggio della fase o essere sistemato a mano. Gli slot mostrano candidato, sala e orario.
+
+### 16.3 Pubblicazione e pagina pubblica
+
+L'admin decide cosa esporre al pubblico tramite le **pubblicazioni**: si genera un **token** che dà accesso a una pagina pubblica di sola lettura (nessun login), consultabile da candidati e accompagnatori. Si può scegliere se mostrare o meno la commissione. La pagina è raggiungibile all'URL pubblico del calendario con il token generato.
+
+### 16.4 Export PDF
+
+Dalla board si esporta il calendario in **PDF** (giorni × sale, con gli slot dei candidati) per stampa/affissione.
+
+<!-- page-break -->
+
+## 17. FAQ e troubleshooting
 
 ### Il presidente non vede il pulsante "Avvia"
 
