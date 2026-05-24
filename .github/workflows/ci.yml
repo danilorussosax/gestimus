@@ -207,34 +207,25 @@ jobs:
       - name: Verifica chiavi i18n
         run: |
           python3 <<'PY'
-          import re, glob, sys
+          import re, glob, sys, os
           used = set()
           for f in glob.glob('js/**/*.js', recursive=True):
               src = open(f).read()
               for m in re.finditer(r"\bt\(\s*['\"]([^'\"]+)['\"]", src):
                   used.add(m.group(1))
-          i18n = open('js/i18n.js').read()
 
+          # Le traduzioni sono splittate per lingua in js/i18n/<lang>.js
+          # (export const <lang> = { ... }). Il file contiene solo coppie chiave:valore.
           def block_for(lang):
-              m = re.search(r"\b" + lang + r"\s*:\s*\{", i18n)
-              if not m:
-                  return None
-              i = m.end() - 1; depth = 0; start = i
-              while i < len(i18n):
-                  if i18n[i] == '{': depth += 1
-                  elif i18n[i] == '}':
-                      depth -= 1
-                      if depth == 0:
-                          return i18n[start:i+1]
-                  i += 1
-              return None
+              p = f'js/i18n/{lang}.js'
+              return open(p).read() if os.path.exists(p) else None
 
           def keys_of(block):
               return set(km.group(1) for km in re.finditer(r"['\"]([a-zA-Z][a-zA-Z0-9._-]*)['\"]\s*:", block))
 
           it_block = block_for('it')
           if it_block is None:
-              print('::error::it: {} non trovato in js/i18n.js'); sys.exit(1)
+              print('::error::js/i18n/it.js non trovato'); sys.exit(1)
           it_keys = keys_of(it_block)
 
           # (a) chiavi usate ma non definite in IT → error.

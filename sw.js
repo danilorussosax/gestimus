@@ -3,7 +3,7 @@
 // - API (qualunque cosa sotto /api/): network-only (mai cache — i dati sono live).
 // - Navigation fallback: serve index.html dalla cache se offline.
 
-const VERSION = 'gc-v13';
+const VERSION = 'gc-v14';
 const STATIC_CACHE = `static-${VERSION}`;
 // L235: precache completa dei moduli caricati eagerly da app.js + core, così la
 // prima visita OFFLINE non rompe le viste admin/superadmin (prima ne mancavano
@@ -15,6 +15,7 @@ const PRECACHE = [
   // core
   './js/app.js', './js/db.js', './js/api.js', './js/utils.js', './js/pb.js',
   './js/scoring.js', './js/rng.js', './js/tiebreak.js', './js/i18n.js',
+  './js/i18n/it.js', './js/i18n/en.js', './js/i18n/fr.js', './js/i18n/es.js',
   './js/icons.js', './js/palette.js', './js/piani.js', './js/calendario-pdf.js',
   // viste top-level
   './js/views/home.js', './js/views/login.js', './js/views/iscrizione.js',
