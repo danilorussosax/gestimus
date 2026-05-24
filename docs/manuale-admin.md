@@ -1,7 +1,7 @@
 # Manuale Amministratore — Gestimus
 
-> **Versione manuale**: 2.0
-> **Data**: 23 maggio 2026
+> **Versione manuale**: 2.1
+> **Data**: 24 maggio 2026
 > **Destinatari**: Amministratori di tenant Gestimus (conservatori, accademie, festival, enti che organizzano concorsi musicali).
 > **Lingua interfaccia**: italiano, inglese, francese, spagnolo (vedi cap. 14).
 > **Stack attuale**: Fastify 5 + PostgreSQL 18 + Drizzle ORM (migrato da PocketBase a maggio 2026).
@@ -16,6 +16,11 @@ Questo manuale spiega come configurare e condurre un concorso musicale completo 
 > - **Branding ente**: logo + colori + contatti gestiti dalla home (`Impostazioni ente`), salvati in JSONB con merge server-side.
 > - **Voti decimali**: scala ≤ 10 supporta mezzi punti (`numeric(5,2)` lato DB).
 > - **Verbale**: nuovo tag `<fase_presidente>`, firme nel PDF stampate solo se il template referenzia tag commissione/commissari E la fase ha commissione assegnata.
+
+> **Novità v2.1** (24 maggio 2026):
+> - **2FA TOTP** self-service per ogni account (cap. 2.5).
+> - **Import CSV di sezioni e categorie** gerarchico (cap. 4.7).
+> - **Calendario / scheduling**: board drag-and-drop a due livelli + pagina pubblica (cap. 16).
 
 ## Indice
 
@@ -211,6 +216,8 @@ La tab mostra ogni sezione come card con:
 - pulsante *+ Categoria* per aggiungere una nuova categoria alla sezione;
 - pulsante *Copia in…* per replicare le categorie di una sezione in una o più altre sezioni (utile quando archi/fiati hanno la stessa partizione Junior/Senior).
 
+In alto, accanto a *Aggiungi sezione*, c'è il pulsante *Importa CSV* per caricare in blocco sezioni e categorie (vedi 4.7).
+
 ### 4.3 Creare una sezione
 
 1. Tab *Sezioni* → *Aggiungi sezione*.
@@ -235,6 +242,38 @@ La tab mostra ogni sezione come card con:
 Eliminare una sezione richiede conferma e cancella in cascata le categorie figlie. Eliminare una categoria che è già stata usata da candidati la rimuove dal loro tagging.
 
 > **Suggerimento**: prima di eliminare una sezione, verifica con la tab *Risultati* se ci sono fasi con scope su di essa. Le fasi orfane (con `sezioni_ids` puntate a una sezione cancellata) sopravvivono ma diventano "tutte le sezioni" all'atto pratico.
+
+### 4.7 Import CSV di sezioni e categorie
+
+Per popolare in fretta l'intera struttura di un concorso c'è *Sezioni → Importa CSV*. L'import è **gerarchico**: ogni riga rappresenta una categoria appartenente a una sezione.
+
+**Colonne riconosciute** (intestazione obbligatoria sulla prima riga):
+
+| Colonna | Obbligatoria | Note |
+|---|:---:|---|
+| `sezione` | ✓ | Nome della sezione. Si ripete su più righe per raggrupparne le categorie. |
+| `categoria` | — | Nome della categoria. Se vuota, la riga crea solo la sezione. |
+| `descrizione` | — | Descrizione della categoria (o della sezione, se la riga non ha categoria). |
+| `eta_min` | — | Età minima (0–120). |
+| `eta_max` | — | Età massima (0–120, ≥ `eta_min`). |
+
+Esempio:
+
+```csv
+sezione,categoria,descrizione,eta_min,eta_max
+Archi,Junior,Fino a 14 anni,0,14
+Archi,Senior,Dai 15 anni in su,15,
+Fiati,Junior,,0,14
+Pianoforte,,Sezione senza categorie,,
+```
+
+Come funziona:
+
+1. *Importa CSV* → carica un file `.csv`/`.tsv` o incolla il testo. Separatore rilevato in automatico (`,`, `;` o tab); scarica un *template* d'esempio dal pulsante dedicato.
+2. *Analizza* mostra l'anteprima riga per riga (sezione, categoria, descrizione, intervallo età) con lo stato ✓/✗ ed eventuali errori, e una mappatura manuale colonne → campi se le intestazioni non combaciano.
+3. Confermando, il sistema **riusa le sezioni già esistenti** (match per nome, senza distinzione maiuscole/minuscole) e crea solo quelle nuove; lo stesso per le categorie, **saltando i duplicati** per nome all'interno della sezione. Un toast riepiloga `N sezioni e M categorie importate`.
+
+> Note: massimo **500 righe** per import (file più grandi vanno divisi). Le età si possono impostare **solo via import** (il form manuale della categoria non le espone). L'import non crea fasi, commissari o candidati: solo sezioni e categorie.
 
 <!-- page-break -->
 

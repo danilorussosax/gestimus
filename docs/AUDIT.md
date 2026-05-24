@@ -1,8 +1,8 @@
 # Gestimus — Audit di robustezza del codice
 
-> **Data**: 2026-05-23
+> **Data**: 2026-05-24
 > **Branch**: `main` (CI e suite test verdi)
-> **Scope**: frontend vanilla JS (`js/`, ~20.700 LOC) + backend Fastify/Drizzle (`server/src/`, ~7.400 LOC) + 21 route REST + 15 migrazioni SQL.
+> **Scope**: frontend vanilla JS (`js/`, ~23.200 LOC) + backend Fastify/Drizzle (`server/src/`, ~9.400 LOC) + 23 route REST + 17 migrazioni SQL.
 
 Questo documento descrive lo **stato attuale** della robustezza del codice. Le aree sotto riflettono le difese presenti oggi; le voci ancora aperte sono in §9.
 
@@ -17,10 +17,10 @@ Questo documento descrive lo **stato attuale** della robustezza del codice. Le a
 | Concorrenza | 🟢 Alto | Advisory lock + FOR UPDATE + ON CONFLICT + UPDATE condizionati (no TOCTOU), provati da test |
 | Affidabilità runtime | 🟢 Alto | `/readyz` con ping DB, pool error listener, handler globali, shutdown idempotente con timeout, hub realtime auto-recuperante |
 | Performance/scalabilità | 🟢 Alto | Paginazione su tutti i list endpoint, export GDPR e backup tenant in streaming, cache tenant, indici FK |
-| Test coverage | 🟢 Alto | Suite server in CI su Postgres 18 (rls/auth/crud/realtime/concorrenza/route) + unit sul core algoritmico |
-| Manutenibilità | 🟢 Alto | Type-check `checkJs` sul core logico (gate CI), separazione route/service/middleware |
+| Test coverage | 🟢 Alto | Suite server in CI su Postgres 18 (rls/auth incl. 2FA/crud incl. calendario/realtime/concorrenza/route) + unit sul core algoritmico |
+| Manutenibilità | 🟢 Alto | Type-check `checkJs` sul core logico (gate CI), separazione route/service/middleware, i18n splittato per lingua |
 
-**Giudizio**: base solida e ben difesa su tutti gli assi. Il debito residuo è puramente **evolutivo** (split file grandi, type-check esteso a tutto il frontend, lazy-load client), non correttezza né sicurezza, e non blocca l'uso attuale.
+**Giudizio**: base solida e ben difesa su tutti gli assi. Il debito residuo è puramente **evolutivo** (split dei restanti file frontend grandi, type-check esteso a tutto il frontend, lazy-load client), non correttezza né sicurezza, e non blocca l'uso attuale.
 
 ---
 
@@ -92,7 +92,7 @@ Punti critici coperti, provati da test (`tests/crud/concurrency.test.ts`):
 ## 7. Test e CI
 
 - **Unit** (root, `node --test`): 47 test su `scoring.js`/`rng.js`/`tiebreak.js` (media, tiebreak, RNG sorteggio).
-- **Server** (`node --test` + tsx): ~133 test su 13 suite — `rls/isolation`, `auth/login`, `realtime/notify`, `crud/{smoke,triggers,privacy,storage,smtp,crypto-smtp,platform,cleanup,concurrency,routes}`. Coprono RLS, trigger, crypto, concorrenza, route critiche (transizioni fase, permessi, GDPR, ammissione, DELETE concorso, restore backup).
+- **Server** (`node --test` + tsx): ~112 test su 15 suite — `rls/isolation`, `auth/{login,totp}`, `realtime/notify`, `crud/{smoke,triggers,privacy,storage,smtp,crypto-smtp,platform,cleanup,concurrency,calendario,routes}`. Coprono RLS, trigger, crypto, concorrenza, 2FA TOTP, calendario/scheduling, route critiche (transizioni fase, permessi, GDPR, ammissione, DELETE concorso, restore backup).
 - **E2E** (Playwright): 2 spec (smoke, multitenant).
 - **CI**: job `Server tests (Postgres 18)` a ogni push, lint TS/JS, lint bash+shellcheck, validate SQL migrations, i18n coverage, type-check frontend core, audit dimensioni file. Verde su `main`.
 
@@ -102,7 +102,8 @@ Punti critici coperti, provati da test (`tests/crud/concurrency.test.ts`):
 
 - ✅ Codice commentato (il *perché*), separazione route/service/middleware netta, TypeScript strict + Drizzle tipizzato.
 - ✅ `// @ts-check` + job CI `tsc --checkJs` sui moduli di logica pura (scoring/rng/tiebreak).
-- ⚠️ File frontend grandi (`i18n.js`, `db.js`, `views/superadmin.js`, `views/admin/fasi.js`) candidati a split.
+- ✅ `i18n.js` splittato per lingua (`js/i18n/{it,en,fr,es}.js`, loader da 50 LOC) — l'ex-monolite da ~5.200 LOC non c'è più.
+- ⚠️ File frontend grandi residui (`db.js` ~2.100, `views/superadmin.js` ~1.800, `views/admin/fasi.js` ~1.600 LOC) candidati a split.
 - ⚠️ Frontend non interamente type-checked (solo il core algoritmico); il resto è coperto da `node --check` + i18n coverage.
 
 ---
@@ -112,7 +113,7 @@ Punti critici coperti, provati da test (`tests/crud/concurrency.test.ts`):
 | Priorità | Voce | Note |
 |:---:|---|---|
 | Bassa | Lazy-load client per-vista | `db.loadAll` carica tutto in memoria; ok ai volumi attesi, da rivedere per tenant molto grandi (richiede test browser). **Refactor evolutivo, alto rischio.** |
-| Bassa | Split file frontend > 1500 LOC | Manutenibilità (`i18n.js`, `db.js`, `superadmin.js`, `fasi.js`). **Refactor evolutivo.** |
+| Bassa | Split file frontend > 1500 LOC | Manutenibilità: restano `db.js`, `superadmin.js`, `fasi.js` (`i18n.js` già splittato per lingua). **Refactor evolutivo.** |
 | Bassa | Type-check esteso a tutto il frontend | Bug a runtime; oggi solo il core algoritmico è type-checked. **Migrazione evolutiva, ampia.** |
 | Bassa | TODO allegati iscrizione (`iscrizioni.js`) | Funzionalità incompleta. Quando cablata: erase GDPR deve cancellare righe+file, export includerli. |
 
@@ -122,7 +123,7 @@ Punti critici coperti, provati da test (`tests/crud/concurrency.test.ts`):
 > ed edge minori (IDN/Punycode, single-flight cache tenant, SW precache+CDN SWR).
 > Restano solo i refactor architetturali (debito evolutivo, non bloccante).
 
-> ⚠️ **Validazione in browser**: diverse modifiche frontend recenti (motore tiebreak nel ranking, flusso conclude/ammissione, service worker, import CSV, upload foto commissario) sono verificate da typecheck + unit ma **non sono state validate manualmente in browser**. Vanno provate prima di affidarcisi in produzione.
+> ⚠️ **Validazione in browser**: diverse modifiche frontend recenti (motore tiebreak nel ranking, flusso conclude/ammissione, service worker, import CSV candidati/commissari, **import CSV sezioni+categorie**, upload foto commissario, 2FA self-service) sono verificate da typecheck + unit + smoke API ma **non sono state validate manualmente in browser**. Vanno provate prima di affidarcisi in produzione.
 
 ---
 
@@ -171,3 +172,20 @@ Caccia bug con **8 agenti in parallelo** (auth, schema/RLS, route CRUD, GDPR/pla
 **Verifica:** typecheck server pulito · `db:policies` applicato · integrazione **153 pass / 1 skip / 0 fail** (incl. 6 test TOTP) · unit **47/47**.
 
 Voci residue in §9 (CV half-built, i18n EN/FR/ES, export audit Art.15, GET-verify, drift timer, edge minori). ⚠️ I flussi frontend (in particolare il 2FA end-to-end) non sono ancora validati in browser.
+
+---
+
+## 13. Cronologia — Round R16 (2026-05-24)
+
+Lavoro post-R15: refactor di manutenibilità, una feature e allineamento della documentazione. Nessun bug di correttezza/sicurezza aperto.
+
+**Manutenibilità:**
+- **`i18n.js` splittato per lingua** (`js/i18n/{it,en,fr,es}.js` + loader da 50 LOC): chiude la voce §9 sull'ex-monolite da ~5.200 LOC. CI i18n-coverage estesa per controllare la parità su file separati.
+
+**Feature:**
+- **Import CSV di sezioni e categorie** (gerarchico: una riga = categoria sotto una sezione; sezione ripetuta raggruppa le categorie; riga con sola sezione la crea vuota). Riusa la modale di import esistente e i suoi helper (`parseCSV`/`detectCsvSeparator`/`buildHeaderMap`); dedup sezioni/categorie per nome (case-insensitive), validazione età 0–120 + `min ≤ max`, cap 500 righe. `db.createCategoria` esteso per `eta_min/eta_max/ordine` (retro-compatibile).
+
+**Documentazione:**
+- README (IT/EN), `server/README.md`, `manuale-admin.md`, `MIGRATION_POSTGRES.md` allineati: **PostgreSQL 16 → 18** ovunque (lo schema usa `uuidv7()` nativo, disponibile solo da PG18) — corretto anche `DEPLOY-IONOS.md`, che installava `postgresql-16` (avrebbe rotto il `db:push`): ora repo PGDG + `postgresql-18`. Documentati calendario/scheduling, 2FA, audit tamper-evident; conteggi (route 23, migrazioni 17, tabelle 28, test) e struttura aggiornati.
+
+**Verifica:** i18n parità IT/EN/FR/ES (0 chiavi mancanti, 0 chiavi `t()` non definite) · `node --check` su tutti i file toccati · smoke API live di `POST /api/sezioni` + `/api/categorie` (con `etaMin/etaMax`) → 201, dati di test ripuliti. ⚠️ Import sezioni/categorie non ancora provato in browser.
