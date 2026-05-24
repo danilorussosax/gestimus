@@ -111,16 +111,16 @@ Punti critici coperti, provati da test (`tests/crud/concurrency.test.ts`):
 
 | Priorità | Voce | Note |
 |:---:|---|---|
-| Media | Feature CV commissario half-built | Frontend completo (bottone/`openCv`/`patch.cv`) ma nessuna colonna `cv` lato server → `c.cv` sempre `undefined`. Completare il backend (colonna+migrazione+route) o rimuovere il codice CV morto. |
-| Media | i18n EN/FR/ES incomplete | ~185 chiavi mancanti vs IT; il check coverage CI valida solo IT. Estendere il check e colmare le traduzioni. |
-| Media | Export GDPR senza entry `audit_log` della persona (Art.15) | `privacy.ts` esporta accounts/commissari/candidati/iscrizioni ma non le righe audit dell'interessato (l'erase ne reda invece le PII — vedi §3/§11). |
-| Bassa | GET `/public/iscrizioni/:token/verify` con side-effect + `sameSite:lax` | Token nell'URL = capability (non CSRF classico), ma i prefetcher di posta possono auto-verificare. Valutare landing→POST. |
-| Bassa | Timer fase senza sync orologio client-server | Drift visibile in cloud sotto skew del client (`fasi.ts`/`commissario.js`). |
-| Bassa | Edge minori | IDN/Punycode sottodomini, stampede cache tenant a TTL, fingerprint asset CDN nel SW, precache SW incompleta. Tutti a basso impatto sui volumi attesi. |
-| Bassa | Lazy-load client per-vista | `db.loadAll` carica tutto in memoria; ok ai volumi attesi, da rivedere per tenant molto grandi (richiede test browser). |
-| Bassa | Split file frontend > 1500 LOC | Manutenibilità. |
-| Bassa | Type-check esteso a tutto il frontend | Bug a runtime; oggi solo il core algoritmico è type-checked. |
-| Bassa | TODO allegati iscrizione (`iscrizioni.js`) | Funzionalità incompleta. |
+| Bassa | Lazy-load client per-vista | `db.loadAll` carica tutto in memoria; ok ai volumi attesi, da rivedere per tenant molto grandi (richiede test browser). **Refactor evolutivo, alto rischio.** |
+| Bassa | Split file frontend > 1500 LOC | Manutenibilità (`i18n.js`, `db.js`, `superadmin.js`, `fasi.js`). **Refactor evolutivo.** |
+| Bassa | Type-check esteso a tutto il frontend | Bug a runtime; oggi solo il core algoritmico è type-checked. **Migrazione evolutiva, ampia.** |
+| Bassa | TODO allegati iscrizione (`iscrizioni.js`) | Funzionalità incompleta. Quando cablata: erase GDPR deve cancellare righe+file, export includerli. |
+
+> **Round R15 follow-up (2026-05-24)** — chiuse le voci §9 concrete: CV commissario
+> (riscritto come campo testo), i18n EN/FR/ES (parità completa + CI enforcing),
+> export GDPR audit (Art.15), GET-verify→POST, drift timer (offset orologio server),
+> ed edge minori (IDN/Punycode, single-flight cache tenant, SW precache+CDN SWR).
+> Restano solo i refactor architetturali (debito evolutivo, non bloccante).
 
 > ⚠️ **Validazione in browser**: diverse modifiche frontend recenti (motore tiebreak nel ranking, flusso conclude/ammissione, service worker, import CSV, upload foto commissario) sono verificate da typecheck + unit ma **non sono state validate manualmente in browser**. Vanno provate prima di affidarcisi in produzione.
 
