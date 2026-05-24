@@ -95,7 +95,7 @@ Punti critici coperti, provati da test (`tests/crud/concurrency.test.ts`):
 
 - **Unit** (root, `node --test`): 47 test su `scoring.js`/`rng.js`/`tiebreak.js` (media, tiebreak, RNG sorteggio).
 - **Server** (`node --test` + tsx): **154 test / 16 suite** (153 pass, 1 skip preesistente) — `rls/isolation`, `auth/{login,totp}`, `realtime/notify`, `crud/{smoke,triggers,privacy,storage,smtp,crypto-smtp,platform,cleanup,concurrency,calendario,routes}`. Coprono RLS, trigger, crypto, concorrenza, 2FA TOTP, calendario/scheduling, route critiche (transizioni fase, permessi, GDPR, ammissione, DELETE concorso, restore backup).
-- **E2E** (Playwright): 7 spec / 21 test — smoke, multitenant, calendario, **auth, admin-crud, display, iscrizione** (login/logout/sessione, isolamento tenant, CRUD sezione + import CSV, tabellone display, form pubblico anti-bot, calendario read-only).
+- **E2E** (Playwright): 9 spec / 24 test — smoke, multitenant, calendario, auth, admin-crud, display, iscrizione, **fase-flow** (setup fase via API → avvio → classifica in Risultati → conclusione), **gdpr** (export Art.20 + authorization). Coprono login/sessione, isolamento tenant, CRUD, import CSV, tabellone display, form pubblico anti-bot, ciclo di vita fase + render risultati, export GDPR. (La matematica scoring resta sui 47 unit test.)
 - **CI**: job `Server tests (Postgres 18)` a ogni push, lint TS/JS, lint bash+shellcheck, validate SQL migrations, i18n coverage, **type-check di tutto il frontend (`checkJs`)**, audit dimensioni file. Verde su `main`.
 
 ---
