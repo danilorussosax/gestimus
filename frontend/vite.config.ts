@@ -24,7 +24,7 @@ export default defineConfig({
       includeAssets: ['manifest.webmanifest', 'logo.png', 'theme-init.js'],
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,ico,webmanifest}'],
-        maximumFileSizeToCacheInBytes: 1 * 1024 * 1024,
+        maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
         navigateFallback: '/index.html',
         navigateFallbackDenylist: [/^\/api\//, /^\/auth\//, /^\/uploads\//],
         cleanupOutdatedCaches: true,
@@ -131,6 +131,7 @@ export default defineConfig({
           if (id.includes('react-markdown') || id.includes('remark') || id.includes('rehype')) {
             return 'vendor-markdown';
           }
+          if (id.includes('jspdf')) return 'vendor-pdf';
           if (id.includes('framer-motion')) return 'vendor-motion';
           if (id.includes('lucide-react')) return 'vendor-icons';
           if (id.includes('dayjs')) return 'vendor-dayjs';

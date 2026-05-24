@@ -49,6 +49,7 @@ import type { CriterioInput } from '@/api/criteri';
 // Constants
 // ---------------------------------------------------------------------------
 
+// Metodi media — chiavi e descrizioni ESATTE da js/scoring.js (METODI_MEDIA).
 const METODI_MEDIA = [
   {
     key: 'aritmetica',
@@ -58,17 +59,22 @@ const METODI_MEDIA = [
   {
     key: 'olimpica',
     nome: 'Media olimpica',
-    breve: 'Scarta il voto più alto e più basso, fa la media dei restanti.',
+    breve: 'Scarta il voto più alto e il più basso, media aritmetica dei restanti.',
   },
   {
-    key: 'troncata10',
-    nome: 'Media troncata 10%',
-    breve: 'Elimina il 10% estremo superiore e inferiore, fa la media.',
+    key: 'winsorizzata',
+    nome: 'Media winsorizzata',
+    breve: 'Limita gli estremi al secondo valore più alto/basso, poi fa la media aritmetica.',
   },
   {
     key: 'mediana',
     nome: 'Mediana',
-    breve: "Valore centrale dell'insieme dei voti ordinati. Robusta agli outlier.",
+    breve: "Valore in posizione (n+1)/2 dopo l'ordinamento. Robusta agli outlier.",
+  },
+  {
+    key: 'deviazione_std',
+    nome: 'Filtro deviazione standard',
+    breve: 'Scarta i voti oltre 1 deviazione standard dalla media, poi rifà la media.',
   },
 ] as const;
 

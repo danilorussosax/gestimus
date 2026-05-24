@@ -326,8 +326,7 @@ function WorkspaceInner({
                   ? lbl('admin.header.year_short', `${concorso.anno}`).replace('{{anno}}', String(concorso.anno))
                   : '—'}
                 {' · '}
-                {counts.candidati}{' '}
-                {lbl('admin.header.cands_short', 'candidati').replace('{{n}}', String(counts.candidati))}
+                {lbl('admin.header.cands_short', `${counts.candidati} candidati`).replace('{{n}}', String(counts.candidati))}
               </div>
               {counts.commissari === 0 ? (
                 <div className="text-[11px] text-[#b28600] font-medium mt-2 flex items-center gap-1.5">

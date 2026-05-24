@@ -12,6 +12,7 @@ import { Plus, Pencil, Trash2, Copy, Layers } from 'lucide-react';
 
 import { httpErrorMessage } from '@/lib/api';
 import { http } from '@/lib/api';
+import { iconaPerSezione } from '@/lib/sezione-icon';
 import {
   Dialog,
   DialogContent,
@@ -52,21 +53,6 @@ const categoriaSchema = z.object({
 });
 type CategoriaFormValues = z.infer<typeof categoriaSchema>;
 
-// ---------------------------------------------------------------------------
-// Emoji icon per sezione (mirrors iconaPerSezione in common.js)
-// ---------------------------------------------------------------------------
-function iconaPerSezione(nome: string): string {
-  const n = nome.toLowerCase();
-  if (n.includes('piano')) return '🎹';
-  if (n.includes('violin') || n.includes('archi')) return '🎻';
-  if (n.includes('chitar') || n.includes('guitar')) return '🎸';
-  if (n.includes('flauto') || n.includes('fiati')) return '🎶';
-  if (n.includes('canto') || n.includes('voce')) return '🎤';
-  if (n.includes('percus') || n.includes('batteria')) return '🥁';
-  if (n.includes('organo')) return '🎹';
-  if (n.includes('tromba') || n.includes('ottoni')) return '🎺';
-  return '🎵';
-}
 
 // ---------------------------------------------------------------------------
 // SezioneFormDialog
