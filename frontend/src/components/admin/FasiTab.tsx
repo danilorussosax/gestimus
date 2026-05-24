@@ -1,15 +1,22 @@
 // =============================================================================
 // FasiTab — gestione fasi del concorso (admin)
 //
-// Porta js/views/admin/fasi.js su React 19 + TS + TanStack Query + RHF/Zod.
+// Porta js/views/admin/fasi.js su React 19 + TS + TanStack Query.
+// Il form "Nuova/Modifica fase" replica 1:1 la versione vanilla (openFaseForm):
+//   Sezione 1 — Informazioni generali (nome, data prevista)
+//   Sezione 2 — Modalità di esecuzione (scala/tempo/posti card numeriche con
+//               preset, testi esito promosso/eliminato, modo valutazione)
+//   Sezione 3 — Metodo di calcolo della media (5 metodi, banner consigliato)
+//   Sezione 4 — Criteri di valutazione (editor pesi/add/remove, totale live)
+//   Sezione 5 — Restrizione e assegnazione (sezioni-scope multi-select,
+//               commissione assegnata)
+//   Sezione 6 — Regole di rottura della parità (cascata tiebreak override)
+//
 // Layout/classi replicano la sorgente vanilla (c-tile, c-btn, c-tag, c-field,
-// brand/ink palette, design-system classes).
+// brand/ink palette, design-system classes, card numerate).
 // =============================================================================
 
-import { useState, useEffect, useCallback } from 'react';
-import { useForm, useFieldArray, type Resolver } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod/v4';
+import { useState, useEffect, useCallback, useMemo, type ReactNode, type FormEvent } from 'react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -41,42 +48,130 @@ import {
   type FaseRecord,
   type CreateFaseBody,
   type UpdateFaseBody,
+  type TiebreakStep,
 } from '@/api/fasi';
+import { useCriteri, type CriterioInput, type CriterioRecord } from '@/api/criteri';
+import { useSezioni } from '@/api/sezioni';
+import { useCommissioni } from '@/api/commissioni';
+import { useCommissari } from '@/api/commissari';
 import type { FaseStato } from '@/types';
-import type { CriterioInput } from '@/api/criteri';
 
 // ---------------------------------------------------------------------------
-// Constants
+// Constants — testo ESATTO da js/scoring.js (METODI_MEDIA) e js/views/admin/fasi.js
 // ---------------------------------------------------------------------------
 
-// Metodi media — chiavi e descrizioni ESATTE da js/scoring.js (METODI_MEDIA).
-const METODI_MEDIA = [
-  {
-    key: 'aritmetica',
+// Descrittori dei 5 metodi di media. Testo identico a js/scoring.js METODI_MEDIA.
+interface MetodoDescriptor {
+  nome: string;
+  icon: string;
+  breve: string;
+  pro: string;
+  contro: string;
+  consigliata: string;
+}
+
+const METODI_MEDIA: Record<string, MetodoDescriptor> = {
+  aritmetica: {
     nome: 'Media aritmetica',
-    breve: 'Somma dei voti diviso n. Semplice e trasparente.',
+    icon: '∑',
+    breve: 'Somma di tutti i voti diviso il numero di commissari.',
+    pro: 'Usa tutti i dati, semplice e trasparente.',
+    contro: 'Vulnerabile a un singolo outlier (un voto molto alto o molto basso).',
+    consigliata: 'Sempre, se non vuoi correggere statisticamente gli estremi.',
   },
-  {
-    key: 'olimpica',
+  olimpica: {
     nome: 'Media olimpica',
+    icon: '🥇',
     breve: 'Scarta il voto più alto e il più basso, media aritmetica dei restanti.',
+    pro: 'Annulla un singolo outlier per estremo. Standard nei concorsi Olimpici / pattinaggio.',
+    contro: 'Con 3 commissari resta un solo voto utile (n−2 = 1) → poco significativa.',
+    consigliata: 'Da 4 commissari in su.',
   },
-  {
-    key: 'winsorizzata',
+  winsorizzata: {
     nome: 'Media winsorizzata',
+    icon: '✂️',
     breve: 'Limita gli estremi al secondo valore più alto/basso, poi fa la media aritmetica.',
+    pro: 'Attenua gli outlier senza scartarli del tutto, mantiene n dati.',
+    contro: 'Servono almeno 4-5 voti perché il "secondo estremo" sia rappresentativo.',
+    consigliata: 'Da 5 commissari in su.',
   },
-  {
-    key: 'mediana',
-    nome: 'Mediana',
-    breve: "Valore in posizione (n+1)/2 dopo l'ordinamento. Robusta agli outlier.",
+  mediana: {
+    nome: 'Voto mediano',
+    icon: '⊥',
+    breve: 'Valore centrale dei voti ordinati (con n pari, media dei due centrali).',
+    pro: 'Massimamente robusta agli outlier — resiste anche a metà dei voti estremi.',
+    contro: 'Ignora le distanze fra i voti: 7 / 7 / 7 e 5 / 7 / 9 hanno la stessa mediana.',
+    consigliata: 'Robusta per qualsiasi N≥3, particolarmente buona per N piccoli (3–5).',
   },
-  {
-    key: 'deviazione_std',
+  deviazione_std: {
     nome: 'Filtro deviazione standard',
-    breve: 'Scarta i voti oltre 1 deviazione standard dalla media, poi rifà la media.',
+    icon: 'σ',
+    breve: 'Esclude i voti oltre ±2σ dalla media, poi ricalcola la media.',
+    pro: 'Robusta anche con outlier multipli quando il campione è grande.',
+    contro: 'σ stimata su pochi voti (n<7) è instabile, può scartare voti legittimi.',
+    consigliata: 'Solo con almeno 7 commissari, idealmente 10+.',
   },
-] as const;
+};
+
+// suggerisciMetodo — testo identico a js/scoring.js.
+function suggerisciMetodo(nCommissari: number): { metodo: string; motivo: string } {
+  const n = Number(nCommissari) || 0;
+  if (n <= 2) return { metodo: 'aritmetica', motivo: `Con ${n} commissari un filtro statistico non ha abbastanza dati per essere significativo.` };
+  if (n === 3) return { metodo: 'mediana', motivo: 'Con 3 commissari la mediana è la scelta più robusta — non viene influenzata da un singolo voto estremo.' };
+  if (n <= 5) return { metodo: 'olimpica', motivo: `Con ${n} commissari la media olimpica scarta i due estremi e mantiene un numero significativo di voti.` };
+  if (n <= 7) return { metodo: 'mediana', motivo: `Con ${n} commissari la mediana resta la più semplice e robusta.` };
+  if (n <= 12) return { metodo: 'winsorizzata', motivo: `Con ${n} commissari la winsorizzazione attenua gli outlier mantenendo tutti i voti nel calcolo.` };
+  return { metodo: 'deviazione_std', motivo: `Con ${n} commissari la deviazione standard è statisticamente affidabile e identifica voti anomali.` };
+}
+
+// Descrittori delle due modalità di valutazione — identico a MODI_VALUTAZIONE in fasi.js.
+interface ModoDescriptor {
+  icon: string;
+  nome: string;
+  breve: string;
+  scenari: string[];
+  tip: string;
+}
+
+const MODI_VALUTAZIONE: Record<'autonoma' | 'sincrona', ModoDescriptor> = {
+  autonoma: {
+    icon: '👤',
+    nome: 'Valutazione autonoma',
+    breve: 'Ogni commissario procede al proprio ritmo, valutando in sequenza i candidati.',
+    scenari: [
+      'Valutazioni in differita su registrazioni audio/video',
+      'Audizioni dal vivo con commissari indipendenti',
+      'Concorsi con candidati numerosi (sblocca tutti i giurati in parallelo)',
+    ],
+    tip: 'Default consigliato per la maggior parte dei concorsi musicali.',
+  },
+  sincrona: {
+    icon: '🎼',
+    nome: 'Valutazione sincrona',
+    breve: 'Tutta la commissione vota lo stesso candidato in contemporanea. Il presidente gestisce l\'avanzamento.',
+    scenari: [
+      'Audizioni dal vivo con candidato fisicamente presente in sala',
+      'Finali con un solo candidato per volta sul palco',
+      'Fasi con tempo cronometrato e cambio candidato visibile a tutti',
+    ],
+    tip: 'Richiede un presidente di giuria designato per pilotare il flusso.',
+  },
+};
+
+// Cascata tiebreak — STEPS identici a tiebreakStrategyHtml in common.js.
+interface TiebreakStepDef {
+  key: string;
+  icon: string;
+  titolo: string;
+  breve: string;
+}
+
+const TIEBREAK_STEPS: TiebreakStepDef[] = [
+  { key: 'scomposizione', icon: '🧩', titolo: 'Scomposizione del voto', breve: 'Confronta i criteri uno per uno, in ordine di peso decrescente. Vince chi ha la media più alta sul criterio più importante che li differenzia.' },
+  { key: 'presidente', icon: '🎯', titolo: 'Voto del Presidente di giuria', breve: 'Il voto del Presidente diventa decisivo: vince chi ha la media più alta calcolata sui soli voti del Presidente.' },
+  { key: 'eta', icon: '🌱', titolo: 'Criterio anagrafico', breve: 'Vince il candidato più giovane al momento dell\'esibizione. Per i gruppi si usa la media delle date di nascita dei membri.' },
+  { key: 'ex_aequo', icon: '🤝', titolo: 'Ex aequo (extrema ratio)', breve: 'Se nessuna regola precedente risolve la parità, viene dichiarato ex aequo: stessa posizione ai candidati, la posizione successiva non viene assegnata; il premio si divide in parti uguali.' },
+];
 
 const STATO_COLORS: Record<FaseStato, string> = {
   PIANIFICATA: 'bg-slate-100 text-slate-700 border-slate-200',
@@ -84,58 +179,41 @@ const STATO_COLORS: Record<FaseStato, string> = {
   CONCLUSA: 'bg-emerald-100 text-emerald-800 border-emerald-200',
 };
 
-const DEFAULT_CRITERI: CriterioInput[] = [
-  { nome: 'Tecnica', peso: 35 },
-  { nome: 'Interpretazione', peso: 35 },
-  { nome: 'Intonazione', peso: 15 },
-  { nome: 'Musicalità', peso: 15 },
+// Criteri di default in creazione — identici a openFaseForm (peso decimale → %).
+const DEFAULT_CRITERI: CriterioFV[] = [
+  { label: 'Tecnica', key: 'tecnica', peso: 35 },
+  { label: 'Interpretazione', key: 'interpretazione', peso: 35 },
+  { label: 'Intonazione', key: 'intonazione', peso: 15 },
+  { label: 'Musicalità', key: 'musicalita', peso: 15 },
 ];
 
 // ---------------------------------------------------------------------------
-// Zod schema + hand-written form value types
+// Form value types (state-driven, niente RHF/Zod: il form vanilla è imperativo)
 // ---------------------------------------------------------------------------
 
 interface CriterioFV {
-  nome: string;
-  descrizione?: string;
-  peso: number;
+  label: string;
+  key: string;
+  peso: number; // percentuale 0-100
 }
 
 interface FaseFormValues {
   nome: string;
-  ordine: number;
+  dataPrevista: string;
+  scala: number | '';
+  tempoMinuti: number | '';
   ammessi: number | '';
-  dataPrevista?: string;
-  scala: number;
+  testoEsitoPromosso: string;
+  testoEsitoEliminato: string;
   modoValutazione: 'autonoma' | 'sincrona';
   metodoMedia: string;
-  tempoMinuti: number | '';
   criteri: CriterioFV[];
+  sezioniIds: string[];
+  commissioneId: string;
+  // tiebreak: array di {key, enabled} se l'admin ha toccato i toggle, altrimenti null
+  tiebreakStrategy: TiebreakStep[] | null;
+  tiebreakTouched: boolean;
 }
-
-const criterioSchema = z.object({
-  nome: z.string().min(1, 'Etichetta obbligatoria'),
-  descrizione: z.string().optional(),
-  peso: z.preprocess((v) => (v === '' ? 0 : Number(v)), z.number().int().min(0).max(100)),
-});
-
-const faseSchema = z.object({
-  nome: z.string().min(1, 'Nome obbligatorio').max(255),
-  ordine: z.preprocess((v) => Number(v), z.number().int().min(1)),
-  ammessi: z.preprocess(
-    (v) => (v === '' || v === null || v === undefined ? '' : Number(v)),
-    z.union([z.literal(''), z.number().int().min(1)]),
-  ).optional(),
-  dataPrevista: z.string().optional(),
-  scala: z.preprocess((v) => Number(v), z.number().int().min(1).max(1000)),
-  modoValutazione: z.enum(['autonoma', 'sincrona']),
-  metodoMedia: z.string().min(1),
-  tempoMinuti: z.preprocess(
-    (v) => (v === '' || v === null || v === undefined ? '' : Number(v)),
-    z.union([z.literal(''), z.number().int().min(0)]),
-  ).optional(),
-  criteri: z.array(criterioSchema).min(1, 'Almeno un criterio richiesto'),
-});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -158,147 +236,755 @@ function fmtDate(iso: string | null | undefined): string {
   }
 }
 
-function formDefaultsFromFase(fase: FaseRecord | null, nextOrdine: number): FaseFormValues {
-  if (!fase) {
-    return {
-      nome: '',
-      ordine: nextOrdine,
-      ammessi: '',
-      dataPrevista: '',
-      scala: 10,
-      modoValutazione: 'autonoma',
-      metodoMedia: 'aritmetica',
-      tempoMinuti: '',
-      criteri: DEFAULT_CRITERI,
-    };
-  }
+// ---------------------------------------------------------------------------
+// SectionHeader — header sezione numerata (cerchio brand + titolo)
+// ---------------------------------------------------------------------------
+
+function SectionHeader({ num, title, right }: { num: number; title: string; right?: ReactNode }) {
+  return (
+    <header className="flex items-center justify-between gap-2 mb-3 flex-wrap">
+      <div className="flex items-center gap-2">
+        <span className="w-6 h-6 rounded-full bg-brand-100 text-brand-700 text-xs font-bold inline-flex items-center justify-center shrink-0">
+          {num}
+        </span>
+        <h3 className="font-semibold text-slate-900">{title}</h3>
+      </div>
+      {right}
+    </header>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// NumericCard — card numerica con preset (scala / tempo / posti)
+// Replica numericCardHtml.
+// ---------------------------------------------------------------------------
+
+interface NumericCardProps {
+  icon: string;
+  title: string;
+  desc: string;
+  tip: ReactNode;
+  value: string | number;
+  min: number;
+  max: number;
+  suffix?: string | null;
+  presets: { v: string | number; label: string }[];
+  onChange: (v: string | number) => void;
+}
+
+function NumericCard({ icon, title, desc, tip, value, min, max, suffix, presets, onChange }: NumericCardProps) {
+  const isEmpty = value === '' || value == null;
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white p-3 flex flex-col gap-2 hover:shadow-soft transition-shadow">
+      <div className="flex items-center gap-2">
+        <span className="text-xl shrink-0" aria-hidden="true">{icon}</span>
+        <p className="font-semibold text-sm text-slate-900 min-w-0">{title}</p>
+      </div>
+      <p className="text-xs text-slate-600 leading-snug">{desc}</p>
+      <div className="relative">
+        <input
+          type="number"
+          min={min}
+          max={max}
+          value={isEmpty ? '' : value}
+          placeholder="—"
+          onChange={(e) => onChange(e.target.value === '' ? '' : Number(e.target.value))}
+          className={cn('c-input pr-12 text-xl font-bold tabular-nums')}
+        />
+        {suffix && (
+          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-slate-500 pointer-events-none">
+            {suffix}
+          </span>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-1">
+        {presets.map((p) => (
+          <button
+            key={String(p.v)}
+            type="button"
+            onClick={() => onChange(p.v)}
+            className="text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-brand-100 hover:text-brand-800 px-2 py-1 rounded-md transition-colors"
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+      <p className="text-[11px] text-slate-500 leading-snug mt-auto pt-1 border-t border-slate-100">{tip}</p>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// FaseFormDialog
+// ---------------------------------------------------------------------------
+
+interface FaseFormDialogProps {
+  open: boolean;
+  onOpenChange: (v: boolean) => void;
+  concorsoId: string;
+  existing?: FaseRecord;
+  nextOrdine: number;
+  onSaved: () => void;
+}
+
+function buildDefaults(
+  fase: FaseRecord | undefined,
+  criteriExisting: CriterioRecord[] | undefined,
+  suggeritoMetodo: string,
+): FaseFormValues {
+  const criteri: CriterioFV[] =
+    criteriExisting && criteriExisting.length > 0
+      ? criteriExisting.map((c) => ({ label: c.nome, key: '', peso: Number(c.peso) || 0 }))
+      : DEFAULT_CRITERI.map((c) => ({ ...c }));
   return {
-    nome: fase.nome,
-    ordine: fase.ordine,
-    ammessi: fase.ammessi ?? '',
-    dataPrevista: fase.dataPrevista ?? '',
-    scala: fase.scala,
-    modoValutazione: (fase.modoValutazione ?? 'autonoma'),
-    metodoMedia: fase.metodoMedia ?? 'aritmetica',
-    tempoMinuti: fase.tempoMinuti ?? '',
-    criteri: DEFAULT_CRITERI,
+    nome: fase?.nome ?? '',
+    dataPrevista: fase?.dataPrevista ?? '',
+    scala: fase?.scala ?? 10,
+    tempoMinuti: fase?.tempoMinuti ?? 0,
+    ammessi: fase?.ammessi ?? '',
+    testoEsitoPromosso: fase?.testoEsitoPromosso ?? '',
+    testoEsitoEliminato: fase?.testoEsitoEliminato ?? '',
+    modoValutazione: fase?.modoValutazione === 'sincrona' ? 'sincrona' : 'autonoma',
+    metodoMedia: fase?.metodoMedia ?? suggeritoMetodo,
+    criteri,
+    sezioniIds: Array.isArray(fase?.sezioniIds) ? [...fase.sezioniIds] : [],
+    commissioneId: fase?.commissioneId ?? '',
+    tiebreakStrategy: Array.isArray(fase?.tiebreakStrategy) ? fase.tiebreakStrategy : null,
+    tiebreakTouched: Array.isArray(fase?.tiebreakStrategy) && fase.tiebreakStrategy.length > 0,
   };
 }
 
-// ---------------------------------------------------------------------------
-// CriteriEditor
-// ---------------------------------------------------------------------------
+function FaseFormDialog({
+  open,
+  onOpenChange,
+  concorsoId,
+  existing,
+  nextOrdine,
+  onSaved,
+}: FaseFormDialogProps) {
+  const isEdit = !!existing;
+  const qc = useQueryClient();
+  const [saving, setSaving] = useState(false);
 
-interface CriteriEditorProps {
-  value: { nome: string; descrizione?: string; peso: number }[];
-  onChange: (v: { nome: string; descrizione?: string; peso: number }[]) => void;
-  errors?: { nome?: { message?: string }; peso?: { message?: string } }[];
-}
+  // Dati per le sezioni 3 (n. commissari → metodo consigliato) e 5 (scope).
+  const { data: sezioni } = useSezioni(concorsoId);
+  const { data: commissioni } = useCommissioni(concorsoId);
+  const { data: commissari } = useCommissari(concorsoId);
+  const { data: criteriExisting } = useCriteri(existing?.id);
 
-function CriteriEditor({ value, onChange, errors }: CriteriEditorProps) {
-  const totalPeso = value.reduce((s, c) => s + (Number(c.peso) || 0), 0);
+  // Numero di commissari: in edit = membri della commissione assegnata (se c'è),
+  // altrimenti tutti i commissari del concorso (come db.getFaseCommissariIds).
+  const nCommissari = useMemo(() => {
+    const tutti = commissari?.length ?? 0;
+    if (isEdit && existing?.commissioneId) {
+      const comm = commissioni?.find((c) => c.id === existing.commissioneId);
+      if (comm) return comm.commissari.length;
+    }
+    return tutti;
+  }, [commissari, commissioni, isEdit, existing]);
 
-  const update = (idx: number, field: 'nome' | 'peso' | 'descrizione', val: string | number) => {
-    const next = value.map((c, i) => (i === idx ? { ...c, [field]: val } : c));
-    onChange(next);
+  const suggerito = useMemo(() => suggerisciMetodo(nCommissari), [nCommissari]);
+
+  const [values, setValues] = useState<FaseFormValues>(() =>
+    buildDefaults(existing, undefined, suggerito.metodo),
+  );
+
+  // Reset/riempimento quando si apre o cambia la fase / i criteri caricati.
+  useEffect(() => {
+    if (!open) return;
+    setValues(buildDefaults(existing, criteriExisting, suggerito.metodo));
+  }, [open, existing, criteriExisting, suggerito.metodo]);
+
+  const set = <K extends keyof FaseFormValues>(key: K, val: FaseFormValues[K]) =>
+    setValues((p) => ({ ...p, [key]: val }));
+
+  // ── Criteri editor handlers ──────────────────────────────────────────────
+  const totalPeso = values.criteri.reduce((s, c) => s + (Number(c.peso) || 0), 0);
+
+  const updateCriterio = (idx: number, field: keyof CriterioFV, val: string | number) =>
+    setValues((p) => ({
+      ...p,
+      criteri: p.criteri.map((c, i) => (i === idx ? { ...c, [field]: val } : c)),
+    }));
+
+  const addCriterio = () =>
+    setValues((p) => ({ ...p, criteri: [...p.criteri, { label: '', key: '', peso: 0 }] }));
+
+  const removeCriterio = (idx: number) =>
+    setValues((p) => ({
+      ...p,
+      criteri: p.criteri.length > 1 ? p.criteri.filter((_, i) => i !== idx) : p.criteri,
+    }));
+
+  // ── Tiebreak: stato "abilitato" per step ──────────────────────────────────
+  const isInherited = !values.tiebreakStrategy || values.tiebreakStrategy.length === 0;
+  const tbEnabled = (key: string): boolean => {
+    const source = values.tiebreakStrategy;
+    if (!Array.isArray(source)) return true;
+    const row = source.find((s) => s.key === key);
+    return row ? !!row.enabled : true;
+  };
+  const toggleTb = (key: string) => {
+    setValues((p) => {
+      const base: TiebreakStep[] = TIEBREAK_STEPS.map((s) => ({
+        key: s.key,
+        enabled: (() => {
+          const src = p.tiebreakStrategy;
+          if (!Array.isArray(src)) return true;
+          const row = src.find((r) => r.key === s.key);
+          return row ? !!row.enabled : true;
+        })(),
+      }));
+      const next = base.map((s) => (s.key === key ? { ...s, enabled: !s.enabled } : s));
+      return { ...p, tiebreakStrategy: next, tiebreakTouched: true };
+    });
   };
 
-  const add = () => onChange([...value, { nome: '', peso: 0 }]);
+  // ── Submit ─────────────────────────────────────────────────────────────────
+  const onSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    const nome = values.nome.trim();
+    if (!nome) {
+      toast.error('Il nome è obbligatorio');
+      return;
+    }
 
-  const remove = (idx: number) => {
-    if (value.length <= 1) return;
-    onChange(value.filter((_, i) => i !== idx));
+    const scala = Number(values.scala) || 10;
+    const tempoMinuti = Number(values.tempoMinuti) || 0;
+    const ammessi = values.ammessi === '' || values.ammessi == null ? null : Number(values.ammessi);
+    const dataPrevista = values.dataPrevista || null;
+
+    // Criteri: pesi % → int 0-100 (il server normalizza a 100 con largest-remainder).
+    const criteriParsed: CriterioInput[] = values.criteri
+      .map((c, i) => ({
+        nome: c.label.trim(),
+        peso: Math.max(0, Math.min(100, Number(c.peso) || 0)),
+        ordine: i,
+      }))
+      .filter((c) => c.nome);
+
+    if (criteriParsed.length === 0) {
+      toast.error('Almeno un criterio richiesto');
+      return;
+    }
+
+    // Warning soft (non bloccante): somma pesi ≠ 100%.
+    const totPct = Math.round(criteriParsed.reduce((s, c) => s + c.peso, 0));
+    if (totPct !== 100) {
+      const ok = window.confirm(`La somma dei pesi è ${totPct}% (consigliato 100%). Vuoi salvare comunque?`);
+      if (!ok) return;
+    }
+
+    // Tiebreak: salva l'array solo se l'admin ha toccato i toggle, altrimenti null (eredita).
+    let tiebreakStrategy: TiebreakStep[] | null = null;
+    if (values.tiebreakTouched) {
+      tiebreakStrategy = TIEBREAK_STEPS.map((s) => ({ key: s.key, enabled: tbEnabled(s.key) }));
+    }
+
+    const sezioniIds = values.sezioniIds.filter(Boolean);
+    const commissioneId = values.commissioneId || null;
+
+    setSaving(true);
+    try {
+      const common = {
+        nome,
+        ammessi,
+        dataPrevista,
+        scala,
+        modoValutazione: values.modoValutazione,
+        metodoMedia: values.metodoMedia,
+        tempoMinuti,
+        sezioniIds,
+        commissioneId,
+        tiebreakStrategy,
+        testoEsitoPromosso: values.testoEsitoPromosso.trim() || null,
+        testoEsitoEliminato: values.testoEsitoEliminato.trim() || null,
+      };
+
+      if (isEdit && existing) {
+        const body: UpdateFaseBody = common;
+        await updateFase(existing.id, body);
+        await syncCriteri(existing.id, criteriParsed);
+        toast.success('Fase aggiornata');
+      } else {
+        const body: CreateFaseBody = { concorsoId, ordine: nextOrdine, ...common };
+        const created = await createFase(body);
+        await syncCriteri(created.id, criteriParsed);
+        toast.success('Fase creata');
+      }
+
+      await qc.invalidateQueries({ queryKey: FASI_QUERY_KEY(concorsoId) });
+      onSaved();
+      onOpenChange(false);
+    } catch (err) {
+      toast.error(httpErrorMessage(err));
+    } finally {
+      setSaving(false);
+    }
   };
+
+  const metodoConsigliatoNome = METODI_MEDIA[suggerito.metodo]?.nome ?? suggerito.metodo;
 
   return (
-    <div className="space-y-2">
-      {/* Header row */}
-      <div className="grid grid-cols-12 gap-2 items-center px-1">
-        <span className="col-span-5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-          Etichetta
-        </span>
-        <span className="col-span-5 text-[10px] font-bold uppercase tracking-wider text-slate-500">
-          Descrizione (opz.)
-        </span>
-        <span className="col-span-2 text-[10px] font-bold uppercase tracking-wider text-slate-500 text-right">
-          Peso %
-        </span>
-      </div>
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-3xl">
+        <DialogHeader>
+          <DialogTitle>{isEdit ? `Modifica fase: ${existing?.nome}` : 'Nuova fase'}</DialogTitle>
+          <DialogDescription className="sr-only">
+            Configura nome, esecuzione, metodo di media, criteri, scope e regole di spareggio della fase.
+          </DialogDescription>
+        </DialogHeader>
 
-      {value.map((c, idx) => (
-        <div key={idx} className="grid grid-cols-12 gap-2 items-start">
-          <div className="col-span-5">
-            <input
-              type="text"
-              value={c.nome}
-              onChange={(e) => update(idx, 'nome', e.target.value)}
-              placeholder="Tecnica"
-              className={cn('c-input', errors?.[idx]?.nome && 'border-rose-400')}
-            />
-            {errors?.[idx]?.nome && (
-              <p className="text-[10px] text-rose-600 mt-0.5">{errors[idx].nome?.message}</p>
-            )}
-          </div>
-          <div className="col-span-5">
-            <input
-              type="text"
-              value={c.descrizione ?? ''}
-              onChange={(e) => update(idx, 'descrizione', e.target.value)}
-              placeholder="Opzionale"
-              className="c-input"
-            />
-          </div>
-          <div className="col-span-2 flex items-center gap-1">
-            <div className="relative flex-1">
-              <input
-                type="number"
-                min={0}
+        <form onSubmit={onSubmit} className="space-y-6 overflow-y-auto max-h-[76dvh] pr-1">
+          {/* ====== Sezione 1: Generale ====== */}
+          <section>
+            <SectionHeader num={1} title="Informazioni generali" />
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="c-field">
+                <span className="c-field__label">Nome</span>
+                <input
+                  type="text"
+                  required
+                  value={values.nome}
+                  onChange={(e) => set('nome', e.target.value)}
+                  placeholder="Eliminatoria"
+                  autoFocus
+                  className="c-input"
+                />
+              </label>
+              <label className="c-field">
+                <span className="c-field__label">Data prevista</span>
+                <input
+                  type="date"
+                  value={values.dataPrevista}
+                  onChange={(e) => set('dataPrevista', e.target.value)}
+                  className="c-input"
+                />
+              </label>
+            </div>
+          </section>
+
+          {/* ====== Sezione 2: Esecuzione ====== */}
+          <section>
+            <SectionHeader num={2} title="Modalità di esecuzione" />
+
+            {/* Tre card numeriche: scala / tempo / posti */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
+              <NumericCard
+                icon="🎯"
+                title="Scala di voto"
+                desc="Voto massimo che un commissario può assegnare."
+                value={values.scala}
+                min={1}
                 max={100}
-                step={1}
-                value={c.peso}
-                onChange={(e) => update(idx, 'peso', Number(e.target.value))}
-                className={cn('c-input pr-5', errors?.[idx]?.peso && 'border-rose-400')}
+                suffix={null}
+                presets={[
+                  { v: 10, label: '0–10' },
+                  { v: 25, label: '0–25' },
+                  { v: 100, label: '0–100' },
+                ]}
+                onChange={(v) => set('scala', v === '' ? '' : Number(v))}
+                tip={
+                  <>
+                    <strong>10</strong> è lo standard nei conservatori italiani, <strong>100</strong> nei concorsi internazionali.
+                  </>
+                }
               />
-              <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 pointer-events-none">
-                %
-              </span>
+              <NumericCard
+                icon="⏱"
+                title="Tempo per candidato"
+                desc="Minuti previsti per l'esibizione. Attiva un cronometro condiviso."
+                value={values.tempoMinuti}
+                min={0}
+                max={600}
+                suffix="min"
+                presets={[
+                  { v: 0, label: 'Libero' },
+                  { v: 5, label: '5 min' },
+                  { v: 10, label: '10 min' },
+                  { v: 15, label: '15 min' },
+                ]}
+                onChange={(v) => set('tempoMinuti', v === '' ? '' : Number(v))}
+                tip={
+                  <>
+                    <strong>0</strong> = nessun limite cronometrato.
+                  </>
+                }
+              />
+              <NumericCard
+                icon="🏆"
+                title="Posti per la fase successiva"
+                desc="Quanti candidati al massimo passano alla fase seguente."
+                value={values.ammessi}
+                min={0}
+                max={9999}
+                suffix={null}
+                presets={[
+                  { v: '', label: 'Tutti' },
+                  { v: 5, label: 'Top 5' },
+                  { v: 10, label: 'Top 10' },
+                  { v: 20, label: 'Top 20' },
+                ]}
+                onChange={(v) => set('ammessi', v === '' ? '' : Number(v))}
+                tip={
+                  <>
+                    <strong>Vuoto</strong> = tutti gli ammessi dal verdetto della commissione.
+                  </>
+                }
+              />
+            </div>
+
+            {/* Testi custom esito */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+              <label className="c-field">
+                <span className="c-field__label">Testo esito "ammesso"</span>
+                <input
+                  className="c-input"
+                  maxLength={80}
+                  value={values.testoEsitoPromosso}
+                  onChange={(e) => set('testoEsitoPromosso', e.target.value)}
+                  placeholder="es. AMMESSO ALLA SEMIFINALE"
+                />
+                <span className="text-[11px] text-slate-500 mt-1 block">
+                  Testo mostrato nella colonna esito per i candidati ammessi alla fase successiva. Vuoto = default "PROMOSSO".
+                </span>
+              </label>
+              <label className="c-field">
+                <span className="c-field__label">Testo esito "eliminato"</span>
+                <input
+                  className="c-input"
+                  maxLength={80}
+                  value={values.testoEsitoEliminato}
+                  onChange={(e) => set('testoEsitoEliminato', e.target.value)}
+                  placeholder="es. NON AMMESSO"
+                />
+                <span className="text-[11px] text-slate-500 mt-1 block">
+                  Testo mostrato per i non ammessi. Vuoto = default "ELIMINATO".
+                </span>
+              </label>
+            </div>
+
+            {/* Modalità di valutazione: due radio-card */}
+            <p className="c-field__label mb-2 mt-3">Modalità di valutazione</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {(['autonoma', 'sincrona'] as const).map((key) => {
+                const m = MODI_VALUTAZIONE[key];
+                const selected = values.modoValutazione === key;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => set('modoValutazione', key)}
+                    className={cn(
+                      'text-left rounded-xl border bg-white p-3 transition-all hover:shadow-soft flex flex-col gap-2',
+                      selected
+                        ? 'ring-2 ring-brand-500 bg-brand-50/40 border-brand-300'
+                        : 'border-slate-200 hover:border-brand-200',
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-xl shrink-0" aria-hidden="true">{m.icon}</span>
+                        <p className="font-semibold text-sm text-slate-900">{m.nome}</p>
+                      </div>
+                      <span className="text-base text-brand-600 leading-none shrink-0">
+                        {selected ? '●' : '○'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 leading-snug">{m.breve}</p>
+                    <div className="text-[11px] text-slate-500 space-y-0.5 mt-1 pt-2 border-t border-slate-100">
+                      <p className="font-semibold text-slate-700 mb-0.5">Quando usarla:</p>
+                      {m.scenari.map((s) => (
+                        <p key={s} className="flex gap-1.5">
+                          <span className="text-brand-500">·</span>
+                          <span>{s}</span>
+                        </p>
+                      ))}
+                      <p className="text-slate-400 italic mt-1">{m.tip}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* ====== Sezione 3: Metodo di calcolo media ====== */}
+          <section>
+            <SectionHeader
+              num={3}
+              title="Metodo di calcolo della media"
+              right={
+                <div className="text-xs bg-amber-50 text-amber-900 border border-amber-200 rounded-full px-3 py-1 inline-flex items-center gap-1.5">
+                  <span>👥</span>
+                  <span>
+                    <strong>{nCommissari}</strong> commissari {isEdit ? 'su questa fase' : 'nel concorso'}
+                  </span>
+                </div>
+              }
+            />
+            <div className="bg-emerald-50 border border-emerald-200 rounded-xl p-3 mb-3 flex items-start gap-3">
+              <span className="text-lg shrink-0">🎯</span>
+              <div className="text-sm">
+                <p className="font-semibold text-emerald-900">Consigliato: {metodoConsigliatoNome}</p>
+                <p className="text-emerald-800 text-xs mt-0.5">{suggerito.motivo}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+              {Object.entries(METODI_MEDIA).map(([key, m]) => {
+                const isSel = key === values.metodoMedia;
+                const isSug = key === suggerito.metodo;
+                return (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => set('metodoMedia', key)}
+                    className={cn(
+                      'text-left rounded-xl border bg-white p-3 transition-all hover:shadow-soft flex flex-col gap-2',
+                      isSel
+                        ? 'ring-2 ring-brand-500 bg-brand-50/40 border-brand-300'
+                        : 'border-slate-200 hover:border-brand-200',
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-xl shrink-0" aria-hidden="true">{m.icon}</span>
+                        <div className="min-w-0">
+                          <p className="font-semibold text-sm text-slate-900 truncate">{m.nome}</p>
+                          {isSug && (
+                            <span className="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100 border border-emerald-200 px-1.5 py-0.5 rounded-full mt-0.5">
+                              🎯 consigliato
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <span className="text-base text-brand-600 leading-none shrink-0">
+                        {isSel ? '●' : '○'}
+                      </span>
+                    </div>
+                    <p className="text-xs text-slate-600 leading-snug">{m.breve}</p>
+                    <div className="text-[11px] text-slate-500 space-y-0.5 mt-1 pt-2 border-t border-slate-100">
+                      <p>
+                        <span className="font-semibold text-emerald-700">+</span> {m.pro}
+                      </p>
+                      <p>
+                        <span className="font-semibold text-rose-700">−</span> {m.contro}
+                      </p>
+                      <p className="text-slate-400 italic">{m.consigliata}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          {/* ====== Sezione 4: Criteri ====== */}
+          <section>
+            <SectionHeader
+              num={4}
+              title="Criteri di valutazione"
+              right={
+                <p className="text-xs font-mono text-slate-600">
+                  Totale pesi:{' '}
+                  <span className={cn('font-bold', totalPeso === 100 ? 'text-emerald-600' : 'text-amber-600')}>
+                    {totalPeso}%
+                  </span>
+                </p>
+              }
+            />
+            <p className="text-xs text-slate-600 mb-2">
+              Ogni criterio contribuisce alla media finale in base al suo peso. La somma dei pesi dovrebbe essere 100%.
+            </p>
+            <div className="space-y-2">
+              {values.criteri.map((c, i) => (
+                <div key={i} className="grid grid-cols-12 gap-2 items-end">
+                  <label className="col-span-5 c-field">
+                    {i === 0 && <span className="c-field__label">Etichetta</span>}
+                    <input
+                      type="text"
+                      className="c-input"
+                      value={c.label}
+                      onChange={(e) => updateCriterio(i, 'label', e.target.value)}
+                      placeholder="Tecnica"
+                    />
+                  </label>
+                  <label className="col-span-4 c-field">
+                    {i === 0 && <span className="c-field__label">Chiave (opzionale)</span>}
+                    <input
+                      type="text"
+                      className="c-input font-mono text-xs"
+                      value={c.key}
+                      onChange={(e) => updateCriterio(i, 'key', e.target.value)}
+                      placeholder="auto"
+                    />
+                  </label>
+                  <label className="col-span-2 c-field">
+                    {i === 0 && <span className="c-field__label">Peso (%)</span>}
+                    <div className="relative">
+                      <input
+                        type="number"
+                        step={1}
+                        min={0}
+                        max={100}
+                        className="c-input pr-7"
+                        value={c.peso}
+                        onChange={(e) => updateCriterio(i, 'peso', Number(e.target.value))}
+                      />
+                      <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-500 pointer-events-none">
+                        %
+                      </span>
+                    </div>
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => removeCriterio(i)}
+                    className="col-span-1 h-9 text-rose-600 hover:bg-rose-50 rounded-md flex items-center justify-center"
+                    title="Rimuovi"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
             </div>
             <button
               type="button"
-              onClick={() => remove(idx)}
-              disabled={value.length <= 1}
-              className="h-8 w-7 flex items-center justify-center rounded text-rose-600 hover:bg-rose-50 disabled:opacity-30 transition-colors shrink-0"
-              title="Rimuovi criterio"
+              onClick={addCriterio}
+              className="mt-2 text-xs font-medium text-brand-700 hover:text-brand-900 inline-flex items-center gap-1"
             >
-              <Trash2 className="h-3.5 w-3.5" />
+              + Aggiungi criterio
             </button>
-          </div>
-        </div>
-      ))}
+          </section>
 
-      {/* Total + add */}
-      <div className="flex items-center justify-between pt-1 border-t border-slate-200">
-        <button
-          type="button"
-          onClick={add}
-          className="inline-flex items-center gap-1 text-xs font-medium text-brand-700 hover:text-brand-900"
-        >
-          <Plus className="h-3.5 w-3.5" />
-          Aggiungi criterio
-        </button>
-        <span
-          className={cn(
-            'text-xs font-mono font-bold',
-            totalPeso === 100 ? 'text-emerald-600' : 'text-amber-600',
-          )}
-        >
-          Totale: {totalPeso}%
-          {totalPeso !== 100 && (
-            <span className="ml-1 font-normal text-amber-600">(consigliato 100)</span>
-          )}
-        </span>
-      </div>
-    </div>
+          {/* ====== Sezione 5: Restrizione e assegnazione ====== */}
+          <section>
+            <SectionHeader num={5} title="Restrizione e assegnazione" />
+            <div className="space-y-4">
+              {/* Sezioni di scope */}
+              <div>
+                <p className="c-field__label mb-2">Limita ai candidati delle sezioni</p>
+                <p className="text-[11px] text-slate-500 leading-snug mb-2">
+                  Lascia tutto deselezionato per includere <strong>tutti</strong> i candidati del concorso. Selezionando una o più sezioni, solo i candidati che vi appartengono parteciperanno a questa fase: le fasi diventano tracce parallele per sezione.
+                </p>
+                {(sezioni?.length ?? 0) === 0 ? (
+                  <div className="text-xs text-slate-500 italic bg-slate-50 border border-dashed border-slate-200 rounded-lg px-3 py-2">
+                    Nessuna sezione definita. Crea le sezioni dal tab <em>Sezioni</em> per poter scopare le fasi.
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5">
+                    {sezioni?.map((s) => {
+                      const isSel = values.sezioniIds.includes(s.id);
+                      return (
+                        <button
+                          key={s.id}
+                          type="button"
+                          onClick={() =>
+                            set(
+                              'sezioniIds',
+                              isSel
+                                ? values.sezioniIds.filter((id) => id !== s.id)
+                                : [...values.sezioniIds, s.id],
+                            )
+                          }
+                          className={cn(
+                            'text-xs font-medium px-3 py-1.5 rounded-full border transition-colors',
+                            isSel
+                              ? 'bg-brand-600 text-white border-brand-600 hover:bg-brand-700'
+                              : 'bg-white text-slate-700 border-slate-200 hover:border-brand-300 hover:bg-brand-50',
+                          )}
+                        >
+                          {s.nome}
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Commissione assegnata */}
+              <div>
+                <p className="c-field__label mb-2">Commissione assegnata</p>
+                <p className="text-[11px] text-slate-500 leading-snug mb-2">
+                  Una commissione raggruppa commissari + sezioni + categorie. Assegnandone una alla fase, solo i suoi membri valuteranno. Lascia "Nessuna" per usare automaticamente <strong>tutti i commissari del concorso</strong>.
+                </p>
+                <select
+                  className="c-input"
+                  value={values.commissioneId}
+                  onChange={(e) => set('commissioneId', e.target.value)}
+                >
+                  <option value="">— Nessuna (tutti i commissari del concorso)</option>
+                  {commissioni?.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nome} · {c.commissari.length} commissari
+                    </option>
+                  ))}
+                </select>
+                {(commissioni?.length ?? 0) === 0 && (
+                  <p className="text-[11px] text-amber-700 italic mt-1">
+                    Nessuna commissione creata per questo concorso. Crea una commissione dal tab <em>Commissioni</em> per poterla assegnare.
+                  </p>
+                )}
+              </div>
+            </div>
+          </section>
+
+          {/* ====== Sezione 6: Regole di spareggio ====== */}
+          <section>
+            <SectionHeader num={6} title="Regole di rottura della parità" />
+            <div className="space-y-3">
+              {isInherited && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-xs text-amber-900 flex items-center gap-2">
+                  <span>ℹ️</span>
+                  <span>
+                    Questa fase usa la cascata di default del concorso. Modifica i toggle qui sotto per applicare una policy specifica a questa fase.
+                  </span>
+                </div>
+              )}
+              <p className="text-xs text-slate-600">
+                L'ordine della cascata è fisso: si parte dal primo step abilitato e si scende solo se la parità resta. Lascia almeno "Ex aequo" attivo per chiudere casi residui in modo legalmente difendibile.
+              </p>
+              <div className="space-y-2">
+                {TIEBREAK_STEPS.map((s, i) => (
+                  <label
+                    key={s.key}
+                    className="flex items-start gap-3 rounded-xl border border-slate-200 bg-white px-3 py-2.5 hover:border-brand-200 transition cursor-pointer"
+                  >
+                    <input
+                      type="checkbox"
+                      className="mt-1 w-4 h-4"
+                      checked={tbEnabled(s.key)}
+                      onChange={() => toggleTb(s.key)}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="w-6 h-6 rounded-full bg-brand-100 text-brand-700 text-[11px] font-bold inline-flex items-center justify-center">
+                          {i + 1}
+                        </span>
+                        <span className="text-base" aria-hidden="true">{s.icon}</span>
+                        <span className="font-semibold text-sm text-slate-900">{s.titolo}</span>
+                      </div>
+                      <p className="text-[12px] text-slate-600 mt-1 leading-relaxed">{s.breve}</p>
+                    </div>
+                  </label>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          <DialogFooter>
+            <button
+              type="button"
+              className="c-btn c-btn--outline"
+              onClick={() => onOpenChange(false)}
+              disabled={saving}
+            >
+              Annulla
+            </button>
+            <button type="submit" className="c-btn c-btn--primary" disabled={saving}>
+              {saving ? 'Salvataggio…' : isEdit ? 'Salva' : 'Crea'}
+            </button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -361,482 +1047,6 @@ function ConfirmDialog({
 }
 
 // ---------------------------------------------------------------------------
-// SectionHeader — numbered section label (form helper)
-// ---------------------------------------------------------------------------
-
-function SectionHeader({ num, title }: { num: number; title: string }) {
-  return (
-    <div className="flex items-center gap-2 mb-3">
-      <span className="w-6 h-6 rounded-full bg-brand-100 text-brand-700 text-xs font-bold inline-flex items-center justify-center shrink-0">
-        {num}
-      </span>
-      <h3 className="font-semibold text-slate-900">{title}</h3>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// NumericCard — card numerica con preset (scala / tempo / ammessi)
-// ---------------------------------------------------------------------------
-
-interface NumericCardProps {
-  icon: string;
-  title: string;
-  desc: string;
-  tip?: string;
-  value: string | number;
-  min: number;
-  max: number;
-  suffix?: string | null;
-  presets: { v: string | number; label: string }[];
-  onChange: (v: string | number) => void;
-  name: string;
-  error?: string;
-}
-
-function NumericCard({ icon, title, desc, tip, value, min, max, suffix, presets, onChange, name, error }: NumericCardProps) {
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-3 flex flex-col gap-2">
-      <div className="flex items-center gap-2">
-        <span className="text-xl" aria-hidden="true">{icon}</span>
-        <p className="font-semibold text-sm text-slate-900">{title}</p>
-      </div>
-      <p className="text-[11px] text-slate-600 leading-snug">{desc}</p>
-      <div className="relative">
-        <input
-          type="number"
-          name={name}
-          min={min}
-          max={max}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          className={cn('c-input text-lg font-bold tabular-nums', suffix && 'pr-10', error && 'border-rose-400')}
-        />
-        {suffix && (
-          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 pointer-events-none">
-            {suffix}
-          </span>
-        )}
-      </div>
-      {error && <p className="text-[11px] text-rose-600">{error}</p>}
-      {tip && (
-        <p
-          className="text-[11px] text-slate-500 leading-snug"
-          dangerouslySetInnerHTML={{ __html: tip }}
-        />
-      )}
-      <div className="flex gap-1 flex-wrap">
-        {presets.map((p) => (
-          <button
-            key={String(p.v)}
-            type="button"
-            onClick={() => onChange(p.v)}
-            className="text-[11px] font-medium px-2 py-0.5 rounded bg-slate-100 hover:bg-brand-100 hover:text-brand-700 transition-colors"
-          >
-            {p.label}
-          </button>
-        ))}
-      </div>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// FaseFormDialog
-// ---------------------------------------------------------------------------
-
-interface FaseFormDialogProps {
-  open: boolean;
-  onOpenChange: (v: boolean) => void;
-  concorsoId: string;
-  existing?: FaseRecord;
-  nextOrdine: number;
-  onSaved: () => void;
-}
-
-function FaseFormDialog({
-  open,
-  onOpenChange,
-  concorsoId,
-  existing,
-  nextOrdine,
-  onSaved,
-}: FaseFormDialogProps) {
-  const isEdit = !!existing;
-  const qc = useQueryClient();
-  const [saving, setSaving] = useState(false);
-
-  const {
-    register,
-    handleSubmit,
-    control,
-    watch,
-    setValue,
-    reset,
-    formState: { errors },
-  } = useForm<FaseFormValues>({
-    resolver: zodResolver(faseSchema) as unknown as Resolver<FaseFormValues>,
-    defaultValues: formDefaultsFromFase(existing ?? null, nextOrdine),
-  });
-
-  const { fields: _fields, replace } = useFieldArray({ control, name: 'criteri' });
-  const criteriFV = watch('criteri');
-  const modoValutazione = watch('modoValutazione');
-  const metodoMedia = watch('metodoMedia');
-  const scala = watch('scala');
-  const tempoMinuti = watch('tempoMinuti');
-  const ammessi = watch('ammessi');
-
-  useEffect(() => {
-    if (open) {
-      const defaults = formDefaultsFromFase(existing ?? null, nextOrdine);
-      reset(defaults);
-    }
-  }, [open, existing, nextOrdine, reset]);
-
-  const onSubmit = async (values: FaseFormValues) => {
-    setSaving(true);
-    try {
-      const ammesiVal =
-        values.ammessi === '' || values.ammessi === undefined
-          ? null
-          : Number(values.ammessi);
-      const tempoMinutiVal =
-        values.tempoMinuti === '' || values.tempoMinuti === undefined
-          ? null
-          : Number(values.tempoMinuti);
-
-      const criteri: CriterioInput[] = values.criteri.map((c, i) => ({
-        nome: c.nome.trim(),
-        descrizione: c.descrizione?.trim() || undefined,
-        peso: Number(c.peso),
-        ordine: i,
-      }));
-
-      const totalPeso = criteri.reduce((s, c) => s + c.peso, 0);
-      if (totalPeso !== 100) {
-        const proceed = window.confirm(
-          `La somma dei pesi è ${totalPeso}% (consigliato 100%). Continuare comunque?`,
-        );
-        if (!proceed) {
-          setSaving(false);
-          return;
-        }
-      }
-
-      if (isEdit && existing) {
-        const body: UpdateFaseBody = {
-          nome: values.nome.trim(),
-          ordine: values.ordine,
-          ammessi: ammesiVal,
-          dataPrevista: values.dataPrevista || null,
-          scala: values.scala,
-          modoValutazione: values.modoValutazione,
-          metodoMedia: values.metodoMedia,
-          tempoMinuti: tempoMinutiVal,
-        };
-        await updateFase(existing.id, body);
-        if (criteri.length > 0) {
-          await syncCriteri(existing.id, criteri);
-        }
-        toast.success('Fase aggiornata');
-      } else {
-        const body: CreateFaseBody = {
-          concorsoId,
-          nome: values.nome.trim(),
-          ordine: values.ordine,
-          ammessi: ammesiVal,
-          dataPrevista: values.dataPrevista || null,
-          scala: values.scala,
-          modoValutazione: values.modoValutazione,
-          metodoMedia: values.metodoMedia,
-          tempoMinuti: tempoMinutiVal,
-        };
-        const created = await createFase(body);
-        if (criteri.length > 0) {
-          await syncCriteri(created.id, criteri);
-        }
-        toast.success('Fase creata');
-      }
-
-      await qc.invalidateQueries({ queryKey: FASI_QUERY_KEY(concorsoId) });
-      onSaved();
-      onOpenChange(false);
-    } catch (e) {
-      toast.error(httpErrorMessage(e));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>
-            {isEdit ? `Modifica fase: ${existing?.nome}` : 'Nuova fase'}
-          </DialogTitle>
-          {isEdit && (
-            <DialogDescription>
-              Modifica i dettagli e i criteri di valutazione della fase.
-            </DialogDescription>
-          )}
-        </DialogHeader>
-
-        <form
-          onSubmit={(handleSubmit as any)(onSubmit)}
-          className="space-y-6 overflow-y-auto max-h-[76dvh] pr-1"
-        >
-          {/* ── Sezione 1: Informazioni generali ─────────────────────── */}
-          <section>
-            <SectionHeader num={1} title="Informazioni generali" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <label className="c-field">
-                <span className="c-field__label">Nome <span className="text-rose-500">*</span></span>
-                <input
-                  type="text"
-                  {...register('nome')}
-                  placeholder="Eliminatoria"
-                  autoFocus
-                  className={cn('c-input', errors.nome && 'border-rose-400')}
-                />
-                {errors.nome && (
-                  <p className="text-[11px] text-rose-600 mt-0.5">{errors.nome.message}</p>
-                )}
-              </label>
-
-              <label className="c-field">
-                <span className="c-field__label">Data prevista</span>
-                <input
-                  type="date"
-                  {...register('dataPrevista')}
-                  className="c-input"
-                />
-              </label>
-
-              <label className="c-field">
-                <span className="c-field__label">
-                  Ordine <span className="text-rose-500">*</span>
-                </span>
-                <input
-                  type="number"
-                  min={1}
-                  {...register('ordine')}
-                  className={cn('c-input', errors.ordine && 'border-rose-400')}
-                />
-                {errors.ordine && (
-                  <p className="text-[11px] text-rose-600 mt-0.5">{errors.ordine.message}</p>
-                )}
-              </label>
-
-              <label className="c-field">
-                <span className="c-field__label">
-                  Posti fase successiva
-                  <span className="ml-1 text-[11px] text-slate-500 font-normal">(vuoto = tutti)</span>
-                </span>
-                <input
-                  type="number"
-                  min={0}
-                  placeholder="Tutti"
-                  {...register('ammessi')}
-                  className={cn('c-input', errors.ammessi && 'border-rose-400')}
-                />
-                {errors.ammessi && (
-                  <p className="text-[11px] text-rose-600 mt-0.5">
-                    {String(errors.ammessi.message ?? '')}
-                  </p>
-                )}
-              </label>
-            </div>
-          </section>
-
-          {/* ── Sezione 2: Modalità di esecuzione ────────────────────── */}
-          <section>
-            <SectionHeader num={2} title="Modalità di esecuzione" />
-
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
-              <NumericCard
-                icon="🎯"
-                title="Scala di voto"
-                desc="Voto massimo che un commissario può assegnare."
-                tip="<strong>10</strong> è lo standard nei conservatori italiani, <strong>100</strong> nei concorsi internazionali."
-                value={scala ?? 10}
-                min={1}
-                max={1000}
-                suffix={null}
-                name="scala"
-                presets={[
-                  { v: 10, label: '0–10' },
-                  { v: 25, label: '0–25' },
-                  { v: 100, label: '0–100' },
-                ]}
-                onChange={(v) => setValue('scala', Number(v))}
-                error={errors.scala?.message}
-              />
-
-              <NumericCard
-                icon="⏱"
-                title="Tempo per candidato"
-                desc="Minuti previsti per l'esibizione. Attiva un cronometro condiviso."
-                tip="<strong>0</strong> = nessun limite cronometrato."
-                value={tempoMinuti ?? ''}
-                min={0}
-                max={600}
-                suffix="min"
-                name="tempoMinuti"
-                presets={[
-                  { v: '', label: 'Libero' },
-                  { v: 5, label: '5 min' },
-                  { v: 10, label: '10 min' },
-                  { v: 15, label: '15 min' },
-                ]}
-                onChange={(v) => setValue('tempoMinuti', v === '' ? '' : Number(v))}
-              />
-
-              <NumericCard
-                icon="🏆"
-                title="Posti per la fase successiva"
-                desc="Quanti candidati al massimo passano alla fase seguente."
-                tip="<strong>Vuoto</strong> = tutti gli ammessi dal verdetto della commissione."
-                value={ammessi ?? ''}
-                min={0}
-                max={9999}
-                suffix={null}
-                name="ammessi_card"
-                presets={[
-                  { v: '', label: 'Tutti' },
-                  { v: 5, label: 'Top 5' },
-                  { v: 10, label: 'Top 10' },
-                  { v: 20, label: 'Top 20' },
-                ]}
-                onChange={(v) => setValue('ammessi', v === '' ? '' : Number(v))}
-              />
-            </div>
-
-            {/* Modalità valutazione */}
-            <p className="c-field__label mb-2">Modalità di valutazione</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-              {(['autonoma', 'sincrona'] as const).map((modo) => {
-                const isSel = modoValutazione === modo;
-                return (
-                  <button
-                    key={modo}
-                    type="button"
-                    onClick={() => setValue('modoValutazione', modo)}
-                    className={cn(
-                      'text-left rounded-xl border px-3 py-2.5 transition-all flex items-center gap-3',
-                      isSel
-                        ? 'border-brand-300 bg-brand-50/40 ring-2 ring-brand-500'
-                        : 'border-slate-200 hover:border-brand-300 hover:bg-brand-50/30',
-                    )}
-                  >
-                    <span className="text-xl shrink-0" aria-hidden="true">
-                      {modo === 'autonoma' ? '👤' : '🎼'}
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <p className="font-semibold text-sm text-slate-900 capitalize">{modo}</p>
-                      <p className="text-[11px] text-slate-600 leading-snug">
-                        {modo === 'autonoma'
-                          ? 'Ogni commissario vota al proprio ritmo.'
-                          : 'Tutti i commissari votano insieme guidati dal presidente.'}
-                      </p>
-                    </div>
-                    <span className="text-brand-600 text-sm shrink-0" aria-hidden="true">
-                      {isSel ? '●' : '○'}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-
-          {/* ── Sezione 3: Metodo di media ────────────────────────────── */}
-          <section>
-            <SectionHeader num={3} title="Metodo di calcolo della media" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {METODI_MEDIA.map((m) => {
-                const isSel = metodoMedia === m.key;
-                return (
-                  <button
-                    key={m.key}
-                    type="button"
-                    onClick={() => setValue('metodoMedia', m.key)}
-                    className={cn(
-                      'text-left rounded-xl border px-3 py-2.5 transition-all flex flex-col gap-1',
-                      isSel
-                        ? 'border-brand-300 bg-brand-50/40 ring-2 ring-brand-500'
-                        : 'border-slate-200 hover:border-brand-300 hover:bg-brand-50/30',
-                    )}
-                  >
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-sm text-slate-900">{m.nome}</span>
-                      <span className="text-brand-600 text-xs" aria-hidden="true">
-                        {isSel ? '●' : '○'}
-                      </span>
-                    </div>
-                    <p className="text-[11px] text-slate-600 leading-snug">{m.breve}</p>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-
-          {/* ── Sezione 4: Criteri di valutazione ───────────────────── */}
-          <section>
-            <div className="flex items-center justify-between gap-2 mb-3 flex-wrap">
-              <div className="flex items-center gap-2">
-                <span className="w-6 h-6 rounded-full bg-brand-100 text-brand-700 text-xs font-bold inline-flex items-center justify-center shrink-0">
-                  4
-                </span>
-                <h3 className="font-semibold text-slate-900">Criteri di valutazione</h3>
-              </div>
-              <p className="text-xs font-mono text-slate-600">
-                Totale pesi:{' '}
-                <span
-                  className={cn(
-                    'font-bold',
-                    criteriFV.reduce((s, c) => s + (Number(c.peso) || 0), 0) === 100
-                      ? 'text-emerald-600'
-                      : 'text-amber-600',
-                  )}
-                >
-                  {criteriFV.reduce((s, c) => s + (Number(c.peso) || 0), 0)}%
-                </span>
-              </p>
-            </div>
-            <p className="text-xs text-slate-600 mb-2">
-              Ogni criterio contribuisce alla media finale in base al suo peso. La somma dei pesi dovrebbe essere 100%.
-            </p>
-            <CriteriEditor
-              value={criteriFV}
-              onChange={(v) => replace(v)}
-              errors={errors.criteri as { nome?: { message?: string }; peso?: { message?: string } }[]}
-            />
-            {errors.criteri?.root && (
-              <p className="text-xs text-rose-600 mt-1">{errors.criteri.root.message}</p>
-            )}
-          </section>
-
-          <DialogFooter>
-            <button
-              type="button"
-              className="c-btn c-btn--outline"
-              onClick={() => onOpenChange(false)}
-              disabled={saving}
-            >
-              Annulla
-            </button>
-            <button type="submit" className="c-btn c-btn--primary" disabled={saving}>
-              {saving ? 'Salvataggio…' : isEdit ? 'Salva modifiche' : 'Crea fase'}
-            </button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // FaseCard — card singola fase nella lista (stile vanilla faseCardHtml)
 // ---------------------------------------------------------------------------
 
@@ -869,7 +1079,6 @@ function FaseCard({
 
   return (
     <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-soft hover:shadow-md transition-shadow">
-      {/* Title row */}
       <div className="flex items-start justify-between gap-3 flex-wrap">
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
@@ -892,7 +1101,6 @@ function FaseCard({
             )}
           </div>
 
-          {/* Meta row */}
           <div className="mt-1 text-xs text-slate-600 flex flex-wrap gap-x-4 gap-y-1">
             <span>Scala {fase.scala}</span>
             {fase.metodoMedia && <span>Media: {fase.metodoMedia}</span>}
@@ -904,7 +1112,6 @@ function FaseCard({
           </div>
         </div>
 
-        {/* Action icon buttons */}
         <div className="flex items-center gap-2 shrink-0">
           <button
             type="button"
@@ -944,7 +1151,6 @@ function FaseCard({
         </div>
       </div>
 
-      {/* Workflow action buttons */}
       <div className="mt-3 flex flex-wrap gap-2">
         {stato === 'PIANIFICATA' && (
           <button
@@ -1251,14 +1457,17 @@ export function FasiTab({ concorsoId }: { concorsoId: string }) {
       )}
 
       {/* ── Form dialog ───────────────────────────────────────────────── */}
-      <FaseFormDialog
-        open={formDialog.open}
-        onOpenChange={(v) => setFormDialog((p) => ({ ...p, open: v }))}
-        concorsoId={concorsoId}
-        existing={formDialog.existing}
-        nextOrdine={nextOrdine}
-        onSaved={() => setFormDialog({ open: false })}
-      />
+      {formDialog.open && (
+        <FaseFormDialog
+          key={formDialog.existing?.id ?? 'new'}
+          open={formDialog.open}
+          onOpenChange={(v) => setFormDialog((p) => ({ ...p, open: v }))}
+          concorsoId={concorsoId}
+          existing={formDialog.existing}
+          nextOrdine={nextOrdine}
+          onSaved={() => setFormDialog({ open: false })}
+        />
+      )}
 
       {/* ── Confirm dialog ────────────────────────────────────────────── */}
       <ConfirmDialog
