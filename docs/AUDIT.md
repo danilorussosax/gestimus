@@ -41,7 +41,7 @@ Questo documento descrive lo **stato attuale** della robustezza del codice. Le a
 - **Ownership cross-entità**: ogni POST/PUT che referenzia un'altra entità (concorso/sezione/fase/candidato/commissario) verifica l'appartenenza al tenant corrente sotto RLS — le FK garantiscono solo l'esistenza, non l'isolamento. Trigger DB di coerenza tenant anche sulle tabelle figlie (junction, candidati_fase, valutazioni, accounts, commissioni, candidati/iscrizioni con sezione/categoria).
 - **Input**: validazione Zod su tutte le route; error handler globale che non leakka i nomi dei campi interni.
 - **SQL injection**: nessuna interpolazione raw; `inArray`/parametri Drizzle. Canale SSE `LISTEN` validato con whitelist regex.
-- **Auth**: Argon2id, no JWT in localStorage, sessione invalidata su mismatch cross-tenant, rate-limit su login/verify/logout/me, tentativi di login auditati (successo/fallimento).
+- **Auth**: Argon2id, no JWT in localStorage, sessione invalidata su mismatch cross-tenant, rate-limit su login/verify/logout/me, tentativi di login auditati (successo/fallimento). **2FA TOTP** (RFC 6238) opzionale per account: challenge HMAC dopo la password, sessione emessa solo dopo il secondo fattore (codice TOTP o recovery code one-time), setup/disable self-service; cookie ri-emesso sull'auto-refresh della sessione.
 - **Crittografia**: SMTP cifrato AES-GCM (no fallback plaintext), backup cifrati AES-256-GCM at-rest (derivazione chiave unica condivisa con SMTP).
 - **GDPR**: erase completo dei PII su candidati/iscrizioni/commissari/accounts; redazione delle PII (email, ip/userAgent delle proprie azioni) anche dai payload storici dell'`audit_log` della persona, con ri-firma; export con redaction dei segreti.
 - **Tamper-evidence audit**: ogni riga di `audit_log`/`platform_audit_log` ha una firma HMAC-SHA256 del contenuto (chiave non nel DB) → una modifica via accesso diretto al database è rilevabile da `verifyAuditIntegrity`.
@@ -113,10 +113,10 @@ Punti critici coperti, provati da test (`tests/crud/concurrency.test.ts`):
 |:---:|---|---|
 | Media | Feature CV commissario half-built | Frontend completo (bottone/`openCv`/`patch.cv`) ma nessuna colonna `cv` lato server → `c.cv` sempre `undefined`. Completare il backend (colonna+migrazione+route) o rimuovere il codice CV morto. |
 | Media | i18n EN/FR/ES incomplete | ~185 chiavi mancanti vs IT; il check coverage CI valida solo IT. Estendere il check e colmare le traduzioni. |
-| Media | Export GDPR senza entry `audit_log` della persona (Art.15) | `privacy.ts` esporta accounts/commissari/candidati/iscrizioni ma non le righe audit dell'interessato. |
+| Media | Export GDPR senza entry `audit_log` della persona (Art.15) | `privacy.ts` esporta accounts/commissari/candidati/iscrizioni ma non le righe audit dell'interessato (l'erase ne reda invece le PII — vedi §3/§11). |
 | Bassa | GET `/public/iscrizioni/:token/verify` con side-effect + `sameSite:lax` | Token nell'URL = capability (non CSRF classico), ma i prefetcher di posta possono auto-verificare. Valutare landing→POST. |
 | Bassa | Timer fase senza sync orologio client-server | Drift visibile in cloud sotto skew del client (`fasi.ts`/`commissario.js`). |
-| Bassa | Edge minori | IDN/Punycode sottodomini, stampede cache tenant a TTL, fingerprint asset CDN nel SW, precache SW incompleta, collisione slug criteri su diacritici. Tutti a basso impatto sui volumi attesi. |
+| Bassa | Edge minori | IDN/Punycode sottodomini, stampede cache tenant a TTL, fingerprint asset CDN nel SW, precache SW incompleta. Tutti a basso impatto sui volumi attesi. |
 | Bassa | Lazy-load client per-vista | `db.loadAll` carica tutto in memoria; ok ai volumi attesi, da rivedere per tenant molto grandi (richiede test browser). |
 | Bassa | Split file frontend > 1500 LOC | Manutenibilità. |
 | Bassa | Type-check esteso a tutto il frontend | Bug a runtime; oggi solo il core algoritmico è type-checked. |
@@ -147,4 +147,27 @@ Re-analisi esterna (report "R13", 109 voci dichiarate aperte) **verificata sul c
 
 **Verifica:** typecheck server pulito · integrazione 147 pass / 1 skip preesistente · unit 47/47.
 
-Le voci reali residue sono confluite in §9 (CV half-built, i18n EN/FR/ES, export audit GDPR, GET-verify, drift timer + edge minori).
+---
+
+## 12. Cronologia — Round R15 (2026-05-24)
+
+Caccia bug con **8 agenti in parallelo** (auth, schema/RLS, route CRUD, GDPR/platform, infra, frontend core, viste admin, app/PWA), ogni finding ri-verificato sul codice reale. **10 fix immediati** poi **tutti i deferiti risolti**.
+
+**Sicurezza / feature:**
+- **2FA TOTP completo** (RFC 6238 con `node:crypto`, nessuna lib): challenge HMAC al login, `/auth/login/verify-totp` (TOTP o recovery code one-time), setup/enable/disable self-service, frontend (step login i18n 4 lingue + gestione nell'header). Test: vettori RFC + flusso e2e.
+- **Coerenza tenant DB estesa**: trigger su `categorie`/`criteri`/`candidati_membri` (FK NOT NULL non coperte) + coerenza `concorso_id` sulle figlie dirette (sezioni/fasi/commissari/commissioni/candidati/iscrizioni/eventi/sale/calendario_pubblicazioni).
+- **GDPR**: scrub audit dell'erasure ora **ricorsivo** (email annidate/altre chiavi) con ri-firma; tutore obbligatorio per tutti i minori (<18).
+- **Cross-tenant approve bypass**: `iscrizione.approve` ora applica `checkCandidatiLimit` (era saltato → sforamento piano).
+- **PATCH fase CONCLUSA**: bloccata la modifica dei parametri di scoring (riscriveva graduatorie finalizzate).
+- **Invariante role↔commissarioId**, rate-limit GET pubblici, TOCTOU membership candidato-fase, **SSE subscriber leak** su disconnect-durante-subscribe.
+
+**Affidabilità / integrità:**
+- Indici FK (`fasi.commissione_id`, `commissioni.presidente_commissario_id`); `VALIDATE` del CHECK eta categorie; cookie ri-emesso sull'auto-refresh sessione; latch d'errore gzip backup; guard re-entrancy cron; `.close()` transporter SMTP su refresh; TTL 24h bozze iscrizione; M208 (unicità chiavi criteri).
+
+**Frontend:** edit concorso (data ISO→date-only), podio verbale via motore tiebreak + fase finale per ordine-max, poll calendario pubblico (leak inter-vista), SW navigate (`res.ok`), palette gate su authRole, beep timer, preview import, età robusta, doppio-escape i18n.
+
+**Non cambiato (deciso):** login rate-limit per-account (un lockout-by-email è un vettore DoS; per-IP + verify-totp rate-limited è la difesa corretta). Allegati GDPR: latente (nessuna route scrive allegati oggi) → da gestire quando la feature sarà cablata.
+
+**Verifica:** typecheck server pulito · `db:policies` applicato · integrazione **153 pass / 1 skip / 0 fail** (incl. 6 test TOTP) · unit **47/47**.
+
+Voci residue in §9 (CV half-built, i18n EN/FR/ES, export audit Art.15, GET-verify, drift timer, edge minori). ⚠️ I flussi frontend (in particolare il 2FA end-to-end) non sono ancora validati in browser.
