@@ -1,6 +1,8 @@
+import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import { toast } from 'sonner';
 import {
   Trophy,
   Flag,
@@ -12,6 +14,9 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { fetchDashboardCounts } from '@/api/home';
+import { http } from '@/lib/api';
+import { useConcorsi } from '@/api/concorsi';
+import type { Concorso, Fase, Candidato } from '@/types';
 import type { ReactNode } from 'react';
 
 // ─── KPI stat card ────────────────────────────────────────────────────────────
@@ -115,6 +120,56 @@ export default function Home() {
   const showAdmin = hasRole('admin', 'superadmin');
   const showCommissario = hasRole('commissario') || Boolean(user?.commissarioId);
 
+  // Concorsi table (admin only) — mirrors vanilla renderHome's bottom table.
+  const { data: concorsi = [] } = useConcorsi();
+  const { data: allFasi = [] } = useQuery({
+    queryKey: ['tenant-all', 'fasi'],
+    queryFn: () => http.get<Fase[]>('fasi', { limit: 2000 }),
+    staleTime: 30_000,
+    enabled: showAdmin,
+  });
+  const { data: allCandidati = [] } = useQuery({
+    queryKey: ['tenant-all', 'candidati'],
+    queryFn: () => http.get<Candidato[]>('candidati', { limit: 2000 }),
+    staleTime: 30_000,
+    enabled: showAdmin,
+  });
+
+  const fasiByConcorso = useMemo(() => {
+    const m = new Map<string, Fase[]>();
+    for (const f of allFasi) {
+      const arr = m.get(f.concorsoId) ?? [];
+      arr.push(f);
+      m.set(f.concorsoId, arr);
+    }
+    return m;
+  }, [allFasi]);
+
+  const candidatiCount = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const c of allCandidati) m.set(c.concorsoId, (m.get(c.concorsoId) ?? 0) + 1);
+    return m;
+  }, [allCandidati]);
+
+  // Entra nell'amministrazione di un concorso (riga tabella → /admin?c=ID).
+  const openConcorso = (id: string) => {
+    if (!showAdmin) {
+      toast.error(t('home.role.forbidden'));
+      return;
+    }
+    void navigate(`/admin?c=${encodeURIComponent(id)}`);
+  };
+
+  const faseTagClass = (stato: Fase['stato']) =>
+    stato === 'IN_CORSO'
+      ? 'c-tag c-tag--blue'
+      : stato === 'CONCLUSA'
+        ? 'c-tag c-tag--gray c-tag--no-dot'
+        : 'c-tag c-tag--yellow';
+
+  const statoTagClass = (stato: Concorso['stato']) =>
+    stato === 'ATTIVO' ? 'c-tag c-tag--green' : 'c-tag c-tag--gray c-tag--no-dot';
+
   return (
     <section className="view-fade">
 
@@ -195,6 +250,61 @@ export default function Home() {
           <div className="c-tile c-tile--padded mb-6">
             <p className="text-sm text-muted-foreground">{t('home.role.forbidden')}</p>
           </div>
+        )}
+
+        {/* Concorsi table (admin) — click a row to enter that concorso's admin */}
+        {showAdmin && concorsi.length > 0 && (
+          <>
+            <h2 className="text-[11px] font-mono font-medium uppercase tracking-[0.16em] text-muted-foreground mb-3">
+              {t('home.concorsi.heading')}
+            </h2>
+            <div className="c-tile" style={{ padding: 0, overflow: 'hidden' }}>
+              <table className="c-table">
+                <thead>
+                  <tr>
+                    <th>{t('home.concorsi.col_nome')}</th>
+                    <th className="hidden md:table-cell">{t('home.concorsi.col_anno')}</th>
+                    <th className="hidden md:table-cell">{t('home.concorsi.col_candidati')}</th>
+                    <th>{t('home.concorsi.col_fasi')}</th>
+                    <th>{t('home.concorsi.col_stato')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {concorsi.map((c) => {
+                    const fs = fasiByConcorso.get(c.id) ?? [];
+                    return (
+                      <tr
+                        key={c.id}
+                        onClick={() => openConcorso(c.id)}
+                        className="cursor-pointer hover:bg-brand-50/50 transition-colors"
+                        title={t('admin.selector.open')}
+                      >
+                        <td><span className="font-medium">{c.nome}</span></td>
+                        <td className="hidden md:table-cell">{c.anno ?? '—'}</td>
+                        <td className="hidden md:table-cell">{candidatiCount.get(c.id) ?? 0}</td>
+                        <td>
+                          <div className="flex flex-wrap gap-1.5">
+                            {fs.length > 0 ? (
+                              fs.map((f) => (
+                                <span key={f.id} className={faseTagClass(f.stato)}>
+                                  {f.nome}
+                                </span>
+                              ))
+                            ) : (
+                              <span className="text-xs text-muted-foreground">—</span>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          <span className={statoTagClass(c.stato)}>{c.stato}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
 
       </div>

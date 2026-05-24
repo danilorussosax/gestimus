@@ -1,4 +1,5 @@
-import { Link, useSearchParams } from 'react-router-dom';
+import { useEffect } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   LayoutDashboard,
@@ -22,7 +23,7 @@ import {
   BookOpen,
 } from 'lucide-react';
 
-import { useActiveConcorso } from '@/api/concorsi';
+import { useActiveConcorso, useConcorso } from '@/api/concorsi';
 import { ConcorsoSelector } from '@/components/admin/ConcorsoSelector';
 import { FasiTab } from '@/components/admin/FasiTab';
 import { CandidatiTab } from '@/components/admin/CandidatiTab';
@@ -188,17 +189,36 @@ function DashboardPlaceholder() {
 // Main component
 // ---------------------------------------------------------------------------
 
-/** Workspace admin: sidebar + tab di gestione concorso (layout vanilla replica). */
+/** Workspace admin: sidebar + tab di gestione concorso (layout vanilla replica).
+ *
+ * Source of truth = URL `?c=<concorsoId>`:
+ *   • assente  → mostra la LISTA dei concorsi (ConcorsoSelector)
+ *   • presente → entra nel workspace di quel concorso
+ *   • `?tab=`  → seleziona la tab (convive con `?c=`)
+ *
+ * `useActiveConcorso` viene usato SOLO per ricordare l'ultima scelta (comodità).
+ */
 export default function AdminWorkspace() {
   const { t } = useTranslation();
-  const { activeId, setActiveId, activeConcorso } = useActiveConcorso();
-  // Tab attivo da URL (?tab=) così i deep-link (es. card della dashboard,
-  // /admin?tab=fasi) selezionano la tab giusta.
+  const navigate = useNavigate();
+  const { setActiveId } = useActiveConcorso();
+
   const [searchParams, setSearchParams] = useSearchParams();
+  const concorsoId = searchParams.get('c');
   const tabParam = searchParams.get('tab');
+
+  // Concorso del workspace risolto dal param `?c=` (fonte di verità).
+  const { data: concorso, isLoading } = useConcorso(concorsoId);
+
+  // Ricorda l'ultima scelta nel localStorage (comodità, NON decide la vista).
+  useEffect(() => {
+    if (concorsoId) setActiveId(concorsoId);
+  }, [concorsoId, setActiveId]);
+
   const activeTab: TabId = TABS.some((tb) => tb.id === tabParam)
     ? (tabParam as TabId)
     : 'dashboard';
+
   const setActiveTab = (tb: TabId) => {
     setSearchParams(
       (prev) => {
@@ -210,22 +230,40 @@ export default function AdminWorkspace() {
     );
   };
 
+  // Entra in un concorso → naviga a /admin?c=ID (atterra sempre su dashboard).
+  const enterConcorso = (id: string) => {
+    setActiveId(id);
+    void navigate(`/admin?c=${encodeURIComponent(id)}`);
+  };
+
+  // Torna alla lista → /admin (rimuove ?c e ?tab).
+  const backToList = () => { void navigate('/admin'); };
+
   const lbl = (key: string, fallback: string) => {
     const v = t(key);
     return v === key ? fallback : v;
   };
 
-  // If no active concorso, show selector
-  if (!activeId || !activeConcorso) {
-    return <ConcorsoSelector />;
+  // Nessun concorso scelto nell'URL → mostra la LISTA (landing admin).
+  if (!concorsoId) {
+    return <ConcorsoSelector onPick={enterConcorso} />;
+  }
+
+  // `?c=` presente ma concorso non ancora risolto.
+  if (isLoading || !concorso) {
+    // Se il fetch fallisce/non trova nulla mostriamo comunque la lista.
+    if (!isLoading && !concorso) {
+      return <ConcorsoSelector onPick={enterConcorso} />;
+    }
+    return null;
   }
 
   return <WorkspaceInner
-    concorsoId={activeId}
-    concorso={activeConcorso}
+    concorsoId={concorsoId}
+    concorso={concorso}
     activeTab={activeTab}
     setActiveTab={setActiveTab}
-    setActiveId={setActiveId}
+    backToList={backToList}
     lbl={lbl}
   />;
 }
@@ -239,7 +277,7 @@ interface WorkspaceInnerProps {
   concorso: { nome: string; anno: number | null; stato: string; anonimo: boolean };
   activeTab: TabId;
   setActiveTab: (t: TabId) => void;
-  setActiveId: (id: string | null) => void;
+  backToList: () => void;
   lbl: (key: string, fallback: string) => string;
 }
 
@@ -248,7 +286,7 @@ function WorkspaceInner({
   concorso,
   activeTab,
   setActiveTab,
-  setActiveId,
+  backToList,
   lbl,
 }: WorkspaceInnerProps) {
   const counts = useCounts(concorsoId);
@@ -363,17 +401,21 @@ function WorkspaceInner({
             <div className="px-4 pb-4 flex flex-col gap-2">
               <button
                 type="button"
-                onClick={() => setActiveId(null)}
+                onClick={backToList}
                 className="c-btn c-btn--ghost c-btn--sm !justify-start !gap-2"
                 style={{ color: '#525252' }}
               >
                 <RefreshCw size={14} />
                 <span>{lbl('admin.concorso.change', 'Cambia concorso')}</span>
               </button>
-              <Link to="/admin/nuovo-concorso" className="c-btn c-btn--primary c-btn--sm !justify-start !gap-2">
+              <button
+                type="button"
+                onClick={backToList}
+                className="c-btn c-btn--primary c-btn--sm !justify-start !gap-2"
+              >
                 <Plus size={14} />
                 <span>{lbl('admin.concorso.new', 'Nuovo concorso')}</span>
-              </Link>
+              </button>
             </div>
 
           </div>
@@ -385,7 +427,7 @@ function WorkspaceInner({
           {/* Back to concorsi breadcrumb */}
           <button
             type="button"
-            onClick={() => setActiveId(null)}
+            onClick={backToList}
             className="inline-flex items-center gap-1.5 text-sm text-ink-700 hover:text-ink-900 hover:bg-brand-50 px-2 py-1 rounded-md mb-4 -ml-2 transition-colors"
           >
             <ArrowLeft size={14} />
