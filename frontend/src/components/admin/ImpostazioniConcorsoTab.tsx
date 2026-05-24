@@ -427,13 +427,18 @@ export function ImpostazioniConcorsoTab({ concorsoId }: { concorsoId: string }) 
       const patch: Record<string, unknown> = {
         nome,
         anno: Number(form.anno),
-        dataInizio: form.dataInizio || null,
         stato: form.stato,
         anonimo: form.anonimo,
         iscrizioniAperte: form.iscrizioniAperte,
-        // N45: column is date-only — send date portion to avoid TZ drift near midnight
-        iscrizioniScadenza: form.iscrizioniChiusura ? form.iscrizioniChiusura.slice(0, 10) : '',
       };
+      // Date opzionali: il backend si aspetta una stringa data valida o nulla
+      // l'omissione del campo — MAI null o '' (zod le rifiuta). Quindi le
+      // includiamo solo quando valorizzate.
+      if (form.dataInizio) patch.dataInizio = form.dataInizio;
+      // N45: colonna date-only — invia solo la porzione data (evita TZ drift).
+      if (form.iscrizioniChiusura) {
+        patch.iscrizioniScadenza = form.iscrizioniChiusura.slice(0, 10);
+      }
 
       // tbTouched: only send defaultTiebreakStrategy if admin actually touched the toggles
       if (form.tbTouched) {

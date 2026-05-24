@@ -35,7 +35,8 @@ import {
   type CategoriaRecord,
 } from '@/api/categorie';
 import { candidatiApi } from '@/api/candidati';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import ImportCsvDialog from '@/components/admin/ImportCsvDialog';
 
 // ---------------------------------------------------------------------------
 // Zod schemas
@@ -649,6 +650,7 @@ function SezioneCard({
 export default function SezioniTab({ concorsoId }: { concorsoId: string }) {
   const { data: sezioni, isLoading, isError } = useSezioni(concorsoId);
   const deleteSezione = useDeleteSezione(concorsoId);
+  const qc = useQueryClient();
 
   // Candidati list — used for counts per sezione and per categoria
   const { data: candidati } = useQuery({
@@ -679,6 +681,7 @@ export default function SezioniTab({ concorsoId }: { concorsoId: string }) {
     open: boolean;
     fromSezione?: SezioneRecord;
   }>({ open: false });
+  const [importCsvOpen, setImportCsvOpen] = useState(false);
 
   // Delete confirms — mirrors confirmDialog({ danger: true })
   const [delSezConfirm, setDelSezConfirm] = useState<{ open: boolean; sezione?: SezioneRecord }>({
@@ -742,6 +745,13 @@ export default function SezioniTab({ concorsoId }: { concorsoId: string }) {
           Sezioni &amp; Categorie
         </h3>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setImportCsvOpen(true)}
+            className="text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 px-3.5 py-2 rounded-lg"
+            title="Importazione massiva da CSV"
+          >
+            Importa CSV
+          </button>
           <button
             onClick={() => setSezDialog({ open: true })}
             className="text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 px-3.5 py-2 rounded-lg shadow-sm"
@@ -833,6 +843,18 @@ export default function SezioniTab({ concorsoId }: { concorsoId: string }) {
           allSezioni={sezList}
         />
       )}
+
+      {/* Import CSV dialog (sezioni + categorie) */}
+      <ImportCsvDialog
+        concorsoId={concorsoId}
+        kind="sezioni"
+        open={importCsvOpen}
+        onOpenChange={setImportCsvOpen}
+        onDone={() => {
+          qc.invalidateQueries({ queryKey: ['sezioni', concorsoId] });
+          qc.invalidateQueries({ queryKey: ['categorie'] });
+        }}
+      />
     </div>
   );
 }

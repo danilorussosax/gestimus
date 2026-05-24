@@ -50,6 +50,7 @@ import {
 } from '@/api/commissari';
 import { useCommissioni } from '@/api/commissioni';
 import { isPresidenteDiQualcheCommissione } from '@/lib/presidenti';
+import ImportCsvDialog from '@/components/admin/ImportCsvDialog';
 
 // ---------------------------------------------------------------------------
 // Helpers (port di displayName / ageFromDate da js/utils.js)
@@ -1119,11 +1120,13 @@ export default function CommissariTab({ concorsoId }: { concorsoId: string }) {
   const { data: commissioni } = useCommissioni(concorsoId);
   const updateCommissario = useUpdateCommissario(concorsoId);
   const deleteCommissario = useDeleteCommissario(concorsoId);
+  const qc = useQueryClient();
 
   const [dialog, setDialog] = useState<{ open: boolean; existing: CommissarioRecord | null }>({
     open: false,
     existing: null,
   });
+  const [importCsvOpen, setImportCsvOpen] = useState(false);
   const [importingId, setImportingId] = useState<string | null>(null);
 
   // ----- Archivio toolbar state (port di renderArchivio.ui) -----
@@ -1256,6 +1259,13 @@ export default function CommissariTab({ concorsoId }: { concorsoId: string }) {
           Commissari di questo concorso
         </h3>
         <div className="flex items-center gap-2">
+          <button
+            className="text-sm font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 px-3.5 py-2 rounded-lg"
+            onClick={() => setImportCsvOpen(true)}
+            title="Importazione massiva da CSV"
+          >
+            Importa CSV
+          </button>
           <button
             className="text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 px-3.5 py-2 rounded-lg shadow-sm"
             onClick={() => setDialog({ open: true, existing: null })}
@@ -1422,6 +1432,15 @@ export default function CommissariTab({ concorsoId }: { concorsoId: string }) {
           onClose={() => setDialog({ open: false, existing: null })}
         />
       )}
+
+      {/* ---- Import CSV dialog ---- */}
+      <ImportCsvDialog
+        concorsoId={concorsoId}
+        kind="commissari"
+        open={importCsvOpen}
+        onOpenChange={setImportCsvOpen}
+        onDone={() => qc.invalidateQueries({ queryKey: ['commissari', concorsoId] })}
+      />
     </div>
   );
 }

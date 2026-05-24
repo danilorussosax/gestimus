@@ -46,6 +46,7 @@ import {
 } from '@/api/candidati';
 import { useConcorsi } from '@/api/concorsi';
 import type { Sezione, Categoria } from '@/types';
+import ImportCsvDialog from '@/components/admin/ImportCsvDialog';
 
 // ---------------------------------------------------------------------------
 // Helpers (port da js/utils.js)
@@ -1586,6 +1587,7 @@ export function CandidatiTab({ concorsoId }: { concorsoId: string }) {
   const [filterTipo, setFilterTipo] = useState('');
 
   const [dialog, setDialog] = useState<{ open: boolean; existing?: CandidatoFull }>({ open: false });
+  const [importCsvOpen, setImportCsvOpen] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState<{ open: boolean; candidato?: CandidatoFull }>({
     open: false,
   });
@@ -1695,9 +1697,7 @@ export function CandidatiTab({ concorsoId }: { concorsoId: string }) {
         <div className="flex items-center gap-2">
           <button
             className="c-btn c-btn--sm c-btn--outline"
-            onClick={() =>
-              toast.info('Import CSV: usa la pagina dedicata "Importa candidati" del concorso.')
-            }
+            onClick={() => setImportCsvOpen(true)}
             title="Importazione massiva da CSV"
           >
             <Upload className="h-4 w-4" />
@@ -1873,6 +1873,15 @@ export function CandidatiTab({ concorsoId }: { concorsoId: string }) {
         onCancel={() => setDeleteDialog({ open: false })}
         onConfirm={handleDelete}
         isPending={deleteMutation.isPending}
+      />
+
+      {/* ---- Import CSV dialog ---- */}
+      <ImportCsvDialog
+        concorsoId={concorsoId}
+        kind="candidati"
+        open={importCsvOpen}
+        onOpenChange={setImportCsvOpen}
+        onDone={() => void refetch()}
       />
     </div>
   );
