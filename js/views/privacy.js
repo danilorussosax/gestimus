@@ -15,7 +15,7 @@ import { db } from '../db.js';
 import { escapeHtml, toast } from '../utils.js';
 import { icon } from '../icons.js';
 
-export async function renderPrivacy(root) {
+export async function renderPrivacy(/** @type {any} */ root) {
   // Sub-route /#/privacy/diritti per gli strumenti export/erase
   if (location.hash.startsWith('#/privacy/diritti')) {
     return renderDiritti(root);
@@ -25,7 +25,7 @@ export async function renderPrivacy(root) {
   const brand = db.getEntePublic();
   // I campi privacy estesi (titolare, DPO, retention, ecc.) non sono ancora
   // esposti da endpoint pubblici: usiamo i fallback applicativi qui sotto.
-  const ente = null;
+  const ente = /** @type {any} */ (null);
 
   // Calcolo "ultimo aggiornamento"
   const aggIso = ente?.privacy_aggiornata_il || null;
@@ -153,7 +153,7 @@ export async function renderPrivacy(root) {
   `;
 }
 
-function section(title, html) {
+function section(/** @type {any} */ title, /** @type {any} */ html) {
   return `
     <section class="bg-white border border-slate-200 rounded-3xl shadow-soft p-6 mb-4">
       <h2 class="font-bold text-lg text-ink-900 mb-3">${escapeHtml(title)}</h2>
@@ -184,7 +184,7 @@ export function gdprBadgeFull() {
 // ============================================================================
 // /#/privacy/diritti — strumento per esportare o cancellare i propri dati
 // ============================================================================
-function renderDiritti(root) {
+function renderDiritti(/** @type {any} */ root) {
   const q = new URLSearchParams(location.hash.split('?')[1] || '');
   const initialToken = q.get('t') || '';
 
@@ -256,7 +256,7 @@ function renderDiritti(root) {
       `;
     } catch (e) {
       resultEl.classList.remove('hidden');
-      resultEl.innerHTML = `<div class="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-sm text-rose-900">✗ ${escapeHtml(e.message || 'Errore')}</div>`;
+      resultEl.innerHTML = `<div class="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-sm text-rose-900">✗ ${escapeHtml(/** @type {any} */ (e)?.message || 'Errore')}</div>`;
     }
   });
 
@@ -280,7 +280,7 @@ function renderDiritti(root) {
       `;
     } catch (e) {
       resultEl.classList.remove('hidden');
-      resultEl.innerHTML = `<div class="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-sm text-rose-900">✗ ${escapeHtml(e.message || 'Errore')}</div>`;
+      resultEl.innerHTML = `<div class="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-sm text-rose-900">✗ ${escapeHtml(/** @type {any} */ (e)?.message || 'Errore')}</div>`;
     }
   });
 }

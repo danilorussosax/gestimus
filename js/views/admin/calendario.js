@@ -11,19 +11,19 @@ import { t } from '../../i18n.js';
 import { exportCalendarioPdf } from '../../calendario-pdf.js';
 
 // Stato del drag corrente (HTML5 DnD nativo, nessuna libreria).
-let dragBlockId = null;
-let dragSlot = null; // { cfId, eventoId }
+let dragBlockId = /** @type {string|null} */ (null);
+let dragSlot = /** @type {{ cfId: string, eventoId: string }|null} */ (null); // { cfId, eventoId }
 
-const hhmm = (s) => (s ? String(s).slice(0, 5) : '');
-function fmtDay(iso) {
+const hhmm = (/** @type {any} */ s) => (s ? String(s).slice(0, 5) : '');
+function fmtDay(/** @type {string} */ iso) {
   if (!iso) return '';
   try { return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' }); }
   catch { return iso; }
 }
 const SALA_NONE = '__none__';
 
-function candLabel(cf) {
-  const cand = db.state.candidati.find((c) => c.id === cf.candidato_id);
+function candLabel(/** @type {any} */ cf) {
+  const cand = /** @type {any} */ (db.state.candidati.find((/** @type {any} */ c) => c.id === cf.candidato_id));
   if (!cand) return '—';
   const num = String(cand.numero_candidato || '').padStart(3, '0');
   return `${num} · ${displayName(cand)}`;
@@ -32,9 +32,9 @@ function candLabel(cf) {
 // ---------------------------------------------------------------------------
 // Render principale
 // ---------------------------------------------------------------------------
-export function renderCalendario(root, concorso) {
-  const sale = db.saleByConcorso(concorso.id);
-  const eventi = db.eventiByConcorso(concorso.id);
+export function renderCalendario(/** @type {any} */ root, /** @type {any} */ concorso) {
+  const sale = /** @type {any[]} */ (db.saleByConcorso(concorso.id));
+  const eventi = /** @type {any[]} */ (db.eventiByConcorso(concorso.id));
 
   root.innerHTML = `
     <div class="space-y-6">
@@ -60,82 +60,82 @@ export function renderCalendario(root, concorso) {
 
   // --- sale ---
   root.querySelector('[data-action="add-sala"]')?.addEventListener('click', () => openSalaForm(concorso, null, () => renderCalendario(root, concorso)));
-  root.querySelectorAll('[data-edit-sala]').forEach((b) => b.addEventListener('click', () => {
-    const s = db.state.sale.find((x) => x.id === b.dataset.editSala);
+  root.querySelectorAll('[data-edit-sala]').forEach((/** @type {any} */ b) => b.addEventListener('click', () => {
+    const s = /** @type {any} */ (db.state.sale.find((/** @type {any} */ x) => x.id === b.dataset.editSala));
     if (s) openSalaForm(concorso, s, () => renderCalendario(root, concorso));
   }));
-  root.querySelectorAll('[data-del-sala]').forEach((b) => b.addEventListener('click', () => {
-    const s = db.state.sale.find((x) => x.id === b.dataset.delSala);
+  root.querySelectorAll('[data-del-sala]').forEach((/** @type {any} */ b) => b.addEventListener('click', () => {
+    const s = /** @type {any} */ (db.state.sale.find((/** @type {any} */ x) => x.id === b.dataset.delSala));
     confirmDialog({
       title: `${t('modal.delete')} — ${s?.nome || ''}`, message: t('cal.block.delete_confirm'), danger: true,
-      onConfirm: async () => { try { await db.deleteSala(b.dataset.delSala); renderCalendario(root, concorso); } catch (e) { toast(e.message, 'error'); } },
+      onConfirm: async () => { try { await db.deleteSala(b.dataset.delSala); renderCalendario(root, concorso); } catch (/** @type {any} */ e) { toast(e.message, 'error'); } },
     });
   }));
 
   // --- block cards ---
-  root.querySelectorAll('[data-block]').forEach((card) => {
-    card.addEventListener('dragstart', (e) => { dragBlockId = card.dataset.block; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', dragBlockId); } catch { /* noop */ } });
+  root.querySelectorAll('[data-block]').forEach((/** @type {any} */ card) => {
+    card.addEventListener('dragstart', (/** @type {DragEvent} */ e) => { dragBlockId = card.dataset.block; if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', dragBlockId || ''); } catch { /* noop */ } } });
     card.addEventListener('dragend', () => { dragBlockId = null; });
   });
-  root.querySelectorAll('[data-edit-block]').forEach((b) => b.addEventListener('click', (e) => {
+  root.querySelectorAll('[data-edit-block]').forEach((/** @type {any} */ b) => b.addEventListener('click', (/** @type {Event} */ e) => {
     e.stopPropagation();
-    const ev = db.state.eventi.find((x) => x.id === b.dataset.editBlock);
+    const ev = /** @type {any} */ (db.state.eventi.find((/** @type {any} */ x) => x.id === b.dataset.editBlock));
     if (ev) openBlockForm(concorso, ev, null, () => renderCalendario(root, concorso));
   }));
-  root.querySelectorAll('[data-del-block]').forEach((b) => b.addEventListener('click', (e) => {
+  root.querySelectorAll('[data-del-block]').forEach((/** @type {any} */ b) => b.addEventListener('click', (/** @type {Event} */ e) => {
     e.stopPropagation();
     confirmDialog({
       title: t('cal.block.edit'), message: t('cal.block.delete_confirm'), danger: true,
-      onConfirm: async () => { try { await db.deleteEvento(b.dataset.delBlock); renderCalendario(root, concorso); } catch (err) { toast(err.message, 'error'); } },
+      onConfirm: async () => { try { await db.deleteEvento(b.dataset.delBlock); renderCalendario(root, concorso); } catch (/** @type {any} */ err) { toast(err.message, 'error'); } },
     });
   }));
-  root.querySelectorAll('[data-gen-block]').forEach((b) => b.addEventListener('click', async (e) => {
+  root.querySelectorAll('[data-gen-block]').forEach((/** @type {any} */ b) => b.addEventListener('click', async (/** @type {Event} */ e) => {
     e.stopPropagation();
     try { await db.generaSlotEvento(b.dataset.genBlock); toast(t('cal.block.genera_done'), 'success'); renderCalendario(root, concorso); }
-    catch (err) { toast(err.message, 'error'); }
+    catch (/** @type {any} */ err) { toast(err.message, 'error'); }
   }));
 
   // --- lane drop targets (block move) ---
-  root.querySelectorAll('[data-lane]').forEach((lane) => {
-    lane.addEventListener('dragover', (e) => { if (dragBlockId) { e.preventDefault(); lane.classList.add('ring-2', 'ring-brand-400'); } });
+  root.querySelectorAll('[data-lane]').forEach((/** @type {any} */ lane) => {
+    lane.addEventListener('dragover', (/** @type {DragEvent} */ e) => { if (dragBlockId) { e.preventDefault(); lane.classList.add('ring-2', 'ring-brand-400'); } });
     lane.addEventListener('dragleave', () => lane.classList.remove('ring-2', 'ring-brand-400'));
-    lane.addEventListener('drop', async (e) => {
+    lane.addEventListener('drop', async (/** @type {DragEvent} */ e) => {
       lane.classList.remove('ring-2', 'ring-brand-400');
       if (!dragBlockId) return;
       e.preventDefault();
       const id = dragBlockId; dragBlockId = null;
       const day = lane.dataset.day;
       const salaId = lane.dataset.sala === SALA_NONE ? null : lane.dataset.sala;
-      const ev = db.state.eventi.find((x) => x.id === id);
+      const ev = /** @type {any} */ (db.state.eventi.find((/** @type {any} */ x) => x.id === id));
       if (!ev || (ev.data === day && (ev.sala_id || '') === (salaId || ''))) return;
       try { await db.updateEvento(id, { data: day, sala_id: salaId }); renderCalendario(root, concorso); }
-      catch (err) { toast(err.message, 'error'); renderCalendario(root, concorso); }
+      catch (/** @type {any} */ err) { toast(err.message, 'error'); renderCalendario(root, concorso); }
     });
   });
 
   // --- slot drag (reorder within block) ---
-  root.querySelectorAll('[data-slotlist]').forEach((ul) => {
+  root.querySelectorAll('[data-slotlist]').forEach((/** @type {any} */ ul) => {
     const eventoId = ul.dataset.slotlist;
-    ul.querySelectorAll('[data-slot]').forEach((li) => {
-      li.addEventListener('dragstart', (e) => { e.stopPropagation(); dragSlot = { cfId: li.dataset.slot, eventoId }; e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', li.dataset.slot); } catch { /* noop */ } });
+    ul.querySelectorAll('[data-slot]').forEach((/** @type {any} */ li) => {
+      li.addEventListener('dragstart', (/** @type {DragEvent} */ e) => { e.stopPropagation(); dragSlot = { cfId: li.dataset.slot, eventoId }; if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', li.dataset.slot || ''); } catch { /* noop */ } } });
       li.addEventListener('dragend', () => { dragSlot = null; });
     });
-    ul.addEventListener('dragover', (e) => { if (dragSlot && dragSlot.eventoId === eventoId) { e.preventDefault(); } });
-    ul.addEventListener('drop', async (e) => {
+    ul.addEventListener('dragover', (/** @type {DragEvent} */ e) => { if (dragSlot && dragSlot.eventoId === eventoId) { e.preventDefault(); } });
+    ul.addEventListener('drop', async (/** @type {DragEvent} */ e) => {
       if (!dragSlot || dragSlot.eventoId !== eventoId) return;
       e.preventDefault();
-      const targetLi = e.target.closest('[data-slot]');
-      const beforeCfId = targetLi ? targetLi.dataset.slot : null;
+      const targetLi = /** @type {HTMLElement} */ (e.target).closest('[data-slot]');
+      const beforeCfId = targetLi ? /** @type {HTMLElement} */ (targetLi).dataset.slot : null;
       const moving = dragSlot.cfId; dragSlot = null;
       if (beforeCfId === moving) return;
-      const ids = db.slotByEvento(eventoId).map((s) => s.id);
+      const ids = db.slotByEvento(eventoId).map((/** @type {any} */ s) => s.id);
       const from = ids.indexOf(moving);
       if (from < 0) return;
       ids.splice(from, 1);
       const to = beforeCfId ? ids.indexOf(beforeCfId) : ids.length;
       ids.splice(to < 0 ? ids.length : to, 0, moving);
       try { await db.riordinaSlotEvento(eventoId, ids); renderCalendario(root, concorso); }
-      catch (err) { toast(err.message, 'error'); renderCalendario(root, concorso); }
+      catch (/** @type {any} */ err) { toast(err.message, 'error'); renderCalendario(root, concorso); }
     });
   });
 
@@ -146,7 +146,7 @@ export function renderCalendario(root, concorso) {
 // ---------------------------------------------------------------------------
 // Sezione sale
 // ---------------------------------------------------------------------------
-function saleSection(sale) {
+function saleSection(/** @type {any[]} */ sale) {
   return `
     <div class="bg-white rounded-2xl ring-1 ring-brand-100 p-4">
       <div class="flex items-center justify-between mb-3">
@@ -155,7 +155,7 @@ function saleSection(sale) {
       </div>
       ${sale.length === 0
         ? `<p class="text-sm text-ink-500 italic">${escapeHtml(t('cal.sale.empty'))}</p>`
-        : `<ul class="flex flex-wrap gap-2">${sale.map((s) => `
+        : `<ul class="flex flex-wrap gap-2">${sale.map((/** @type {any} */ s) => `
             <li class="inline-flex items-center gap-2 bg-brand-50 rounded-full pl-3 pr-1.5 py-1">
               <span class="text-sm text-ink-900">${escapeHtml(s.nome)}</span>
               <button data-edit-sala="${s.id}" class="text-ink-600 hover:text-brand-700 p-1" aria-label="edit">${icon('edit', { size: 13 })}</button>
@@ -167,19 +167,19 @@ function saleSection(sale) {
 // ---------------------------------------------------------------------------
 // Board (giorni × sale) con card-blocco e card-candidato
 // ---------------------------------------------------------------------------
-function boardSection(eventi, sale) {
+function boardSection(/** @type {any[]} */ eventi, /** @type {any[]} */ sale) {
   if (eventi.length === 0) {
     return `<div class="bg-white border-2 border-dashed border-brand-100 rounded-2xl py-12 text-center"><p class="text-sm text-ink-500 italic">${escapeHtml(t('cal.board.empty'))}</p></div>`;
   }
-  const days = [...new Set(eventi.map((e) => e.data).filter(Boolean))].sort();
+  const days = [...new Set(eventi.map((/** @type {any} */ e) => e.data).filter(Boolean))].sort();
   // lane = ogni sala definita + "senza sala"
-  const lanes = [...sale.map((s) => ({ id: s.id, nome: s.nome })), { id: SALA_NONE, nome: t('cal.sala.senza') }];
-  return days.map((day) => `
+  const lanes = [...sale.map((/** @type {any} */ s) => ({ id: s.id, nome: s.nome })), { id: SALA_NONE, nome: t('cal.sala.senza') }];
+  return days.map((/** @type {any} */ day) => `
     <section class="space-y-2">
       <h4 class="text-sm font-bold text-ink-900 capitalize">${escapeHtml(fmtDay(day))}</h4>
       <div class="grid gap-3" style="grid-template-columns:repeat(${lanes.length}, minmax(240px, 1fr));overflow-x:auto">
-        ${lanes.map((lane) => {
-          const blocks = eventi.filter((e) => e.data === day && (e.sala_id || SALA_NONE) === lane.id);
+        ${lanes.map((/** @type {any} */ lane) => {
+          const blocks = eventi.filter((/** @type {any} */ e) => e.data === day && (e.sala_id || SALA_NONE) === lane.id);
           return `
             <div data-lane data-day="${day}" data-sala="${lane.id}" class="rounded-2xl bg-canvas/60 ring-1 ring-brand-100 p-2 min-h-[80px] transition">
               <p class="text-[11px] font-semibold uppercase tracking-wide text-ink-600 px-1 mb-2">${escapeHtml(lane.nome)}</p>
@@ -190,13 +190,13 @@ function boardSection(eventi, sale) {
     </section>`).join('');
 }
 
-function blockCard(ev) {
-  const sez = ev.sezione_id ? db.state.sezioni.find((s) => s.id === ev.sezione_id) : null;
-  const cat = ev.categoria_id ? db.state.categorie.find((c) => c.id === ev.categoria_id) : null;
-  const fase = ev.fase_id ? db.state.fasi.find((f) => f.id === ev.fase_id) : null;
+function blockCard(/** @type {any} */ ev) {
+  const sez = /** @type {any} */ (ev.sezione_id ? db.state.sezioni.find((/** @type {any} */ s) => s.id === ev.sezione_id) : null);
+  const cat = /** @type {any} */ (ev.categoria_id ? db.state.categorie.find((/** @type {any} */ c) => c.id === ev.categoria_id) : null);
+  const fase = /** @type {any} */ (ev.fase_id ? db.state.fasi.find((/** @type {any} */ f) => f.id === ev.fase_id) : null);
   const head = [sez?.nome, cat?.nome, fase?.nome].filter(Boolean).join(' · ')
     || ev.titolo || (ev.tipo === 'EVENTO' ? t('cal.block.tipo.evento') : t('cal.block.tipo.esibizione'));
-  const slots = db.slotByEvento(ev.id);
+  const slots = /** @type {any[]} */ (db.slotByEvento(ev.id));
   const orario = [hhmm(ev.ora_inizio), hhmm(ev.ora_fine)].filter(Boolean).join('–');
   return `
     <article data-block="${ev.id}" draggable="true" class="group bg-white rounded-xl ring-1 ring-brand-100 shadow-soft cursor-move">
@@ -229,14 +229,14 @@ function blockCard(ev) {
 // ---------------------------------------------------------------------------
 // Form blocco
 // ---------------------------------------------------------------------------
-function openBlockForm(concorso, ev, prefillDay, onDone) {
-  const sezioni = db.sezioniByConcorso(concorso.id);
-  const fasi = db.fasiByConcorso(concorso.id);
-  const sale = db.saleByConcorso(concorso.id);
-  const cur = ev || {};
+function openBlockForm(/** @type {any} */ concorso, /** @type {any} */ ev, /** @type {any} */ prefillDay, /** @type {any} */ onDone) {
+  const sezioni = /** @type {any[]} */ (db.sezioniByConcorso(concorso.id));
+  const fasi = /** @type {any[]} */ (db.fasiByConcorso(concorso.id));
+  const sale = /** @type {any[]} */ (db.saleByConcorso(concorso.id));
+  const cur = /** @type {any} */ (ev || {});
   const curSez = cur.sezione_id || '';
-  const opt = (val, label, sel) => `<option value="${escapeHtml(val)}" ${sel ? 'selected' : ''}>${escapeHtml(label)}</option>`;
-  const catOptions = (sezId) => db.state.categorie.filter((c) => c.sezione_id === sezId);
+  const opt = (/** @type {any} */ val, /** @type {any} */ label, /** @type {any} */ sel) => `<option value="${escapeHtml(val)}" ${sel ? 'selected' : ''}>${escapeHtml(label)}</option>`;
+  const catOptions = (/** @type {any} */ sezId) => /** @type {any[]} */ (db.state.categorie.filter((/** @type {any} */ c) => c.sezione_id === sezId));
 
   const content = `
     <div class="space-y-3">
@@ -284,22 +284,22 @@ function openBlockForm(concorso, ev, prefillDay, onDone) {
       const tipoSel = /** @type {HTMLSelectElement} */ (body.querySelector('[data-f="tipo"]'));
       const toggle = () => {
         const isEvent = tipoSel.value === 'EVENTO';
-        body.querySelector('[data-only="EVENTO"]').classList.toggle('hidden', !isEvent);
-        body.querySelector('[data-only="ESIBIZIONE"]').classList.toggle('hidden', isEvent);
+        /** @type {HTMLElement} */ (body.querySelector('[data-only="EVENTO"]')).classList.toggle('hidden', !isEvent);
+        /** @type {HTMLElement} */ (body.querySelector('[data-only="ESIBIZIONE"]')).classList.toggle('hidden', isEvent);
       };
       tipoSel.addEventListener('change', toggle);
       // categorie dipendono dalla sezione scelta
       const sezSel = /** @type {HTMLSelectElement} */ (body.querySelector('[data-f="sezione_id"]'));
-      const catSel = body.querySelector('[data-f="categoria_id"]');
+      const catSel = /** @type {HTMLElement} */ (body.querySelector('[data-f="categoria_id"]'));
       sezSel.addEventListener('change', () => {
         const cats = catOptions(sezSel.value);
-        catSel.innerHTML = `<option value="">${escapeHtml(t('cal.block.tutte_categorie'))}</option>` + cats.map((c) => `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join('');
+        catSel.innerHTML = `<option value="">${escapeHtml(t('cal.block.tutte_categorie'))}</option>` + cats.map((/** @type {any} */ c) => `<option value="${c.id}">${escapeHtml(c.nome)}</option>`).join('');
       });
     },
-    onPrimary: async (body) => {
-      const val = (f) => /** @type {HTMLInputElement|HTMLSelectElement} */ (body.querySelector(`[data-f="${f}"]`)).value || '';
+    onPrimary: async (/** @type {any} */ body) => {
+      const val = (/** @type {string} */ f) => /** @type {HTMLInputElement|HTMLSelectElement} */ (body.querySelector(`[data-f="${f}"]`)).value || '';
       const tipo = val('tipo');
-      const payload = {
+      const payload = /** @type {Record<string, any>} */ ({
         concorso_id: concorso.id,
         tipo,
         data: val('data'),
@@ -307,7 +307,7 @@ function openBlockForm(concorso, ev, prefillDay, onDone) {
         ora_fine: val('ora_fine') || null,
         sala_id: val('sala_id') || null,
         note: val('note') || null,
-      };
+      });
       if (!payload.data) { toast(t('cal.block.data'), 'warn'); return false; }
       if (tipo === 'EVENTO') {
         payload.titolo = val('titolo') || null;
@@ -323,7 +323,7 @@ function openBlockForm(concorso, ev, prefillDay, onDone) {
         if (ev) await db.updateEvento(ev.id, payload);
         else { const created = await db.createEvento(payload); if (tipo === 'ESIBIZIONE') await db.generaSlotEvento(created.id); }
         onDone();
-      } catch (e) { toast(e.message, 'error'); return false; }
+      } catch (/** @type {any} */ e) { toast(e.message, 'error'); return false; }
     },
   });
 }
@@ -331,8 +331,8 @@ function openBlockForm(concorso, ev, prefillDay, onDone) {
 // ---------------------------------------------------------------------------
 // Form sala
 // ---------------------------------------------------------------------------
-function openSalaForm(concorso, sala, onDone) {
-  const cur = sala || {};
+function openSalaForm(/** @type {any} */ concorso, /** @type {any} */ sala, /** @type {any} */ onDone) {
+  const cur = /** @type {any} */ (sala || {});
   modal({
     title: sala ? t('cal.sale.title') : t('cal.sale.add'),
     contentHtml: `
@@ -348,7 +348,7 @@ function openSalaForm(concorso, sala, onDone) {
         if (sala) await db.updateSala(sala.id, { nome, indirizzo });
         else await db.createSala({ concorso_id: concorso.id, nome, indirizzo });
         onDone();
-      } catch (e) { toast(e.message, 'error'); return false; }
+      } catch (/** @type {any} */ e) { toast(e.message, 'error'); return false; }
     },
   });
 }
@@ -356,11 +356,11 @@ function openSalaForm(concorso, sala, onDone) {
 // ---------------------------------------------------------------------------
 // Link pubblici
 // ---------------------------------------------------------------------------
-function publicUrl(token, display = false) {
+function publicUrl(/** @type {any} */ token, display = false) {
   return `${location.origin}${location.pathname}#/calendario?token=${encodeURIComponent(token)}${display ? '&display=1' : ''}`;
 }
 
-function linksSection(concorso) {
+function linksSection(/** @type {any} */ concorso) {
   return `
     <div class="bg-white rounded-2xl ring-1 ring-brand-100 p-4" data-links="${concorso.id}">
       <div class="flex items-center justify-between mb-3">
@@ -371,21 +371,21 @@ function linksSection(concorso) {
     </div>`;
 }
 
-async function bindLinks(root, concorso) {
+async function bindLinks(/** @type {any} */ root, /** @type {any} */ concorso) {
   const panel = root.querySelector('[data-links]');
   if (!panel) return;
   panel.querySelector('[data-action="add-link"]').addEventListener('click', () => openLinkForm(concorso, () => bindLinks(root, concorso)));
   const listEl = panel.querySelector('[data-links-list]');
-  let links = [];
+  let links = /** @type {any[]} */ ([]);
   try { links = await db.calendarioLinks(concorso.id); }
   catch { listEl.innerHTML = `<p class="text-sm text-rose-600">${escapeHtml(t('cal.pub.not_found'))}</p>`; return; }
 
   if (links.length === 0) { listEl.innerHTML = `<p class="text-sm text-ink-500 italic">${escapeHtml(t('cal.links.empty'))}</p>`; return; }
-  const sezName = (id) => db.state.sezioni.find((s) => s.id === id)?.nome || '';
-  const scopoLabel = (l) => l.scopo === 'CONCORSO' ? t('cal.links.scopo.concorso')
+  const sezName = (/** @type {any} */ id) => /** @type {any} */ (db.state.sezioni.find((/** @type {any} */ s) => s.id === id))?.nome || '';
+  const scopoLabel = (/** @type {any} */ l) => l.scopo === 'CONCORSO' ? t('cal.links.scopo.concorso')
     : l.scopo === 'SEZIONE' ? `${t('cal.links.scopo.sezione')}: ${sezName(l.sezione_id)}`
     : `${t('cal.links.scopo.giorno')}: ${l.giorno || ''}`;
-  listEl.innerHTML = `<ul class="space-y-2">${links.map((l) => `
+  listEl.innerHTML = `<ul class="space-y-2">${links.map((/** @type {any} */ l) => `
     <li class="flex items-center gap-2 flex-wrap border border-brand-50 rounded-xl px-3 py-2">
       <div class="min-w-0 flex-1">
         <p class="text-sm font-medium text-ink-900 truncate">${escapeHtml(l.etichetta || scopoLabel(l))}</p>
@@ -397,24 +397,24 @@ async function bindLinks(root, concorso) {
       <button data-revoke="${l.id}" class="c-btn c-btn--ghost c-btn--sm text-rose-600">${icon('trash', { size: 13 })}</button>
     </li>`).join('')}</ul>`;
 
-  listEl.querySelectorAll('[data-copy]').forEach((b) => b.addEventListener('click', async () => {
+  listEl.querySelectorAll('[data-copy]').forEach((/** @type {any} */ b) => b.addEventListener('click', async () => {
     try { await navigator.clipboard.writeText(publicUrl(b.dataset.copy, false)); toast(t('cal.links.copied'), 'success'); }
     catch { toast(publicUrl(b.dataset.copy, false), 'info', 6000); }
   }));
-  listEl.querySelectorAll('[data-toggle]').forEach((b) => b.addEventListener('click', async () => {
+  listEl.querySelectorAll('[data-toggle]').forEach((/** @type {any} */ b) => b.addEventListener('click', async () => {
     try { await db.updateCalendarioLink(b.dataset.toggle, { attivo: b.dataset.attivo !== '1' }); bindLinks(root, concorso); }
-    catch (e) { toast(e.message, 'error'); }
+    catch (/** @type {any} */ e) { toast(e.message, 'error'); }
   }));
-  listEl.querySelectorAll('[data-revoke]').forEach((b) => b.addEventListener('click', () => {
+  listEl.querySelectorAll('[data-revoke]').forEach((/** @type {any} */ b) => b.addEventListener('click', () => {
     confirmDialog({
       title: t('cal.links.revoke'), message: t('cal.links.revoke_confirm'), danger: true,
-      onConfirm: async () => { try { await db.deleteCalendarioLink(b.dataset.revoke); bindLinks(root, concorso); } catch (e) { toast(e.message, 'error'); } },
+      onConfirm: async () => { try { await db.deleteCalendarioLink(b.dataset.revoke); bindLinks(root, concorso); } catch (/** @type {any} */ e) { toast(e.message, 'error'); } },
     });
   }));
 }
 
-function openLinkForm(concorso, onDone) {
-  const sezioni = db.sezioniByConcorso(concorso.id);
+function openLinkForm(/** @type {any} */ concorso, /** @type {any} */ onDone) {
+  const sezioni = /** @type {any[]} */ (db.sezioniByConcorso(concorso.id));
   const content = `
     <div class="space-y-3">
       <label class="block"><span class="c-label">${escapeHtml(t('cal.links.scopo'))}</span>
@@ -437,13 +437,13 @@ function openLinkForm(concorso, onDone) {
     onMount: (body) => {
       const scopo = /** @type {HTMLSelectElement} */ (body.querySelector('[data-f="scopo"]'));
       const sync = () => {
-        body.querySelector('[data-when="SEZIONE"]').classList.toggle('hidden', scopo.value !== 'SEZIONE');
-        body.querySelector('[data-when="GIORNO"]').classList.toggle('hidden', scopo.value !== 'GIORNO');
+        /** @type {HTMLElement} */ (body.querySelector('[data-when="SEZIONE"]')).classList.toggle('hidden', scopo.value !== 'SEZIONE');
+        /** @type {HTMLElement} */ (body.querySelector('[data-when="GIORNO"]')).classList.toggle('hidden', scopo.value !== 'GIORNO');
       };
       scopo.addEventListener('change', sync); sync();
     },
-    onPrimary: async (body) => {
-      const v = (f) => /** @type {HTMLInputElement & HTMLSelectElement} */ (body.querySelector(`[data-f="${f}"]`));
+    onPrimary: async (/** @type {any} */ body) => {
+      const v = (/** @type {string} */ f) => /** @type {HTMLInputElement & HTMLSelectElement} */ (body.querySelector(`[data-f="${f}"]`));
       const scopo = v('scopo').value;
       const payload = {
         concorso_id: concorso.id,
@@ -457,7 +457,7 @@ function openLinkForm(concorso, onDone) {
       if (scopo === 'SEZIONE' && !payload.sezione_id) { toast(t('cal.block.sezione'), 'warn'); return false; }
       if (scopo === 'GIORNO' && !payload.giorno) { toast(t('cal.block.data'), 'warn'); return false; }
       try { await db.createCalendarioLink(payload); onDone(); }
-      catch (e) { toast(e.message, 'error'); return false; }
+      catch (/** @type {any} */ e) { toast(e.message, 'error'); return false; }
     },
   });
 }
@@ -465,28 +465,28 @@ function openLinkForm(concorso, onDone) {
 // ---------------------------------------------------------------------------
 // PDF (intero concorso) — costruisce la stessa forma della route pubblica.
 // ---------------------------------------------------------------------------
-function exportConcorsoPdf(concorso) {
-  const eventi = db.eventiByConcorso(concorso.id);
-  const days = [...new Set(eventi.map((e) => e.data).filter(Boolean))].sort();
-  const giorni = days.map((data) => ({
+function exportConcorsoPdf(/** @type {any} */ concorso) {
+  const eventi = /** @type {any[]} */ (db.eventiByConcorso(concorso.id));
+  const days = [...new Set(eventi.map((/** @type {any} */ e) => e.data).filter(Boolean))].sort();
+  const giorni = days.map((/** @type {any} */ data) => ({
     data,
-    blocchi: eventi.filter((e) => e.data === data).map((ev) => {
-      const sez = ev.sezione_id ? db.state.sezioni.find((s) => s.id === ev.sezione_id) : null;
-      const cat = ev.categoria_id ? db.state.categorie.find((c) => c.id === ev.categoria_id) : null;
-      const fase = ev.fase_id ? db.state.fasi.find((f) => f.id === ev.fase_id) : null;
-      const comm = fase?.commissione_id ? db.state.commissioni.find((c) => c.id === fase.commissione_id) : null;
-      const commissione = comm ? (comm.commissari_ids || []).map((id) => {
-        const m = db.state.commissari.find((x) => x.id === id);
+    blocchi: eventi.filter((/** @type {any} */ e) => e.data === data).map((/** @type {any} */ ev) => {
+      const sez = /** @type {any} */ (ev.sezione_id ? db.state.sezioni.find((/** @type {any} */ s) => s.id === ev.sezione_id) : null);
+      const cat = /** @type {any} */ (ev.categoria_id ? db.state.categorie.find((/** @type {any} */ c) => c.id === ev.categoria_id) : null);
+      const fase = /** @type {any} */ (ev.fase_id ? db.state.fasi.find((/** @type {any} */ f) => f.id === ev.fase_id) : null);
+      const comm = /** @type {any} */ (fase?.commissione_id ? db.state.commissioni.find((/** @type {any} */ c) => c.id === fase.commissione_id) : null);
+      const commissione = comm ? (comm.commissari_ids || []).map((/** @type {any} */ id) => {
+        const m = /** @type {any} */ (db.state.commissari.find((/** @type {any} */ x) => x.id === id));
         return m ? { nome: m.nome, cognome: m.cognome, specialita: m.specialita } : null;
       }).filter(Boolean) : [];
       return {
         oraInizio: ev.ora_inizio, oraFine: ev.ora_fine, tipo: ev.tipo, titolo: ev.titolo,
-        sala: ev.sala_id ? { nome: db.state.sale.find((s) => s.id === ev.sala_id)?.nome } : null,
+        sala: ev.sala_id ? { nome: /** @type {any} */ (db.state.sale.find((/** @type {any} */ s) => s.id === ev.sala_id))?.nome } : null,
         sezione: sez ? { nome: sez.nome } : null,
         categoria: cat ? { nome: cat.nome } : null,
         fase: fase ? { nome: fase.nome } : null,
         commissione,
-        slot: db.slotByEvento(ev.id).map((cf) => ({ oraPrevista: cf.ora_prevista, etichetta: candLabel(cf) })),
+        slot: /** @type {any[]} */ (db.slotByEvento(ev.id)).map((/** @type {any} */ cf) => ({ oraPrevista: cf.ora_prevista, etichetta: candLabel(cf) })),
       };
     }),
   }));

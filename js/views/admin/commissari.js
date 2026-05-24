@@ -9,13 +9,13 @@ import {
 import { t } from '../../i18n.js';
 import { openImportModal } from './import.js';
 
-export function renderCommissari(root, concorso) {
+export function renderCommissari(/** @type {any} */ root, /** @type {any} */ concorso) {
   const list = db.commissariByConcorso(concorso.id);
   // "Presidente" qui = commissario che è presidente di ALMENO UNA commissione
   // del concorso (concetto refactorizzato: il presidente è di commissione, non
   // di concorso). Mostriamo un riferimento per l'header — i veri presidenti
   // sono visualizzati per ciascuna commissione nel tab Commissioni.
-  const presidente = list.find(c => db.isPresidenteDiQualcheCommissione(c.id));
+  const presidente = list.find((/** @type {any} */ c) => db.isPresidenteDiQualcheCommissione(c.id));
   root.innerHTML = `
     <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
       <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider">${escapeHtml(t('admin.commissari.heading'))}</h3>
@@ -39,7 +39,7 @@ export function renderCommissari(root, concorso) {
       </div>
     ` : `
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-        ${list.map(c => commissarioCardHtml(c)).join('')}
+        ${list.map((/** @type {any} */ c) => commissarioCardHtml(c)).join('')}
       </div>
     `}
 
@@ -54,14 +54,14 @@ export function renderCommissari(root, concorso) {
   const archHost = root.querySelector('#archivio-host');
   if (archHost) renderArchivio(archHost, concorso, () => renderCommissari(root, concorso));
 
-  root.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => {
-    const c = db.state.commissari.find(x => x.id === b.dataset.edit);
+  root.querySelectorAll('[data-edit]').forEach((/** @type {any} */ b) => b.addEventListener('click', () => {
+    const c = db.state.commissari.find((/** @type {any} */ x) => x.id === b.dataset.edit);
     if (c) openCommissarioForm(concorso, c, () => renderCommissari(root, concorso));
   }));
 
-  root.querySelectorAll('[data-unassign]').forEach(b => b.addEventListener('click', () => {
+  root.querySelectorAll('[data-unassign]').forEach((/** @type {any} */ b) => b.addEventListener('click', () => {
     const id = b.dataset.unassign;
-    const c = db.state.commissari.find(x => x.id === id);
+    const c = db.state.commissari.find((/** @type {any} */ x) => x.id === id);
     confirmDialog({
       title: t('admin.commissari.unassign_title'),
       message: t('admin.commissari.unassign_msg', { name: c ? displayName(c) : '' }),
@@ -70,15 +70,15 @@ export function renderCommissari(root, concorso) {
         try {
           await db.disassegnaCommissarioDaConcorso(id, concorso.id);
           renderCommissari(root, concorso);
-        } catch (e) { toast(e.message, 'error'); }
+        } catch (e) { toast((/** @type {any} */ (e))?.message, 'error'); }
       }
     });
   }));
 
-  root.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
+  root.querySelectorAll('[data-del]').forEach((/** @type {any} */ b) => b.addEventListener('click', () => {
     const id = b.dataset.del;
-    const c = db.state.commissari.find(x => x.id === id);
-    const otherConcorsi = c ? (c.concorsi_ids || []).filter(x => x !== concorso.id).length : 0;
+    const c = db.state.commissari.find((/** @type {any} */ x) => x.id === id);
+    const otherConcorsi = c ? (c.concorsi_ids || []).filter((/** @type {any} */ x) => x !== concorso.id).length : 0;
     confirmDialog({
       title: t('admin.commissari.delete_title'),
       message: otherConcorsi > 0
@@ -87,20 +87,20 @@ export function renderCommissari(root, concorso) {
       danger: true,
       onConfirm: async () => {
         try { await db.deleteCommissario(id); renderCommissari(root, concorso); }
-        catch (e) { toast(e.message, 'error'); }
+        catch (e) { toast((/** @type {any} */ (e))?.message, 'error'); }
       }
     });
   }));
 
-  root.querySelectorAll('[data-cv]').forEach(b => b.addEventListener('click', () => {
-    const c = db.state.commissari.find(x => x.id === b.dataset.cv);
+  root.querySelectorAll('[data-cv]').forEach((/** @type {any} */ b) => b.addEventListener('click', () => {
+    const c = db.state.commissari.find((/** @type {any} */ x) => x.id === b.dataset.cv);
     if (c?.cv) openCvText(c.cv);
   }));
 }
 
 // Mostra il CV (testo semplice / markdown) in sola lettura. Niente parsing md:
 // rendiamo il testo grezzo con escape, preservando gli a-capo.
-function openCvText(text) {
+function openCvText(/** @type {any} */ text) {
   modal({
     title: t('admin.commissario.cv_title'),
     wide: true,
@@ -109,7 +109,7 @@ function openCvText(text) {
   });
 }
 
-function commissarioCardHtml(c) {
+function commissarioCardHtml(/** @type {any} */ c) {
   const eta = ageFromDate(c.data_nascita);
   // Il commissario è "presidente" se lo è in almeno una commissione (del concorso).
   // Il refactor 1700000035 ha spostato il concetto da commissari.is_presidente
@@ -145,7 +145,7 @@ function commissarioCardHtml(c) {
   `;
 }
 
-function openCommissarioForm(concorso, com, onSaved) {
+function openCommissarioForm(/** @type {any} */ concorso, /** @type {any} */ com, /** @type {any} */ onSaved) {
   const isEdit = !!com;
   let initNome = com?.nome || '';
   let initCognome = com?.cognome || '';
@@ -162,7 +162,7 @@ function openCommissarioForm(concorso, com, onSaved) {
   const linkedAccount = isEdit ? db.getAccountForCommissario(com.id) : null;
 
   const inputCls = 'mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500';
-  const lText = (text, required = false) => `<span class="text-sm font-medium text-slate-700">${text}${required ? ' <span class="text-rose-500">*</span>' : ''}</span>`;
+  const lText = (/** @type {any} */ text, required = false) => `<span class="text-sm font-medium text-slate-700">${text}${required ? ' <span class="text-rose-500">*</span>' : ''}</span>`;
 
   modal({
     title: isEdit ? t('admin.commissario.edit_title') : t('admin.commissario.add_title'),
@@ -294,9 +294,9 @@ function openCommissarioForm(concorso, com, onSaved) {
     primaryLabel: isEdit ? t('admin.commissario.save_edit') : t('admin.commissario.save_create'),
     onMount: (body) => {
       const fotoInput = /** @type {HTMLInputElement} */ (body.querySelector('[data-foto-input]'));
-      const fotoPick  = body.querySelector('[data-foto-pick]');
-      const fotoClear = body.querySelector('[data-foto-clear]');
-      const fotoPrev  = body.querySelector('[data-foto-preview]');
+      const fotoPick  = /** @type {HTMLElement} */ (body.querySelector('[data-foto-pick]'));
+      const fotoClear = /** @type {HTMLElement} */ (body.querySelector('[data-foto-clear]'));
+      const fotoPrev  = /** @type {HTMLElement} */ (body.querySelector('[data-foto-preview]'));
 
       const setFotoUI = () => {
         // A4: safeUrl anche nella preview del form (dataURL upload o foto_url).
@@ -309,7 +309,7 @@ function openCommissarioForm(concorso, com, onSaved) {
 
       fotoPick.addEventListener('click', () => fotoInput.click());
       fotoInput.addEventListener('change', async (e) => {
-        const file = /** @type {HTMLInputElement} */ (e.target).files[0];
+        const file = /** @type {HTMLInputElement} */ (e.target).files?.[0];
         if (!file) return;
         try {
           fotoData = await readImageResized(file, 480, 0.85);
@@ -322,7 +322,7 @@ function openCommissarioForm(concorso, com, onSaved) {
       // CV come TESTO (plain/markdown). Il pulsante "Inserisci/Modifica" rivela
       // la textarea; il valore della textarea è la sorgente di verità (cvData).
       const cvText = /** @type {HTMLTextAreaElement} */ (body.querySelector('[data-cv-text]'));
-      const cvZone = body.querySelector('[data-cv-zone]');
+      const cvZone = /** @type {HTMLElement} */ (body.querySelector('[data-cv-zone]'));
       const renderCvZone = () => {
         const has = cvData.trim().length > 0;
         const open = !cvText.classList.contains('hidden');
@@ -383,7 +383,7 @@ function openCommissarioForm(concorso, com, onSaved) {
           try {
             await db.resetAccountPassword(linkedAccount.id, newPwd);
             showCredentialsModal({ email: linkedAccount.email, password: newPwd, title: t('admin.commissario.acc_reset_title'), subject: displayName({ nome: linkedAccount.nome, cognome: linkedAccount.cognome }) });
-          } catch (e) { toast(t('admin.commissario.acc_reset_error', { msg: e.message }), 'error'); }
+          } catch (e) { toast(t('admin.commissario.acc_reset_error', { msg: (/** @type {any} */ (e))?.message }), 'error'); }
         } else if (action === 'toggle') {
           try {
             await db.updateAccount(linkedAccount.id, { attivo: !linkedAccount.attivo });
@@ -393,7 +393,7 @@ function openCommissarioForm(concorso, com, onSaved) {
             // close+reopen
             body.closest('.fixed')?.remove();
             openCommissarioForm(concorsoArg, com, onSaved);
-          } catch (e) { toast(t('admin.concorso.error_prefix', { msg: e.message }), 'error'); }
+          } catch (e) { toast(t('admin.concorso.error_prefix', { msg: (/** @type {any} */ (e))?.message }), 'error'); }
         } else if (action === 'delete') {
           if (!confirm(t('admin.commissario.acc_delete_confirm'))) return;
           try {
@@ -402,7 +402,7 @@ function openCommissarioForm(concorso, com, onSaved) {
             const concorsoArg = concorso;
             body.closest('.fixed')?.remove();
             openCommissarioForm(concorsoArg, com, onSaved);
-          } catch (e) { toast(t('admin.concorso.error_prefix', { msg: e.message }), 'error'); }
+          } catch (e) { toast(t('admin.concorso.error_prefix', { msg: (/** @type {any} */ (e))?.message }), 'error'); }
         }
       }));
     },
@@ -478,17 +478,18 @@ function openCommissarioForm(concorso, com, onSaved) {
             });
           } catch (e) {
             console.error('Account creation failed:', e);
+            const err = /** @type {any} */ (e);
             let msg;
-            if (e?.code === 'email_taken') {
+            if (err?.code === 'email_taken') {
               msg = t('admin.commissario.acc_email_taken', { email: accEmail });
             } else {
               // Extract PB field-level validation message if available
-              const fieldErrors = e?.data?.data;
+              const fieldErrors = err?.data?.data;
               if (fieldErrors && typeof fieldErrors === 'object') {
-                const first = Object.values(fieldErrors).find(v => v?.message);
-                msg = first?.message || e?.data?.message || e.message;
+                const first = /** @type {any} */ (Object.values(fieldErrors).find((/** @type {any} */ v) => v?.message));
+                msg = first?.message || err?.data?.message || err.message;
               } else {
-                msg = e?.data?.message || e.message;
+                msg = err?.data?.message || err.message;
               }
             }
             toast(t('admin.commissario.acc_creation_failed', { msg }), 'error');
@@ -497,7 +498,7 @@ function openCommissarioForm(concorso, com, onSaved) {
         if (onSaved) onSaved();
       } catch (e) {
         console.error(e);
-        toast(t('admin.concorso.error_prefix', { msg: e.message }), 'error');
+        toast(t('admin.concorso.error_prefix', { msg: (/** @type {any} */ (e))?.message }), 'error');
         return false;
       }
     }
@@ -514,7 +515,7 @@ function generatePassword(length = 12) {
   return out;
 }
 
-function showCredentialsModal({ email, password, title = t('admin.commissario.cred_modal.title'), subject = '' }) {
+function showCredentialsModal(/** @type {{email:any,password:any,title?:any,subject?:any}} */ { email, password, title = t('admin.commissario.cred_modal.title'), subject = '' }) {
   modal({
     title,
     contentHtml: `
@@ -556,20 +557,20 @@ function showCredentialsModal({ email, password, title = t('admin.commissario.cr
 
 // ---------- Archivio commissari (vista deduplicata + import) ----------
 
-function renderArchivio(root, concorso, onChanged) {
+function renderArchivio(/** @type {any} */ root, /** @type {any} */ concorso, /** @type {any} */ onChanged) {
   // Archivio anagrafica per-tenant (migration 1700000042): ogni commissario è
   // un record unico con `concorsi_ids[]`. Niente più dedup per fingerprint.
   const archive = db.archivioCommissari();
   // Set degli id già assegnati al concorso corrente (per dimmare il pulsante).
   const presentInConcorso = new Set(
-    db.commissariByConcorso(concorso.id).map(c => c.id)
+    db.commissariByConcorso(concorso.id).map((/** @type {any} */ c) => c.id)
   );
 
   // Compute filter dropdown options
-  const specialitaOpts = [...new Set(archive.map(c => c.specialita).filter(Boolean))].sort();
-  const nazionalitaOpts = [...new Set(archive.map(c => c.nazionalita).filter(Boolean))].sort();
+  const specialitaOpts = [...new Set(archive.map((/** @type {any} */ c) => c.specialita).filter(Boolean))].sort();
+  const nazionalitaOpts = [...new Set(archive.map((/** @type {any} */ c) => c.nazionalita).filter(Boolean))].sort();
   // Concorsi index for badge rendering
-  const concorsoMap = Object.fromEntries(db.state.concorsi.map(c => [c.id, c]));
+  const concorsoMap = Object.fromEntries(db.state.concorsi.map((/** @type {any} */ c) => [c.id, c]));
 
   // UI state
   const ui = {
@@ -622,20 +623,20 @@ function renderArchivio(root, concorso, onChanged) {
 
   const apply = () => {
     let list = archive.slice();
-    if (ui.specialita) list = list.filter(c => c.specialita === ui.specialita);
-    if (ui.nazionalita) list = list.filter(c => c.nazionalita === ui.nazionalita);
-    if (ui.onlyMissing) list = list.filter(c => !presentInConcorso.has(c.id));
+    if (ui.specialita) list = list.filter((/** @type {any} */ c) => c.specialita === ui.specialita);
+    if (ui.nazionalita) list = list.filter((/** @type {any} */ c) => c.nazionalita === ui.nazionalita);
+    if (ui.onlyMissing) list = list.filter((/** @type {any} */ c) => !presentInConcorso.has(c.id));
     if (ui.q) {
       const q = ui.q.toLowerCase();
-      list = list.filter(c => {
+      list = list.filter((/** @type {any} */ c) => {
         const hay = `${c.nome} ${c.cognome} ${c.specialita || ''} ${c.email || ''} ${c.telefono || ''} ${c.nazionalita || ''} ${c.bio || ''}`.toLowerCase();
         return hay.includes(q);
       });
     }
-    if (ui.sort === 'nome') list.sort((a,b) => `${a.cognome} ${a.nome}`.localeCompare(`${b.cognome} ${b.nome}`, 'it'));
-    else if (ui.sort === 'concorsi') list.sort((a,b) => b.concorsi_ids.length - a.concorsi_ids.length);
+    if (ui.sort === 'nome') list.sort((/** @type {any} */ a, /** @type {any} */ b) => `${a.cognome} ${a.nome}`.localeCompare(`${b.cognome} ${b.nome}`, 'it'));
+    else if (ui.sort === 'concorsi') list.sort((/** @type {any} */ a, /** @type {any} */ b) => b.concorsi_ids.length - a.concorsi_ids.length);
     // 'recente' uses creation order (last in state.commissari first); approx by reversing
-    else if (ui.sort === 'recente') list.sort((a,b) => 0); // PB created order is db.state.commissari order; rough
+    else if (ui.sort === 'recente') list.sort((/** @type {any} */ a, /** @type {any} */ b) => 0); // PB created order is db.state.commissari order; rough
     return list;
   };
 
@@ -653,12 +654,12 @@ function renderArchivio(root, concorso, onChanged) {
     host.innerHTML = `
       <div class="text-xs text-slate-500 mb-2">${escapeHtml(list.length === 1 ? t('admin.archivio.results_one', { n: list.length }) : t('admin.archivio.results_other', { n: list.length }))}</div>
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-        ${list.map(c => archivioCardHtml(c, concorso, concorsoMap, presentInConcorso)).join('')}
+        ${list.map((/** @type {any} */ c) => archivioCardHtml(c, concorso, concorsoMap, presentInConcorso)).join('')}
       </div>
     `;
-    host.querySelectorAll('[data-arch-import]').forEach(b => b.addEventListener('click', async () => {
+    host.querySelectorAll('[data-arch-import]').forEach((/** @type {any} */ b) => b.addEventListener('click', async () => {
       const id = b.dataset.archImport;
-      const entry = archive.find(x => x.id === id);
+      const entry = archive.find((/** @type {any} */ x) => x.id === id);
       if (!entry) return;
       b.disabled = true;
       b.textContent = t('admin.archivio.importing');
@@ -667,17 +668,17 @@ function renderArchivio(root, concorso, onChanged) {
         await db.assegnaCommissarioAConcorso(id, concorso.id);
         toast(t('admin.archivio.added_msg', { name: displayName(entry) }), 'success');
         if (onChanged) onChanged();
-        else renderArchivio(root, concorso);
+        else renderArchivio(root, concorso, onChanged);
       } catch (e) {
         console.error(e);
-        toast(t('admin.archivio.import_error', { msg: e?.message || '' }), 'error');
+        toast(t('admin.archivio.import_error', { msg: (/** @type {any} */ (e))?.message || '' }), 'error');
         b.disabled = false;
         b.textContent = t('admin.archivio.add_to_concorso');
       }
     }));
-    host.querySelectorAll('[data-arch-cv]').forEach(b => b.addEventListener('click', () => {
+    host.querySelectorAll('[data-arch-cv]').forEach((/** @type {any} */ b) => b.addEventListener('click', () => {
       const id = b.dataset.archCv;
-      const entry = archive.find(x => x.id === id);
+      const entry = archive.find((/** @type {any} */ x) => x.id === id);
       if (entry?.cv) openCvText(entry.cv);
     }));
   };
@@ -685,10 +686,10 @@ function renderArchivio(root, concorso, onChanged) {
   // Wire filters
   const qIn = root.querySelector('#arch-q');
   qIn.addEventListener('input', () => { ui.q = qIn.value; renderResults(); });
-  root.querySelector('#arch-spec').addEventListener('change', (e) => { ui.specialita = e.target.value; renderResults(); });
-  root.querySelector('#arch-naz').addEventListener('change', (e) => { ui.nazionalita = e.target.value; renderResults(); });
-  root.querySelector('#arch-sort').addEventListener('change', (e) => { ui.sort = e.target.value; renderResults(); });
-  root.querySelector('#arch-only-missing').addEventListener('change', (e) => { ui.onlyMissing = e.target.checked; renderResults(); });
+  root.querySelector('#arch-spec').addEventListener('change', (/** @type {any} */ e) => { ui.specialita = e.target.value; renderResults(); });
+  root.querySelector('#arch-naz').addEventListener('change', (/** @type {any} */ e) => { ui.nazionalita = e.target.value; renderResults(); });
+  root.querySelector('#arch-sort').addEventListener('change', (/** @type {any} */ e) => { ui.sort = e.target.value; renderResults(); });
+  root.querySelector('#arch-only-missing').addEventListener('change', (/** @type {any} */ e) => { ui.onlyMissing = e.target.checked; renderResults(); });
   root.querySelector('#arch-clear').addEventListener('click', () => {
     ui.q = ''; ui.specialita = ''; ui.nazionalita = ''; ui.onlyMissing = false; ui.sort = 'nome';
     qIn.value = '';
@@ -703,11 +704,11 @@ function renderArchivio(root, concorso, onChanged) {
   qIn.focus();
 }
 
-function archivioCardHtml(c, concorso, concorsoMap, presentInConcorso) {
+function archivioCardHtml(/** @type {any} */ c, /** @type {any} */ concorso, /** @type {any} */ concorsoMap, /** @type {any} */ presentInConcorso) {
   const eta = ageFromDate(c.data_nascita);
   const inThis = presentInConcorso.has(c.id);
   const concorsiIds = Array.isArray(c.concorsi_ids) ? c.concorsi_ids : [];
-  const concorsiBadges = concorsiIds.map(id => {
+  const concorsiBadges = concorsiIds.map((/** @type {any} */ id) => {
     const con = concorsoMap[id];
     const isCurrent = id === concorso.id;
     return `<span class="text-[10px] px-1.5 py-0.5 rounded-full ${isCurrent ? 'bg-brand-100 text-brand-800 font-semibold' : 'bg-slate-100 text-slate-600'}" title="${escapeHtml(con?.nome || '')}">${escapeHtml((con?.nome || '?').slice(0, 22))}${(con?.nome||'').length > 22 ? '…' : ''}</span>`;

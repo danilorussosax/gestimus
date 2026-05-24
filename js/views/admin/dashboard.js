@@ -11,19 +11,19 @@ import { setAdminTab } from '../admin.js';
 // sia dalla sidebar di admin.js, sia dalla dashboard qui sotto come griglia
 // di cards riassuntive. Modificando questa lista, entrambe si aggiornano.
 export const SIDEBAR_TABS = [
-  { id: 'sezioni',     iconName: 'folder',     labelKey: 'admin.nav.sezioni',     descKey: 'admin.dashboard.card.sezioni_desc',     count: (c) => db.sezioniByConcorso(c.id).length },
-  { id: 'commissari',  iconName: 'judge',      labelKey: 'admin.nav.commissari',  descKey: 'admin.dashboard.card.commissari_desc',  count: (c) => db.commissariByConcorso(c.id).length },
-  { id: 'commissioni', iconName: 'scale',      labelKey: 'admin.nav.commissioni', descKey: 'admin.dashboard.card.commissioni_desc', count: (c) => db.commissioniByConcorso(c.id).length },
-  { id: 'fasi',        iconName: 'flag',       labelKey: 'admin.nav.fasi',        descKey: 'admin.dashboard.card.fasi_desc',        count: (c) => db.fasiByConcorso(c.id).length },
-  { id: 'calendario',  iconName: 'calendar',   labelKey: 'admin.nav.calendario',  descKey: 'admin.dashboard.card.calendario_desc',  count: (c) => db.eventiByConcorso(c.id).length },
+  { id: 'sezioni',     iconName: 'folder',     labelKey: 'admin.nav.sezioni',     descKey: 'admin.dashboard.card.sezioni_desc',     count: (/** @type {any} */ c) => db.sezioniByConcorso(c.id).length },
+  { id: 'commissari',  iconName: 'judge',      labelKey: 'admin.nav.commissari',  descKey: 'admin.dashboard.card.commissari_desc',  count: (/** @type {any} */ c) => db.commissariByConcorso(c.id).length },
+  { id: 'commissioni', iconName: 'scale',      labelKey: 'admin.nav.commissioni', descKey: 'admin.dashboard.card.commissioni_desc', count: (/** @type {any} */ c) => db.commissioniByConcorso(c.id).length },
+  { id: 'fasi',        iconName: 'flag',       labelKey: 'admin.nav.fasi',        descKey: 'admin.dashboard.card.fasi_desc',        count: (/** @type {any} */ c) => db.fasiByConcorso(c.id).length },
+  { id: 'calendario',  iconName: 'calendar',   labelKey: 'admin.nav.calendario',  descKey: 'admin.dashboard.card.calendario_desc',  count: (/** @type {any} */ c) => db.eventiByConcorso(c.id).length },
   { id: 'iscrizioni',  iconName: 'user',       labelKey: 'admin.nav.iscrizioni',  descKey: 'admin.dashboard.card.iscrizioni_desc',  count: () => null },
-  { id: 'candidati',   iconName: 'graduation', labelKey: 'admin.nav.candidati',   descKey: 'admin.dashboard.card.candidati_desc',   count: (c) => db.candidatiByConcorso(c.id).length },
+  { id: 'candidati',   iconName: 'graduation', labelKey: 'admin.nav.candidati',   descKey: 'admin.dashboard.card.candidati_desc',   count: (/** @type {any} */ c) => db.candidatiByConcorso(c.id).length },
   { id: 'risultati',   iconName: 'trophy',     labelKey: 'admin.nav.risultati',   descKey: 'admin.dashboard.card.risultati_desc',   count: () => null },
   { id: 'audit',       iconName: 'shield',     labelKey: 'admin.nav.audit',       descKey: 'admin.dashboard.card.audit_desc',       count: () => null },
   { id: 'impostazioni-concorso', iconName: 'settings', labelKey: 'admin.nav.impostazioni_concorso', descKey: 'admin.dashboard.card.impostazioni_concorso_desc', count: () => null },
 ];
 
-export function renderDashboard(root, concorso) {
+export function renderDashboard(/** @type {any} */ root, /** @type {any} */ concorso) {
   // Il "presidente del concorso" non esiste più come concetto unitario nel
   // nuovo modello (ogni commissione ha il suo). Manteniamo solo il banner di
   // warning quando NESSUNA commissione del concorso ha un presidente: la card
@@ -31,15 +31,15 @@ export function renderDashboard(root, concorso) {
   const presidentiInfo = db.presidentiFor(concorso.id);
   const hasAnyPresidente = presidentiInfo.length > 0;
   const fasi = db.fasiByConcorso(concorso.id);
-  const fasiConcluse = fasi.filter((f) => f.stato === 'CONCLUSA').length;
-  const fasiInCorso = fasi.filter((f) => f.stato === 'IN_CORSO').length;
+  const fasiConcluse = fasi.filter((/** @type {any} */ f) => f.stato === 'CONCLUSA').length;
+  const fasiInCorso = fasi.filter((/** @type {any} */ f) => f.stato === 'IN_CORSO').length;
   const candidati = db.candidatiByConcorso(concorso.id);
   const commissari = db.commissariByConcorso(concorso.id);
   const s = db.state;
 
   // Distribuzione strumenti (top 8)
-  const strumentiMap = {};
-  candidati.forEach((c) => {
+  const strumentiMap = /** @type {Record<string, any>} */ ({});
+  candidati.forEach((/** @type {any} */ c) => {
     const k = c.strumento || 'Altro';
     strumentiMap[k] = (strumentiMap[k] || 0) + 1;
   });
@@ -47,8 +47,8 @@ export function renderDashboard(root, concorso) {
   const maxStrumenti = Math.max(1, ...strumentiSorted.map(([, n]) => n));
 
   // Distribuzione nazionalità
-  const nazMap = {};
-  candidati.forEach((c) => {
+  const nazMap = /** @type {Record<string, any>} */ ({});
+  candidati.forEach((/** @type {any} */ c) => {
     const n = c.nazionalita || '—';
     nazMap[n] = (nazMap[n] || 0) + 1;
   });
@@ -56,14 +56,14 @@ export function renderDashboard(root, concorso) {
   const maxNaz = Math.max(1, ...nazSorted.map(([, n]) => n));
 
   // Riepilogo per fase
-  const valutazioniConcorso = s.valutazioni.filter((v) => {
-    const cf = s.candidati_fase.find((x) => x.id === v.candidato_fase_id);
-    return cf && fasi.some((f) => f.id === cf.fase_id);
+  const valutazioniConcorso = s.valutazioni.filter((/** @type {any} */ v) => {
+    const cf = s.candidati_fase.find((/** @type {any} */ x) => x.id === v.candidato_fase_id);
+    return cf && fasi.some((/** @type {any} */ f) => f.id === cf.fase_id);
   });
-  const fasiStats = fasi.map((f) => {
-    const cfs = s.candidati_fase.filter((cf) => cf.fase_id === f.id);
-    const valCount = valutazioniConcorso.filter((v) => cfs.some((cf) => cf.id === v.candidato_fase_id)).length;
-    const passed = cfs.filter((cf) => cf.ammesso_prossima_fase).length;
+  const fasiStats = fasi.map((/** @type {any} */ f) => {
+    const cfs = s.candidati_fase.filter((/** @type {any} */ cf) => cf.fase_id === f.id);
+    const valCount = valutazioniConcorso.filter((/** @type {any} */ v) => cfs.some((/** @type {any} */ cf) => cf.id === v.candidato_fase_id)).length;
+    const passed = cfs.filter((/** @type {any} */ cf) => cf.ammesso_prossima_fase).length;
     return { nome: f.nome, ordine: f.ordine, totale: cfs.length, valutazioni: valCount, ammessi: passed };
   });
 
@@ -149,7 +149,7 @@ export function renderDashboard(root, concorso) {
                     </tr>
                   </thead>
                   <tbody>
-                    ${fasiStats.map((fs) => `
+                    ${fasiStats.map((/** @type {any} */ fs) => `
                       <tr class="border-b border-slate-50 hover:bg-slate-50 transition-colors">
                         <td class="px-3 py-2.5 font-medium text-ink-900">#${fs.ordine} ${escapeHtml(fs.nome)}</td>
                         <td class="px-3 py-2.5 text-center font-mono text-ink-700">${fs.totale}</td>
@@ -167,7 +167,7 @@ export function renderDashboard(root, concorso) {
   `;
 
   // Cards cliccabili → cambio tab + re-render
-  root.querySelectorAll('[data-tab-link]').forEach((el) => {
+  root.querySelectorAll('[data-tab-link]').forEach((/** @type {any} */ el) => {
     el.addEventListener('click', () => {
       const id = el.dataset.tabLink;
       setAdminTab(id);
@@ -182,14 +182,14 @@ export function renderDashboard(root, concorso) {
   });
 }
 
-function kpiCard(iconHtml, value, label, accent, large = false) {
-  const accents = {
+function kpiCard(/** @type {any} */ iconHtml, /** @type {any} */ value, /** @type {any} */ label, /** @type {any} */ accent, large = false) {
+  const accents = /** @type {Record<string, any>} */ ({
     brand:   { bg: 'bg-brand-50',   text: 'text-brand-700',   border: 'border-brand-100' },
     sky:     { bg: 'bg-sky-50',     text: 'text-sky-700',     border: 'border-sky-100' },
     amber:   { bg: 'bg-amber-50',   text: 'text-amber-700',   border: 'border-amber-100' },
     emerald: { bg: 'bg-emerald-50', text: 'text-emerald-700', border: 'border-emerald-100' },
     slate:   { bg: 'bg-slate-100',  text: 'text-slate-700',   border: 'border-slate-200' },
-  }[accent] ?? { bg: 'bg-slate-100', text: 'text-slate-700', border: 'border-slate-200' };
+  })[accent] ?? { bg: 'bg-slate-100', text: 'text-slate-700', border: 'border-slate-200' };
   const valueClass = large ? 'text-base font-semibold' : 'text-2xl font-bold';
   return `
     <div class="bg-white border ${accents.border} rounded-xl p-3.5">
@@ -202,7 +202,7 @@ function kpiCard(iconHtml, value, label, accent, large = false) {
   `;
 }
 
-function sectionCard(tab, concorso) {
+function sectionCard(/** @type {any} */ tab, /** @type {any} */ concorso) {
   const n = typeof tab.count === 'function' ? tab.count(concorso) : null;
   const countBadge = n != null
     ? `<span class="text-xs font-mono bg-brand-50 text-brand-700 px-2 py-0.5 rounded-full">${n}</span>`

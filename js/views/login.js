@@ -3,7 +3,7 @@ import { escapeHtml, toast, formFields } from '../utils.js';
 import { icon } from '../icons.js';
 import { t } from '../i18n.js';
 
-export function renderLogin(root, onSuccess) {
+export function renderLogin(/** @type {any} */ root, /** @type {any} */ onSuccess) {
   // Branding pubblico (logo + nome ente) — disponibile pre-login.
   const brand = db.getEntePublic();
   const brandLogo = brand?.logo_url || './logo.png';
@@ -120,9 +120,9 @@ export function renderLogin(root, onSuccess) {
   const btnLabel = btn.firstElementChild;
 
   // Routing + benvenuto post-login, condiviso tra login diretto e 2FA.
-  const proceedAfterLogin = (account) => {
+  const proceedAfterLogin = (/** @type {any} */ account) => {
     if (!account.attivo) throw new Error(t('login.error.disabled'));
-    const goto = (h) => {
+    const goto = (/** @type {any} */ h) => {
       if (location.hash !== h) history.replaceState(null, '', h);
     };
     if (account.role === 'superadmin') {
@@ -136,7 +136,7 @@ export function renderLogin(root, onSuccess) {
       goto('#/');
     } else if (account.role === 'commissario') {
       if (!account.commissario) throw new Error(t('login.error.no_com'));
-      const com = db.state.commissari.find(c => c.id === account.commissario);
+      const com = db.state.commissari.find((/** @type {any} */ c) => c.id === account.commissario);
       if (!com) throw new Error(t('login.error.no_com_record'));
       const firstId = Array.isArray(com.concorsi_ids) ? com.concorsi_ids[0] : null;
       if (firstId) db.setActiveConcorso(firstId);
@@ -150,7 +150,7 @@ export function renderLogin(root, onSuccess) {
   };
 
   // Step 2FA: sostituisce il form login con l'inserimento del codice.
-  const renderTotpStep = (challenge) => {
+  const renderTotpStep = (/** @type {any} */ challenge) => {
     const card = form.closest('.bg-white');
     form.classList.add('hidden');
     const step = document.createElement('form');
@@ -172,7 +172,7 @@ export function renderLogin(root, onSuccess) {
       </button>`;
     card.insertBefore(step, form);
     const codeInput = /** @type {HTMLInputElement} */ (step.querySelector('[name="code"]'));
-    const totpErr = step.querySelector('#totp-error');
+    const totpErr = /** @type {HTMLElement} */ (step.querySelector('#totp-error'));
     const totpBtn = /** @type {HTMLButtonElement} */ (step.querySelector('#totp-btn'));
     codeInput.focus();
     step.addEventListener('submit', async (ev) => {
@@ -182,7 +182,7 @@ export function renderLogin(root, onSuccess) {
       try {
         const account = await db.completeTotpLogin(challenge, codeInput.value.trim());
         proceedAfterLogin(account);
-      } catch (err) {
+      } catch (/** @type {any} */ err) {
         let msg = err?.data?.error || err?.data?.message || err?.message || t('login.2fa.error');
         if (err?.status === 401) msg = t('login.2fa.error');
         totpErr.textContent = msg;
@@ -193,14 +193,14 @@ export function renderLogin(root, onSuccess) {
     });
   };
 
-  form.addEventListener('submit', async (e) => {
+  form.addEventListener('submit', async (/** @type {Event} */ e) => {
     e.preventDefault();
     errEl.classList.add('hidden');
     const data = formFields(form);
     btn.disabled = true;
     btnLabel.textContent = t('login.form.submitting');
     try {
-      const account = await db.login(data.email.trim(), data.password);
+      const account = /** @type {any} */ (await db.login(data.email.trim(), data.password));
       // 2FA: il login non ha emesso sessione, mostra lo step del secondo fattore.
       if (account && account.mfaRequired) {
         renderTotpStep(account.challenge);
@@ -208,7 +208,7 @@ export function renderLogin(root, onSuccess) {
       }
       // db.login() ha già chiamato loadAll() internamente (skip per superadmin).
       proceedAfterLogin(account);
-    } catch (err) {
+    } catch (/** @type {any} */ err) {
       console.error('Login failed:', err);
       let msg = err?.message || t('login.error.generic');
       if (err?.data?.message) msg = err.data.message;

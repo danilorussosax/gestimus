@@ -3,14 +3,14 @@ import { t } from '../i18n.js';
 import { icon } from '../icons.js';
 import { escapeHtml, toast, confirmDialog } from '../utils.js';
 
-export function renderUsers(root) {
-  const accounts = db.state.accounts.slice().sort((a, b) => {
+export function renderUsers(/** @type {HTMLElement} */ root) {
+  const accounts = db.state.accounts.slice().sort((/** @type {any} */ a, /** @type {any} */ b) => {
     if (a.role === 'admin' && b.role !== 'admin') return -1;
     if (a.role !== 'admin' && b.role === 'admin') return 1;
     return (a.nome || '').localeCompare(b.nome || '');
   });
 
-  const roleBadge = (role) => {
+  const roleBadge = (/** @type {any} */ role) => {
     if (role === 'admin') return `<span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-brand-50 text-brand-700 border border-brand-100">${icon('tools', { size: 10 })} ${escapeHtml(t('admin.users.role_admin'))}</span>`;
     return `<span class="inline-flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-accent-50 text-accent-600 border border-accent-100">${icon('music', { size: 10 })} ${escapeHtml(t('admin.users.role_commissario'))}</span>`;
   };
@@ -50,8 +50,8 @@ export function renderUsers(root) {
                 </tr>
               </thead>
               <tbody>
-                ${accounts.map(a => {
-                  const com = a.commissario_id ? db.state.commissari.find(c => c.id === a.commissario_id) : null;
+                ${accounts.map((/** @type {any} */ a) => {
+                  const com = a.commissario_id ? db.state.commissari.find((/** @type {any} */ c) => c.id === a.commissario_id) : null;
                   return `
                     <tr class="border-b border-brand-50 hover:bg-brand-50/30 transition-colors">
                       <td class="px-4 py-2.5">
@@ -90,22 +90,22 @@ export function renderUsers(root) {
   `;
 
   // Toggle active/disabled
-  root.querySelectorAll('[data-action="toggle-active"]').forEach(btn => {
+  root.querySelectorAll('[data-action="toggle-active"]').forEach((/** @type {any} */ btn) => {
     btn.addEventListener('click', async () => {
-      const account = accounts.find(a => a.id === btn.dataset.id);
+      const account = accounts.find((/** @type {any} */ a) => a.id === btn.dataset.id);
       if (!account) return;
       try {
         await db.updateAccount(account.id, { attivo: !account.attivo });
         toast(account.attivo ? t('admin.users.disabled_ok') : t('admin.users.enabled_ok'), 'success');
         renderUsers(root);
-      } catch (e) { toast(e.message, 'error'); }
+      } catch (e) { toast((/** @type {any} */ (e)).message, 'error'); }
     });
   });
 
   // Reset password — simple prompt
-  root.querySelectorAll('[data-action="reset-pwd"]').forEach(btn => {
+  root.querySelectorAll('[data-action="reset-pwd"]').forEach((/** @type {any} */ btn) => {
     btn.addEventListener('click', async () => {
-      const account = accounts.find(a => a.id === btn.dataset.id);
+      const account = accounts.find((/** @type {any} */ a) => a.id === btn.dataset.id);
       if (!account) return;
       const newPassword = prompt(t('admin.users.new_password_prompt', { email: account.email }));
       if (!newPassword || newPassword.length < 6) {
@@ -115,14 +115,14 @@ export function renderUsers(root) {
       try {
         await db.resetAccountPassword(account.id, newPassword);
         toast(t('admin.users.password_reset_ok'), 'success');
-      } catch (e) { toast(e.message, 'error'); }
+      } catch (e) { toast((/** @type {any} */ (e)).message, 'error'); }
     });
   });
 
   // Delete user
-  root.querySelectorAll('[data-action="delete-user"]').forEach(btn => {
+  root.querySelectorAll('[data-action="delete-user"]').forEach((/** @type {any} */ btn) => {
     btn.addEventListener('click', () => {
-      const account = accounts.find(a => a.id === btn.dataset.id);
+      const account = accounts.find((/** @type {any} */ a) => a.id === btn.dataset.id);
       if (!account) return;
       confirmDialog({
         title: t('admin.users.delete_title'),
@@ -133,7 +133,7 @@ export function renderUsers(root) {
             await db.deleteAccount(account.id);
             toast(t('admin.users.deleted'), 'success');
             renderUsers(root);
-          } catch (e) { toast(e.message, 'error'); }
+          } catch (e) { toast((/** @type {any} */ (e)).message, 'error'); }
         },
       });
     });

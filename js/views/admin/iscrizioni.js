@@ -7,16 +7,16 @@ import { icon } from '../../icons.js';
 import { t } from '../../i18n.js';
 
 // Stato locale del tab Iscrizioni — sopravvive ai re-render della tab.
-const _iscrizioniState = { items: [], filtro_stato: '', loading: false, error: null };
+const _iscrizioniState = /** @type {{ items: any[], filtro_stato: string, loading: boolean, error: string | null }} */ ({ items: [], filtro_stato: '', loading: false, error: null });
 
-export async function renderIscrizioni(root, concorso) {
+export async function renderIscrizioni(/** @type {any} */ root, /** @type {any} */ concorso) {
   // Render con dati cached, poi reload in background.
   doRender();
   await loadIscrizioni(concorso.id);
   doRender();
 
   function doRender() {
-    const items = _iscrizioniState.items;
+    const items = /** @type {any[]} */ (_iscrizioniState.items);
     const flt = _iscrizioniState.filtro_stato;
     const filtered = flt ? items.filter(i => i.stato === flt) : items;
     const counts = {
@@ -86,11 +86,11 @@ export async function renderIscrizioni(root, concorso) {
       doRender();
     });
     root.querySelector('[data-isc-export]')?.addEventListener('click', () => exportIscrizioniCsv(filtered, concorso));
-    root.querySelectorAll('[data-isc-filter]').forEach(b => b.addEventListener('click', () => {
+    root.querySelectorAll('[data-isc-filter]').forEach((/** @type {any} */ b) => b.addEventListener('click', () => {
       _iscrizioniState.filtro_stato = b.dataset.iscFilter;
       doRender();
     }));
-    root.querySelectorAll('[data-isc-detail]').forEach(b => b.addEventListener('click', () => {
+    root.querySelectorAll('[data-isc-detail]').forEach((/** @type {any} */ b) => b.addEventListener('click', () => {
       const i = items.find(x => x.id === b.dataset.iscDetail);
       if (i) openIscrizioneDetail(i, concorso, async () => {
         await loadIscrizioni(concorso.id, true);
@@ -99,21 +99,21 @@ export async function renderIscrizioni(root, concorso) {
     }));
   }
 
-  async function loadIscrizioni(concorsoId, force = false) {
+  async function loadIscrizioni(/** @type {any} */ concorsoId, force = false) {
     if (_iscrizioniState.loading && !force) return;
     _iscrizioniState.loading = true;
     _iscrizioniState.error = null;
     try {
       _iscrizioniState.items = await db.listIscrizioni({ concorsoId });
     } catch (e) {
-      _iscrizioniState.error = `Errore caricamento iscrizioni: ${e?.message || e}`;
+      _iscrizioniState.error = `Errore caricamento iscrizioni: ${(/** @type {any} */ (e))?.message || e}`;
     } finally {
       _iscrizioniState.loading = false;
     }
   }
 }
 
-function iscFilterPill(value, label, count, active, colors = 'bg-slate-100 text-slate-700 border-slate-200') {
+function iscFilterPill(/** @type {any} */ value, /** @type {any} */ label, /** @type {any} */ count, /** @type {any} */ active, colors = 'bg-slate-100 text-slate-700 border-slate-200') {
   const cls = active
     ? 'bg-brand-600 text-white border-brand-600'
     : colors;
@@ -123,7 +123,7 @@ function iscFilterPill(value, label, count, active, colors = 'bg-slate-100 text-
   </button>`;
 }
 
-function iscrizioneRowHtml(i) {
+function iscrizioneRowHtml(/** @type {any} */ i) {
   const statoColors = {
     pending:        'bg-amber-100 text-amber-800',
     email_verified: 'bg-sky-100 text-sky-800',
@@ -148,7 +148,7 @@ function iscrizioneRowHtml(i) {
       </td>
       <td class="px-3 py-2.5 text-xs text-slate-600 hidden sm:table-cell">${escapeHtml(i.email || '')}</td>
       <td class="px-3 py-2.5 text-xs text-slate-700 hidden md:table-cell">${escapeHtml(i.strumento || '—')}</td>
-      <td class="px-3 py-2.5"><span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${statoColors[i.stato] || 'bg-slate-100 text-slate-700'}">${escapeHtml(statoLabel[i.stato] || i.stato)}</span></td>
+      <td class="px-3 py-2.5"><span class="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${(/** @type {Record<string, any>} */ (statoColors))[i.stato] || 'bg-slate-100 text-slate-700'}">${escapeHtml((/** @type {Record<string, any>} */ (statoLabel))[i.stato] || i.stato)}</span></td>
       <td class="px-3 py-2.5 text-right">
         <button class="c-btn c-btn--ghost c-btn--sm !px-2" title="Vedi dettagli">${icon('arrowRight', { size: 14 })}</button>
       </td>
@@ -156,14 +156,14 @@ function iscrizioneRowHtml(i) {
   `;
 }
 
-function openIscrizioneDetail(isc, concorso, onChanged) {
+function openIscrizioneDetail(/** @type {any} */ isc, /** @type {any} */ concorso, /** @type {any} */ onChanged) {
   const eta = isc.data_nascita ? Math.floor((Date.now() - new Date(isc.data_nascita).getTime()) / (365.25 * 24 * 3600 * 1000)) : null;
   const isMinor = eta !== null && eta < 18;
   // File URL: nel nuovo stack PG+Fastify gli allegati vivono nella tabella
   // iscrizioni_allegati e il path è già completo (es. /uploads/<tenant>/...).
   // Per ora ritorniamo il valore se è già un URL/path, altrimenti null
   // (TODO: caricare iscrizioniAllegati per id iscrizione).
-  const fileUrl = (field) => {
+  const fileUrl = (/** @type {any} */ field) => {
     const v = isc[field];
     if (typeof v === 'string' && (v.startsWith('/') || v.startsWith('http'))) return v;
     return null;
@@ -233,7 +233,7 @@ function openIscrizioneDetail(isc, concorso, onChanged) {
             <div><span class="text-slate-500">Strumento:</span> <strong>${escapeHtml(isc.strumento || '—')}</strong></div>
             <div><span class="text-slate-500">Anni studio:</span> <strong>${escapeHtml(String(isc.anni_studio || '—'))}</strong></div>
             <div class="col-span-3"><span class="text-slate-500">Scuola/Conservatorio:</span> <strong>${escapeHtml(isc.scuola_provenienza || '—')}</strong></div>
-            ${docenti.length > 0 ? `<div class="col-span-3"><span class="text-slate-500">Docenti:</span> <strong>${docenti.map(d => escapeHtml(d)).join(' · ')}</strong></div>` : ''}
+            ${docenti.length > 0 ? `<div class="col-span-3"><span class="text-slate-500">Docenti:</span> <strong>${docenti.map((/** @type {any} */ d) => escapeHtml(d)).join(' · ')}</strong></div>` : ''}
           </div>
         </section>
 
@@ -241,7 +241,7 @@ function openIscrizioneDetail(isc, concorso, onChanged) {
         <section>
           <h3 class="font-mono text-[10px] uppercase tracking-wider text-slate-500 mb-2">${isc.tipo === 'orchestra' ? 'Membri dell\'orchestra' : 'Membri del gruppo'} (${escapeHtml(isc.gruppo_nome || '')})</h3>
           <ul class="space-y-1 text-xs">
-            ${gruppoMembri.map(m => `<li>· <strong>${escapeHtml(m.nome || '')} ${escapeHtml(m.cognome || '')}</strong> — ${escapeHtml(m.strumento || '—')}${m.data_nascita ? ` (${escapeHtml(m.data_nascita)})` : ''}</li>`).join('')}
+            ${gruppoMembri.map((/** @type {any} */ m) => `<li>· <strong>${escapeHtml(m.nome || '')} ${escapeHtml(m.cognome || '')}</strong> — ${escapeHtml(m.strumento || '—')}${m.data_nascita ? ` (${escapeHtml(m.data_nascita)})` : ''}</li>`).join('')}
           </ul>
         </section>
         ` : ''}
@@ -251,7 +251,7 @@ function openIscrizioneDetail(isc, concorso, onChanged) {
           <h3 class="font-mono text-[10px] uppercase tracking-wider text-slate-500 mb-2">Programma musicale (${programma.length} brani · ${isc.durata_totale_min || 0} min)</h3>
           ${programma.length > 0 ? `
             <ol class="space-y-1 text-xs list-decimal pl-5">
-              ${programma.map(p => `<li><strong>${escapeHtml(p.titolo || '—')}</strong> — ${escapeHtml(p.autore || 'autore sconosciuto')} <span class="text-slate-500">(${escapeHtml(String(p.durata_min || 0))} min)</span></li>`).join('')}
+              ${programma.map((/** @type {any} */ p) => `<li><strong>${escapeHtml(p.titolo || '—')}</strong> — ${escapeHtml(p.autore || 'autore sconosciuto')} <span class="text-slate-500">(${escapeHtml(String(p.durata_min || 0))} min)</span></li>`).join('')}
             </ol>
           ` : '<p class="text-xs italic text-slate-500">Nessun brano inserito.</p>'}
         </section>
@@ -297,7 +297,7 @@ function openIscrizioneDetail(isc, concorso, onChanged) {
         toast(`Iscrizione di ${isc.nome} ${isc.cognome} approvata`, 'success');
         if (onChanged) onChanged();
       } catch (e) {
-        toast(`Errore: ${e?.message || e}`, 'error');
+        toast(`Errore: ${(/** @type {any} */ (e))?.message || e}`, 'error');
         return false;
       }
     },
@@ -307,7 +307,7 @@ function openIscrizioneDetail(isc, concorso, onChanged) {
   if (isc.stato !== 'approved' && isc.stato !== 'rejected') {
     setTimeout(() => {
       const modalEl = document.querySelector('#modal-root .c-btn--primary');
-      if (modalEl && !modalEl.parentElement.querySelector('[data-isc-reject]')) {
+      if (modalEl && !(/** @type {HTMLElement} */ (modalEl.parentElement)).querySelector('[data-isc-reject]')) {
         const btn = document.createElement('button');
         btn.className = 'c-btn c-btn--outline text-rose-700 border-rose-300 hover:bg-rose-50';
         btn.setAttribute('data-isc-reject', '1');
@@ -320,9 +320,9 @@ function openIscrizioneDetail(isc, concorso, onChanged) {
             toast('Iscrizione rifiutata', 'info');
             /** @type {HTMLElement | null} */ (document.querySelector('#modal-root [data-action="close"]'))?.click();
             if (onChanged) onChanged();
-          } catch (e) { toast(`Errore: ${e?.message || e}`, 'error'); }
+          } catch (e) { toast(`Errore: ${(/** @type {any} */ (e))?.message || e}`, 'error'); }
         });
-        modalEl.parentElement.insertBefore(btn, modalEl);
+        (/** @type {HTMLElement} */ (modalEl.parentElement)).insertBefore(btn, modalEl);
       }
     }, 50);
   }
@@ -331,8 +331,8 @@ function openIscrizioneDetail(isc, concorso, onChanged) {
 // Export CSV — file RFC 4180 con BOM UTF-8 per Excel.
 // Anti formula-injection: i valori che iniziano con =, +, -, @, TAB, CR vengono
 // prefissati con apostrofo perché Excel/LibreOffice li interpreterebbe come formule.
-function exportIscrizioniCsv(items, concorso) {
-  const csvField = (v) => {
+function exportIscrizioniCsv(/** @type {any} */ items, /** @type {any} */ concorso) {
+  const csvField = (/** @type {any} */ v) => {
     let s = String(v ?? '');
     if (s.length && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
     return `"${s.replaceAll('"', '""')}"`;
@@ -341,7 +341,7 @@ function exportIscrizioniCsv(items, concorso) {
   const lines = [header.map(csvField).join(',')];
   for (const i of items) {
     const programma = Array.isArray(i.programma) ? i.programma : [];
-    const briefBrani = programma.map(p => `${p.titolo || ''} — ${p.autore || ''}`).join(' | ');
+    const briefBrani = programma.map((/** @type {any} */ p) => `${p.titolo || ''} — ${p.autore || ''}`).join(' | ');
     lines.push([
       new Date(i.created).toLocaleString('it-IT'),
       i.stato,

@@ -51,12 +51,13 @@ const IMPORT_REQUIRED = {
   sezioni:    ['sezione'],
 };
 
-function normKey(s) {
+function normKey(/** @type {any} */ s) {
   return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/[^a-z0-9]/g, '');
 }
 
-function detectCsvSeparator(text) {
-  const firstLine = text.split(/\r?\n/).find(l => l.trim()) || '';
+function detectCsvSeparator(/** @type {string} */ text) {
+  const firstLine = text.split(/\r?\n/).find((/** @type {string} */ l) => l.trim()) || '';
+  /** @type {Record<string, number>} */
   const counts = { ',': 0, ';': 0, '\t': 0 };
   let inQ = false;
   for (const ch of firstLine) {
@@ -68,7 +69,7 @@ function detectCsvSeparator(text) {
   return order.reduce((best, c) => counts[c] > counts[best] ? c : best, order[0]);
 }
 
-function parseCSV(text, sep) {
+function parseCSV(/** @type {string} */ text, /** @type {string} */ sep) {
   // L229: rimuovi un eventuale BOM UTF-8 iniziale, altrimenti finisce nella
   // prima intestazione e il mapping delle colonne fallisce.
   if (text && text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
@@ -96,7 +97,7 @@ function parseCSV(text, sep) {
   return rows.filter(r => r.some(c => String(c).trim() !== ''));
 }
 
-function parseImportDate(s) {
+function parseImportDate(/** @type {any} */ s) {
   const v = String(s || '').trim();
   if (!v) return '';
   // ISO YYYY-MM-DD
@@ -114,16 +115,17 @@ function parseImportDate(s) {
   return null; // invalid
 }
 
-function splitMulti(s) {
+function splitMulti(/** @type {any} */ s) {
   return String(s || '').split('|').map(x => x.trim()).filter(Boolean);
 }
 
-function buildImportRow(kind, headerMap, rawRow, concorso) {
-  const get = (logical) => {
+function buildImportRow(/** @type {any} */ kind, /** @type {Record<string, any>} */ headerMap, /** @type {any} */ rawRow, /** @type {any} */ concorso) {
+  const get = (/** @type {string} */ logical) => {
     const idx = headerMap[logical];
     return idx == null ? '' : String(rawRow[idx] ?? '').trim();
   };
   const errors = [];
+  /** @type {Record<string, any>} */
   const out = {
     nome: get('nome'),
     cognome: get('cognome'),
@@ -134,7 +136,7 @@ function buildImportRow(kind, headerMap, rawRow, concorso) {
     out.sezione = get('sezione');
     out.categoria = get('categoria');
     out.descrizione = get('descrizione');
-    const parseEta = (raw, field) => {
+    const parseEta = (/** @type {any} */ raw, /** @type {any} */ field) => {
       const v = String(raw || '').trim();
       if (!v) return null;
       const n = Number(v.replace(',', '.'));
@@ -171,11 +173,12 @@ function buildImportRow(kind, headerMap, rawRow, concorso) {
 
     // Sezione N:1: prendiamo il primo nome valido. Manteniamo splitMulti per
     // tolleranza al template legacy (separatore "|") ma usiamo solo il primo.
-    const sezAll = db.sezioniByConcorso(concorso.id);
+    const sezAll = /** @type {any[]} */ (db.sezioniByConcorso(concorso.id));
     const sezNames = splitMulti(get('sezione'));
+    /** @type {any} */
     let sezione_id = null;
     if (sezNames.length > 0) {
-      const s = sezAll.find(x => normKey(x.nome) === normKey(sezNames[0]));
+      const s = sezAll.find((/** @type {any} */ x) => normKey(x.nome) === normKey(sezNames[0]));
       if (s) sezione_id = s.id;
       else errors.push(t('admin.import.err.sez_not_found', { name: sezNames[0] }));
     }
@@ -184,11 +187,12 @@ function buildImportRow(kind, headerMap, rawRow, concorso) {
     // Categoria N:1: scoped alla sezione scelta. Se la sezione manca ma la
     // categoria è specificata, deriviamo la sezione dal record categoria
     // (gerarchia categoria→sezione, identica al form e al backend).
-    const catAll = db.categorieByConcorso(concorso.id);
+    const catAll = /** @type {any[]} */ (db.categorieByConcorso(concorso.id));
     const catNames = splitMulti(get('categoria'));
+    /** @type {any} */
     let categoria_id = null;
     if (catNames.length > 0) {
-      const candidates = catAll.filter(c =>
+      const candidates = catAll.filter((/** @type {any} */ c) =>
         normKey(c.nome) === normKey(catNames[0]) &&
         (sezione_id == null || c.sezione_id === sezione_id),
       );
@@ -223,25 +227,26 @@ function buildImportRow(kind, headerMap, rawRow, concorso) {
   // suo complesso.
   const requiredForRow = kind === 'candidati' && (out.tipo === 'gruppo' || out.tipo === 'orchestra')
     ? ['nome', 'strumento']
-    : IMPORT_REQUIRED[kind];
-  requiredForRow.forEach(f => {
+    : /** @type {Record<string, string[]>} */ (IMPORT_REQUIRED)[kind];
+  requiredForRow.forEach((/** @type {string} */ f) => {
     if (!out[f]) errors.push(t('admin.import.err.required_missing', { field: f }));
   });
   return { data: out, errors };
 }
 
-function buildHeaderMap(kind, headerCells) {
-  const aliases = IMPORT_FIELD_ALIASES[kind];
-  const normHeader = headerCells.map(h => normKey(h));
+function buildHeaderMap(/** @type {any} */ kind, /** @type {any} */ headerCells) {
+  const aliases = /** @type {Record<string, Record<string, string[]>>} */ (IMPORT_FIELD_ALIASES)[kind];
+  const normHeader = headerCells.map((/** @type {any} */ h) => normKey(h));
+  /** @type {Record<string, number>} */
   const map = {};
   Object.entries(aliases).forEach(([logical, alts]) => {
-    const idx = normHeader.findIndex(h => alts.includes(h));
+    const idx = normHeader.findIndex((/** @type {any} */ h) => alts.includes(h));
     if (idx >= 0) map[logical] = idx;
   });
   return map;
 }
 
-function importTemplateText(kind) {
+function importTemplateText(/** @type {any} */ kind) {
   if (kind === 'sezioni') {
     // Header: sezione obbligatoria; categoria/descrizione/eta_min/eta_max
     // opzionali. La sezione si ripete su più righe per raggrupparne le categorie.
@@ -271,14 +276,16 @@ function importTemplateText(kind) {
   ].join('\n');
 }
 
-export function openImportModal(concorso, kind, onSaved) {
+export function openImportModal(/** @type {any} */ concorso, /** @type {any} */ kind, /** @type {any} */ onSaved) {
   const isCand = kind === 'candidati';
   const isSez = kind === 'sezioni';
   const titleKind = t(`admin.import.kind.${kind}`);
   const fieldsHelp = t(`admin.import.cols.${kind}`);
 
   // Mutable parsed state (filled by parseAndPreview)
+  /** @type {any[]} */
   let parsed = []; // [{ data, errors, raw }]
+  /** @type {any[]} */
   let csvHeaders = []; // header row letta dal CSV, condivisa tra onMount e onPrimary
 
   modal({
@@ -346,15 +353,15 @@ export function openImportModal(concorso, kind, onSaved) {
     onMount: (body) => {
       const fileInput   = /** @type {HTMLInputElement} */ (body.querySelector('[data-import-file]'));
       const textArea    = /** @type {HTMLTextAreaElement} */ (body.querySelector('[data-import-text]'));
-      const statusEl    = body.querySelector('[data-import-status]');
-      const summaryEl   = body.querySelector('[data-import-summary]');
-      const previewWrap = body.querySelector('[data-import-preview]');
-      const headRow     = body.querySelector('[data-preview-head]');
-      const bodyRows    = body.querySelector('[data-preview-body]');
+      const statusEl    = /** @type {HTMLElement} */ (body.querySelector('[data-import-status]'));
+      const summaryEl   = /** @type {HTMLElement} */ (body.querySelector('[data-import-summary]'));
+      const previewWrap = /** @type {HTMLElement} */ (body.querySelector('[data-import-preview]'));
+      const headRow     = /** @type {HTMLElement} */ (body.querySelector('[data-preview-head]'));
+      const bodyRows    = /** @type {HTMLElement} */ (body.querySelector('[data-preview-body]'));
       const tplBtn      = /** @type {HTMLElement} */ (body.querySelector('[data-import-template]'));
       const parseBtn    = /** @type {HTMLButtonElement} */ (body.querySelector('[data-import-parse]'));
-      const mappingWrap = body.querySelector('[data-mapping]');
-      const mappingFields = body.querySelector('[data-mapping-fields]');
+      const mappingWrap = /** @type {HTMLElement} */ (body.querySelector('[data-mapping]'));
+      const mappingFields = /** @type {HTMLElement} */ (body.querySelector('[data-mapping-fields]'));
 
       tplBtn.addEventListener('click', () => {
         const blob = new Blob([importTemplateText(kind)], { type: 'text/csv;charset=utf-8' });
@@ -367,7 +374,7 @@ export function openImportModal(concorso, kind, onSaved) {
       });
 
       fileInput.addEventListener('change', async (e) => {
-        const file = /** @type {HTMLInputElement} */ (e.target).files[0];
+        const file = /** @type {HTMLInputElement} */ (e.target).files?.[0];
         if (!file) return;
         try {
           const txt = await file.text();
@@ -375,7 +382,7 @@ export function openImportModal(concorso, kind, onSaved) {
           statusEl.textContent = t('admin.import.loaded', { name: file.name, size: fmtBytes(file.size) });
           parseBtn.click();
         } catch (err) {
-          toast(t('admin.import.read_error', { msg: err.message }), 'error');
+          toast(t('admin.import.read_error', { msg: /** @type {any} */ (err)?.message }), 'error');
         } finally {
           fileInput.value = '';
         }
@@ -399,7 +406,7 @@ export function openImportModal(concorso, kind, onSaved) {
         }
         const header = rows[0];
         const headerMap = buildHeaderMap(kind, header);
-        const missingReq = IMPORT_REQUIRED[kind].filter(f => !(f in headerMap));
+        const missingReq = /** @type {Record<string, string[]>} */ (IMPORT_REQUIRED)[kind].filter((/** @type {string} */ f) => !(f in headerMap));
         if (missingReq.length > 0) {
           summaryEl.innerHTML = `<span class="text-rose-600 font-semibold">${escapeHtml(t('admin.import.missing_cols', { cols: missingReq.join(', ') }))}</span>`;
           previewWrap.classList.add('hidden');
@@ -439,12 +446,12 @@ export function openImportModal(concorso, kind, onSaved) {
             : [t('admin.import.col.nome'), t('admin.import.col.cognome'), t('admin.import.col.specialita'), t('admin.import.col.email'), t('admin.import.col.telefono'), t('admin.import.col.nascita')];
         headRow.innerHTML = ['#', ...colLabels, t('admin.import.col_status')].map(h => `<th class="text-left font-semibold text-slate-600 px-2 py-1.5 border-b border-slate-200">${escapeHtml(h)}</th>`).join('');
 
-        const sezById = Object.fromEntries(db.sezioniByConcorso(concorso.id).map(s => [s.id, s.nome]));
-        const catById = Object.fromEntries(db.categorieByConcorso(concorso.id).map(c => [c.id, c.nome]));
+        const sezById = Object.fromEntries(/** @type {any[]} */ (db.sezioniByConcorso(concorso.id)).map((/** @type {any} */ s) => [s.id, s.nome]));
+        const catById = Object.fromEntries(/** @type {any[]} */ (db.categorieByConcorso(concorso.id)).map((/** @type {any} */ c) => [c.id, c.nome]));
 
-        bodyRows.innerHTML = parsed.map(p => {
-          const cells = cols.map(c => {
-            let v = p.data[c];
+        bodyRows.innerHTML = parsed.map((/** @type {any} */ p) => {
+          const cells = cols.map((/** @type {string} */ c) => {
+            let v = /** @type {Record<string, any>} */ (p.data)[c];
             // R15: buildImportRow scrive id SINGOLI (sezione_id/categoria_id), non
             // array plurali → la preview leggeva chiavi inesistenti e restava vuota.
             if (c === 'sezione_id') v = v ? (sezById[v] || v) : '';
@@ -494,10 +501,11 @@ export function openImportModal(concorso, kind, onSaved) {
     },
     onPrimary: async (body) => {
       // Ricostruisci mapping dal form (override manuale)
+      /** @type {Record<string, number>} */
       const userMap = {};
       body.querySelectorAll('[data-map]').forEach(sel => {
         const s = /** @type {HTMLSelectElement} */ (sel);
-        if (s.value !== '') userMap[s.dataset.map] = Number(s.value);
+        if (s.value !== '' && s.dataset.map) userMap[s.dataset.map] = Number(s.value);
       });
       if (Object.keys(userMap).length > 0 && csvHeaders.length > 0) {
         const sep = detectCsvSeparator((/** @type {HTMLTextAreaElement} */ (body.querySelector('[data-import-text]')).value || '').trim());
@@ -510,14 +518,14 @@ export function openImportModal(concorso, kind, onSaved) {
         }
       }
 
-      const valid = parsed.filter(p => p.errors.length === 0);
+      const valid = parsed.filter((/** @type {any} */ p) => p.errors.length === 0);
       if (valid.length === 0) {
         toast(t('admin.import.no_valid_rows'), 'error');
         return false;
       }
-      const progress = body.querySelector('[data-import-progress]');
+      const progress = /** @type {HTMLElement} */ (body.querySelector('[data-import-progress]'));
       const bar      = /** @type {HTMLElement} */ (body.querySelector('[data-progress-bar]'));
-      const ptext    = body.querySelector('[data-progress-text]');
+      const ptext    = /** @type {HTMLElement} */ (body.querySelector('[data-progress-text]'));
       progress.classList.remove('hidden');
 
       // Sezioni & categorie: import gerarchico. Prima risolve/crea le sezioni
@@ -525,10 +533,12 @@ export function openImportModal(concorso, kind, onSaved) {
       // categorie sotto la sezione giusta saltando i duplicati per nome.
       // Riusa db.createSezione / db.createCategoria.
       if (isSez) {
-        const norm = (s) => String(s || '').trim().toLowerCase();
-        const sezByName = new Map(db.sezioniByConcorso(concorso.id).map(s => [norm(s.nome), s]));
+        const norm = (/** @type {any} */ s) => String(s || '').trim().toLowerCase();
+        /** @type {Map<string, any>} */
+        const sezByName = new Map(/** @type {any[]} */ (db.sezioniByConcorso(concorso.id)).map((/** @type {any} */ s) => [norm(s.nome), s]));
+        /** @type {Map<any, Set<string>>} */
         const catNamesBySez = new Map(
-          db.sezioniByConcorso(concorso.id).map(s => [s.id, new Set(db.categorieBySezione(s.id).map(c => norm(c.nome)))]),
+          /** @type {any[]} */ (db.sezioniByConcorso(concorso.id)).map((/** @type {any} */ s) => [s.id, new Set(/** @type {any[]} */ (db.categorieBySezione(s.id)).map((/** @type {any} */ c) => norm(c.nome)))]),
         );
         let okSez = 0, okCat = 0, ko = 0;
         for (let i = 0; i < valid.length; i++) {
@@ -545,7 +555,7 @@ export function openImportModal(concorso, kind, onSaved) {
             }
             if (categoria) {
               const seen = catNamesBySez.get(sez.id);
-              if (!seen.has(norm(categoria))) {
+              if (seen && !seen.has(norm(categoria))) {
                 await db.createCategoria({ sezione_id: sez.id, nome: categoria.trim(), descrizione: descrizione || '', eta_min, eta_max });
                 seen.add(norm(categoria));
                 okCat++;

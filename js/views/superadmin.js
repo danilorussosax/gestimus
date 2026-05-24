@@ -10,6 +10,7 @@ import { PIANI, PIANO_KEYS, getPianoOrDefault, pianoPriceLabel } from '../piani.
 
 // Snapshot risorse del processo node + host (mem, CPU load). Aggiornato in
 // loadAll così la card "Sistema" non rimane vuota dopo il primo render.
+/** @type {any} */
 let systemSnapshot = null;
 
 // Ring buffer history per le sparkline (Fase 1). 5 minuti @ 5s polling = 60
@@ -17,21 +18,26 @@ let systemSnapshot = null;
 // "real-time corrente", non storico).
 const HIST_MAX = 60;
 const history = {
+  /** @type {number[]} */
   rssMb: [],   // memoria RSS del processo, MB
+  /** @type {number[]} */
   cpuPct: [],  // CPU processo, %
+  /** @type {number[]} */
   ts: [],      // timestamp ms (per tooltip)
 };
 
 // Runtime per-tenant (Fase 2): mappa { tenantId → { reqCountMin, p50, p95, ... } }
 // Aggiornata insieme al snapshot di sistema via /api/platform/runtime.
+/** @type {Record<string, any>} */
 let runtimeByTenant = {};
 
 // Handle del polling: lo conserviamo per fermarlo quando si lascia la dashboard
 // (cambio tab "Configurazione" o uscita dal route #/superadmin).
+/** @type {ReturnType<typeof setInterval> | null} */
 let pollHandle = null;
 const POLL_MS = 5000;
 
-function startPolling(main) {
+function startPolling(/** @type {any} */ main) {
   stopPolling();
   pollHandle = setInterval(async () => {
     try {
@@ -68,7 +74,7 @@ if (typeof window !== 'undefined') {
   });
 }
 
-function pushHistory(sys) {
+function pushHistory(/** @type {any} */ sys) {
   if (!sys) return;
   history.rssMb.push(sys.memory.rss / (1024 * 1024));
   history.cpuPct.push(sys.cpu.processPct ?? 0);
@@ -80,12 +86,16 @@ function pushHistory(sys) {
 
 const state = {
   view: 'dashboard', // 'dashboard' | 'config'
+  /** @type {any[]} */
   enti: [],
+  /** @type {Map<string, any>} */
   enteStats: new Map(),
+  /** @type {Map<string, any>} */
   enteSmtp: new Map(),
   filter: { stato: 'all', piano: 'all', search: '' },
   layout: 'grid', // 'grid' | 'table'
   sort: { col: 'nome', dir: 'asc' },
+  /** @type {any} */
   config: null,
 };
 
@@ -93,7 +103,7 @@ const state = {
 // Entry point
 // ============================================================================
 
-export function renderSuperadmin(root) {
+export function renderSuperadmin(/** @type {any} */ root) {
   root.innerHTML = `
     <div class="bg-slate-50 min-h-screen view-fade">
       <!-- Top bar -->
@@ -120,13 +130,13 @@ export function renderSuperadmin(root) {
       </main>
     </div>
   `;
-  root.querySelectorAll('#sa-nav [data-tab]').forEach((b) => {
+  root.querySelectorAll('#sa-nav [data-tab]').forEach((/** @type {HTMLElement} */ b) => {
     b.addEventListener('click', () => switchView(root, b.dataset.tab));
   });
   switchView(root, state.view);
 }
 
-function navTab(key, label, iconName) {
+function navTab(/** @type {any} */ key, /** @type {any} */ label, /** @type {any} */ iconName) {
   return `
     <button data-tab="${key}" class="sa-nav-btn inline-flex items-center gap-2 px-3 py-1.5 text-sm font-medium rounded-md text-ink-700 hover:bg-slate-100 transition-colors">
       ${icon(iconName, { size: 14 })}<span>${label}</span>
@@ -134,9 +144,9 @@ function navTab(key, label, iconName) {
   `;
 }
 
-function switchView(root, view) {
+function switchView(/** @type {any} */ root, /** @type {any} */ view) {
   state.view = view;
-  root.querySelectorAll('#sa-nav [data-tab]').forEach((b) => {
+  root.querySelectorAll('#sa-nav [data-tab]').forEach((/** @type {HTMLElement} */ b) => {
     const active = b.dataset.tab === view;
     b.classList.toggle('bg-brand-50', active);
     b.classList.toggle('text-brand-700', active);
@@ -151,7 +161,7 @@ function switchView(root, view) {
 // DASHBOARD
 // ============================================================================
 
-async function renderDashboard(main) {
+async function renderDashboard(/** @type {any} */ main) {
   main.innerHTML = `
     <div class="space-y-6">
       <!-- KPI strip placeholder -->
@@ -174,7 +184,7 @@ async function renderDashboard(main) {
         </select>
         <select id="sa-piano-filter" class="c-input c-input--sm" title="Filtra per piano">
           <option value="all">Tutti i piani</option>
-          ${PIANO_KEYS.map((k) => `<option value="${k}">${PIANI[k].nome}</option>`).join('')}
+          ${PIANO_KEYS.map((k) => `<option value="${k}">${(/** @type {any} */ (PIANI))[k].nome}</option>`).join('')}
         </select>
         <div class="inline-flex border border-slate-200 rounded-md p-0.5 bg-slate-50" role="tablist">
           <button data-layout="grid" class="sa-layout-btn px-2.5 py-1 text-xs font-medium rounded inline-flex items-center gap-1.5 transition-colors" title="Vista griglia">
@@ -196,16 +206,16 @@ async function renderDashboard(main) {
   `;
 
   // Wire toolbar
-  const search = main.querySelector('#sa-search');
+  const search = /** @type {HTMLInputElement} */ (main.querySelector('#sa-search'));
   search.value = state.filter.search;
-  search.addEventListener('input', debounce((e) => { state.filter.search = e.target.value; renderList(main); }, 200));
-  const stato = main.querySelector('#sa-stato-filter');
+  search.addEventListener('input', debounce((/** @type {any} */ e) => { state.filter.search = e.target.value; renderList(main); }, 200));
+  const stato = /** @type {HTMLInputElement} */ (main.querySelector('#sa-stato-filter'));
   stato.value = state.filter.stato;
-  stato.addEventListener('change', (e) => { state.filter.stato = e.target.value; renderList(main); });
-  const piano = main.querySelector('#sa-piano-filter');
+  stato.addEventListener('change', (/** @type {any} */ e) => { state.filter.stato = e.target.value; renderList(main); });
+  const piano = /** @type {HTMLInputElement} */ (main.querySelector('#sa-piano-filter'));
   piano.value = state.filter.piano;
-  piano.addEventListener('change', (e) => { state.filter.piano = e.target.value; renderList(main); });
-  main.querySelectorAll('[data-layout]').forEach((b) => {
+  piano.addEventListener('change', (/** @type {any} */ e) => { state.filter.piano = e.target.value; renderList(main); });
+  main.querySelectorAll('[data-layout]').forEach((/** @type {any} */ b) => {
     b.addEventListener('click', () => { state.layout = b.dataset.layout; updateLayoutToggle(main); renderList(main); });
   });
   main.querySelector('[data-action="refresh"]').addEventListener('click', () => loadAll(main));
@@ -219,8 +229,8 @@ async function renderDashboard(main) {
   startPolling(main);
 }
 
-function updateLayoutToggle(main) {
-  main.querySelectorAll('[data-layout]').forEach((b) => {
+function updateLayoutToggle(/** @type {any} */ main) {
+  main.querySelectorAll('[data-layout]').forEach((/** @type {HTMLElement} */ b) => {
     const active = b.dataset.layout === state.layout;
     b.classList.toggle('bg-white', active);
     b.classList.toggle('shadow-sm', active);
@@ -234,7 +244,7 @@ const EMPTY_STATS = Object.freeze({
   concorsi: 0, commissari: 0, candidati: 0, iscrizioni: 0, accounts: 0, diskUsageBytes: 0,
 });
 
-async function loadAll(main) {
+async function loadAll(/** @type {any} */ main) {
   try {
     state.enti = await api.get('/api/platform/tenants');
   } catch (err) {
@@ -246,6 +256,7 @@ async function loadAll(main) {
     if (!state.enteStats.has(t.id)) state.enteStats.set(t.id, { ...EMPTY_STATS });
     if (!state.enteSmtp.has(t.id)) state.enteSmtp.set(t.id, { configured: false });
   }
+  /** @type {Array<{ slug: any, err: any }>} */
   const failures = [];
   await Promise.all(state.enti.map(async (t) => {
     try {
@@ -289,7 +300,7 @@ async function loadAll(main) {
 // KPI strip
 // ============================================================================
 
-function renderKPI(main) {
+function renderKPI(/** @type {any} */ main) {
   const tot = state.enti.length;
   const attivi = state.enti.filter((t) => t.stato === 'attivo').length;
   const sospesi = state.enti.filter((t) => t.stato === 'sospeso').length;
@@ -304,8 +315,8 @@ function renderKPI(main) {
       totConcorsi += s.concorsi || 0;
       totDisk += s.diskUsageBytes || 0;
     }
-    if (t.stato === 'attivo' && !PIANI[t.piano]?.is_ppe) {
-      revenue += PIANI[t.piano]?.prezzo_eur || 0;
+    if (t.stato === 'attivo' && !(/** @type {any} */ (PIANI))[t.piano]?.is_ppe) {
+      revenue += (/** @type {any} */ (PIANI))[t.piano]?.prezzo_eur || 0;
     }
   }
 
@@ -317,13 +328,14 @@ function renderKPI(main) {
   // include I/O wait e altri processi) — mostrata nel sub con etichetta
   // esplicita per non confondere con la "CPU del processo".
   const sys = systemSnapshot;
+  /** @type {number | null} */
   const rssMb = sys ? (sys.memory.rss / (1024 * 1024)) : null;
   // L175: sys.cpu potrebbe mancare anche quando sys esiste (snapshot parziale) →
   // optional chaining per non far crashare l'intera vista superadmin.
   const cpuPct = sys?.cpu?.processPct;
   const cores = sys?.cpu?.cores ?? 0;
   const sysValue = sys
-    ? `${rssMb < 1024 ? rssMb.toFixed(0) + ' MB' : (rssMb / 1024).toFixed(2) + ' GB'} · CPU ${typeof cpuPct === 'number' ? cpuPct.toFixed(1) : '—'}%`
+    ? `${(/** @type {number} */ (rssMb)) < 1024 ? (/** @type {number} */ (rssMb)).toFixed(0) + ' MB' : ((/** @type {number} */ (rssMb)) / 1024).toFixed(2) + ' GB'} · CPU ${typeof cpuPct === 'number' ? cpuPct.toFixed(1) : '—'}%`
     : 'n/d';
   // M212: guard su loadAvg1 → un valore non finito darebbe NaN, che `?? '—'`
   // NON intercetta (?? cattura solo null/undefined).
@@ -349,7 +361,7 @@ function renderKPI(main) {
 // Sparkline realtime (Fase 1)
 // ============================================================================
 
-function renderSparklines(main) {
+function renderSparklines(/** @type {any} */ main) {
   const host = main.querySelector('#sa-sparklines');
   if (!host) return;
   const rssMb = history.rssMb;
@@ -379,7 +391,8 @@ function renderSparklines(main) {
   `;
 }
 
-function sparklineCard({ label, currentValue, sub, values, color, yMin = 0, yMax = null }) {
+function sparklineCard(/** @type {any} */ opts) {
+  const { label, currentValue, sub, values, color, yMin = 0, yMax = null } = opts;
   const w = 300;
   const h = 140;
   const padding = 6;
@@ -402,7 +415,7 @@ function sparklineCard({ label, currentValue, sub, values, color, yMin = 0, yMax
   `;
 }
 
-function buildSparklinePath(values, w, h, padding, yMin, yMaxOverride) {
+function buildSparklinePath(/** @type {any} */ values, /** @type {any} */ w, /** @type {any} */ h, /** @type {any} */ padding, /** @type {any} */ yMin, /** @type {any} */ yMaxOverride) {
   if (!values || values.length < 2) return null;
   const innerW = w - padding * 2;
   const innerH = h - padding * 2;
@@ -412,24 +425,24 @@ function buildSparklinePath(values, w, h, padding, yMin, yMaxOverride) {
   const stepX = innerW / Math.max(1, HIST_MAX - 1);
   // Allinea l'ultimo punto a destra: parti da right e calcola x indietro.
   const offsetX = padding + innerW - (values.length - 1) * stepX;
-  const points = values.map((v, i) => {
+  const points = values.map((/** @type {any} */ v, /** @type {any} */ i) => {
     const x = offsetX + i * stepX;
     const y = padding + innerH - ((v - min) / range) * innerH;
     return { x, y };
   });
-  const line = 'M ' + points.map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' L ');
+  const line = 'M ' + points.map((/** @type {any} */ p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' L ');
   const first = points[0];
   const last = points[points.length - 1];
   const area = `${line} L ${last.x.toFixed(1)} ${(h - padding).toFixed(1)} L ${first.x.toFixed(1)} ${(h - padding).toFixed(1)} Z`;
   return { line, area, lastX: last.x.toFixed(1), lastY: last.y.toFixed(1) };
 }
 
-function formatMb(mb) {
+function formatMb(/** @type {any} */ mb) {
   if (mb < 1024) return `${mb.toFixed(0)} MB`;
   return `${(mb / 1024).toFixed(2)} GB`;
 }
 
-function fmtUptime(sec) {
+function fmtUptime(/** @type {any} */ sec) {
   if (!Number.isFinite(sec) || sec <= 0) return '—';
   const d = Math.floor(sec / 86400);
   const h = Math.floor((sec % 86400) / 3600);
@@ -439,14 +452,14 @@ function fmtUptime(sec) {
   return `${m}m`;
 }
 
-function kpiCard(label, value, sub, iconName, accent) {
-  const accents = {
+function kpiCard(/** @type {any} */ label, /** @type {any} */ value, /** @type {any} */ sub, /** @type {any} */ iconName, /** @type {any} */ accent) {
+  const accents = /** @type {Record<string, any>} */ ({
     brand:   { iconBg: 'bg-brand-50',   iconText: 'text-brand-700',   border: 'border-brand-100' },
     amber:   { iconBg: 'bg-amber-50',   iconText: 'text-amber-700',   border: 'border-amber-100' },
     sky:     { iconBg: 'bg-sky-50',     iconText: 'text-sky-700',     border: 'border-sky-100' },
     slate:   { iconBg: 'bg-slate-100',  iconText: 'text-slate-700',   border: 'border-slate-200' },
     emerald: { iconBg: 'bg-emerald-50', iconText: 'text-emerald-700', border: 'border-emerald-100' },
-  }[accent] ?? { iconBg: 'bg-slate-100', iconText: 'text-slate-700', border: 'border-slate-200' };
+  })[accent] ?? { iconBg: 'bg-slate-100', iconText: 'text-slate-700', border: 'border-slate-200' };
   return `
     <div class="bg-white border ${accents.border} rounded-xl p-3.5">
       <div class="flex items-start justify-between gap-2 mb-2">
@@ -484,7 +497,7 @@ function filterAndSort() {
   return list;
 }
 
-function sortValue(t, col) {
+function sortValue(/** @type {any} */ t, /** @type {any} */ col) {
   switch (col) {
     case 'nome': return t.nome.toLowerCase();
     case 'slug': return t.slug;
@@ -498,7 +511,7 @@ function sortValue(t, col) {
   }
 }
 
-function renderList(main) {
+function renderList(/** @type {any} */ main) {
   const list = filterAndSort();
   const el = main.querySelector('#sa-list');
   if (list.length === 0) {
@@ -523,11 +536,11 @@ function emptyState() {
 // LAYOUT 1: Grid (cards ricche)
 // ============================================================================
 
-function gridLayout(list) {
+function gridLayout(/** @type {any} */ list) {
   return `<div class="grid gap-4 md:grid-cols-2 lg:grid-cols-3">${list.map(enteCard).join('')}</div>`;
 }
 
-function enteCard(t) {
+function enteCard(/** @type {any} */ t) {
   const piano = getPianoOrDefault(t.piano);
   const stats = state.enteStats.get(t.id);
   const smtp = state.enteSmtp.get(t.id);
@@ -592,7 +605,7 @@ function enteCard(t) {
 // LAYOUT 2: Table (denser, sortable)
 // ============================================================================
 
-function tableLayout(list) {
+function tableLayout(/** @type {any} */ list) {
   return `
     <div class="bg-white border border-slate-200 rounded-xl overflow-hidden">
       <div class="overflow-x-auto">
@@ -619,7 +632,7 @@ function tableLayout(list) {
   `;
 }
 
-function sortHeader(col, label, align = 'left') {
+function sortHeader(/** @type {any} */ col, /** @type {any} */ label, align = 'left') {
   const active = state.sort.col === col;
   const dir = active ? state.sort.dir : null;
   const arrow = dir === 'asc' ? '▲' : dir === 'desc' ? '▼' : '';
@@ -630,7 +643,7 @@ function sortHeader(col, label, align = 'left') {
   `;
 }
 
-function tableRow(t) {
+function tableRow(/** @type {any} */ t) {
   const piano = getPianoOrDefault(t.piano);
   const stats = state.enteStats.get(t.id);
   const concorsiUsed = stats?.concorsi ?? 0;
@@ -667,7 +680,7 @@ function tableRow(t) {
 // Runtime per-tenant (Fase 2): mini-info "req/min · p50 ms · err%" pescata da
 // `runtimeByTenant` aggiornato dal polling. Tenant idle (nessuna req negli
 // ultimi 60s) mostra "idle". Errori >0 evidenziati in rosso.
-function runtimeBadge(t) {
+function runtimeBadge(/** @type {any} */ t) {
   const m = runtimeByTenant[t.id];
   if (!m || m.reqCountMin === 0) {
     return `<span class="text-[10px] text-ink-500 font-mono">idle</span>`;
@@ -681,7 +694,7 @@ function runtimeBadge(t) {
   `;
 }
 
-function runtimeRowGrid(t) {
+function runtimeRowGrid(/** @type {any} */ t) {
   return `
     <div class="px-4 py-1.5 border-t border-slate-100 bg-white text-right">
       ${runtimeBadge(t)}
@@ -689,11 +702,11 @@ function runtimeRowGrid(t) {
   `;
 }
 
-function runtimeCellTable(t) {
+function runtimeCellTable(/** @type {any} */ t) {
   return runtimeBadge(t);
 }
 
-function miniBar(used, limit) {
+function miniBar(/** @type {any} */ used, /** @type {any} */ limit) {
   if (limit == null) return '';
   const pct = limit === 0 ? 0 : Math.min(100, Math.round((used / limit) * 100));
   const color = used > limit ? 'bg-rose-500' : pct > 80 ? 'bg-amber-500' : 'bg-emerald-500';
@@ -704,9 +717,9 @@ function miniBar(used, limit) {
 // Wire-up listeners (delegato a livello container)
 // ============================================================================
 
-function wireListActions(container, main) {
+function wireListActions(/** @type {any} */ container, /** @type {any} */ main) {
   // Sort headers (solo table)
-  container.querySelectorAll('[data-sort]').forEach((th) => {
+  container.querySelectorAll('[data-sort]').forEach((/** @type {any} */ th) => {
     th.addEventListener('click', () => {
       const col = th.dataset.sort;
       if (state.sort.col === col) state.sort.dir = state.sort.dir === 'asc' ? 'desc' : 'asc';
@@ -716,25 +729,25 @@ function wireListActions(container, main) {
   });
 
   // Click su row/card → drawer dettaglio
-  container.querySelectorAll('[data-ente-id]').forEach((el) => {
-    el.addEventListener('click', (ev) => {
+  container.querySelectorAll('[data-ente-id]').forEach((/** @type {HTMLElement} */ el) => {
+    el.addEventListener('click', (/** @type {any} */ ev) => {
       // Ignora se click su menu o suo dropdown
       if (ev.target.closest('[data-action="menu"]') || ev.target.closest('[data-menu]')) return;
       const id = el.dataset.enteId;
-      const t = state.enti.find((x) => x.id === id);
+      const t = state.enti.find((/** @type {any} */ x) => x.id === id);
       if (t) openDetailDrawer(t, main);
     });
   });
 
   // Action menu
-  container.querySelectorAll('[data-action="menu"]').forEach((btn) => {
-    btn.addEventListener('click', (ev) => {
+  container.querySelectorAll('[data-action="menu"]').forEach((/** @type {any} */ btn) => {
+    btn.addEventListener('click', (/** @type {any} */ ev) => {
       ev.stopPropagation();
       const wrapper = btn.parentElement;
       const menu = wrapper.querySelector('[data-menu]');
       const row = btn.closest('[data-ente-id]');
       const id = row.dataset.enteId;
-      const t = state.enti.find((x) => x.id === id);
+      const t = state.enti.find((/** @type {any} */ x) => x.id === id);
       // Chiudi altri menu aperti
       document.querySelectorAll('[data-menu]').forEach((m) => { if (m !== menu) m.classList.add('hidden'); });
       if (menu.classList.contains('hidden')) {
@@ -760,7 +773,7 @@ function ensureCloseMenuOnDocClick() {
   _saDocClickWired = true;
 }
 
-function buildActionMenu(t) {
+function buildActionMenu(/** @type {any} */ t) {
   const items = [
     menuItem('detail', 'Dettaglio', 'eye'),
     menuItem('change-plan', 'Cambia piano', 'star'),
@@ -786,6 +799,12 @@ function buildActionMenu(t) {
   return items.join('');
 }
 
+/**
+ * @param {any} action
+ * @param {any} label
+ * @param {any} iconName
+ * @param {any} [color]
+ */
 function menuItem(action, label, iconName, color) {
   const cls = color === 'rose' ? 'text-rose-700'
     : color === 'amber' ? 'text-amber-700'
@@ -794,8 +813,8 @@ function menuItem(action, label, iconName, color) {
   return `<button data-menu-action="${action}" class="w-full px-3 py-1.5 text-sm text-left hover:bg-slate-50 inline-flex items-center gap-2 ${cls}">${icon(iconName, { size: 14 })}<span>${label}</span></button>`;
 }
 
-function wireMenuItems(menu, t, main) {
-  const handlers = {
+function wireMenuItems(/** @type {any} */ menu, /** @type {any} */ t, /** @type {any} */ main) {
+  const handlers = /** @type {Record<string, () => void>} */ ({
     'detail': () => openDetailDrawer(t, main),
     'change-plan': () => showChangePlanModal(t, main),
     'audit': () => showAuditForTenant(t),
@@ -807,9 +826,9 @@ function wireMenuItems(menu, t, main) {
     'archive': () => showArchiveModal(t, main),
     'restore': () => lifecycleAction(t, 'restore', 'Ripristinare', main),
     'hard-delete': () => showHardDeleteModal(t, main),
-  };
-  menu.querySelectorAll('[data-menu-action]').forEach((b) => {
-    b.addEventListener('click', (ev) => {
+  });
+  menu.querySelectorAll('[data-menu-action]').forEach((/** @type {any} */ b) => {
+    b.addEventListener('click', (/** @type {any} */ ev) => {
       ev.stopPropagation();
       menu.classList.add('hidden');
       handlers[b.dataset.menuAction]?.();
@@ -821,7 +840,7 @@ function wireMenuItems(menu, t, main) {
 // Detail drawer (sliding panel a destra)
 // ============================================================================
 
-function openDetailDrawer(t, main) {
+function openDetailDrawer(/** @type {any} */ t, /** @type {any} */ main) {
   closeDrawer();
   const piano = getPianoOrDefault(t.piano);
   const stats = state.enteStats.get(t.id);
@@ -895,10 +914,10 @@ function openDetailDrawer(t, main) {
   document.body.classList.add('overflow-hidden');
 
   drawer.querySelectorAll('[data-drawer-close]').forEach((el) => el.addEventListener('click', closeDrawer));
-  drawer.querySelector('[data-drawer-act="audit"]').addEventListener('click', () => { closeDrawer(); showAuditForTenant(t); });
-  drawer.querySelector('[data-drawer-act="backup"]').addEventListener('click', () => { closeDrawer(); showBackupsForTenant(t, main); });
-  drawer.querySelector('[data-drawer-act="smtp"]').addEventListener('click', () => { closeDrawer(); showSmtpModal(t, main); });
-  drawer.querySelector('[data-drawer-act="edit"]').addEventListener('click', () => { closeDrawer(); showEditMetaModal(t, main); });
+  /** @type {HTMLElement} */ (drawer.querySelector('[data-drawer-act="audit"]')).addEventListener('click', () => { closeDrawer(); showAuditForTenant(t); });
+  /** @type {HTMLElement} */ (drawer.querySelector('[data-drawer-act="backup"]')).addEventListener('click', () => { closeDrawer(); showBackupsForTenant(t, main); });
+  /** @type {HTMLElement} */ (drawer.querySelector('[data-drawer-act="smtp"]')).addEventListener('click', () => { closeDrawer(); showSmtpModal(t, main); });
+  /** @type {HTMLElement} */ (drawer.querySelector('[data-drawer-act="edit"]')).addEventListener('click', () => { closeDrawer(); showEditMetaModal(t, main); });
 }
 
 function closeDrawer() {
@@ -911,30 +930,30 @@ function closeDrawer() {
 // Helpers UI: badge, usage bar, stat tile, countdown
 // ============================================================================
 
-function statoBadge(s) {
-  const map = {
+function statoBadge(/** @type {any} */ s) {
+  const map = /** @type {Record<string, any>} */ ({
     attivo: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
     sospeso: 'bg-amber-50 text-amber-700 ring-amber-200',
     archiviato: 'bg-rose-50 text-rose-700 ring-rose-200',
-  };
+  });
   const dot = s === 'attivo' ? 'bg-emerald-500' : s === 'sospeso' ? 'bg-amber-500' : 'bg-rose-500';
   return `<span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-xs font-medium ring-1 ${map[s] ?? 'bg-slate-50 text-slate-700 ring-slate-200'}"><span class="w-1.5 h-1.5 rounded-full ${dot}"></span>${escapeHtml(s)}</span>`;
 }
 
-function pianoBadge(key) {
+function pianoBadge(/** @type {any} */ key) {
   const p = getPianoOrDefault(key);
-  const colors = {
+  const colors = /** @type {Record<string, any>} */ ({
     sky: 'bg-sky-50 text-sky-700 ring-sky-200',
     emerald: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
     brand: 'bg-brand-50 text-brand-700 ring-brand-200',
     amber: 'bg-amber-50 text-amber-700 ring-amber-200',
     slate: 'bg-slate-100 text-slate-700 ring-slate-200',
-  };
+  });
   const cls = colors[p.badge_color] ?? 'bg-slate-100 text-slate-700 ring-slate-200';
   return `<span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ring-1 ${cls}" title="${escapeHtml(p.nome)} — ${escapeHtml(pianoPriceLabel(key))}">${escapeHtml(p.nome)}</span>`;
 }
 
-function usageBar(label, used, limit) {
+function usageBar(/** @type {any} */ label, /** @type {any} */ used, /** @type {any} */ limit) {
   const pct = limit == null ? null : limit === 0 ? 0 : Math.min(100, Math.round((used / limit) * 100));
   const overLimit = limit != null && used > limit;
   const barColor = overLimit ? 'bg-rose-500' : pct != null && pct > 80 ? 'bg-amber-500' : 'bg-emerald-500';
@@ -954,7 +973,7 @@ function usageBar(label, used, limit) {
   `;
 }
 
-function statTile(value, label) {
+function statTile(/** @type {any} */ value, /** @type {any} */ label) {
   return `
     <div class="text-center bg-slate-50 border border-slate-200 rounded-lg px-2 py-2">
       <div class="text-sm font-semibold text-ink-900 leading-none">${value}</div>
@@ -963,7 +982,7 @@ function statTile(value, label) {
   `;
 }
 
-function cleanupCountdown(t) {
+function cleanupCountdown(/** @type {any} */ t) {
   if (!t.cleanupScheduledAt) return 'mai';
   const ms = new Date(t.cleanupScheduledAt).getTime() - Date.now();
   if (ms <= 0) return 'scaduto (in attesa job)';
@@ -971,20 +990,22 @@ function cleanupCountdown(t) {
   return `tra ${days} ${days === 1 ? 'giorno' : 'giorni'}`;
 }
 
-function debounce(fn, ms) {
+function debounce(/** @type {any} */ fn, /** @type {any} */ ms) {
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
   let h;
-  return (...args) => { clearTimeout(h); h = setTimeout(() => fn(...args), ms); };
+  return (/** @type {any[]} */ ...args) => { clearTimeout(h); h = setTimeout(() => fn(...args), ms); };
 }
 
 // ============================================================================
 // AUDIT, BACKUP, SMTP, LIFECYCLE, EDIT, NEW (modali)
 // ============================================================================
 
-async function showAuditForTenant(t) {
+async function showAuditForTenant(/** @type {any} */ t) {
+  /** @type {any[]} */
   let rows = [];
   try {
     rows = await api.get('/api/platform/audit', { tenantId: t.id, limit: 100 });
-  } catch (err) {
+  } catch (/** @type {any} */ err) {
     toast(`Errore audit: ${err.message}`, 'error');
     return;
   }
@@ -1004,7 +1025,7 @@ async function showAuditForTenant(t) {
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">
-            ${rows.map((r) => `
+            ${rows.map((/** @type {any} */ r) => `
               <tr>
                 <td class="px-3 py-2 whitespace-nowrap text-ink-700">${fmtDate(r.createdAt)}</td>
                 <td class="px-3 py-2"><code>${escapeHtml(r.action)}</code></td>
@@ -1019,15 +1040,16 @@ async function showAuditForTenant(t) {
   });
 }
 
-async function showBackupsForTenant(t, main) {
+async function showBackupsForTenant(/** @type {any} */ t, /** @type {any} */ main) {
+  /** @type {any[]} */
   let all = [];
   try {
     all = await api.get('/api/platform/backups');
-  } catch (err) {
+  } catch (/** @type {any} */ err) {
     toast(`Errore backup: ${err.message}`, 'error');
     return;
   }
-  const rows = all.filter((b) => b.tenantSlug === t.slug);
+  const rows = all.filter((/** @type {any} */ b) => b.tenantSlug === t.slug);
   modal({
     title: `Backup — ${t.nome}`,
     wide: true,
@@ -1048,7 +1070,7 @@ async function showBackupsForTenant(t, main) {
               </tr>
             </thead>
             <tbody class="divide-y divide-slate-100">
-              ${rows.map((b) => `
+              ${rows.map((/** @type {any} */ b) => `
                 <tr>
                   <td class="px-3 py-2"><code class="text-xs">${escapeHtml(b.filename)}</code></td>
                   <td class="px-3 py-2 text-ink-700">${fmtBytes(b.sizeBytes)}</td>
@@ -1067,19 +1089,19 @@ async function showBackupsForTenant(t, main) {
   });
 }
 
-async function runCleanupManual(main) {
+async function runCleanupManual(/** @type {any} */ main) {
   if (!confirm("Eseguire ora il job di cleanup? Verranno hard-deletati i tenant archiviati con cleanup_scheduled_at scaduto.")) return;
   try {
     const r = await api.post('/api/platform/jobs/cleanup-tenants');
     toast(`Job: candidati=${r.candidatesFound}, eliminati=${r.deleted}, backup=${r.backedUp}, errori=${r.errors.length}`, 'success', 6000);
     closeAllModals();
     await loadAll(main);
-  } catch (err) {
+  } catch (/** @type {any} */ err) {
     toast(`Errore: ${err.message}`, 'error');
   }
 }
 
-function showSmtpModal(t, main) {
+function showSmtpModal(/** @type {any} */ t, /** @type {any} */ main) {
   const current = state.enteSmtp.get(t.id);
   modal({
     title: `SMTP — ${t.nome}`,
@@ -1131,37 +1153,37 @@ function showSmtpModal(t, main) {
         toast('SMTP salvato', 'success');
         closeAllModals();
         await loadAll(main);
-      } catch (err) {
+      } catch (/** @type {any} */ err) {
         toast(`Errore: ${err.message}`, 'error');
       }
     },
   });
 }
 
-async function deleteTenantSmtp(t, main) {
+async function deleteTenantSmtp(/** @type {any} */ t, /** @type {any} */ main) {
   if (!confirm(`Rimuovere la configurazione SMTP di ${t.nome}?`)) return;
   try {
     await api.delete(`/api/platform/tenants/${t.id}/smtp`);
     toast('SMTP rimosso', 'success');
     closeAllModals();
     await loadAll(main);
-  } catch (err) {
+  } catch (/** @type {any} */ err) {
     toast(`Errore: ${err.message}`, 'error');
   }
 }
 
-async function lifecycleAction(t, op, verb, main) {
+async function lifecycleAction(/** @type {any} */ t, /** @type {any} */ op, /** @type {any} */ verb, /** @type {any} */ main) {
   if (!confirm(`${verb} ente "${t.nome}"?`)) return;
   try {
     await api.post(`/api/platform/tenants/${t.id}/${op}`);
     toast(`${verb}: operazione eseguita`, 'success');
     await loadAll(main);
-  } catch (err) {
+  } catch (/** @type {any} */ err) {
     toast(`Errore: ${err.message}`, 'error');
   }
 }
 
-function showArchiveModal(t, main) {
+function showArchiveModal(/** @type {any} */ t, /** @type {any} */ main) {
   modal({
     title: `Archivia ${t.nome}`,
     contentHtml: `
@@ -1177,14 +1199,14 @@ function showArchiveModal(t, main) {
         toast('Ente archiviato', 'success');
         closeAllModals();
         await loadAll(main);
-      } catch (err) {
+      } catch (/** @type {any} */ err) {
         toast(`Errore: ${err.message}`, 'error');
       }
     },
   });
 }
 
-function showHardDeleteModal(t, main) {
+function showHardDeleteModal(/** @type {any} */ t, /** @type {any} */ main) {
   confirmDialog({
     title: `Cancella definitivamente ${t.nome}`,
     message: `<strong>Operazione irreversibile.</strong> Verranno cancellati tutti i dati del tenant (concorsi, valutazioni, iscrizioni, account, audit log).`,
@@ -1200,7 +1222,7 @@ function showHardDeleteModal(t, main) {
         toast('Ente eliminato', 'success');
         closeAllModals();
         await loadAll(main);
-      } catch (err) {
+      } catch (/** @type {any} */ err) {
         toast(`Errore: ${err.message}`, 'error');
       }
     },
@@ -1211,13 +1233,14 @@ function showHardDeleteModal(t, main) {
 // CAMBIA PIANO (modale dedicata)
 // ============================================================================
 
-async function showChangePlanModal(t, main) {
+async function showChangePlanModal(/** @type {any} */ t, /** @type {any} */ main) {
+  /** @type {any} */
   let override = null;
   try {
     override = await api.get(`/api/platform/tenants/${t.id}/config`);
   } catch { /* nessun override esistente, ok */ }
 
-  const planOpts = PIANO_KEYS.map((k) => `<option value="${k}" ${t.piano === k ? 'selected' : ''}>${PIANI[k].nome}${k === t.piano ? ' (attuale)' : ''}</option>`).join('');
+  const planOpts = PIANO_KEYS.map((k) => `<option value="${k}" ${t.piano === k ? 'selected' : ''}>${(/** @type {any} */ (PIANI))[k].nome}${k === t.piano ? ' (attuale)' : ''}</option>`).join('');
   const currentPiano = getPianoOrDefault(t.piano);
 
   modal({
@@ -1293,7 +1316,7 @@ async function showChangePlanModal(t, main) {
       const refreshPreview = () => {
         const p = getPianoOrDefault(sel.value);
         const changed = sel.value !== t.piano;
-        preview.innerHTML = `
+        /** @type {HTMLElement} */ (preview).innerHTML = `
           <div class="flex items-center gap-2 mb-2">
             <strong>${escapeHtml(p.nome)}</strong>
             <span class="text-ink-700">·</span>
@@ -1315,7 +1338,7 @@ async function showChangePlanModal(t, main) {
     onPrimary: async () => {
       const piano = /** @type {HTMLSelectElement} */ (document.getElementById('cp-piano')).value;
       const scadenza = /** @type {HTMLInputElement} */ (document.getElementById('cp-scadenza')).value || null;
-      const parseOpt = (id) => {
+      const parseOpt = (/** @type {any} */ id) => {
         const v = /** @type {HTMLInputElement} */ (document.getElementById(id)).value.trim();
         return v === '' ? null : Number(v);
       };
@@ -1333,20 +1356,20 @@ async function showChangePlanModal(t, main) {
         toast(`Piano aggiornato: ${piano}`, 'success');
         closeAllModals();
         await loadAll(main);
-      } catch (err) {
+      } catch (/** @type {any} */ err) {
         toast(`Errore: ${err.message}`, 'error');
       }
     },
   });
 }
 
-function planLimitDisplay(v) {
+function planLimitDisplay(/** @type {any} */ v) {
   if (v == null) return '<em class="font-normal text-ink-500">illimitato</em>';
   return v;
 }
 
-function showEditMetaModal(t, main) {
-  const planOpts = PIANO_KEYS.map((k) => `<option value="${k}" ${t.piano === k ? 'selected' : ''}>${PIANI[k].nome} (${pianoPriceLabel(k)})</option>`).join('');
+function showEditMetaModal(/** @type {any} */ t, /** @type {any} */ main) {
+  const planOpts = PIANO_KEYS.map((k) => `<option value="${k}" ${t.piano === k ? 'selected' : ''}>${(/** @type {any} */ (PIANI))[k].nome} (${pianoPriceLabel(k)})</option>`).join('');
   modal({
     title: `Modifica ${t.nome}`,
     contentHtml: `
@@ -1385,24 +1408,24 @@ function showEditMetaModal(t, main) {
         toast('Modifiche salvate', 'success');
         closeAllModals();
         await loadAll(main);
-      } catch (err) {
+      } catch (/** @type {any} */ err) {
         toast(`Errore: ${err.message}`, 'error');
       }
     },
   });
 }
 
-function showNewEnteModal(main) {
+function showNewEnteModal(/** @type {any} */ main) {
   const initialPassword = genPassword();
   const planCards = PIANO_KEYS.map((k) => {
-    const p = PIANI[k];
-    const colors = {
+    const p = /** @type {any} */ ((/** @type {any} */ (PIANI))[k]);
+    const colors = /** @type {Record<string, any>} */ ({
       sky: 'ring-sky-500 bg-sky-50',
       emerald: 'ring-emerald-500 bg-emerald-50',
       brand: 'ring-brand-500 bg-brand-50',
       amber: 'ring-amber-500 bg-amber-50',
       slate: 'ring-slate-400 bg-slate-50',
-    };
+    });
     const accent = colors[p.badge_color] ?? colors.slate;
     return `
       <label class="ne-plan-card cursor-pointer block border-2 border-slate-200 rounded-lg p-3 hover:border-slate-300 transition-colors ${p.featured ? 'relative' : ''}" data-plan="${k}">
@@ -1553,14 +1576,14 @@ function showNewEnteModal(main) {
         toast(`Ente "${body.slug}" creato. Comunica le credenziali in modo sicuro.`, 'success', 6000);
         closeAllModals();
         await loadAll(main);
-      } catch (err) {
+      } catch (/** @type {any} */ err) {
         toast(`Errore: ${err.message}`, 'error');
       }
     },
   });
 }
 
-function wireNewEnteModal(root) {
+function wireNewEnteModal(/** @type {any} */ root) {
   const nomeEl = root.querySelector('#ne-nome');
   const slugEl = root.querySelector('#ne-slug');
   const slugHelp = root.querySelector('#ne-slug-help');
@@ -1672,9 +1695,9 @@ function wireNewEnteModal(root) {
   }
 
   // Card selezione piano
-  root.querySelectorAll('.ne-plan-card').forEach((card) => {
+  root.querySelectorAll('.ne-plan-card').forEach((/** @type {any} */ card) => {
     card.addEventListener('click', () => {
-      root.querySelectorAll('.ne-plan-card').forEach((c) => {
+      root.querySelectorAll('.ne-plan-card').forEach((/** @type {any} */ c) => {
         c.classList.remove('border-brand-500', 'bg-brand-50');
         c.classList.add('border-slate-200');
         c.querySelector('.ne-plan-radio-indicator')?.classList.add('hidden');
@@ -1707,14 +1730,14 @@ function wireNewEnteModal(root) {
     summary.classList.remove('hidden');
     sumNome.textContent = nome || '—';
     sumUrl.textContent = slug ? `${slug}.gestimus.local:4000` : '—';
-    sumPiano.textContent = piano ? `${PIANI[piano].nome} (${pianoPriceLabel(piano)})` : '—';
+    sumPiano.textContent = piano ? `${(/** @type {any} */ (PIANI))[piano].nome} (${pianoPriceLabel(piano)})` : '—';
     sumAdmin.textContent = email || '—';
   }
 
   updateStrength();
 }
 
-function kebabize(s) {
+function kebabize(/** @type {any} */ s) {
   return s
     .toLowerCase()
     .normalize('NFKD')
@@ -1724,7 +1747,7 @@ function kebabize(s) {
     .slice(0, 63);
 }
 
-function passwordScore(pwd) {
+function passwordScore(/** @type {any} */ pwd) {
   if (!pwd) return 0;
   let score = 0;
   if (pwd.length >= 8) score++;
@@ -1747,7 +1770,7 @@ function genPassword(len = 14) {
 // CONFIG PIATTAFORMA
 // ============================================================================
 
-async function renderConfigPanel(main) {
+async function renderConfigPanel(/** @type {any} */ main) {
   // La view "Configurazione" non ha bisogno del polling realtime: stop.
   stopPolling();
   main.innerHTML = `<div class="text-center py-10 text-ink-700 text-sm">Caricamento…</div>`;
@@ -1789,7 +1812,7 @@ async function renderConfigPanel(main) {
     try {
       await api.patch('/api/platform/config', body);
       toast('Configurazione salvata', 'success');
-    } catch (err) {
+    } catch (/** @type {any} */ err) {
       toast(`Errore: ${err.message}`, 'error');
     }
   });
@@ -1799,7 +1822,7 @@ async function renderConfigPanel(main) {
 // Helpers comuni
 // ============================================================================
 
-function errorBox(title, err) {
+function errorBox(/** @type {any} */ title, /** @type {any} */ err) {
   const detail = err instanceof ApiError ? `${err.status} — ${err.body?.error || err.message}` : err.message || String(err);
   return `<div class="bg-rose-50 border border-rose-200 rounded-xl p-6 text-rose-900"><h3 class="font-bold">${escapeHtml(title)}</h3><p class="text-sm mt-1">${escapeHtml(detail)}</p></div>`;
 }

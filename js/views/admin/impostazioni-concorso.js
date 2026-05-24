@@ -7,17 +7,17 @@ import { escapeHtml, fmtDate, confirmDialog, modal, toast, readImageResized } fr
 import { icon } from '../../icons.js';
 import { tiebreakStrategyHtml } from './common.js';
 
-export function renderImpostazioniConcorso(root, concorso) {
+export function renderImpostazioniConcorso(/** @type {any} */ root, /** @type {any} */ concorso) {
   const fasi = db.fasiByConcorso(concorso.id);
   const candidati = db.candidatiByConcorso(concorso.id);
   const commissari = db.commissariByConcorso(concorso.id);
 
-  const isoToLocalDatetime = (iso) => {
+  const isoToLocalDatetime = (/** @type {any} */ iso) => {
     if (!iso) return '';
     try {
       const d = new Date(iso);
       if (isNaN(d.getTime())) return '';
-      const pad = (n) => String(n).padStart(2, '0');
+      const pad = (/** @type {any} */ n) => String(n).padStart(2, '0');
       return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
     } catch { return ''; }
   };
@@ -159,10 +159,10 @@ export function renderImpostazioniConcorso(root, concorso) {
   const form = root.querySelector('[data-form]');
   const logoInput = form.querySelector('[name="logo"]');
   const logoFrame = form.querySelector('[data-logo-frame]');
-  let pendingLogoFile = null;
+  let pendingLogoFile = /** @type {any} */ (null);
 
   // Preview live del nuovo logo selezionato
-  logoInput.addEventListener('change', async (e) => {
+  logoInput.addEventListener('change', async (/** @type {any} */ e) => {
     const file = e.target.files[0];
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) {
@@ -185,19 +185,19 @@ export function renderImpostazioniConcorso(root, concorso) {
   if (tbContainer) {
     const startTouched = Array.isArray(concorso.default_tiebreak_strategy) && concorso.default_tiebreak_strategy.length > 0;
     if (startTouched) tbContainer.dataset.tbTouched = '1';
-    tbContainer.addEventListener('change', (ev) => {
+    tbContainer.addEventListener('change', (/** @type {any} */ ev) => {
       if (ev.target.matches('[data-tb-enabled]')) tbContainer.dataset.tbTouched = '1';
     });
   }
 
   // Reset: ricarica i valori originali ri-renderizzando la view
   form.querySelector('[data-action="reset"]').addEventListener('click', () => {
-    const fresh = db.state.concorsi.find((c) => c.id === concorso.id) || concorso;
+    const fresh = db.state.concorsi.find((/** @type {any} */ c) => c.id === concorso.id) || concorso;
     renderImpostazioniConcorso(root, fresh);
   });
 
   // Submit
-  form.addEventListener('submit', async (e) => {
+  form.addEventListener('submit', async (/** @type {Event} */ e) => {
     e.preventDefault();
     const nome = form.querySelector('[name="nome"]').value.trim();
     if (!nome) {
@@ -225,16 +225,16 @@ export function renderImpostazioniConcorso(root, concorso) {
       }));
     }
 
-    const patch = { nome, anno: Number(anno), data_inizio, stato, anonimo, iscrizioni_aperte, iscrizioni_chiusura };
+    const patch = /** @type {Record<string, any>} */ ({ nome, anno: Number(anno), data_inizio, stato, anonimo, iscrizioni_aperte, iscrizioni_chiusura });
     if (default_tiebreak_strategy !== null) patch.default_tiebreak_strategy = default_tiebreak_strategy;
     if (pendingLogoFile) patch.logo = pendingLogoFile;
 
     try {
       await db.updateConcorso(concorso.id, patch);
       toast('Concorso aggiornato', 'success');
-      const updated = db.state.concorsi.find((c) => c.id === concorso.id);
+      const updated = db.state.concorsi.find((/** @type {any} */ c) => c.id === concorso.id);
       if (updated) renderImpostazioniConcorso(root, updated);
-    } catch (err) {
+    } catch (/** @type {any} */ err) {
       toast(err?.message || 'Errore durante il salvataggio', 'error');
     }
   });
@@ -257,7 +257,7 @@ export function renderImpostazioniConcorso(root, concorso) {
   });
 }
 
-function openDeleteConfirmModal(concorso, nCand, nFasi, nCom) {
+function openDeleteConfirmModal(/** @type {any} */ concorso, /** @type {any} */ nCand, /** @type {any} */ nFasi, /** @type {any} */ nCom) {
   modal({
     title: `⚠ Conferma eliminazione definitiva`,
     contentHtml: `
@@ -315,7 +315,7 @@ function openDeleteConfirmModal(concorso, nCand, nFasi, nCom) {
         toast('Concorso eliminato', 'success');
         db.setActiveConcorso(null);
         window.dispatchEvent(new HashChangeEvent('hashchange'));
-      } catch (err) {
+      } catch (/** @type {any} */ err) {
         toast(err.message, 'error');
         return false;
       }

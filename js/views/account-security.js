@@ -48,15 +48,15 @@ async function openSetup() {
         showRecoveryCodes(res.recoveryCodes || []);
         return true;
       } catch (e) {
-        err.textContent = e?.data?.error || 'Codice non valido, riprova.';
-        err.classList.remove('hidden');
+        if (err) err.textContent = (/** @type {any} */ (e))?.data?.error || 'Codice non valido, riprova.';
+        if (err) err.classList.remove('hidden');
         return false;
       }
     },
   });
 }
 
-function showRecoveryCodes(codes) {
+function showRecoveryCodes(/** @type {string[]} */ codes) {
   modal({
     title: 'Codici di recupero',
     contentHtml: `
@@ -94,8 +94,8 @@ function openDisable() {
         toast('Verifica in due passaggi disattivata.', 'success');
         return true;
       } catch (e) {
-        err.textContent = e?.data?.error || 'Password non valida.';
-        err.classList.remove('hidden');
+        if (err) err.textContent = (/** @type {any} */ (e))?.data?.error || 'Password non valida.';
+        if (err) err.classList.remove('hidden');
         return false;
       }
     },

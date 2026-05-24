@@ -3,26 +3,26 @@ import { t } from '../i18n.js';
 import { icon } from '../icons.js';
 import { escapeHtml } from '../utils.js';
 
-export function renderDashboard(root) {
+export function renderDashboard(/** @type {HTMLElement} */ root) {
   const s = db.state;
   const ente = db.getEnte();
 
-  const concorsiAttivi = s.concorsi.filter(c => c.stato === 'ATTIVO').length;
+  const concorsiAttivi = s.concorsi.filter((/** @type {any} */ c) => c.stato === 'ATTIVO').length;
   const concorsiTotali = s.concorsi.length;
-  const fasiInCorso = s.fasi.filter(f => f.stato === 'IN_CORSO').length;
+  const fasiInCorso = s.fasi.filter((/** @type {any} */ f) => f.stato === 'IN_CORSO').length;
   const candidatiTotali = s.candidati.length;
   const commissariTotali = s.commissari.length;
   const valutazioniTotali = s.valutazioni.length;
   const accountsTotali = s.accounts.length;
 
-  const kpi = (label, value, icon_name, color = 'brand') => {
-    const colors = {
+  const kpi = (/** @type {any} */ label, /** @type {any} */ value, /** @type {any} */ icon_name, color = 'brand') => {
+    const colors = /** @type {Record<string, string>} */ ({
       brand: 'bg-brand-50 text-brand-700',
       teal: 'bg-teal-50 text-teal-700',
       amber: 'bg-amber-50 text-amber-700',
       rose: 'bg-rose-50 text-rose-700',
       slate: 'bg-slate-100 text-slate-700',
-    };
+    });
     return `
       <div class="bg-white border border-brand-100 rounded-2xl p-4">
         <div class="flex items-center justify-between gap-3">

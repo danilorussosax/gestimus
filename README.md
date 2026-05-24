@@ -254,7 +254,8 @@ npm run test:e2e         # playwright (richiede server in esecuzione)
 | [`docs/MIGRATION_POSTGRES.md`](docs/MIGRATION_POSTGRES.md) | **Architettura tecnica completa** — schema DB, policy RLS, struttura moduli backend, soft-delete tenant con cleanup configurabile, 2FA TOTP, milestone roadmap |
 | [`docs/AUDIT.md`](docs/AUDIT.md) | **Stato sicurezza/hardening** — fotografia corrente + cronologia dei round di audit (voci aperte/chiuse, tamper-evidence, GDPR) |
 | [`docs/LISTINO.md`](docs/LISTINO.md) | **Listino piani commerciali** — documento per i clienti finali |
-| [`docs/DEPLOY-IONOS.md`](docs/DEPLOY-IONOS.md) | **Guida deploy IONOS** per il nuovo stack Fastify + Postgres (systemd single unit, certbot DNS-01, backup PG) |
+| [`docs/DEPLOY-IONOS.md`](docs/DEPLOY-IONOS.md) | **Guida deploy IONOS** per il nuovo stack Fastify + Postgres (systemd single unit, certbot DNS-01, backup PG, PgBouncer) |
+| [`docs/HA-POSTGRES.md`](docs/HA-POSTGRES.md) | **Alta disponibilità** — replica streaming + failover automatico (Patroni/HAProxy), routing connessioni, PITR, runbook operativo |
 | [`docs/manuale-admin.md`](docs/manuale-admin.md) | **Manuale operativo per l'admin di ente** — consultabile in-app da *Admin → Manuale* (TOC sticky, stampa A4 / esportazione PDF). Le immagini referenziate vivono in `docs/screenshots/`. |
 | [`server/README.md`](server/README.md) | **Backend reference** — schema Drizzle, endpoint REST, middleware, migrations, runtime metrics |
 | [`server/scripts/migrations/`](server/scripts/migrations/) | Migrazioni SQL incrementali applicabili con `psql -f` o tramite `db:push` di drizzle-kit |

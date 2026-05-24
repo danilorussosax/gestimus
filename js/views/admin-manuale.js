@@ -128,7 +128,7 @@ const MANUALE_STYLES = `
 `;
 
 // Slugify per id stabili degli heading (per ancore TOC).
-function slugify(s) {
+function slugify(/** @type {any} */ s) {
   return String(s || '')
     .toLowerCase()
     .normalize('NFD').replace(/[̀-ͯ]/g, '')
@@ -138,7 +138,7 @@ function slugify(s) {
 }
 
 // Garantisce id unici se due heading hanno lo stesso testo.
-function uniqueId(base, used) {
+function uniqueId(/** @type {any} */ base, /** @type {Set<any>} */ used) {
   let id = base, i = 2;
   while (used.has(id)) { id = `${base}-${i++}`; }
   used.add(id);
@@ -146,11 +146,11 @@ function uniqueId(base, used) {
 }
 
 // Fallback minimo se `marked` non è caricato (CSP / offline).
-function rawFallback(md) {
+function rawFallback(/** @type {any} */ md) {
   return `<pre class="text-xs whitespace-pre-wrap">${escapeHtml(md)}</pre>`;
 }
 
-export async function renderManuale(root) {
+export async function renderManuale(/** @type {HTMLElement} */ root) {
   root.innerHTML = `
     <section class="view-fade c-page">
       <style>${MANUALE_STYLES}</style>
@@ -200,7 +200,7 @@ export async function renderManuale(root) {
   await loadAndRender(root);
 }
 
-async function loadAndRender(root) {
+async function loadAndRender(/** @type {any} */ root) {
   const article = root.querySelector('#manuale-content');
   const tocEl = root.querySelector('#manuale-toc');
   const tocMobile = root.querySelector('#manuale-toc-mobile');
@@ -247,14 +247,14 @@ async function loadAndRender(root) {
 
   // Riscrittura src delle immagini relative agli screenshots: nel MD sono `./screenshots/x.png`
   // ma rispetto alla root dell'app vivono in `./docs/screenshots/x.png`.
-  article.querySelectorAll(`img[src^="${SCREENSHOTS_PREFIX_FROM}"]`).forEach(img => {
+  article.querySelectorAll(`img[src^="${SCREENSHOTS_PREFIX_FROM}"]`).forEach((/** @type {any} */ img) => {
     const src = img.getAttribute('src');
     img.setAttribute('src', src.replace(SCREENSHOTS_PREFIX_FROM, SCREENSHOTS_PREFIX_TO));
     img.setAttribute('loading', 'lazy');
   });
 
   // Anche gli href relativi a `./screenshots/` (eventuali) vanno corretti.
-  article.querySelectorAll(`a[href^="${SCREENSHOTS_PREFIX_FROM}"]`).forEach(a => {
+  article.querySelectorAll(`a[href^="${SCREENSHOTS_PREFIX_FROM}"]`).forEach((/** @type {any} */ a) => {
     const href = a.getAttribute('href');
     a.setAttribute('href', href.replace(SCREENSHOTS_PREFIX_FROM, SCREENSHOTS_PREFIX_TO));
     a.setAttribute('target', '_blank');
@@ -265,7 +265,7 @@ async function loadAndRender(root) {
   buildToc(article, tocEl, tocMobile);
 }
 
-function buildToc(article, tocEl, tocMobile) {
+function buildToc(/** @type {any} */ article, /** @type {any} */ tocEl, /** @type {any} */ tocMobile) {
   const headings = article.querySelectorAll('h2, h3');
   if (!headings.length) {
     if (tocEl) tocEl.innerHTML = `<h4>${escapeHtml(t('admin.manuale.toc'))}</h4><p class="text-ink-500 text-xs">${escapeHtml(t('admin.manuale.toc.empty'))}</p>`;
@@ -274,8 +274,8 @@ function buildToc(article, tocEl, tocMobile) {
   }
 
   const used = new Set();
-  const items = [];
-  headings.forEach(h => {
+  const items = /** @type {any[]} */ ([]);
+  headings.forEach((/** @type {any} */ h) => {
     const base = slugify(h.textContent);
     const id = uniqueId(base, used);
     h.id = id;
@@ -286,7 +286,7 @@ function buildToc(article, tocEl, tocMobile) {
     tocEl.innerHTML = `
       <h4>${escapeHtml(t('admin.manuale.toc'))}</h4>
       <ul>
-        ${items.map(it => `
+        ${items.map((/** @type {any} */ it) => `
           <li>
             <a href="#${escapeHtml(it.id)}" data-toc-link="${escapeHtml(it.id)}" class="${it.level === 3 ? 'level-3' : ''}">${escapeHtml(it.text)}</a>
           </li>
@@ -295,8 +295,8 @@ function buildToc(article, tocEl, tocMobile) {
     `;
     // Intercettiamo i click per evitare che il browser provi a navigare via hashchange
     // (la nostra app interpreta gli hash come rotte). Usiamo scrollIntoView nativo.
-    tocEl.querySelectorAll('[data-toc-link]').forEach(a => {
-      a.addEventListener('click', (e) => {
+    tocEl.querySelectorAll('[data-toc-link]').forEach((/** @type {any} */ a) => {
+      a.addEventListener('click', (/** @type {Event} */ e) => {
         e.preventDefault();
         const target = document.getElementById(a.dataset.tocLink);
         if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -321,7 +321,7 @@ function buildToc(article, tocEl, tocMobile) {
   // Active-link highlight tramite IntersectionObserver (solo TOC desktop).
   if (tocEl && 'IntersectionObserver' in window) {
     const linksById = new Map();
-    tocEl.querySelectorAll('[data-toc-link]').forEach(a => linksById.set(a.dataset.tocLink, a));
+    tocEl.querySelectorAll('[data-toc-link]').forEach((/** @type {any} */ a) => linksById.set(a.dataset.tocLink, a));
     const io = new IntersectionObserver((entries) => {
       entries.forEach(en => {
         const link = linksById.get(en.target.id);
@@ -332,11 +332,11 @@ function buildToc(article, tocEl, tocMobile) {
         }
       });
     }, { rootMargin: '-20% 0px -70% 0px', threshold: 0 });
-    headings.forEach(h => io.observe(h));
+    headings.forEach((/** @type {any} */ h) => io.observe(h));
   }
 }
 
-function renderEmpty(article, tocEl, tocMobile) {
+function renderEmpty(/** @type {any} */ article, /** @type {any} */ tocEl, /** @type {any} */ tocMobile) {
   article.innerHTML = `
     <div class="text-center py-10">
       <div class="inline-flex items-center justify-center w-14 h-14 mb-3 rounded-full bg-brand-50 text-brand-600">
@@ -350,7 +350,7 @@ function renderEmpty(article, tocEl, tocMobile) {
   if (tocMobile) tocMobile.innerHTML = `<option value="">${escapeHtml(t('admin.manuale.toc.mobile'))}</option>`;
 }
 
-function renderError(article, tocEl, tocMobile, err) {
+function renderError(/** @type {any} */ article, /** @type {any} */ tocEl, /** @type {any} */ tocMobile, /** @type {any} */ err) {
   article.innerHTML = `
     <div class="bg-rose-50 border border-rose-200 rounded-xl p-5">
       <p class="font-mono text-[11px] uppercase tracking-[0.12em] text-rose-700 font-bold">${escapeHtml(t('admin.manuale.error.title'))}</p>

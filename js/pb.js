@@ -24,13 +24,13 @@ export async function pbHealthy() {
  * Nel nuovo backend i campi file (logo/foto) sono già URL relativi tipo
  * `/uploads/<tenant>/<resource>/<id>/<filename>`. Ritorniamo direttamente quello.
  */
-export function fileURL(_record, filenameOrUrl) {
+export function fileURL(/** @type {any} */ _record, /** @type {any} */ filenameOrUrl) {
   if (!filenameOrUrl || typeof filenameOrUrl !== 'string') return null;
   if (filenameOrUrl.startsWith('/') || filenameOrUrl.startsWith('http')) return filenameOrUrl;
   return null;
 }
 
-export function dataURLToBlob(dataURL) {
+export function dataURLToBlob(/** @type {any} */ dataURL) {
   if (!dataURL || typeof dataURL !== 'string' || !dataURL.startsWith('data:')) return null;
   const [meta, b64] = dataURL.split(',');
   if (!b64) return null;
@@ -46,7 +46,7 @@ export function dataURLToBlob(dataURL) {
  * `pb.authStore.isValid` continuano a funzionare; per popolarlo si chiama
  * `refreshAuth()` (lo fa `db.init()` automaticamente).
  */
-let cachedMe = null;
+let cachedMe = /** @type {any} */ (null);
 export const pb = {
   authStore: {
     get isValid() {

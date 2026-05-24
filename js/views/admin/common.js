@@ -13,17 +13,17 @@ import { rankWithTieBreak } from '../../tiebreak.js';
 // quindi il risultato è stabile e riproducibile (niente bisogno di persistere
 // posizione_finale). Restituisce righe { cf, cand, media, valutazioni,
 // posizione_finale, tiebreak_log, ex_aequo_group } ordinate per posizione.
-export function rankFase(fase, cfs = null) {
+export function rankFase(/** @type {any} */ fase, cfs = null) {
   const list = cfs || db.candidatiFaseList(fase.id);
-  const rows = list.map((cf) => {
-    const cand = db.state.candidati.find((c) => c.id === cf.candidato_id);
+  const rows = list.map((/** @type {any} */ cf) => {
+    const cand = db.state.candidati.find((/** @type {any} */ c) => c.id === cf.candidato_id);
     const vs = db.valutazioniByCandidatoFase(cf.id);
     return { cf, cand, media: mediaCandidato(vs, fase), valutazioni: vs };
   });
   return rankWithTieBreak(rows, fase, {
     presidenteId: db.getPresidenteForFase(fase)?.id || null,
     allCandidati: db.state.candidati,
-    getMembri: (cid) => db.membriGruppo(cid),
+    getMembri: (/** @type {any} */ cid) => db.membriGruppo(cid),
     strategy: fase.tiebreak_strategy,
   });
 }
@@ -34,12 +34,12 @@ export function rankFase(fase, cfs = null) {
 // mostrata e inviato atomicamente al server al conclude (niente più
 // last-write-wins per-commissario). Ritorna null se non c'è una soglia top-N
 // (`ammessi` mancante) → il server mantiene l'ammissione esistente.
-export function computeAdmittedIds(fase) {
+export function computeAdmittedIds(/** @type {any} */ fase) {
   const ammessi = Number(fase?.ammessi);
   if (!Number.isFinite(ammessi) || ammessi <= 0) return null;
   return rankFase(fase)
-    .filter((r) => (r.posizione_finale ?? Infinity) <= ammessi)
-    .map((r) => r.cf.id);
+    .filter((/** @type {any} */ r) => (r.posizione_finale ?? Infinity) <= ammessi)
+    .map((/** @type {any} */ r) => r.cf.id);
 }
 
 /**
@@ -48,7 +48,7 @@ export function computeAdmittedIds(fase) {
  * generici (es. "trombone" → ottoni prima che "tromb" matchi qualcosa di
  * più ampio). Fallback: 🎵.
  */
-export function iconaPerSezione(nome) {
+export function iconaPerSezione(/** @type {any} */ nome) {
   const s = String(nome || '').toLowerCase();
   if (/canto|voce|voice|soprano|tenor|baritono|contralto|mezzosoprano|lirica|opera/.test(s)) return '🎤';
   if (/coro|choir|coral/.test(s)) return '🎼';
@@ -72,7 +72,7 @@ export function iconaPerSezione(nome) {
  * del concorso (array) o null. Se entrambi assenti, mostra l'opzione
  * "standard" (tutti i passi abilitati).
  */
-export function tiebreakStrategyHtml(current, inherited = null) {
+export function tiebreakStrategyHtml(/** @type {any} */ current, inherited = null) {
   const STEPS = [
     { key: 'scomposizione', icon: '🧩', titolo: 'Scomposizione del voto', breve: 'Confronta i criteri uno per uno, in ordine di peso decrescente. Vince chi ha la media più alta sul criterio più importante che li differenzia.' },
     { key: 'presidente',   icon: '🎯', titolo: 'Voto del Presidente di giuria', breve: 'Il voto del Presidente diventa decisivo: vince chi ha la media più alta calcolata sui soli voti del Presidente.' },
@@ -81,9 +81,9 @@ export function tiebreakStrategyHtml(current, inherited = null) {
   ];
   const isInherited = !Array.isArray(current) || current.length === 0;
   const source = isInherited ? inherited : current;
-  const enabledByKey = (key) => {
+  const enabledByKey = (/** @type {any} */ key) => {
     if (!Array.isArray(source)) return true;
-    const row = source.find(s => s?.key === key);
+    const row = source.find((/** @type {any} */ s) => s?.key === key);
     return row ? !!row.enabled : true;
   };
   return `

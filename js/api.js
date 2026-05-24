@@ -10,6 +10,11 @@
 const API_BASE = '/api';
 
 export class ApiError extends Error {
+  /**
+   * @param {number} status
+   * @param {any} body
+   * @param {string} url
+   */
   constructor(status, body, url) {
     const msg = typeof body === 'string' ? body : (body?.error || body?.message || `HTTP ${status}`);
     super(`${status} ${msg} (${url})`);
@@ -77,7 +82,7 @@ async function request(method, path, { body, query, multipart } = {}) {
     } catch (err) {
       clearTimeout(timer);
       // Errori di rete / abort (timeout) sono ritentabili sui metodi idempotenti.
-      const isNetwork = err.name === 'AbortError' || err instanceof TypeError;
+      const isNetwork = (/** @type {any} */ (err))?.name === 'AbortError' || err instanceof TypeError;
       if (canRetry && isNetwork && attempt < MAX_RETRIES) {
         lastErr = err;
         await new Promise((r) => setTimeout(r, RETRY_BASE_MS * 2 ** attempt));
@@ -90,15 +95,21 @@ async function request(method, path, { body, query, multipart } = {}) {
 }
 
 export const api = {
+  /** @param {string} path @param {Record<string, any>} [query] */
   get: (path, query) => request('GET', path, { query }),
+  /** @param {string} path @param {any} [body] */
   post: (path, body) => request('POST', path, { body }),
+  /** @param {string} path @param {any} [body] */
   patch: (path, body) => request('PATCH', path, { body }),
+  /** @param {string} path @param {any} [body] */
   put: (path, body) => request('PUT', path, { body }),
+  /** @param {string} path */
   delete: (path) => request('DELETE', path),
 
   /**
    * Upload multipart per file. `resource` ∈ 'concorso' | 'commissario' | 'candidato'.
    * Ritorna { url, filename, sizeBytes, mimeType }.
+   * @param {string} resource @param {string} id @param {Blob} file
    */
   upload: (resource, id, file) => {
     const fd = new FormData();
@@ -109,6 +120,9 @@ export const api = {
   /**
    * SSE subscription. Ritorna una funzione di unsubscribe.
    * onMessage riceve l'oggetto JSON pubblicato dal backend via NOTIFY.
+   * @param {string} path
+   * @param {(data: any) => void} onMessage
+   * @param {((this: EventSource, ev: Event) => any) | null} [onError]
    */
   subscribe(path, onMessage, onError) {
     const url = path.startsWith('/') ? path : `${API_BASE}/${path}`;
@@ -124,6 +138,7 @@ export const api = {
 
   /**
    * Helper: ritorna l'URL pubblico di un file caricato (servito da nginx/Caddy).
+   * @param {string} path
    */
   fileUrl(path) {
     if (!path) return null;

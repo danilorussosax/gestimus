@@ -10,7 +10,7 @@ const INK = [46, 38, 61];
 const INK_SOFT = [93, 89, 108];
 const LINE = [231, 229, 235];
 
-function loadImageDataURL(src) {
+function loadImageDataURL(/** @type {string} */ src) {
   return new Promise((resolve) => {
     try {
       const img = new Image();
@@ -19,7 +19,7 @@ function loadImageDataURL(src) {
         try {
           const canvas = document.createElement('canvas');
           canvas.width = img.naturalWidth; canvas.height = img.naturalHeight;
-          canvas.getContext('2d').drawImage(img, 0, 0);
+          /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d')).drawImage(img, 0, 0);
           resolve(canvas.toDataURL('image/png'));
         } catch { resolve(null); }
       };
@@ -29,12 +29,12 @@ function loadImageDataURL(src) {
   });
 }
 
-function fmtDay(iso) {
+function fmtDay(/** @type {string} */ iso) {
   if (!iso) return '';
   try { return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); }
   catch { return iso; }
 }
-const hhmm = (s) => (s ? String(s).slice(0, 5) : '');
+const hhmm = (/** @type {any} */ s) => (s ? String(s).slice(0, 5) : '');
 
 /**
  * @param {object} opts
@@ -42,7 +42,7 @@ const hhmm = (s) => (s ? String(s).slice(0, 5) : '');
  * @param {string} [opts.sottotitolo]        riga sotto il titolo
  * @param {string} [opts.logoUrl]            logo (concorso o ente)
  * @param {boolean} [opts.mostraCommissione] include la giuria sotto ogni blocco
- * @param {Array}  opts.giorni               [{ data, blocchi:[{ oraInizio, oraFine, sala:{nome}, sezione:{nome}, categoria:{nome}, fase:{nome}, tipo, titolo, slot:[{oraPrevista, etichetta}], commissione:[{nome,cognome,specialita}] }] }]
+ * @param {Array<any>}  opts.giorni          [{ data, blocchi:[{ oraInizio, oraFine, sala:{nome}, sezione:{nome}, categoria:{nome}, fase:{nome}, tipo, titolo, slot:[{oraPrevista, etichetta}], commissione:[{nome,cognome,specialita}] }] }]
  */
 export async function exportCalendarioPdf(opts) {
   if (!window.jspdf || !window.jspdf.jsPDF) { toast(t('admin.risultati.pdf_not_loaded') || 'PDF non caricato, ricarica la pagina', 'warn'); return; }
@@ -81,7 +81,7 @@ export async function exportCalendarioPdf(opts) {
       const sala = b.sala?.nome ? ` · ${b.sala.nome}` : '';
       const title = `${orario ? orario + '  ' : ''}${head}${sala}`;
 
-      const body = (b.slot || []).map((s) => [hhmm(s.oraPrevista) || '—', s.etichetta || '']);
+      const body = (b.slot || []).map((/** @type {any} */ s) => [hhmm(s.oraPrevista) || '—', s.etichetta || '']);
       doc.autoTable({
         startY: y + 6,
         head: [[{ content: title, colSpan: 2, styles: { halign: 'left', fillColor: [243, 242, 249], textColor: INK, fontStyle: 'bold' } }]],
@@ -93,7 +93,7 @@ export async function exportCalendarioPdf(opts) {
       });
       y = doc.lastAutoTable.finalY + 6;
       if (opts.mostraCommissione && Array.isArray(b.commissione) && b.commissione.length) {
-        const names = b.commissione.map((m) => [m.nome, m.cognome].filter(Boolean).join(' ') + (m.specialita ? ` (${m.specialita})` : '')).join(', ');
+        const names = b.commissione.map((/** @type {any} */ m) => [m.nome, m.cognome].filter(Boolean).join(' ') + (m.specialita ? ` (${m.specialita})` : '')).join(', ');
         doc.setFont('helvetica', 'italic'); doc.setFontSize(8); doc.setTextColor(...INK_SOFT);
         const wrapped = doc.splitTextToSize(`${t('cal.pub.giuria')}: ${names}`, pageW - 2 * margin);
         if (y + wrapped.length * 10 > 800) { doc.addPage(); y = margin; }

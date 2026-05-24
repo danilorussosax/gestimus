@@ -18,14 +18,14 @@ import { slugifyKey } from './scoring.js';
 // N1: i criteri vivono in tabella `criteri` (nome, peso 0-100, ordine) ma le
 // view + scoring usano la forma {key,label,peso(0-1)} su `fase.criteri`.
 // Questi helper convertono tra le due rappresentazioni e popolano fase.criteri.
-function critRowToKLP(r) {
+function critRowToKLP(/** @type {any} */ r) {
   const label = r.nome || '';
   return { key: slugifyKey(label) || 'crit', label, peso: (Number(r.peso) || 0) / 100 };
 }
-function criteriForFase(faseId) {
+function criteriForFase(/** @type {any} */ faseId) {
   return (state._criteri || [])
-    .filter((c) => c.faseId === faseId)
-    .sort((a, b) => (a.ordine ?? 0) - (b.ordine ?? 0))
+    .filter((/** @type {any} */ c) => c.faseId === faseId)
+    .sort((/** @type {any} */ a, /** @type {any} */ b) => (a.ordine ?? 0) - (b.ordine ?? 0))
     .map(critRowToKLP);
 }
 
@@ -35,30 +35,32 @@ const META_KEY = 'gestionale_meta_v3'; // bump key per evitare collisioni col v2
 // aggiornato dal runtime del timer. computeTimer lo usa per correggere lo skew.
 let serverClockOffsetMs = 0;
 
+/** @returns {Record<string, any>} */
 const empty = () => ({
-  concorsi: [],
-  fasi: [],
-  candidati: [],
-  candidati_fase: [],
-  valutazioni: [],
-  commissari: [],
-  sezioni: [],
-  categorie: [],
-  commissioni: [],
-  accounts: [],
-  ente: null,
-  ente_public: null,
-  candidati_gruppo: [], // membri di gruppo (alias storico)
-  sale: [],
-  eventi: [], // eventi_calendario (blocchi)
-  meta: { activeConcorsoId: null, role: null, currentCommissarioId: null },
+  concorsi: /** @type {any[]} */ ([]),
+  fasi: /** @type {any[]} */ ([]),
+  candidati: /** @type {any[]} */ ([]),
+  candidati_fase: /** @type {any[]} */ ([]),
+  valutazioni: /** @type {any[]} */ ([]),
+  commissari: /** @type {any[]} */ ([]),
+  sezioni: /** @type {any[]} */ ([]),
+  categorie: /** @type {any[]} */ ([]),
+  commissioni: /** @type {any[]} */ ([]),
+  accounts: /** @type {any[]} */ ([]),
+  ente: /** @type {any} */ (null),
+  ente_public: /** @type {any} */ (null),
+  candidati_gruppo: /** @type {any[]} */ ([]), // membri di gruppo (alias storico)
+  sale: /** @type {any[]} */ ([]),
+  eventi: /** @type {any[]} */ ([]), // eventi_calendario (blocchi)
+  _criteri: /** @type {any[]} */ ([]),
+  meta: /** @type {Record<string, any>} */ ({ activeConcorsoId: null, role: null, currentCommissarioId: null }),
 });
 
 let state = empty();
 let initialized = false;
 
 const subscribers = new Set();
-export function subscribe(fn) { subscribers.add(fn); return () => subscribers.delete(fn); }
+export function subscribe(/** @type {any} */ fn) { subscribers.add(fn); return () => subscribers.delete(fn); }
 // N71: guard anti-recursione. Se un subscriber muta lo stato e ri-chiama
 // notify(), evitiamo la ricorsione infinita: marchiamo "notifying" e, se una
 // notifica arriva durante un'altra, la rimandiamo a fine ciclo.
@@ -89,9 +91,9 @@ function saveMeta() {
 // Mappers: backend camelCase → forma interna snake_case usata dalle view legacy.
 // ====================================================================
 
-const dateStr = (s) => (s ? String(s).slice(0, 10) : null);
+const dateStr = (/** @type {any} */ s) => (s ? String(s).slice(0, 10) : null);
 
-function mapConcorso(r) {
+function mapConcorso(/** @type {any} */ r) {
   return {
     id: r.id,
     nome: r.nome || '',
@@ -108,7 +110,7 @@ function mapConcorso(r) {
   };
 }
 
-function mapCommissario(r) {
+function mapCommissario(/** @type {any} */ r) {
   // Nel nuovo backend ogni commissario è associato a UN concorso (concorsoId).
   // Il legacy modellava multi-concorso via array `concorsi[]`. Per compat
   // esponiamo entrambi: concorsi_ids = [concorsoId], concorso_id = concorsoId.
@@ -133,7 +135,7 @@ function mapCommissario(r) {
   };
 }
 
-function mapCandidato(r) {
+function mapCandidato(/** @type {any} */ r) {
   return {
     id: r.id,
     concorso_id: r.concorsoId,
@@ -174,7 +176,8 @@ function mapCandidato(r) {
   };
 }
 
-function mapFase(r) {
+/** @returns {any} */
+function mapFase(/** @type {any} */ r) {
   return {
     id: r.id,
     concorso_id: r.concorsoId,
@@ -204,10 +207,10 @@ function mapFase(r) {
   };
 }
 
-function mapSezione(r) {
+function mapSezione(/** @type {any} */ r) {
   return { id: r.id, concorso_id: r.concorsoId, nome: r.nome || '', descrizione: r.descrizione || '', ordine: r.ordine };
 }
-function mapCategoria(r) {
+function mapCategoria(/** @type {any} */ r) {
   return {
     id: r.id,
     sezione_id: r.sezioneId,
@@ -219,7 +222,7 @@ function mapCategoria(r) {
     ordine: r.ordine,
   };
 }
-function mapCommissione(r) {
+function mapCommissione(/** @type {any} */ r) {
   return {
     id: r.id,
     concorso_id: r.concorsoId,
@@ -232,7 +235,7 @@ function mapCommissione(r) {
     presidente_id: r.presidenteCommissarioId || null,
   };
 }
-function mapCandidatoFase(r) {
+function mapCandidatoFase(/** @type {any} */ r) {
   return {
     id: r.id,
     fase_id: r.faseId,
@@ -244,7 +247,7 @@ function mapCandidatoFase(r) {
     ora_prevista: r.oraPrevista || null,
   };
 }
-function mapValutazione(r) {
+function mapValutazione(/** @type {any} */ r) {
   return {
     id: r.id,
     candidato_fase_id: r.candidatoFaseId,
@@ -256,16 +259,16 @@ function mapValutazione(r) {
   };
 }
 
-function mapIscrizione(r) {
+function mapIscrizione(/** @type {any} */ r) {
   // Traduzione stato backend (IT uppercase) → token legacy lowercase usati
   // dalla view admin iscrizioni (filter pills, colors, label). Manteniamo
   // entrambi (`stato` legacy, `stato_raw` originale) per compat.
-  const STATO_MAP = {
+  const STATO_MAP = /** @type {Record<string, string>} */ ({
     INVIATA: 'pending',
     EMAIL_VERIFICATA: 'email_verified',
     APPROVATA: 'approved',
     RIFIUTATA: 'rejected',
-  };
+  });
   const statoRaw = r.stato || 'INVIATA';
   const stato = STATO_MAP[statoRaw] || statoRaw.toLowerCase();
   // Il tutore è JSONB lato backend; per la view lo "spalmiamo" in campi
@@ -332,7 +335,7 @@ function mapIscrizione(r) {
   };
 }
 
-function mapMembroGruppo(r) {
+function mapMembroGruppo(/** @type {any} */ r) {
   return {
     id: r.id,
     candidato_id: r.candidatoId,
@@ -352,7 +355,7 @@ function mapMembroGruppo(r) {
 // espone i campi nested di enteSettings/brandingPublic come proprietà piatte
 // (logo_url, email_contatto, ecc.) per non costringere ogni view a navigare
 // il JSONB.
-function mapEnte(r) {
+function mapEnte(/** @type {any} */ r) {
   if (!r) return null;
   const bp = r.brandingPublic || {};
   const es = r.enteSettings || {};
@@ -387,10 +390,10 @@ async function loadEntePublic() {
 }
 
 // ---- Calendario / scheduling mappers ----
-function mapSala(r) {
+function mapSala(/** @type {any} */ r) {
   return { id: r.id, concorso_id: r.concorsoId, nome: r.nome || '', indirizzo: r.indirizzo || '', ordine: r.ordine ?? null };
 }
-function mapEvento(r) {
+function mapEvento(/** @type {any} */ r) {
   return {
     id: r.id,
     concorso_id: r.concorsoId,
@@ -408,7 +411,7 @@ function mapEvento(r) {
     ordine: r.ordine ?? null,
   };
 }
-function mapCalendarioPub(r) {
+function mapCalendarioPub(/** @type {any} */ r) {
   return {
     id: r.id,
     concorso_id: r.concorsoId,
@@ -427,7 +430,7 @@ function mapCalendarioPub(r) {
  * Fetch standalone della pagina pubblica del calendario (no auth, no state).
  * Usato dalla rotta #/calendario?token=… renderizzata anche pre-login.
  */
-export async function fetchCalendarioPubblico(token) {
+export async function fetchCalendarioPubblico(/** @type {any} */ token) {
   return api.get(`/api/public/calendario/${encodeURIComponent(token)}`);
 }
 
@@ -450,10 +453,10 @@ async function loadAll() {
     ['eventi', '/api/calendario/eventi'],
   ];
   const coreResults = await Promise.allSettled(coreSpecs.map(([, url]) => api.get(url)));
-  const coreFailures = [];
+  const coreFailures = /** @type {any[]} */ ([]);
   // `ente` è opzionale: il suo fallimento è tollerato in silenzio (come prima
   // con .catch(() => null)); le altre risorse vengono segnalate.
-  const pick = (i, optional = false) => {
+  const pick = (/** @type {number} */ i, optional = false) => {
     const r = coreResults[i];
     if (r.status === 'fulfilled') return r.value;
     if (!optional) coreFailures.push(coreSpecs[i][0]);
@@ -478,7 +481,7 @@ async function loadAll() {
   // N1: arricchisce ogni fase con .criteri ({key,label,peso}) derivati da
   // state._criteri, così form fasi, scoring e tiebreak vedono i criteri salvati
   // (mapFase da solo non li espone).
-  state.fasi = (fasi || []).map((r) => {
+  state.fasi = (fasi || []).map((/** @type {any} */ r) => {
     const f = mapFase(r);
     f.criteri = criteriForFase(f.id);
     return f;
@@ -493,7 +496,7 @@ async function loadAll() {
   state.candidati_fase = [];
   const cfFailures = [];
   const cfResults = await Promise.allSettled(
-    state.fasi.map((f) => api.get('/api/candidati-fase', { faseId: f.id })),
+    state.fasi.map((/** @type {any} */ f) => api.get('/api/candidati-fase', { faseId: f.id })),
   );
   cfResults.forEach((r, i) => {
     if (r.status === 'fulfilled') {
@@ -511,7 +514,7 @@ async function loadAll() {
   state.valutazioni = [];
   const valFailures = [];
   const valResults = await Promise.allSettled(
-    state.candidati_fase.map((cf) => api.get('/api/valutazioni', { candidatoFaseId: cf.id })),
+    state.candidati_fase.map((/** @type {any} */ cf) => api.get('/api/valutazioni', { candidatoFaseId: cf.id })),
   );
   valResults.forEach((r, i) => {
     if (r.status === 'fulfilled') {
@@ -528,9 +531,9 @@ async function loadAll() {
 
   state.candidati_gruppo = [];
   const mgFailures = [];
-  const gruppi = state.candidati.filter((x) => x.is_gruppo);
+  const gruppi = state.candidati.filter((/** @type {any} */ x) => x.is_gruppo);
   const mgResults = await Promise.allSettled(
-    gruppi.map((c) => api.get('/api/membri-gruppo', { candidatoId: c.id })),
+    gruppi.map((/** @type {any} */ c) => api.get('/api/membri-gruppo', { candidatoId: c.id })),
   );
   mgResults.forEach((r, i) => {
     if (r.status === 'fulfilled') {
@@ -548,7 +551,7 @@ async function loadAll() {
   // Accounts (solo admin può listarli; per commissario fallisce 403 → array vuoto)
   try {
     const list = await api.get('/api/accounts');
-    state.accounts = (list || []).map((a) => ({
+    state.accounts = (list || []).map((/** @type {any} */ a) => ({
       id: a.id,
       email: a.email,
       role: a.role,
@@ -605,9 +608,9 @@ export const db = {
   reloadEntePublic: async () => { await loadEntePublic(); notify(); },
 
   // ---------- Meta locale ----------
-  setRole(role, commissarioId = null) {
+  setRole(/** @type {any} */ role, commissarioId = null) {
     const authRole = pb.authStore.isValid ? (pb.authStore.model?.role || null) : null;
-    const rank = { commissario: 1, admin: 2, superadmin: 3 };
+    const rank = /** @type {Record<string, number>} */ ({ commissario: 1, admin: 2, superadmin: 3 });
     const wantedRank = rank[role] || 0;
     const authRank = rank[authRole] || 0;
     if (wantedRank > authRank) {
@@ -618,7 +621,7 @@ export const db = {
     state.meta.currentCommissarioId = commissarioId;
     saveMeta(); notify();
   },
-  setActiveConcorso(id) {
+  setActiveConcorso(/** @type {any} */ id) {
     state.meta.activeConcorsoId = id;
     saveMeta(); notify();
   },
@@ -629,7 +632,7 @@ export const db = {
   // M219: offset orologio server-client per il countdown timer.
   serverClockOffset() { return serverClockOffsetMs; },
 
-  async login(email, password) {
+  async login(/** @type {any} */ email, /** @type {any} */ password) {
     const res = await api.post('/auth/login', { email, password });
     // 2FA attivo: il server non ha emesso sessione, serve il secondo fattore.
     if (res && res.mfaRequired) {
@@ -639,7 +642,7 @@ export const db = {
   },
 
   // Completa il login dopo il challenge 2FA (codice TOTP o recovery code).
-  async completeTotpLogin(challenge, code) {
+  async completeTotpLogin(/** @type {any} */ challenge, /** @type {any} */ code) {
     await api.post('/auth/login/verify-totp', { challenge, code });
     return await this._finishAuth();
   },
@@ -666,8 +669,8 @@ export const db = {
 
   // ---------- 2FA / TOTP (account corrente) ----------
   async totpSetup() { return await api.post('/auth/totp/setup', {}); },
-  async totpEnable(code) { return await api.post('/auth/totp/enable', { code }); },
-  async totpDisable(password) { return await api.post('/auth/totp/disable', { password }); },
+  async totpEnable(/** @type {any} */ code) { return await api.post('/auth/totp/enable', { code }); },
+  async totpDisable(/** @type {any} */ password) { return await api.post('/auth/totp/disable', { password }); },
 
   // M7: la logout ora è async e attende l'invalidazione server-side della
   // sessione PRIMA di pulire lo stato locale. Senza l'await, un re-login
@@ -687,20 +690,20 @@ export const db = {
   // Lato server l'audit è automatico su tutte le mutazioni. Queste API restano
   // per compat: `audit()` è no-op (l'azione è già loggata dal backend),
   // `fetchAuditLog()` legge da /api/audit-log.
-  audit(_action, _meta) { /* automatica server-side, no-op */ },
+  audit(/** @type {any} */ _action, /** @type {any} */ _meta) { /* automatica server-side, no-op */ },
 
   async fetchAuditLog({ concorsoId = null, limit = 200, action = null } = {}) {
     const rows = await api.get('/api/audit-log', { limit, action });
     // Filtro client-side per concorsoId se richiesto (il payload ha targetId)
     return concorsoId
-      ? rows.filter((r) => r.targetId === concorsoId || r.payload?.concorsoId === concorsoId)
+      ? rows.filter((/** @type {any} */ r) => r.targetId === concorsoId || r.payload?.concorsoId === concorsoId)
       : rows;
   },
 
   // ---------- Concorsi ----------
   concorsiList() { return state.concorsi.slice(); },
 
-  async createConcorso({ nome, anno, data_inizio = null, logo = undefined }) {
+  async createConcorso(/** @type {{ nome: any, anno: any, data_inizio?: any, logo?: any }} */ { nome, anno, data_inizio = null, logo = undefined }) {
     const created = await api.post('/api/concorsi', {
       nome,
       anno: Number(anno) || new Date().getFullYear(),
@@ -720,15 +723,15 @@ export const db = {
           c.logo_filename = up.filename;
         }
       } catch (e) {
-        console.warn('logo upload failed:', e?.message);
+        console.warn('logo upload failed:', (/** @type {any} */ (e))?.message);
       }
     }
     notify();
     return c;
   },
 
-  async updateConcorso(id, patch) {
-    const body = {};
+  async updateConcorso(/** @type {any} */ id, /** @type {any} */ patch) {
+    const body = /** @type {Record<string, any>} */ ({});
     if (patch.nome != null) body.nome = patch.nome;
     if (patch.anno != null) body.anno = Number(patch.anno);
     if (patch.data_inizio !== undefined) body.dataInizio = patch.data_inizio || undefined;
@@ -746,32 +749,32 @@ export const db = {
           await api.upload('concorso', id, new File([blob], patch.logo.name || 'logo.png', { type: blob.type }));
         }
       } catch (e) {
-        console.warn('logo upload failed:', e?.message);
+        console.warn('logo upload failed:', (/** @type {any} */ (e))?.message);
       }
       updated = await api.get(`/api/concorsi/${id}`);
     }
 
     const c = mapConcorso(updated);
-    const idx = state.concorsi.findIndex((x) => x.id === id);
+    const idx = state.concorsi.findIndex((/** @type {any} */ x) => x.id === id);
     if (idx >= 0) state.concorsi[idx] = c;
     notify();
     return c;
   },
 
-  async deleteConcorso(id) {
+  async deleteConcorso(/** @type {any} */ id) {
     // M193: il server rifiuta il delete di un concorso con dati collegati senza
     // force; la UI conferma già esplicitamente, quindi passiamo force=true.
     await api.delete(`/api/concorsi/${id}?force=true`);
-    state.concorsi = state.concorsi.filter((x) => x.id !== id);
-    state.fasi = state.fasi.filter((f) => f.concorso_id !== id);
-    state.candidati = state.candidati.filter((x) => x.concorso_id !== id);
-    state.commissari = state.commissari.filter((c) => c.concorso_id !== id);
-    state.sezioni = state.sezioni.filter((s) => s.concorso_id !== id);
-    state.commissioni = state.commissioni.filter((c) => c.concorso_id !== id);
-    const validFaseIds = new Set(state.fasi.map((f) => f.id));
-    state.candidati_fase = state.candidati_fase.filter((cf) => validFaseIds.has(cf.fase_id));
-    const validCfIds = new Set(state.candidati_fase.map((cf) => cf.id));
-    state.valutazioni = state.valutazioni.filter((v) => validCfIds.has(v.candidato_fase_id));
+    state.concorsi = state.concorsi.filter((/** @type {any} */ x) => x.id !== id);
+    state.fasi = state.fasi.filter((/** @type {any} */ f) => f.concorso_id !== id);
+    state.candidati = state.candidati.filter((/** @type {any} */ x) => x.concorso_id !== id);
+    state.commissari = state.commissari.filter((/** @type {any} */ c) => c.concorso_id !== id);
+    state.sezioni = state.sezioni.filter((/** @type {any} */ s) => s.concorso_id !== id);
+    state.commissioni = state.commissioni.filter((/** @type {any} */ c) => c.concorso_id !== id);
+    const validFaseIds = new Set(state.fasi.map((/** @type {any} */ f) => f.id));
+    state.candidati_fase = state.candidati_fase.filter((/** @type {any} */ cf) => validFaseIds.has(cf.fase_id));
+    const validCfIds = new Set(state.candidati_fase.map((/** @type {any} */ cf) => cf.id));
+    state.valutazioni = state.valutazioni.filter((/** @type {any} */ v) => validCfIds.has(v.candidato_fase_id));
     if (state.meta.activeConcorsoId === id) {
       state.meta.activeConcorsoId = null;
       saveMeta();
@@ -780,40 +783,40 @@ export const db = {
   },
 
   // ---------- Sezioni ----------
-  sezioniByConcorso(concorso_id) {
-    return state.sezioni.filter((s) => s.concorso_id === concorso_id);
+  sezioniByConcorso(/** @type {any} */ concorso_id) {
+    return state.sezioni.filter((/** @type {any} */ s) => s.concorso_id === concorso_id);
   },
-  async createSezione({ concorso_id, nome, descrizione = '' }) {
+  async createSezione(/** @type {{ concorso_id: any, nome: any, descrizione?: any }} */ { concorso_id, nome, descrizione = '' }) {
     const r = await api.post('/api/sezioni', { concorsoId: concorso_id, nome, descrizione });
     const s = mapSezione(r);
     state.sezioni.push(s); notify();
     return s;
   },
-  async updateSezione(id, patch) {
-    const body = {};
+  async updateSezione(/** @type {any} */ id, /** @type {any} */ patch) {
+    const body = /** @type {Record<string, any>} */ ({});
     if (patch.nome != null) body.nome = patch.nome;
     if (patch.descrizione != null) body.descrizione = patch.descrizione;
     if (patch.ordine != null) body.ordine = patch.ordine;
     const r = await api.patch(`/api/sezioni/${id}`, body);
     const s = mapSezione(r);
-    const i = state.sezioni.findIndex((x) => x.id === id);
+    const i = state.sezioni.findIndex((/** @type {any} */ x) => x.id === id);
     if (i >= 0) state.sezioni[i] = s;
     notify();
     return s;
   },
-  async deleteSezione(id) {
+  async deleteSezione(/** @type {any} */ id) {
     await api.delete(`/api/sezioni/${id}`);
-    state.sezioni = state.sezioni.filter((s) => s.id !== id);
-    const removedCatIds = new Set(state.categorie.filter((c) => c.sezione_id === id).map((c) => c.id));
-    state.categorie = state.categorie.filter((c) => c.sezione_id !== id);
+    state.sezioni = state.sezioni.filter((/** @type {any} */ s) => s.id !== id);
+    const removedCatIds = new Set(state.categorie.filter((/** @type {any} */ c) => c.sezione_id === id).map((/** @type {any} */ c) => c.id));
+    state.categorie = state.categorie.filter((/** @type {any} */ c) => c.sezione_id !== id);
     // N19: ripulisci anche lo stato derivato che referenzia la sezione/categorie
     // rimosse, altrimenti la cache frontend resta incoerente (il server blocca
     // la delete se fasi referenziano la sezione, ma candidati/fasi locali
     // potrebbero puntare a id ora inesistenti).
-    state.fasi.forEach((f) => {
-      if (Array.isArray(f.sezioni_ids)) f.sezioni_ids = f.sezioni_ids.filter((sid) => sid !== id);
+    state.fasi.forEach((/** @type {any} */ f) => {
+      if (Array.isArray(f.sezioni_ids)) f.sezioni_ids = f.sezioni_ids.filter((/** @type {any} */ sid) => sid !== id);
     });
-    state.candidati.forEach((c) => {
+    state.candidati.forEach((/** @type {any} */ c) => {
       if (c.sezione_id === id) c.sezione_id = null;
       if (removedCatIds.has(c.categoria_id)) c.categoria_id = null;
     });
@@ -821,15 +824,15 @@ export const db = {
   },
 
   // ---------- Categorie ----------
-  categorieBySezione(sezione_id) {
-    return state.categorie.filter((c) => c.sezione_id === sezione_id);
+  categorieBySezione(/** @type {any} */ sezione_id) {
+    return state.categorie.filter((/** @type {any} */ c) => c.sezione_id === sezione_id);
   },
-  categorieByConcorso(concorso_id) {
-    const sezIds = new Set(state.sezioni.filter((s) => s.concorso_id === concorso_id).map((s) => s.id));
-    return state.categorie.filter((c) => sezIds.has(c.sezione_id));
+  categorieByConcorso(/** @type {any} */ concorso_id) {
+    const sezIds = new Set(state.sezioni.filter((/** @type {any} */ s) => s.concorso_id === concorso_id).map((/** @type {any} */ s) => s.id));
+    return state.categorie.filter((/** @type {any} */ c) => sezIds.has(c.sezione_id));
   },
-  async createCategoria({ sezione_id, nome, descrizione = '', eta_min = null, eta_max = null, ordine = null }) {
-    const payload = { sezioneId: sezione_id, nome, descrizione };
+  async createCategoria(/** @type {{ sezione_id: any, nome: any, descrizione?: any, eta_min?: any, eta_max?: any, ordine?: any }} */ { sezione_id, nome, descrizione = '', eta_min = null, eta_max = null, ordine = null }) {
+    const payload = /** @type {Record<string, any>} */ ({ sezioneId: sezione_id, nome, descrizione });
     if (eta_min != null) payload.etaMin = eta_min;
     if (eta_max != null) payload.etaMax = eta_max;
     if (ordine != null) payload.ordine = ordine;
@@ -838,8 +841,8 @@ export const db = {
     state.categorie.push(c); notify();
     return c;
   },
-  async updateCategoria(id, patch) {
-    const body = {};
+  async updateCategoria(/** @type {any} */ id, /** @type {any} */ patch) {
+    const body = /** @type {Record<string, any>} */ ({});
     if (patch.nome != null) body.nome = patch.nome;
     if (patch.descrizione != null) body.descrizione = patch.descrizione;
     if (patch.ordine != null) body.ordine = patch.ordine;
@@ -847,21 +850,21 @@ export const db = {
     if (patch.eta_max != null) body.etaMax = patch.eta_max;
     const r = await api.patch(`/api/categorie/${id}`, body);
     const c = mapCategoria(r);
-    const i = state.categorie.findIndex((x) => x.id === id);
+    const i = state.categorie.findIndex((/** @type {any} */ x) => x.id === id);
     if (i >= 0) state.categorie[i] = c;
     notify();
     return c;
   },
-  async deleteCategoria(id) {
+  async deleteCategoria(/** @type {any} */ id) {
     await api.delete(`/api/categorie/${id}`);
-    state.categorie = state.categorie.filter((c) => c.id !== id);
+    state.categorie = state.categorie.filter((/** @type {any} */ c) => c.id !== id);
     notify();
   },
-  async copyCategorieToSezioni({ from_sezione_id, to_sezioni_ids = [], skipDuplicates = true }) {
-    const source = state.categorie.filter((c) => c.sezione_id === from_sezione_id);
+  async copyCategorieToSezioni(/** @type {{ from_sezione_id: any, to_sezioni_ids?: any[], skipDuplicates?: boolean }} */ { from_sezione_id, to_sezioni_ids = [], skipDuplicates = true }) {
+    const source = state.categorie.filter((/** @type {any} */ c) => c.sezione_id === from_sezione_id);
     const created = [];
     for (const sid of to_sezioni_ids) {
-      const existing = new Set(state.categorie.filter((c) => c.sezione_id === sid).map((c) => c.nome.toLowerCase()));
+      const existing = new Set(state.categorie.filter((/** @type {any} */ c) => c.sezione_id === sid).map((/** @type {any} */ c) => c.nome.toLowerCase()));
       for (const cat of source) {
         if (skipDuplicates && existing.has(cat.nome.toLowerCase())) continue;
         const r = await api.post('/api/categorie', {
@@ -879,18 +882,18 @@ export const db = {
   },
 
   // ---------- Commissioni ----------
-  commissioniByConcorso(concorso_id) {
-    return state.commissioni.filter((c) => c.concorso_id === concorso_id);
+  commissioniByConcorso(/** @type {any} */ concorso_id) {
+    return state.commissioni.filter((/** @type {any} */ c) => c.concorso_id === concorso_id);
   },
-  effectiveCategorieForCommissione(commissione) {
+  effectiveCategorieForCommissione(/** @type {any} */ commissione) {
     if (!commissione) return [];
     if (commissione.include_tutte_categorie && Array.isArray(commissione.sezioni_ids)) {
       const ids = new Set(commissione.sezioni_ids);
-      return state.categorie.filter((c) => ids.has(c.sezione_id)).map((c) => c.id);
+      return state.categorie.filter((/** @type {any} */ c) => ids.has(c.sezione_id)).map((/** @type {any} */ c) => c.id);
     }
     return commissione.categorie_ids || [];
   },
-  async createCommissione({ concorso_id, nome, descrizione: _d = '', commissari_ids = [], sezioni_ids = [], categorie_ids = [], include_tutte_categorie: _i = false, presidente_id = null }) {
+  async createCommissione(/** @type {{ concorso_id: any, nome: any, descrizione?: any, commissari_ids?: any[], sezioni_ids?: any[], categorie_ids?: any[], include_tutte_categorie?: boolean, presidente_id?: any }} */ { concorso_id, nome, descrizione: _d = '', commissari_ids = [], sezioni_ids = [], categorie_ids = [], include_tutte_categorie: _i = false, presidente_id = null }) {
     const r = await api.post('/api/commissioni', {
       concorsoId: concorso_id,
       nome,
@@ -904,21 +907,21 @@ export const db = {
     // ("ho assegnato la commissione alla fase ma non vedo i commissari").
     for (const cid of commissari_ids) {
       try { await api.post(`/api/commissioni/${c.id}/commissari/${cid}`, {}); c.commissari_ids.push(cid); }
-      catch (e) { console.warn(`createCommissione: attach commissario ${cid} failed:`, e?.message || e); }
+      catch (e) { console.warn(`createCommissione: attach commissario ${cid} failed:`, (/** @type {any} */ (e))?.message || e); }
     }
     for (const sid of sezioni_ids) {
       try { await api.post(`/api/commissioni/${c.id}/sezioni/${sid}`, {}); c.sezioni_ids.push(sid); }
-      catch (e) { console.warn(`createCommissione: attach sezione ${sid} failed:`, e?.message || e); }
+      catch (e) { console.warn(`createCommissione: attach sezione ${sid} failed:`, (/** @type {any} */ (e))?.message || e); }
     }
     for (const cat of categorie_ids) {
       try { await api.post(`/api/commissioni/${c.id}/categorie/${cat}`, {}); c.categorie_ids.push(cat); }
-      catch (e) { console.warn(`createCommissione: attach categoria ${cat} failed:`, e?.message || e); }
+      catch (e) { console.warn(`createCommissione: attach categoria ${cat} failed:`, (/** @type {any} */ (e))?.message || e); }
     }
     notify();
     return c;
   },
-  async updateCommissione(id, patch) {
-    const body = {};
+  async updateCommissione(/** @type {any} */ id, /** @type {any} */ patch) {
+    const body = /** @type {Record<string, any>} */ ({});
     if (patch.nome != null) body.nome = patch.nome;
     if (patch.presidente_id !== undefined) body.presidenteCommissarioId = patch.presidente_id || null;
     if (Object.keys(body).length > 0) await api.patch(`/api/commissioni/${id}`, body);
@@ -927,9 +930,9 @@ export const db = {
     // Non muto lo state ottimisticamente: solo dopo il GET finale del record
     // aggiornato dal server scriviamo nello state — così se uno qualunque
     // dei sync (delete/post) fallisce, lo state non resta in stato intermedio.
-    const current = state.commissioni.find((c) => c.id === id);
+    const current = state.commissioni.find((/** @type {any} */ c) => c.id === id);
     if (!current) return null;
-    const sync = async (relName, currentIds, newIds) => {
+    const sync = async (/** @type {any} */ relName, /** @type {any} */ currentIds, /** @type {any} */ newIds) => {
       if (!Array.isArray(newIds)) return;
       const cur = new Set(currentIds);
       const next = new Set(newIds);
@@ -960,14 +963,14 @@ export const db = {
 
     const refreshed = await api.get(`/api/commissioni/${id}`);
     const c = mapCommissione(refreshed);
-    const i = state.commissioni.findIndex((x) => x.id === id);
+    const i = state.commissioni.findIndex((/** @type {any} */ x) => x.id === id);
     if (i >= 0) state.commissioni[i] = c;
     notify();
     return c;
   },
-  async deleteCommissione(id) {
+  async deleteCommissione(/** @type {any} */ id) {
     await api.delete(`/api/commissioni/${id}`);
-    state.commissioni = state.commissioni.filter((c) => c.id !== id);
+    state.commissioni = state.commissioni.filter((/** @type {any} */ c) => c.id !== id);
     notify();
   },
 
@@ -975,20 +978,20 @@ export const db = {
   // Lista dei commissari ATTIVI per un concorso. Gli INATTIVI sono nascosti
   // dalla vista "Commissari del concorso" — finiscono in archivio finché non
   // vengono ri-attivati.
-  commissariByConcorso(concorso_id) {
+  commissariByConcorso(/** @type {any} */ concorso_id) {
     return state.commissari.filter(
-      (c) => c.concorso_id === concorso_id && c.stato !== 'INATTIVO',
+      (/** @type {any} */ c) => c.concorso_id === concorso_id && c.stato !== 'INATTIVO',
     );
   },
   // Archivio: commissari INATTIVI del tenant. Da qui possono essere riattivati
   // sul concorso a cui erano originariamente assegnati.
   archivioCommissari() {
-    return state.commissari.filter((c) => c.stato === 'INATTIVO');
+    return state.commissari.filter((/** @type {any} */ c) => c.stato === 'INATTIVO');
   },
-  getAccountForCommissario(commissario_id) {
-    return state.accounts.find((a) => a.commissarioId === commissario_id) || null;
+  getAccountForCommissario(/** @type {any} */ commissario_id) {
+    return state.accounts.find((/** @type {any} */ a) => a.commissarioId === commissario_id) || null;
   },
-  async createCommissario({ concorso_id = null, nome, cognome = '', specialita = '', email = '', telefono = '', data_nascita = null, nazionalita = '', foto = null, bio = '', cv = '' }) {
+  async createCommissario(/** @type {Record<string, any>} */ { concorso_id = null, nome, cognome = '', specialita = '', email = '', telefono = '', data_nascita = null, nazionalita = '', foto = null, bio = '', cv = '' }) {
     if (!concorso_id) throw new Error('createCommissario: concorso_id richiesto');
     const r = await api.post('/api/commissari', {
       concorsoId: concorso_id,
@@ -1006,19 +1009,19 @@ export const db = {
           cm.foto_url = up.url;
           cm.foto_filename = up.filename;
         }
-      } catch (e) { console.warn('commissario foto upload failed:', e?.message); }
+      } catch (e) { console.warn('commissario foto upload failed:', (/** @type {any} */ (e))?.message); }
     }
     notify();
     return cm;
   },
-  async updateCommissario(id, patch) {
-    const body = {};
-    const keymap = {
+  async updateCommissario(/** @type {any} */ id, /** @type {any} */ patch) {
+    const body = /** @type {Record<string, any>} */ ({});
+    const keymap = /** @type {Record<string, string>} */ ({
       nome: 'nome', cognome: 'cognome', specialita: 'specialita',
       email: 'email', telefono: 'telefono',
       data_nascita: 'dataNascita', nazionalita: 'nazionalita',
       bio: 'bio', cv: 'cv', stato: 'stato',
-    };
+    });
     for (const [k, v] of Object.entries(keymap)) {
       if (patch[k] !== undefined) body[v] = patch[k];
     }
@@ -1032,44 +1035,44 @@ export const db = {
         if (blob) {
           await api.upload('commissario', id, new File([blob], patch.foto.name || 'foto.png', { type: blob.type }));
         }
-      } catch (e) { console.warn('commissario foto upload failed:', e?.message); }
+      } catch (e) { console.warn('commissario foto upload failed:', (/** @type {any} */ (e))?.message); }
       updated = await api.get(`/api/commissari/${id}`);
     }
     const cm = mapCommissario(updated);
-    const i = state.commissari.findIndex((x) => x.id === id);
+    const i = state.commissari.findIndex((/** @type {any} */ x) => x.id === id);
     if (i >= 0) state.commissari[i] = cm;
     notify();
     return cm;
   },
-  async deleteCommissario(id) {
+  async deleteCommissario(/** @type {any} */ id) {
     await api.delete(`/api/commissari/${id}`);
-    state.commissari = state.commissari.filter((c) => c.id !== id);
+    state.commissari = state.commissari.filter((/** @type {any} */ c) => c.id !== id);
     notify();
   },
 
   // Nel modello attuale i commissari sono single-concorso: "rimuovi" non
   // cambia FK, ma sposta lo stato in INATTIVO (→ scompare dalla vista del
   // concorso, appare in archivio). "Riassegna" ripristina lo stato ATTIVO.
-  async assegnaCommissarioAConcorso(commissario_id, _concorso_id) {
+  async assegnaCommissarioAConcorso(/** @type {any} */ commissario_id, /** @type {any} */ _concorso_id) {
     return this.updateCommissario(commissario_id, { stato: 'ATTIVO' });
   },
-  async disassegnaCommissarioDaConcorso(commissario_id, _concorso_id) {
+  async disassegnaCommissarioDaConcorso(/** @type {any} */ commissario_id, /** @type {any} */ _concorso_id) {
     return this.updateCommissario(commissario_id, { stato: 'INATTIVO' });
   },
 
-  getPresidenteForCommissione(commissione_or_id) {
+  getPresidenteForCommissione(/** @type {any} */ commissione_or_id) {
     const c = typeof commissione_or_id === 'string'
-      ? state.commissioni.find((x) => x.id === commissione_or_id)
+      ? state.commissioni.find((/** @type {any} */ x) => x.id === commissione_or_id)
       : commissione_or_id;
     if (!c || !c.presidente_id) return null;
-    return state.commissari.find((x) => x.id === c.presidente_id) || null;
+    return state.commissari.find((/** @type {any} */ x) => x.id === c.presidente_id) || null;
   },
-  getPresidenteForFase(fase) {
+  getPresidenteForFase(/** @type {any} */ fase) {
     if (!fase || !fase.commissione_id) return null;
     return this.getPresidenteForCommissione(fase.commissione_id);
   },
-  isPresidenteDiQualcheCommissione(commissario_id) {
-    return state.commissioni.some((c) => c.presidente_id === commissario_id);
+  isPresidenteDiQualcheCommissione(/** @type {any} */ commissario_id) {
+    return state.commissioni.some((/** @type {any} */ c) => c.presidente_id === commissario_id);
   },
   /**
    * @deprecated il modello attuale ha un presidente per-commissione (potenzialmente
@@ -1079,22 +1082,22 @@ export const db = {
    * se tutte le commissioni del concorso convergono sullo stesso commissario
    * (cioè è davvero "il" presidente di quel concorso). Altrimenti `null`.
    */
-  getPresidenteFor(concorso_id) {
+  getPresidenteFor(/** @type {any} */ concorso_id) {
     const ids = new Set(
       state.commissioni
-        .filter((c) => c.concorso_id === concorso_id && c.presidente_id)
-        .map((c) => c.presidente_id),
+        .filter((/** @type {any} */ c) => c.concorso_id === concorso_id && c.presidente_id)
+        .map((/** @type {any} */ c) => c.presidente_id),
     );
     if (ids.size !== 1) return null;
     const [only] = ids;
-    return state.commissari.find((x) => x.id === only) || null;
+    return state.commissari.find((/** @type {any} */ x) => x.id === only) || null;
   },
   /**
    * Tutti i presidenti distinti del concorso, ognuno con la lista di commissioni
    * di cui è presidente. Utile per header/dashboard che vogliono mostrare
    * "N presidenti" o l'elenco completo.
    */
-  presidentiFor(concorso_id) {
+  presidentiFor(/** @type {any} */ concorso_id) {
     const byPres = new Map();
     for (const c of state.commissioni) {
       if (c.concorso_id !== concorso_id || !c.presidente_id) continue;
@@ -1103,7 +1106,7 @@ export const db = {
       byPres.set(c.presidente_id, arr);
     }
     return Array.from(byPres.entries()).map(([pid, commissioni]) => ({
-      presidente: state.commissari.find((x) => x.id === pid) || null,
+      presidente: state.commissari.find((/** @type {any} */ x) => x.id === pid) || null,
       commissioni,
     })).filter((x) => x.presidente);
   },
@@ -1112,26 +1115,26 @@ export const db = {
    * Usato nel PDF protocollo per la firma in calce. null se la fase finale
    * non esiste, non è ancora CONCLUSA, o non ha commissione assegnata.
    */
-  getPresidenteForFinale(concorso_id) {
-    const fasi = state.fasi.filter((f) => f.concorso_id === concorso_id);
+  getPresidenteForFinale(/** @type {any} */ concorso_id) {
+    const fasi = state.fasi.filter((/** @type {any} */ f) => f.concorso_id === concorso_id);
     if (fasi.length === 0) return null;
     // M211: la fase finale è quella con ordine MASSIMO, non `ordine === length`
     // (gli ordini possono avere buchi dopo cancellazioni di fasi).
-    const finale = fasi.reduce((mx, f) => (f.ordine > mx.ordine ? f : mx), fasi[0]);
+    const finale = fasi.reduce((/** @type {any} */ mx, /** @type {any} */ f) => (f.ordine > mx.ordine ? f : mx), fasi[0]);
     return this.getPresidenteForFase(finale);
   },
 
   // ---------- Candidati ----------
-  candidatiByConcorso(concorso_id) {
-    return state.candidati.filter((c) => c.concorso_id === concorso_id);
+  candidatiByConcorso(/** @type {any} */ concorso_id) {
+    return state.candidati.filter((/** @type {any} */ c) => c.concorso_id === concorso_id);
   },
   // Membri di un candidato-gruppo (righe della tabella candidati_membri
   // collegate via candidato_id). I membri sono dati piatti (nome/cognome/
   // strumento), non riferimenti ad altri candidati.
-  membriGruppo(gruppo_id) {
-    return state.candidati_gruppo.filter((m) => m.candidato_id === gruppo_id);
+  membriGruppo(/** @type {any} */ gruppo_id) {
+    return state.candidati_gruppo.filter((/** @type {any} */ m) => m.candidato_id === gruppo_id);
   },
-  async createCandidato(opts = {}) {
+  async createCandidato(/** @type {Record<string, any>} */ opts = {}) {
     const {
       concorso_id, nome, cognome = '', strumento, data_nascita = null, nazionalita = '',
       foto = null, docenti_preparatori = [], sezione_id = null, categoria_id = null,
@@ -1184,14 +1187,14 @@ export const db = {
           cd.foto_url = up.url;
           cd.foto_filename = up.filename;
         }
-      } catch (e) { console.warn('candidato foto upload failed:', e?.message); }
+      } catch (e) { console.warn('candidato foto upload failed:', (/** @type {any} */ (e))?.message); }
     }
     notify();
     return cd;
   },
-  async updateCandidato(id, patch) {
-    const body = {};
-    const keymap = {
+  async updateCandidato(/** @type {any} */ id, /** @type {any} */ patch) {
+    const body = /** @type {Record<string, any>} */ ({});
+    const keymap = /** @type {Record<string, string>} */ ({
       nome: 'nome', cognome: 'cognome', strumento: 'strumento',
       data_nascita: 'dataNascita', nazionalita: 'nazionalita',
       email: 'email', telefono: 'telefono', sesso: 'sesso',
@@ -1205,7 +1208,7 @@ export const db = {
       gruppo_nome: 'gruppoNome',
       tipo_gruppo: 'tipoGruppo',
       numero_candidato: 'numeroCandidato',
-    };
+    });
     for (const [k, v] of Object.entries(keymap)) {
       if (patch[k] !== undefined) body[v] = patch[k];
     }
@@ -1227,26 +1230,26 @@ export const db = {
         if (blob) {
           await api.upload('candidato', id, new File([blob], patch.foto.name || 'foto.png', { type: blob.type }));
         }
-      } catch (e) { console.warn('candidato foto upload failed:', e?.message); }
+      } catch (e) { console.warn('candidato foto upload failed:', (/** @type {any} */ (e))?.message); }
       updated = await api.get(`/api/candidati/${id}`);
     }
     const cd = mapCandidato(updated);
-    const i = state.candidati.findIndex((x) => x.id === id);
+    const i = state.candidati.findIndex((/** @type {any} */ x) => x.id === id);
     if (i >= 0) state.candidati[i] = cd;
     notify();
     return cd;
   },
-  async deleteCandidato(id) {
+  async deleteCandidato(/** @type {any} */ id) {
     await api.delete(`/api/candidati/${id}`);
-    state.candidati = state.candidati.filter((c) => c.id !== id);
+    state.candidati = state.candidati.filter((/** @type {any} */ c) => c.id !== id);
     // N119: il server fa CASCADE; allineiamo lo stato in memoria per non lasciare
     // candidati_fase/valutazioni/membri orfani (che apparirebbero finché non si
     // ricarica).
     const cfIds = new Set(
-      state.candidati_fase.filter((cf) => cf.candidato_id === id).map((cf) => cf.id),
+      state.candidati_fase.filter((/** @type {any} */ cf) => cf.candidato_id === id).map((/** @type {any} */ cf) => cf.id),
     );
-    state.candidati_fase = state.candidati_fase.filter((cf) => cf.candidato_id !== id);
-    state.valutazioni = state.valutazioni.filter((v) => !cfIds.has(v.candidato_fase_id));
+    state.candidati_fase = state.candidati_fase.filter((/** @type {any} */ cf) => cf.candidato_id !== id);
+    state.valutazioni = state.valutazioni.filter((/** @type {any} */ v) => !cfIds.has(v.candidato_fase_id));
     if (Array.isArray(state.candidati_gruppo)) {
       state.candidati_gruppo = state.candidati_gruppo.filter((m) => m.candidato_id !== id);
     }
@@ -1254,11 +1257,11 @@ export const db = {
   },
 
   // ---------- Fasi ----------
-  fasiByConcorso(concorso_id) {
-    return state.fasi.filter((f) => f.concorso_id === concorso_id).sort((a, b) => a.ordine - b.ordine);
+  fasiByConcorso(/** @type {any} */ concorso_id) {
+    return state.fasi.filter((/** @type {any} */ f) => f.concorso_id === concorso_id).sort((/** @type {any} */ a, /** @type {any} */ b) => a.ordine - b.ordine);
   },
-  async createFase({ concorso_id, nome, ammessi = null, data_prevista = null, scala = 100, modo_valutazione = 'autonoma', metodo_media = 'aritmetica', tempo_minuti = 0, pesi = null, commissione_id = null, tiebreak_strategy = null, sezioni_ids = [], testo_esito_promosso = '', testo_esito_eliminato = '', criteri = null }) {
-    const ordine = state.fasi.filter((f) => f.concorso_id === concorso_id).length + 1;
+  async createFase(/** @type {Record<string, any>} */ { concorso_id, nome, ammessi = null, data_prevista = null, scala = 100, modo_valutazione = 'autonoma', metodo_media = 'aritmetica', tempo_minuti = 0, pesi = null, commissione_id = null, tiebreak_strategy = null, sezioni_ids = [], testo_esito_promosso = '', testo_esito_eliminato = '', criteri = null }) {
+    const ordine = state.fasi.filter((/** @type {any} */ f) => f.concorso_id === concorso_id).length + 1;
     const r = await api.post('/api/fasi', {
       concorsoId: concorso_id,
       ordine, nome,
@@ -1281,9 +1284,9 @@ export const db = {
     state.fasi.push(f); notify();
     return f;
   },
-  async updateFase(id, patch) {
-    const body = {};
-    const keymap = {
+  async updateFase(/** @type {any} */ id, /** @type {any} */ patch) {
+    const body = /** @type {Record<string, any>} */ ({});
+    const keymap = /** @type {Record<string, string>} */ ({
       nome: 'nome', ammessi: 'ammessi', data_prevista: 'dataPrevista',
       scala: 'scala', modo_valutazione: 'modoValutazione',
       metodo_media: 'metodoMedia', tempo_minuti: 'tempoMinuti',
@@ -1292,7 +1295,7 @@ export const db = {
       sezioni_ids: 'sezioniIds',
       testo_esito_promosso: 'testoEsitoPromosso',
       testo_esito_eliminato: 'testoEsitoEliminato',
-    };
+    });
     for (const [k, v] of Object.entries(keymap)) {
       if (patch[k] !== undefined) body[v] = patch[k];
     }
@@ -1301,7 +1304,7 @@ export const db = {
     // N1: se la form ha passato i criteri, riconciliali nella tabella `criteri`.
     if (Array.isArray(patch.criteri)) await this._syncCriteri(id, patch.criteri);
     f.criteri = criteriForFase(id);
-    const i = state.fasi.findIndex((x) => x.id === id);
+    const i = state.fasi.findIndex((/** @type {any} */ x) => x.id === id);
     if (i >= 0) state.fasi[i] = f;
     notify();
     return f;
@@ -1311,45 +1314,45 @@ export const db = {
   // Prima erano N delete + N post separati: un fallimento a metà lasciava i
   // criteri vecchi cancellati e i nuovi parziali. peso 0-1 → 0-100 per il DB
   // (il server poi normalizza la somma a 100, vedi N34).
-  async _syncCriteri(faseId, criteri) {
+  async _syncCriteri(/** @type {any} */ faseId, /** @type {any} */ criteri) {
     const payload = (criteri || [])
-      .map((c, i) => ({
+      .map((/** @type {any} */ c, /** @type {any} */ i) => ({
         nome: (c.label || c.key || '').trim(),
         peso: Math.max(0, Math.min(100, Math.round((Number(c.peso) || 0) * 100))),
         ordine: i,
       }))
-      .filter((c) => c.nome);
+      .filter((/** @type {any} */ c) => c.nome);
     if (payload.length === 0) return;
     const rows = await api.put(`/api/criteri/fase/${faseId}`, { criteri: payload });
-    state._criteri = (state._criteri || []).filter((c) => c.faseId !== faseId);
+    state._criteri = (state._criteri || []).filter((/** @type {any} */ c) => c.faseId !== faseId);
     (state._criteri = state._criteri || []).push(...(rows || []));
     // N120: nessun notify() qui. È un helper di basso livello: il render spetta
     // al caller. createFase/updateFase (unici chiamanti) notificano già dopo aver
     // aggiornato state.fasi — un notify interno renderizzava due volte (la prima
     // con state.fasi ancora privo della fase appena creata).
   },
-  async deleteFase(id) {
+  async deleteFase(/** @type {any} */ id) {
     await api.delete(`/api/fasi/${id}`);
-    state.fasi = state.fasi.filter((f) => f.id !== id);
-    state.candidati_fase = state.candidati_fase.filter((cf) => cf.fase_id !== id);
+    state.fasi = state.fasi.filter((/** @type {any} */ f) => f.id !== id);
+    state.candidati_fase = state.candidati_fase.filter((/** @type {any} */ cf) => cf.fase_id !== id);
     notify();
   },
-  async reorderFasi(concorso_id, idsInOrder) {
+  async reorderFasi(/** @type {any} */ concorso_id, /** @type {any} */ idsInOrder) {
     await api.patch('/api/fasi/reorder', { concorsoId: concorso_id, ids: idsInOrder });
     // Riallinea ordine in state
-    idsInOrder.forEach((id, i) => {
-      const f = state.fasi.find((x) => x.id === id);
+    idsInOrder.forEach((/** @type {any} */ id, /** @type {any} */ i) => {
+      const f = state.fasi.find((/** @type {any} */ x) => x.id === id);
       if (f) f.ordine = i + 1;
     });
     notify();
   },
-  async setPesiFase(faseId, pesi) {
+  async setPesiFase(/** @type {any} */ faseId, /** @type {any} */ pesi) {
     return this.updateFase(faseId, { pesi });
   },
-  getFaseCommissariIds(fase) {
+  getFaseCommissariIds(/** @type {any} */ fase) {
     // Nel nuovo modello: i commissari di una fase sono quelli della commissione associata
     if (!fase || !fase.commissione_id) return [];
-    const com = state.commissioni.find((c) => c.id === fase.commissione_id);
+    const com = state.commissioni.find((/** @type {any} */ c) => c.id === fase.commissione_id);
     if (!com) {
       // FK orfana: la fase punta a una commissione che non è in state.
       // Cause tipiche: la commissione è stata cancellata (set null sul DB ma
@@ -1361,10 +1364,10 @@ export const db = {
   },
 
   // ---------- Criteri (raw, esposti come metodo helper) ----------
-  criteriByFase(fase_id) {
-    return (state._criteri || []).filter((c) => c.faseId === fase_id);
+  criteriByFase(/** @type {any} */ fase_id) {
+    return (state._criteri || []).filter((/** @type {any} */ c) => c.faseId === fase_id);
   },
-  async createCriterio({ fase_id, nome, peso = 100, descrizione = '', ordine = null }) {
+  async createCriterio(/** @type {{ fase_id: any, nome: any, peso?: any, descrizione?: any, ordine?: any }} */ { fase_id, nome, peso = 100, descrizione = '', ordine = null }) {
     const r = await api.post('/api/criteri', {
       faseId: fase_id, nome, peso, descrizione, ordine: ordine ?? undefined,
     });
@@ -1372,9 +1375,9 @@ export const db = {
     notify();
     return r;
   },
-  async deleteCriterio(id) {
+  async deleteCriterio(/** @type {any} */ id) {
     await api.delete(`/api/criteri/${id}`);
-    state._criteri = (state._criteri || []).filter((c) => c.id !== id);
+    state._criteri = (state._criteri || []).filter((/** @type {any} */ c) => c.id !== id);
     notify();
   },
 
@@ -1389,8 +1392,8 @@ export const db = {
    * Il `patch` arriva dal form admin-impostazioni.js con nomi piatti tipo
    * `email_contatto`, `colore_primario`, `logo` (File o dataURL).
    */
-  async saveEnte(patch) {
-    const enteFields = {};
+  async saveEnte(/** @type {any} */ patch) {
+    const enteFields = /** @type {Record<string, any>} */ ({});
     if (patch.email_contatto !== undefined) enteFields.email = patch.email_contatto;
     if (patch.telefono !== undefined) enteFields.telefono = patch.telefono;
     if (patch.sito_web !== undefined) enteFields.sitoWeb = patch.sito_web;
@@ -1436,60 +1439,60 @@ export const db = {
   // STUBS Fase 5b.2 — verranno implementati nel prossimo step.
   // Lasciati come reject esplicite per non passare in silenzio.
   // ====================================================================
-  candidatiFaseList(_faseId) { return state.candidati_fase.filter((cf) => cf.fase_id === _faseId); },
-  findPreviousFaseInChain(fase) {
+  candidatiFaseList(/** @type {any} */ _faseId) { return state.candidati_fase.filter((/** @type {any} */ cf) => cf.fase_id === _faseId); },
+  findPreviousFaseInChain(/** @type {any} */ fase) {
     if (!fase) return null;
-    const concorsoFasi = state.fasi.filter((f) => f.concorso_id === fase.concorso_id).sort((a, b) => a.ordine - b.ordine);
-    const idx = concorsoFasi.findIndex((f) => f.id === fase.id);
+    const concorsoFasi = state.fasi.filter((/** @type {any} */ f) => f.concorso_id === fase.concorso_id).sort((/** @type {any} */ a, /** @type {any} */ b) => a.ordine - b.ordine);
+    const idx = concorsoFasi.findIndex((/** @type {any} */ f) => f.id === fase.id);
     return idx > 0 ? concorsoFasi[idx - 1] : null;
   },
-  valutazioniByCandidatoFase(cf_id) {
-    return state.valutazioni.filter((v) => v.candidato_fase_id === cf_id);
+  valutazioniByCandidatoFase(/** @type {any} */ cf_id) {
+    return state.valutazioni.filter((/** @type {any} */ v) => v.candidato_fase_id === cf_id);
   },
   // ---------- Workflow fase ----------
 
-  async startFase(faseId) {
+  async startFase(/** @type {any} */ faseId) {
     const r = await api.post(`/api/fasi/${faseId}/start`, {});
     const f = mapFase(r);
     f.criteri = criteriForFase(f.id); // N10: mapFase non popola criteri
-    const i = state.fasi.findIndex((x) => x.id === faseId);
+    const i = state.fasi.findIndex((/** @type {any} */ x) => x.id === faseId);
     if (i >= 0) state.fasi[i] = f;
     // Il backend auto-popola candidati_fase se vuota — ricarico localmente
     // così la UI mostra subito la lista candidati.
     try {
       const list = await api.get('/api/candidati-fase', { faseId });
-      state.candidati_fase = state.candidati_fase.filter((cf) => cf.fase_id !== faseId);
+      state.candidati_fase = state.candidati_fase.filter((/** @type {any} */ cf) => cf.fase_id !== faseId);
       state.candidati_fase.push(...(list || []).map(mapCandidatoFase));
     } catch (e) {
-      console.warn('reload candidati_fase after start failed:', e?.message);
+      console.warn('reload candidati_fase after start failed:', (/** @type {any} */ (e))?.message);
     }
     notify();
     return f;
   },
 
-  async concludiFase(faseId, admittedIds = null) {
+  async concludiFase(/** @type {any} */ faseId, /** @type {any} */ admittedIds = null) {
     // N144: l'ammissione (top-N per classifica) è calcolata dal chiamante con lo
     // stesso motore della classifica mostrata e inviata atomicamente al server.
     const r = await api.post(`/api/fasi/${faseId}/conclude`, Array.isArray(admittedIds) ? { admitted: admittedIds } : {});
     const f = mapFase(r);
     f.criteri = criteriForFase(f.id); // N10: mapFase non popola criteri
-    const i = state.fasi.findIndex((x) => x.id === faseId);
+    const i = state.fasi.findIndex((/** @type {any} */ x) => x.id === faseId);
     if (i >= 0) state.fasi[i] = f;
     // Il backend finalizza i candidati_fase (IN_ATTESA → COMPLETATO) al
     // conclude — ricarico in state così la view risultati mostra subito
     // "promosso/eliminato" invece di "in attesa".
     try {
       const list = await api.get('/api/candidati-fase', { faseId });
-      state.candidati_fase = state.candidati_fase.filter((cf) => cf.fase_id !== faseId);
+      state.candidati_fase = state.candidati_fase.filter((/** @type {any} */ cf) => cf.fase_id !== faseId);
       state.candidati_fase.push(...(list || []).map(mapCandidatoFase));
     } catch (e) {
-      console.warn('reload candidati_fase after conclude failed:', e?.message);
+      console.warn('reload candidati_fase after conclude failed:', (/** @type {any} */ (e))?.message);
     }
     notify();
     return f;
   },
 
-  async sorteggiaFase(faseId, seed) {
+  async sorteggiaFase(/** @type {any} */ faseId, /** @type {any} */ seed) {
     // M8: se il chiamante non passa un seed (caso comune dal pannello fasi),
     // ne generiamo uno casuale qui. Restituiamo {seed, count} dalla risposta
     // server così il toast può mostrare il seed effettivo (prima era undefined).
@@ -1502,10 +1505,10 @@ export const db = {
     // lato client). Pattern allineato a startFase/concludiFase.
     try {
       const list = await api.get('/api/candidati-fase', { faseId });
-      state.candidati_fase = state.candidati_fase.filter((cf) => cf.fase_id !== faseId);
+      state.candidati_fase = state.candidati_fase.filter((/** @type {any} */ cf) => cf.fase_id !== faseId);
       state.candidati_fase.push(...(list || []).map(mapCandidatoFase));
     } catch (e) {
-      console.warn('reload candidati_fase after sorteggio failed:', e?.message);
+      console.warn('reload candidati_fase after sorteggio failed:', (/** @type {any} */ (e))?.message);
     }
     notify();
     return res ?? { seed: Math.trunc(s) };
@@ -1516,7 +1519,7 @@ export const db = {
    * Il legacy passa { voti: { criterio: voto } }; il backend nuovo accetta
    * una upsert per (cf, commissario, criterio): iteriamo i criteri.
    */
-  async saveValutazione({ candidato_fase_id, commissario_id, voti, note = '' }) {
+  async saveValutazione(/** @type {{ candidato_fase_id: any, commissario_id: any, voti: any, note?: any }} */ { candidato_fase_id, commissario_id, voti, note = '' }) {
     if (!voti || typeof voti !== 'object') throw new Error('saveValutazione: voti richiesti');
     // H3: niente più "rimuovi prima/inserisci dopo in loop". Inviamo tutte le
     // POST in parallelo (allSettled) e committiamo SOLO i criteri salvati con
@@ -1547,7 +1550,7 @@ export const db = {
     }
     // Sostituisce solo le valutazioni con criterio in savedCriteri.
     state.valutazioni = state.valutazioni.filter(
-      (v) => !(v.candidato_fase_id === candidato_fase_id && v.commissario_id === commissario_id && savedCriteri.has(v.criterio)),
+      (/** @type {any} */ v) => !(v.candidato_fase_id === candidato_fase_id && v.commissario_id === commissario_id && savedCriteri.has(v.criterio)),
     );
     state.valutazioni.push(...saved);
 
@@ -1565,11 +1568,11 @@ export const db = {
 
   // ---------- Timer fase ----------
 
-  async getFaseRuntime(faseId) {
+  async getFaseRuntime(/** @type {any} */ faseId) {
     return await api.get(`/api/fasi/${faseId}/runtime`);
   },
 
-  async upsertFaseRuntime(faseId, fields = {}) {
+  async upsertFaseRuntime(/** @type {any} */ faseId, /** @type {Record<string, any>} */ fields = {}) {
     // Mappa i field legacy alle action specifiche del backend.
     // Pattern di chiamate possibili:
     //   { timer_started_at: <date>, timer_started_for_cf_id: id }   → start(cfId)
@@ -1587,67 +1590,67 @@ export const db = {
     return this.getFaseRuntime(faseId);
   },
 
-  async startFaseTimer(faseId, candidatoFaseId = null) {
+  async startFaseTimer(/** @type {any} */ faseId, /** @type {any} */ candidatoFaseId = null) {
     const r = await api.post(`/api/fasi/${faseId}/timer/start`, candidatoFaseId ? { candidatoFaseId } : {});
     const f = mapFase(r);
     f.criteri = criteriForFase(f.id); // N10: preserva criteri (mapFase non li popola)
-    const i = state.fasi.findIndex((x) => x.id === faseId);
+    const i = state.fasi.findIndex((/** @type {any} */ x) => x.id === faseId);
     if (i >= 0) state.fasi[i] = f;
     notify();
     return f;
   },
-  async pauseFaseTimer(faseId) {
+  async pauseFaseTimer(/** @type {any} */ faseId) {
     const r = await api.post(`/api/fasi/${faseId}/timer/pause`, {});
     const f = mapFase(r);
     f.criteri = criteriForFase(f.id); // N10: preserva criteri (mapFase non li popola)
-    const i = state.fasi.findIndex((x) => x.id === faseId);
+    const i = state.fasi.findIndex((/** @type {any} */ x) => x.id === faseId);
     if (i >= 0) state.fasi[i] = f;
     notify();
     return f;
   },
-  async resumeFaseTimer(faseId) {
+  async resumeFaseTimer(/** @type {any} */ faseId) {
     const r = await api.post(`/api/fasi/${faseId}/timer/resume`, {});
     const f = mapFase(r);
     f.criteri = criteriForFase(f.id); // N10: preserva criteri (mapFase non li popola)
-    const i = state.fasi.findIndex((x) => x.id === faseId);
+    const i = state.fasi.findIndex((/** @type {any} */ x) => x.id === faseId);
     if (i >= 0) state.fasi[i] = f;
     notify();
     return f;
   },
-  async addFaseTimerBonus(faseId, seconds = 60) {
+  async addFaseTimerBonus(/** @type {any} */ faseId, /** @type {any} */ seconds = 60) {
     const r = await api.post(`/api/fasi/${faseId}/timer/bonus`, { seconds: Math.trunc(Number(seconds)) });
     const f = mapFase(r);
     f.criteri = criteriForFase(f.id); // N10: preserva criteri (mapFase non li popola)
-    const i = state.fasi.findIndex((x) => x.id === faseId);
+    const i = state.fasi.findIndex((/** @type {any} */ x) => x.id === faseId);
     if (i >= 0) state.fasi[i] = f;
     notify();
     return f;
   },
-  async resetFaseTimer(faseId) {
+  async resetFaseTimer(/** @type {any} */ faseId) {
     const r = await api.post(`/api/fasi/${faseId}/timer/reset`, {});
     const f = mapFase(r);
     f.criteri = criteriForFase(f.id); // N10: preserva criteri (mapFase non li popola)
-    const i = state.fasi.findIndex((x) => x.id === faseId);
+    const i = state.fasi.findIndex((/** @type {any} */ x) => x.id === faseId);
     if (i >= 0) state.fasi[i] = f;
     notify();
     return f;
   },
-  async clearFaseTimer(faseId) { return this.resetFaseTimer(faseId); },
+  async clearFaseTimer(/** @type {any} */ faseId) { return this.resetFaseTimer(faseId); },
 
   /**
    * Subscribe agli eventi realtime di una fase. onChange(payload) viene chiamato
    * a ogni NOTIFY (start/pause/resume/bonus/reset/conclude) ricevuto via SSE.
    * Ritorna una funzione di unsubscribe.
    */
-  subscribeFaseRuntime(faseId, onChange) {
-    return api.subscribe(`/api/realtime/fase/${faseId}`, async (payload) => {
+  subscribeFaseRuntime(/** @type {any} */ faseId, /** @type {any} */ onChange) {
+    return api.subscribe(`/api/realtime/fase/${faseId}`, async (/** @type {any} */ payload) => {
       // Aggiorna lo state locale leggendo il runtime aggiornato (best-effort)
       try {
         const rt = await api.get(`/api/fasi/${faseId}/runtime`);
         // M219: stima dell'offset orologio server-client (ignora RTT/2: ordine
         // dei ms, sufficiente a togliere il drift da skew di secondi/minuti).
         if (typeof rt.serverNow === 'number') serverClockOffsetMs = rt.serverNow - Date.now();
-        const i = state.fasi.findIndex((x) => x.id === faseId);
+        const i = state.fasi.findIndex((/** @type {any} */ x) => x.id === faseId);
         if (i >= 0) {
           // N36: il runtime endpoint ritorna solo i campi timer/stato in
           // camelCase. Mappiamo SOLO quelli sui campi snake_case esistenti,
@@ -1667,7 +1670,7 @@ export const db = {
           notify();
         }
       } catch (e) {
-        console.warn('subscribeFaseRuntime refresh failed:', e?.message);
+        console.warn('subscribeFaseRuntime refresh failed:', (/** @type {any} */ (e))?.message);
       }
       onChange?.(payload);
     });
@@ -1675,11 +1678,11 @@ export const db = {
 
   // ---------- Gruppi (candidati_membri) ----------
 
-  async addMembroGruppo(gruppoId, candidatoId, strumentoGruppo = '') {
+  async addMembroGruppo(/** @type {any} */ gruppoId, /** @type {any} */ candidatoId, /** @type {any} */ strumentoGruppo = '') {
     // Nel nuovo modello, i membri sono record indipendenti dentro `candidati_membri`,
     // non link a candidati individuali. Estraggo i dati del candidato individuale
     // e li copio come nuovo membro del gruppo.
-    const ind = state.candidati.find((c) => c.id === candidatoId);
+    const ind = state.candidati.find((/** @type {any} */ c) => c.id === candidatoId);
     if (!ind) throw new Error('addMembroGruppo: candidato individuale non trovato');
     const r = await api.post('/api/membri-gruppo', {
       candidatoId: gruppoId,
@@ -1695,9 +1698,9 @@ export const db = {
     return m;
   },
 
-  async removeMembroGruppo(_gruppoId, membroId) {
+  async removeMembroGruppo(/** @type {any} */ _gruppoId, /** @type {any} */ membroId) {
     await api.delete(`/api/membri-gruppo/${membroId}`);
-    state.candidati_gruppo = state.candidati_gruppo.filter((m) => m.id !== membroId);
+    state.candidati_gruppo = state.candidati_gruppo.filter((/** @type {any} */ m) => m.id !== membroId);
     notify();
   },
 
@@ -1706,7 +1709,7 @@ export const db = {
   // individuale esistente. Usato dal form admin "Aggiungi candidato" quando
   // l'admin compila inline la lista membri (analogo del form iscrizione
   // pubblica).
-  async addMembroGruppoData(gruppoId, data = {}) {
+  async addMembroGruppoData(/** @type {any} */ gruppoId, /** @type {Record<string, any>} */ data = {}) {
     const r = await api.post('/api/membri-gruppo', {
       candidatoId: gruppoId,
       nome: (data.nome || '').trim(),
@@ -1721,8 +1724,8 @@ export const db = {
     return m;
   },
 
-  async updateMembroGruppoData(membroId, data = {}) {
-    const body = {};
+  async updateMembroGruppoData(/** @type {any} */ membroId, /** @type {Record<string, any>} */ data = {}) {
+    const body = /** @type {Record<string, any>} */ ({});
     if (data.nome !== undefined) body.nome = (data.nome || '').trim();
     if (data.cognome !== undefined) body.cognome = (data.cognome || '').trim();
     if (data.strumento !== undefined) body.strumento = (data.strumento || '').trim();
@@ -1730,7 +1733,7 @@ export const db = {
     if (data.nazionalita !== undefined) body.nazionalita = (data.nazionalita || '').trim();
     const r = await api.patch(`/api/membri-gruppo/${membroId}`, body);
     const m = mapMembroGruppo(r);
-    const i = state.candidati_gruppo.findIndex((x) => x.id === membroId);
+    const i = state.candidati_gruppo.findIndex((/** @type {any} */ x) => x.id === membroId);
     if (i >= 0) state.candidati_gruppo[i] = m;
     notify();
     return m;
@@ -1741,7 +1744,7 @@ export const db = {
   async _loadAccounts() {
     try {
       const list = await api.get('/api/accounts');
-      state.accounts = (list || []).map((a) => ({
+      state.accounts = (list || []).map((/** @type {any} */ a) => ({
         id: a.id,
         email: a.email,
         role: a.role,
@@ -1753,12 +1756,12 @@ export const db = {
         createdAt: a.createdAt,
       }));
     } catch (e) {
-      console.warn('loadAccounts failed:', e?.message);
+      console.warn('loadAccounts failed:', (/** @type {any} */ (e))?.message);
       state.accounts = [];
     }
   },
 
-  async createAccount({ email, password, role, commissario_id = null, attivo = true }) {
+  async createAccount(/** @type {{ email: any, password: any, role: any, commissario_id?: any, attivo?: boolean }} */ { email, password, role, commissario_id = null, attivo = true }) {
     const r = await api.post('/api/accounts', {
       email, password, role,
       commissarioId: commissario_id || undefined,
@@ -1769,8 +1772,8 @@ export const db = {
     return r;
   },
 
-  async updateAccount(id, patch) {
-    const body = {};
+  async updateAccount(/** @type {any} */ id, /** @type {any} */ patch) {
+    const body = /** @type {Record<string, any>} */ ({});
     if (patch.email !== undefined) body.email = patch.email;
     if (patch.role !== undefined) body.role = patch.role;
     if (patch.attivo !== undefined) body.attivo = patch.attivo;
@@ -1781,14 +1784,14 @@ export const db = {
     return r;
   },
 
-  async resetAccountPassword(id, newPassword) {
+  async resetAccountPassword(/** @type {any} */ id, /** @type {any} */ newPassword) {
     await api.post(`/api/accounts/${id}/reset-password`, { password: newPassword });
     return { ok: true };
   },
 
-  async deleteAccount(id) {
+  async deleteAccount(/** @type {any} */ id) {
     await api.delete(`/api/accounts/${id}`);
-    state.accounts = state.accounts.filter((a) => a.id !== id);
+    state.accounts = state.accounts.filter((/** @type {any} */ a) => a.id !== id);
     notify();
   },
 
@@ -1811,10 +1814,10 @@ export const db = {
       data_inizio: details.dataInizio ? String(details.dataInizio).slice(0, 10) : null,
       logo_url: details.logo || null,
       iscrizioni_chiusura: details.iscrizioniScadenza || null,
-      sezioni: (details.sezioni || []).map((s) => ({
+      sezioni: (details.sezioni || []).map((/** @type {any} */ s) => ({
         id: s.id, nome: s.nome || '', descrizione: s.descrizione || '',
       })),
-      categorie: (details.categorie || []).map((c) => ({
+      categorie: (details.categorie || []).map((/** @type {any} */ c) => ({
         id: c.id, sezione_id: c.sezioneId, nome: c.nome || '',
         eta_min: c.etaMin || null, eta_max: c.etaMax || null,
       })),
@@ -1824,7 +1827,7 @@ export const db = {
   /** Lista (plurale) dei concorsi aperti — utile se servisse più di uno. */
   async fetchConcorsiIscrizioniAperte() {
     const list = await api.get('/api/public/concorsi');
-    return (list || []).map((c) => ({
+    return (list || []).map((/** @type {any} */ c) => ({
       id: c.id,
       nome: c.nome || '',
       anno: c.anno,
@@ -1835,7 +1838,7 @@ export const db = {
   },
 
   /** Dettagli concorso (sezioni+categorie) per chi conosce già l'id. */
-  async fetchConcorsoIscrizioneDetails(concorsoId) {
+  async fetchConcorsoIscrizioneDetails(/** @type {any} */ concorsoId) {
     return api.get(`/api/public/concorsi/${concorsoId}`);
   },
 
@@ -1845,11 +1848,11 @@ export const db = {
    *     strumento, programma, docenti_preparatori, sezione_id, categoria_id,
    *     is_gruppo, membri, tutore, consensi_gdpr, started_at, honeypot }
    */
-  async createIscrizione(payload) {
+  async createIscrizione(/** @type {any} */ payload) {
     // Tolleriamo sia gli alias snake_case dei mapper interni sia i name dei
     // <input>/<select> usati dal form pubblico (iscrizione.js draft → d.sezione,
     // d.categoria, d.concorso, ecc.). Il backend vuole camelCase puro.
-    const num = (v) => {
+    const num = (/** @type {any} */ v) => {
       if (v === '' || v == null) return undefined;
       const n = Number(v);
       return Number.isFinite(n) ? n : undefined;
@@ -1917,7 +1920,7 @@ export const db = {
   /**
    * Verifica email tramite token (link in email).
    */
-  async verifyIscrizioneEmail(token) {
+  async verifyIscrizioneEmail(/** @type {any} */ token) {
     // M194: POST (non GET) — la verifica cambia stato lato DB.
     return api.post(`/api/public/iscrizioni/${encodeURIComponent(token)}/verify`, {});
   },
@@ -1929,7 +1932,7 @@ export const db = {
     return (rows || []).map(mapIscrizione);
   },
 
-  async approveIscrizione(iscrizioneId, { note = '' } = {}) {
+  async approveIscrizione(/** @type {any} */ iscrizioneId, /** @type {{ note?: any }} */ { note = '' } = {}) {
     const res = await api.post(`/api/iscrizioni/${iscrizioneId}/approve`, { note });
     // Approve crea il candidato collegato lato server: refresh delle liste impattate
     if (res?.candidato) {
@@ -1939,47 +1942,47 @@ export const db = {
     return res;
   },
 
-  async rejectIscrizione(iscrizioneId, reason = '') {
+  async rejectIscrizione(/** @type {any} */ iscrizioneId, /** @type {any} */ reason = '') {
     const res = await api.post(`/api/iscrizioni/${iscrizioneId}/reject`, { reason });
     notify();
     return res;
   },
 
   // ---------- Calendario / scheduling ----------
-  saleByConcorso(concorso_id) {
-    return state.sale.filter((s) => s.concorso_id === concorso_id)
-      .sort((a, b) => (a.ordine ?? 0) - (b.ordine ?? 0) || a.nome.localeCompare(b.nome));
+  saleByConcorso(/** @type {any} */ concorso_id) {
+    return state.sale.filter((/** @type {any} */ s) => s.concorso_id === concorso_id)
+      .sort((/** @type {any} */ a, /** @type {any} */ b) => (a.ordine ?? 0) - (b.ordine ?? 0) || a.nome.localeCompare(b.nome));
   },
-  async createSala({ concorso_id, nome, indirizzo = '', ordine = null }) {
+  async createSala(/** @type {{ concorso_id: any, nome: any, indirizzo?: any, ordine?: any }} */ { concorso_id, nome, indirizzo = '', ordine = null }) {
     const r = await api.post('/api/calendario/sale', { concorsoId: concorso_id, nome, indirizzo, ordine });
     const s = mapSala(r); state.sale.push(s); notify();
     return s;
   },
-  async updateSala(id, patch) {
-    const body = {};
+  async updateSala(/** @type {any} */ id, /** @type {any} */ patch) {
+    const body = /** @type {Record<string, any>} */ ({});
     if (patch.nome != null) body.nome = patch.nome;
     if (patch.indirizzo != null) body.indirizzo = patch.indirizzo;
     if (patch.ordine !== undefined) body.ordine = patch.ordine;
     const r = await api.patch(`/api/calendario/sale/${id}`, body);
     const s = mapSala(r);
-    const i = state.sale.findIndex((x) => x.id === id);
+    const i = state.sale.findIndex((/** @type {any} */ x) => x.id === id);
     if (i >= 0) state.sale[i] = s;
     notify();
     return s;
   },
-  async deleteSala(id) {
+  async deleteSala(/** @type {any} */ id) {
     await api.delete(`/api/calendario/sale/${id}`);
-    state.sale = state.sale.filter((s) => s.id !== id);
+    state.sale = state.sale.filter((/** @type {any} */ s) => s.id !== id);
     // I blocchi che usavano la sala restano (sala_id → null lato server).
-    state.eventi = state.eventi.map((e) => (e.sala_id === id ? { ...e, sala_id: null } : e));
+    state.eventi = state.eventi.map((/** @type {any} */ e) => (e.sala_id === id ? { ...e, sala_id: null } : e));
     notify();
   },
 
-  eventiByConcorso(concorso_id) {
-    return state.eventi.filter((e) => e.concorso_id === concorso_id)
-      .sort((a, b) => (a.data || '').localeCompare(b.data || '') || (a.ora_inizio || '').localeCompare(b.ora_inizio || ''));
+  eventiByConcorso(/** @type {any} */ concorso_id) {
+    return state.eventi.filter((/** @type {any} */ e) => e.concorso_id === concorso_id)
+      .sort((/** @type {any} */ a, /** @type {any} */ b) => (a.data || '').localeCompare(b.data || '') || (a.ora_inizio || '').localeCompare(b.ora_inizio || ''));
   },
-  async createEvento(payload) {
+  async createEvento(/** @type {any} */ payload) {
     const body = {
       concorsoId: payload.concorso_id,
       faseId: payload.fase_id ?? null,
@@ -1999,33 +2002,33 @@ export const db = {
     const e = mapEvento(r); state.eventi.push(e); notify();
     return e;
   },
-  async updateEvento(id, patch) {
-    const map = {
+  async updateEvento(/** @type {any} */ id, /** @type {any} */ patch) {
+    const map = /** @type {Record<string, string>} */ ({
       fase_id: 'faseId', sezione_id: 'sezioneId', categoria_id: 'categoriaId', sala_id: 'salaId',
       tipo: 'tipo', titolo: 'titolo', data: 'data', ora_inizio: 'oraInizio', ora_fine: 'oraFine',
       durata_candidato_minuti: 'durataCandidatoMinuti', note: 'note', ordine: 'ordine',
-    };
-    const body = {};
+    });
+    const body = /** @type {Record<string, any>} */ ({});
     for (const [k, v] of Object.entries(map)) if (patch[k] !== undefined) body[v] = patch[k];
     const r = await api.patch(`/api/calendario/eventi/${id}`, body);
     const e = mapEvento(r);
-    const i = state.eventi.findIndex((x) => x.id === id);
+    const i = state.eventi.findIndex((/** @type {any} */ x) => x.id === id);
     if (i >= 0) state.eventi[i] = e;
     notify();
     return e;
   },
-  async deleteEvento(id) {
+  async deleteEvento(/** @type {any} */ id) {
     await api.delete(`/api/calendario/eventi/${id}`);
-    state.eventi = state.eventi.filter((e) => e.id !== id);
+    state.eventi = state.eventi.filter((/** @type {any} */ e) => e.id !== id);
     // Sgancia gli slot in cache.
-    state.candidati_fase = state.candidati_fase.map((cf) =>
+    state.candidati_fase = state.candidati_fase.map((/** @type {any} */ cf) =>
       cf.evento_id === id ? { ...cf, evento_id: null, ora_prevista: null } : cf);
     notify();
   },
   // Applica gli slot ritornati dal backend (genera/riordina) allo stato locale.
-  _applySlots(eventoId, slots) {
-    const byCf = new Map((slots || []).map((s) => [s.id, s]));
-    state.candidati_fase = state.candidati_fase.map((cf) => {
+  _applySlots(/** @type {any} */ eventoId, /** @type {any} */ slots) {
+    const byCf = new Map((slots || []).map((/** @type {any} */ s) => [s.id, s]));
+    state.candidati_fase = state.candidati_fase.map((/** @type {any} */ cf) => {
       if (byCf.has(cf.id)) {
         const s = byCf.get(cf.id);
         return { ...cf, evento_id: eventoId, ora_prevista: s.oraPrevista || null, posizione: s.posizione ?? cf.posizione };
@@ -2036,28 +2039,28 @@ export const db = {
     });
     notify();
   },
-  async generaSlotEvento(eventoId) {
+  async generaSlotEvento(/** @type {any} */ eventoId) {
     const slots = await api.post(`/api/calendario/eventi/${eventoId}/genera-slot`, {});
     this._applySlots(eventoId, slots);
     return slots;
   },
-  async riordinaSlotEvento(eventoId, ordine) {
+  async riordinaSlotEvento(/** @type {any} */ eventoId, /** @type {any} */ ordine) {
     const slots = await api.post(`/api/calendario/eventi/${eventoId}/riordina-slot`, { ordine });
     this._applySlots(eventoId, slots);
     return slots;
   },
-  slotByEvento(eventoId) {
+  slotByEvento(/** @type {any} */ eventoId) {
     return state.candidati_fase
-      .filter((cf) => cf.evento_id === eventoId)
-      .sort((a, b) => (a.ora_prevista || '').localeCompare(b.ora_prevista || '') || (a.posizione ?? 0) - (b.posizione ?? 0));
+      .filter((/** @type {any} */ cf) => cf.evento_id === eventoId)
+      .sort((/** @type {any} */ a, /** @type {any} */ b) => (a.ora_prevista || '').localeCompare(b.ora_prevista || '') || (a.posizione ?? 0) - (b.posizione ?? 0));
   },
 
   // Link pubblici del calendario.
-  async calendarioLinks(concorso_id) {
+  async calendarioLinks(/** @type {any} */ concorso_id) {
     const rows = await api.get('/api/calendario/pubblicazioni', { concorsoId: concorso_id });
     return (rows || []).map(mapCalendarioPub);
   },
-  async createCalendarioLink(payload) {
+  async createCalendarioLink(/** @type {any} */ payload) {
     const r = await api.post('/api/calendario/pubblicazioni', {
       concorsoId: payload.concorso_id,
       scopo: payload.scopo,
@@ -2069,14 +2072,14 @@ export const db = {
     });
     return mapCalendarioPub(r);
   },
-  async updateCalendarioLink(id, patch) {
-    const map = { sezione_id: 'sezioneId', giorno: 'giorno', etichetta: 'etichetta', attivo: 'attivo', mostra_nomi: 'mostraNomi', mostra_commissione: 'mostraCommissione' };
-    const body = {};
+  async updateCalendarioLink(/** @type {any} */ id, /** @type {any} */ patch) {
+    const map = /** @type {Record<string, string>} */ ({ sezione_id: 'sezioneId', giorno: 'giorno', etichetta: 'etichetta', attivo: 'attivo', mostra_nomi: 'mostraNomi', mostra_commissione: 'mostraCommissione' });
+    const body = /** @type {Record<string, any>} */ ({});
     for (const [k, v] of Object.entries(map)) if (patch[k] !== undefined) body[v] = patch[k];
     const r = await api.patch(`/api/calendario/pubblicazioni/${id}`, body);
     return mapCalendarioPub(r);
   },
-  async deleteCalendarioLink(id) {
+  async deleteCalendarioLink(/** @type {any} */ id) {
     await api.delete(`/api/calendario/pubblicazioni/${id}`);
   },
 
@@ -2093,7 +2096,7 @@ export const db = {
 // Helpers
 // ====================================================================
 
-function base64ToBlob(dataURL) {
+function base64ToBlob(/** @type {any} */ dataURL) {
   if (!dataURL || typeof dataURL !== 'string' || !dataURL.startsWith('data:')) return null;
   const [meta, b64] = dataURL.split(',');
   if (!b64) return null;
@@ -2108,7 +2111,7 @@ function base64ToBlob(dataURL) {
  * Compat: il legacy esponeva `fingerprintCommissario` per equality check.
  * Riprodotta su campi mappati.
  */
-export function fingerprintCommissario(c) {
+export function fingerprintCommissario(/** @type {any} */ c) {
   if (!c) return '';
-  return [c.nome, c.cognome, c.email, c.telefono, c.data_nascita || ''].map((x) => (x || '').trim().toLowerCase()).join('|');
+  return [c.nome, c.cognome, c.email, c.telefono, c.data_nascita || ''].map((/** @type {any} */ x) => (x || '').trim().toLowerCase()).join('|');
 }

@@ -90,8 +90,8 @@ const PATHS = {
   building: `<rect x="4" y="3" width="16" height="18"/><line x1="9" y1="9" x2="9" y2="9.01"/><line x1="9" y1="13" x2="9" y2="13.01"/><line x1="9" y1="17" x2="9" y2="17.01"/><line x1="15" y1="9" x2="15" y2="9.01"/><line x1="15" y1="13" x2="15" y2="13.01"/><line x1="15" y1="17" x2="15" y2="17.01"/>`,
 };
 
-export function icon(name, opts = {}) {
-  const path = PATHS[name];
+export function icon(/** @type {string} */ name, /** @type {{ size?: number, stroke?: number, className?: string }} */ opts = {}) {
+  const path = /** @type {Record<string, string>} */ (PATHS)[name];
   if (!path) {
     console.warn(`[icons] unknown icon: ${name}`);
     return '';
@@ -103,8 +103,8 @@ export function icon(name, opts = {}) {
 }
 
 // Solid-fill variant (for status dots, filled badges) — same path, fill instead of stroke.
-export function iconFilled(name, opts = {}) {
-  const path = PATHS[name];
+export function iconFilled(/** @type {string} */ name, /** @type {{ size?: number, className?: string }} */ opts = {}) {
+  const path = /** @type {Record<string, string>} */ (PATHS)[name];
   if (!path) return '';
   const size = opts.size ?? 16;
   const cls = opts.className ?? '';

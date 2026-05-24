@@ -32,6 +32,7 @@ export function formFields(form) {
   );
 }
 
+/** @param {any} s */
 export function escapeHtml(s) {
   if (s == null) return '';
   return String(s)
@@ -46,6 +47,7 @@ export function escapeHtml(s) {
 // http(s) e data:image/*. Tutto il resto (javascript:, data:text/html, ecc.)
 // → stringa vuota. Il valore va comunque passato in un attributo quotato
 // (es. src="${safeUrl(x)}") perché qui NON facciamo l'escape dei quote.
+/** @param {any} u */
 export function safeUrl(u) {
   if (u == null) return '';
   const s = String(u).trim();
@@ -58,6 +60,7 @@ export function safeUrl(u) {
   return '';
 }
 
+/** @param {any} iso */
 export function fmtDate(iso) {
   if (!iso) return '—';
   try {
@@ -65,12 +68,14 @@ export function fmtDate(iso) {
   } catch { return iso; }
 }
 
+/** @param {number[]} arr */
 export function avg(arr) {
   if (!arr.length) return 0;
-  return arr.reduce((s,x) => s + x, 0) / arr.length;
+  return arr.reduce((s, x) => s + x, 0) / arr.length;
 }
 
 let toastSeq = 0;
+/** @param {any} message @param {string} [kind] @param {number} [timeoutMs] */
 export function toast(message, kind = 'info', timeoutMs = 3200) {
   const root = $('#toast-root');
   if (!root) return;
@@ -91,7 +96,7 @@ export function toast(message, kind = 'info', timeoutMs = 3200) {
   el.style.borderLeft = `4px solid ${palette.rule}`;
   el.style.color = palette.text;
   el.innerHTML = `<span aria-hidden="true" style="color:${palette.rule}" class="leading-none mt-0.5 shrink-0">${icon(iconName, { size: 18 })}</span><span class="flex-1 leading-relaxed text-ink-900"></span>`;
-  el.lastElementChild.textContent = message;
+  /** @type {Element} */ (el.lastElementChild).textContent = message;
   root.appendChild(el);
   requestAnimationFrame(() => {
     el.classList.remove('opacity-0','translate-y-2');
@@ -129,7 +134,7 @@ export function modal(opts) {
   const previousActive = /** @type {HTMLElement | null} */ (document.activeElement);
 
   // Soft pastel modal: white rounded sheet, lavender header eyebrow, pill footer buttons
-  root.innerHTML = `
+  /** @type {Element} */ (root).innerHTML = `
     <div id="${id}" class="fixed inset-0 z-40 flex items-center justify-center p-4 bg-[rgba(31,29,61,0.45)] backdrop-blur-md view-fade" role="dialog" aria-modal="true" aria-labelledby="${titleId}">
       <div class="bg-white shadow-pop w-full ${widthCls} max-h-[90vh] flex flex-col overflow-hidden modal-pop rounded-3xl ring-1 ring-brand-100">
         <div class="px-6 py-5 border-b border-brand-100 flex items-center justify-between gap-4">
@@ -147,7 +152,7 @@ export function modal(opts) {
       </div>
     </div>
   `;
-  const el = document.getElementById(id);
+  const el = /** @type {HTMLElement} */ (document.getElementById(id));
 
   const close = () => {
     document.removeEventListener('keydown', onKeyDown);
@@ -159,6 +164,7 @@ export function modal(opts) {
   };
 
   // Esc to close + simple focus trap
+  /** @param {KeyboardEvent} ev */
   function onKeyDown(ev) {
     if (ev.key === 'Escape') {
       ev.preventDefault();
@@ -220,6 +226,9 @@ export function modal(opts) {
   return { close };
 }
 
+/**
+ * @param {{ title?: any, message?: any, danger?: boolean, onConfirm: () => any }} opts
+ */
 export function confirmDialog({ title, message, danger = false, onConfirm }) {
   return modal({
     title,
@@ -231,6 +240,7 @@ export function confirmDialog({ title, message, danger = false, onConfirm }) {
 }
 
 // File handling --------------------------------------------------------------
+/** @param {Blob} file */
 export function readFileAsDataURL(file) {
   return new Promise((resolve, reject) => {
     const r = new FileReader();
@@ -240,6 +250,7 @@ export function readFileAsDataURL(file) {
   });
 }
 
+/** @param {File} file @param {number} [maxDim] @param {number} [quality] */
 export async function readImageResized(file, maxDim = 400, quality = 0.85) {
   const dataURL = await readFileAsDataURL(file);
   // Preserva il formato sorgente per non rompere la trasparenza:
@@ -258,7 +269,7 @@ export async function readImageResized(file, maxDim = 400, quality = 0.85) {
       const h = Math.round(img.height * ratio);
       const canvas = document.createElement('canvas');
       canvas.width = w; canvas.height = h;
-      const ctx = canvas.getContext('2d');
+      const ctx = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
       ctx.drawImage(img, 0, 0, w, h);
       // toDataURL ignora il parametro quality per image/png — innocuo passarlo.
       resolve(canvas.toDataURL(outputMime, quality));
@@ -268,6 +279,7 @@ export async function readImageResized(file, maxDim = 400, quality = 0.85) {
   });
 }
 
+/** @param {any} iso */
 export function ageFromDate(iso) {
   if (!iso) return null;
   const d = new Date(iso);
@@ -279,12 +291,14 @@ export function ageFromDate(iso) {
   return age >= 0 ? age : null;
 }
 
+/** @param {any} cand */
 export function displayName(cand) {
   if (!cand) return '—';
   if (cand.tipo === 'gruppo' || cand.tipo === 'orchestra') return cand.nome || '—';
   return `${cand.nome || ''} ${cand.cognome || ''}`.trim() || '—';
 }
 
+/** @param {number} n */
 export function fmtBytes(n) {
   if (!n) return '0 B';
   const u = ['B','KB','MB','GB'];

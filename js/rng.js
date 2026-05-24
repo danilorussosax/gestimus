@@ -2,7 +2,7 @@
 // Seedable PRNG (mulberry32). Estratto da db.js per consentire l'import nei
 // test unit senza dipendenze del data layer. Usato per sorteggi riproducibili.
 
-export function mulberry32(seed) {
+export function mulberry32(/** @type {number} */ seed) {
   let a = seed >>> 0;
   return function () {
     a = (a + 0x6D2B79F5) >>> 0;
@@ -15,6 +15,12 @@ export function mulberry32(seed) {
 
 // Fisher–Yates shuffle seedato. Restituisce una copia ordinata di `arr`.
 // Usato dal sorteggio ordine candidati per garantire riproducibilità (stesso seed → stesso ordine).
+/**
+ * @template T
+ * @param {T[]} arr
+ * @param {number} seed
+ * @returns {T[]}
+ */
 export function shuffleSeeded(arr, seed) {
   const rand = mulberry32(seed >>> 0);
   const out = [...arr];

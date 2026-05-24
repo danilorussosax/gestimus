@@ -26,9 +26,12 @@ function leaveCommissarioView() {
 // per una fase/candidato diverso, viene resettato. Senza questo, valori draft
 // vecchi possono finire in un POST sbagliato (es. dopo cambio commissione).
 const draft = {
+  /** @type {Record<string, number>} */
   voti: {},
   note: '',
+  /** @type {string | null} */
   faseId: null,
+  /** @type {string | null} */
   candidatoFaseId: null,
 };
 
@@ -40,7 +43,7 @@ const DRAFT_KEY = 'gc_commissario_draft';
 function persistDraft() {
   try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify(draft)); } catch { /* quota/private */ }
 }
-function loadPersistedDraft(faseId, candidatoFaseId) {
+function loadPersistedDraft(/** @type {string | null} */ faseId, /** @type {string} */ candidatoFaseId) {
   try {
     const raw = sessionStorage.getItem(DRAFT_KEY);
     if (!raw) return null;
@@ -50,14 +53,15 @@ function loadPersistedDraft(faseId, candidatoFaseId) {
   return null;
 }
 
-function defaultVoti(scala, fase) {
+function defaultVoti(/** @type {number} */ scala, /** @type {any} */ fase) {
   const v = Math.round(scala * 0.7 * 10) / 10; // 70% della scala
+  /** @type {Record<string, number>} */
   const out = {};
-  getCriteri(fase).forEach(c => { out[c.key] = v; });
+  getCriteri(fase).forEach((/** @type {any} */ c) => { out[c.key] = v; });
   return out;
 }
 
-function resetDraft(fase, candidatoFaseId = null) {
+function resetDraft(/** @type {any} */ fase, /** @type {string | null} */ candidatoFaseId = null) {
   // N82: se esiste un draft persistito per lo stesso candidato_fase (es. dopo
   // un reload del service worker), ripristinalo invece dei default.
   const restored = candidatoFaseId ? loadPersistedDraft(fase?.id || null, candidatoFaseId) : null;
@@ -76,27 +80,27 @@ function resetDraft(fase, candidatoFaseId = null) {
   persistDraft();
 }
 
-function getStarEmoji(level, fase) {
+function getStarEmoji(/** @type {number} */ level, /** @type {any} */ fase) {
   const active = currentStarLevel(fase);
   return level <= active ? '⭐' : '☆';
 }
-function getStarClass(level, fase) {
+function getStarClass(/** @type {number} */ level, /** @type {any} */ fase) {
   const active = currentStarLevel(fase);
   return level <= active ? 'bg-white ring-2 ring-sun-400 shadow-sm' : 'bg-white/50 text-slate-300';
 }
-function getStarLabel(level, fase, scala) {
+function getStarLabel(/** @type {number} */ level, /** @type {any} */ fase, /** @type {number} */ scala) {
   const v = Math.round(scala * (level / 5) * 10) / 10;
   return `${v}/${scala}`;
 }
-function currentStarLevel(fase) {
+function currentStarLevel(/** @type {any} */ fase) {
   const scala = getScala(fase);
   const tot = pesato(draft.voti, fase);
   return Math.round((tot / scala) * 5);
 }
 
-export function renderCommissario(root) {
+export function renderCommissario(/** @type {any} */ root) {
   const meta = db.state.meta;
-  const com = db.state.commissari.find(c => c.id === meta.currentCommissarioId);
+  const com = /** @type {any} */ (db.state.commissari.find((/** @type {any} */ c) => c.id === meta.currentCommissarioId));
   if (!com) {
     location.hash = '#/';
     return;
@@ -106,9 +110,9 @@ export function renderCommissario(root) {
   // dalla home) e verifichiamo che il commissario sia effettivamente assegnato.
   const activeId = db.state.meta.activeConcorsoId;
   const isAssigned = activeId && Array.isArray(com.concorsi_ids) && com.concorsi_ids.includes(activeId);
-  const concorso = isAssigned
-    ? db.state.concorsi.find(c => c.id === activeId)
-    : (com.concorsi_ids || []).map(id => db.state.concorsi.find(x => x.id === id)).filter(Boolean)[0];
+  const concorso = /** @type {any} */ (isAssigned
+    ? db.state.concorsi.find((/** @type {any} */ c) => c.id === activeId)
+    : (com.concorsi_ids || []).map((/** @type {any} */ id) => db.state.concorsi.find((/** @type {any} */ x) => x.id === id)).filter(Boolean)[0]);
   if (!concorso) {
     leaveCommissarioView();
     return;
@@ -118,14 +122,15 @@ export function renderCommissario(root) {
     db.setActiveConcorso(concorso.id);
   }
 
+  /** @type {any[]} */
   const fasi = db.fasiByConcorso(concorso.id);
-  const faseAttiva = fasi.find(f => f.stato === 'IN_CORSO');
+  const faseAttiva = /** @type {any} */ (fasi.find((/** @type {any} */ f) => f.stato === 'IN_CORSO'));
 
   // Un presidente può avviare/concludere SOLO le fasi della commissione di cui
   // è presidente. fasiPresidente è il sottoinsieme di fasi che questo
   // commissario ha effettivamente diritto a controllare; isPresidenteFase
   // diventa il flag "mostra pannello" derivato.
-  const fasiPresidente = fasi.filter(f => db.getPresidenteForFase(f)?.id === com.id);
+  const fasiPresidente = fasi.filter((/** @type {any} */ f) => db.getPresidenteForFase(f)?.id === com.id);
   const isPresidenteFase = fasiPresidente.length > 0;
 
   if (!faseAttiva) {
@@ -158,7 +163,7 @@ export function renderCommissario(root) {
   // Initialize draft if missing or stale (criteri set may have changed,
   // fase è cambiata, oppure è la prima render).
   const draftKeys = Object.keys(draft.voti).sort().join(',');
-  const expectedKeys = faseCriteri.map(c => c.key).sort().join(',');
+  const expectedKeys = faseCriteri.map((/** @type {any} */ c) => c.key).sort().join(',');
   if (draftKeys !== expectedKeys || draft.faseId !== faseAttiva.id) {
     resetDraft(faseAttiva);
   }
@@ -186,37 +191,40 @@ export function renderCommissario(root) {
   }
 
   // Find next candidato to evaluate by THIS commissario for this fase.
+  /** @type {any[]} */
   const cfs = db.candidatiFaseList(faseAttiva.id);
-  const allCommissariIds = assignedIds.filter(id => {
-    const c = db.state.commissari.find(x => x.id === id);
+  const allCommissariIds = assignedIds.filter((/** @type {any} */ id) => {
+    const c = /** @type {any} */ (db.state.commissari.find((/** @type {any} */ x) => x.id === id));
     return c && c.stato !== 'INATTIVO';
   });
   const myVotedCfIds = new Set(
     db.state.valutazioni
-      .filter(v => v.commissario_id === com.id)
-      .map(v => v.candidato_fase_id)
+      .filter((/** @type {any} */ v) => v.commissario_id === com.id)
+      .map((/** @type {any} */ v) => v.candidato_fase_id)
   );
   // N89: "completo" = ogni commissario attivo ha votato OGNI criterio della
   // fase, non basta una valutazione qualsiasi. Senza questo, in modalità
   // sincrona il gruppo avanzava al candidato successivo quando un commissario
   // aveva votato solo alcuni criteri. Una fase senza criteri non è votabile →
   // non considerarla mai "completa".
-  const faseCriteriKeys = getCriteri(faseAttiva).map(c => c.key);
-  const cfHasAllVotes = (cfId) => faseCriteriKeys.length > 0 && allCommissariIds.every(cid =>
-    faseCriteriKeys.every(ck =>
-      db.state.valutazioni.some(v =>
+  const faseCriteriKeys = getCriteri(faseAttiva).map((/** @type {any} */ c) => c.key);
+  const cfHasAllVotes = (/** @type {any} */ cfId) => faseCriteriKeys.length > 0 && allCommissariIds.every((/** @type {any} */ cid) =>
+    faseCriteriKeys.every((/** @type {any} */ ck) =>
+      db.state.valutazioni.some((/** @type {any} */ v) =>
         v.candidato_fase_id === cfId && v.commissario_id === cid && v.criterio === ck
       )
     )
   );
 
   // History: my last 2 already evaluated cfs in this fase (by posizione)
-  const myEvaluated = cfs.filter(cf => myVotedCfIds.has(cf.id));
+  const myEvaluated = cfs.filter((/** @type {any} */ cf) => myVotedCfIds.has(cf.id));
   const last2 = myEvaluated.slice(-2);
 
   // Synchronous: stop on the first cf not fully voted.
   // Autonomous: just first cf I haven't voted yet.
+  /** @type {any} */
   let current = null;
+  /** @type {any} */
   let waitingFor = null;
   if (modo === 'sincrona') {
     for (const cf of cfs) {
@@ -226,7 +234,7 @@ export function renderCommissario(root) {
       break;
     }
   } else {
-    current = cfs.find(cf => !myVotedCfIds.has(cf.id));
+    current = cfs.find((/** @type {any} */ cf) => !myVotedCfIds.has(cf.id));
   }
 
   if (waitingFor) {
@@ -241,7 +249,7 @@ export function renderCommissario(root) {
   // Reset draft se è cambiato il candidato_fase nel frattempo (es. nuovo
   // candidato dopo "Skip" o avanzamento del presidente in modalità sincrona).
   if (draft.candidatoFaseId !== current.id) resetDraft(faseAttiva, current.id);
-  const cand = db.state.candidati.find(c => c.id === current.candidato_id);
+  const cand = /** @type {any} */ (db.state.candidati.find((/** @type {any} */ c) => c.id === current.candidato_id));
   const eta = ageFromDate(cand?.data_nascita) ?? cand?.eta;
   const totale = pesato(draft.voti, faseAttiva);
   const totaleCls = (() => {
@@ -335,7 +343,7 @@ export function renderCommissario(root) {
             </div>
 
             <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-              ${faseCriteri.map(c => sliderHtml(c, draft.voti[c.key], faseAttiva)).join('')}
+              ${faseCriteri.map((/** @type {any} */ c) => sliderHtml(c, draft.voti[c.key], faseAttiva)).join('')}
             </div>
 
             <div class="mt-5">
@@ -407,24 +415,24 @@ export function renderCommissario(root) {
 // del presidente prima di "Avvia". Modello N:1: il candidato ha `sezione_id`
 // (singolare). La fase può avere `sezioni_ids` (array da fasi_sezioni) come
 // scope: vuoto = "tutti i candidati del concorso".
-function expectedCandidatiForFase(fase) {
+function expectedCandidatiForFase(/** @type {any} */ fase) {
   const myScope = Array.isArray(fase.sezioni_ids) ? fase.sezioni_ids : [];
-  const filterByScope = (cands) => myScope.length === 0
+  const filterByScope = (/** @type {any[]} */ cands) => myScope.length === 0
     ? cands
-    : cands.filter(c => c.sezione_id && myScope.includes(c.sezione_id));
+    : cands.filter((/** @type {any} */ c) => c.sezione_id && myScope.includes(c.sezione_id));
   const prev = db.findPreviousFaseInChain(fase);
   if (!prev) return filterByScope(db.candidatiByConcorso(fase.concorso_id));
   const prevCfs = db.state.candidati_fase
-    .filter(cf => cf.fase_id === prev.id && cf.ammesso_prossima_fase);
+    .filter((/** @type {any} */ cf) => cf.fase_id === prev.id && cf.ammesso_prossima_fase);
   return filterByScope(
-    prevCfs.map(cf => db.state.candidati.find(c => c.id === cf.candidato_id)).filter(Boolean)
+    prevCfs.map((/** @type {any} */ cf) => db.state.candidati.find((/** @type {any} */ c) => c.id === cf.candidato_id)).filter(Boolean)
   );
 }
 
-function preflightCheck(fase, prevFase) {
+function preflightCheck(/** @type {any} */ fase, /** @type {any} */ prevFase) {
   const checks = [];
   // Commissione
-  const com = fase.commissione_id ? db.state.commissioni.find(c => c.id === fase.commissione_id) : null;
+  const com = /** @type {any} */ (fase.commissione_id ? db.state.commissioni.find((/** @type {any} */ c) => c.id === fase.commissione_id) : null);
   const commissariIds = db.getFaseCommissariIds(fase);
   const numCommissari = commissariIds.length;
   if (fase.commissione_id && com) {
@@ -455,26 +463,27 @@ function preflightCheck(fase, prevFase) {
   return { checks, expected, numCommissari, numCriteri, commissione: com };
 }
 
-function fasePresStats(fase) {
+function fasePresStats(/** @type {any} */ fase) {
   // For IN_CORSO/CONCLUSA: candidates evaluated vs total, pass count.
   // Inoltre `commissariDone/Total`: quanti commissari hanno valutato TUTTI i
   // candidati della fase (serve al presidente per decidere se chiudere).
+  /** @type {any[]} */
   const cfs = db.candidatiFaseList(fase.id);
   const total = cfs.length;
   const commissariIds = db.getFaseCommissariIds(fase);
-  const fullyVoted = cfs.filter(cf => commissariIds.every(cid =>
-    db.state.valutazioni.some(v => v.candidato_fase_id === cf.id && v.commissario_id === cid)
+  const fullyVoted = cfs.filter((/** @type {any} */ cf) => commissariIds.every((/** @type {any} */ cid) =>
+    db.state.valutazioni.some((/** @type {any} */ v) => v.candidato_fase_id === cf.id && v.commissario_id === cid)
   )).length;
-  const partial = cfs.filter(cf => db.state.valutazioni.some(v => v.candidato_fase_id === cf.id)).length - fullyVoted;
-  const passed = cfs.filter(cf => cf.ammesso_prossima_fase).length;
+  const partial = cfs.filter((/** @type {any} */ cf) => db.state.valutazioni.some((/** @type {any} */ v) => v.candidato_fase_id === cf.id)).length - fullyVoted;
+  const passed = cfs.filter((/** @type {any} */ cf) => cf.ammesso_prossima_fase).length;
   const commissariTotal = commissariIds.length;
-  const commissariDone = total === 0 ? 0 : commissariIds.filter(cid =>
-    cfs.every(cf => db.state.valutazioni.some(v => v.candidato_fase_id === cf.id && v.commissario_id === cid))
+  const commissariDone = total === 0 ? 0 : commissariIds.filter((/** @type {any} */ cid) =>
+    cfs.every((/** @type {any} */ cf) => db.state.valutazioni.some((/** @type {any} */ v) => v.candidato_fase_id === cf.id && v.commissario_id === cid))
   ).length;
   return { total, fullyVoted, partial, passed, commissariDone, commissariTotal };
 }
 
-function presidentePanelHtml(concorso, fasi) {
+function presidentePanelHtml(/** @type {any} */ concorso, /** @type {any} */ fasi) {
   // Calcolo KPI operative del presidente:
   //  - "Fasi presiedute": numero di fasi che lui presiede in questo concorso
   //  - "Candidati": somma totale candidati_fase nelle fasi presiedute
@@ -485,11 +494,12 @@ function presidentePanelHtml(concorso, fasi) {
   let totCand = 0;
   let totValutati = 0;
   for (const f of fasi) {
+    /** @type {any[]} */
     const cfs = db.candidatiFaseList(f.id);
     const commissariIds = db.getFaseCommissariIds(f);
     totCand += cfs.length;
-    totValutati += cfs.filter((cf) => commissariIds.every((cid) =>
-      db.state.valutazioni.some((v) => v.candidato_fase_id === cf.id && v.commissario_id === cid),
+    totValutati += cfs.filter((/** @type {any} */ cf) => commissariIds.every((/** @type {any} */ cid) =>
+      db.state.valutazioni.some((/** @type {any} */ v) => v.candidato_fase_id === cf.id && v.commissario_id === cid),
     )).length;
   }
   const pctComplete = totCand > 0 ? Math.round((totValutati / totCand) * 100) : 0;
@@ -539,7 +549,7 @@ function presidentePanelHtml(concorso, fasi) {
       </div>
 
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-5 sm:gap-6">
-        ${fasi.map(f => fasePresCardHtml(f, concorso)).join('')}
+        ${fasi.map((/** @type {any} */ f) => fasePresCardHtml(f, concorso)).join('')}
       </div>
     </section>
   `;
@@ -547,7 +557,7 @@ function presidentePanelHtml(concorso, fasi) {
 
 // KPI card a gradiente in stile dashboard: numero grande in bianco, icona tonda
 // bianca semi-trasparente, sub-label, opzionale barra di progresso.
-function kpiGradientCard({ value, label, icon: iconName, gradient, progress = null }) {
+function kpiGradientCard(/** @type {{ value: any, label: any, icon: any, gradient: any, progress?: number | null }} */ { value, label, icon: iconName, gradient, progress = null }) {
   return `
     <div class="relative rounded-2xl p-5 bg-gradient-to-br ${gradient} text-white shadow-md overflow-hidden">
       <div class="flex items-start justify-between mb-3">
@@ -567,7 +577,7 @@ function kpiGradientCard({ value, label, icon: iconName, gradient, progress = nu
   `;
 }
 
-function fasePresCardHtml(fase, concorso) {
+function fasePresCardHtml(/** @type {any} */ fase, /** @type {any} */ concorso) {
   const stato = fase.stato;
   const isPlanned = stato === 'PIANIFICATA';
   const isRunning = stato === 'IN_CORSO';
@@ -585,24 +595,26 @@ function fasePresCardHtml(fase, concorso) {
   // Modello: la fase ha `sezioni_ids` (scope). Le categorie sono attaccate
   // alla commissione (commissione.categorie_ids). Cerchiamo di mostrare
   // l'incrocio significativo "sezione → categoria/e di quella sezione".
+  /** @type {any[]} */
   const allSezioni = db.sezioniByConcorso(fase.concorso_id);
   const sezIds = Array.isArray(fase.sezioni_ids) ? fase.sezioni_ids : [];
-  const sezioniRecord = sezIds.map((id) => allSezioni.find((s) => s.id === id)).filter(Boolean);
+  const sezioniRecord = /** @type {any[]} */ (sezIds.map((/** @type {any} */ id) => allSezioni.find((/** @type {any} */ s) => s.id === id)).filter(Boolean));
   const titleSezione = sezioniRecord.length === 0
     ? t('com.pres.scope_all')
-    : sezioniRecord.map((s) => s.nome).join(' · ');
+    : sezioniRecord.map((/** @type {any} */ s) => s.nome).join(' · ');
 
-  const commissione = fase.commissione_id ? db.state.commissioni.find((c) => c.id === fase.commissione_id) : null;
+  const commissione = /** @type {any} */ (fase.commissione_id ? db.state.commissioni.find((/** @type {any} */ c) => c.id === fase.commissione_id) : null);
   // Categorie associate alla commissione, ristrette alle sezioni della fase
   // (se la fase ha scope di sezione). Senza scope o senza commissione, lascia
   // "Tutte le categorie" come sottotitolo neutro.
   let subtitleCategoria = 'Tutte le categorie';
   if (commissione && Array.isArray(commissione.categorie_ids) && commissione.categorie_ids.length > 0) {
+    /** @type {any[]} */
     const allCat = db.state.categorie;
-    const relevantCats = commissione.categorie_ids
-      .map((id) => allCat.find((c) => c.id === id))
+    const relevantCats = /** @type {any[]} */ (commissione.categorie_ids
+      .map((/** @type {any} */ id) => allCat.find((/** @type {any} */ c) => c.id === id))
       .filter(Boolean)
-      .filter((c) => sezIds.length === 0 || sezIds.includes(c.sezione_id));
+      .filter((/** @type {any} */ c) => sezIds.length === 0 || sezIds.includes(c.sezione_id)));
     if (relevantCats.length === 1) {
       subtitleCategoria = relevantCats[0].nome;
     } else if (relevantCats.length > 1) {
@@ -793,16 +805,22 @@ function fasePresCardHtml(fase, concorso) {
 const FLOATING_TIMER_ID = 'floating-timer';
 
 const timerCtx = {
+  /** @type {string | null} */
   faseId: null,
+  /** @type {string | null} */
   candidateId: null,        // candidato corrente atteso (lato presidente)
   isPresidente: false,
+  /** @type {ReturnType<typeof setInterval> | null} */
   tickInterval: null,       // requestInterval per ridisegnare ogni 250ms
+  /** @type {(() => Promise<any>) | null} */
   unsub: null,              // unsub realtime
+  /** @type {any} */
   runtime: null,            // ultimo record fase_runtime
+  /** @type {string | null} */
   lastBeepAt: null,         // evita beep ripetuti
 };
 
-function formatTime(ms) {
+function formatTime(/** @type {number} */ ms) {
   const tot = Math.max(0, Math.ceil(ms / 1000));
   const m = Math.floor(tot / 60);
   const s = tot % 60;
@@ -865,7 +883,7 @@ function rerenderTimer() {
   if (!old) return;
   const wrapper = document.createElement('div');
   wrapper.innerHTML = floatingTimerHtml();
-  const fresh = wrapper.firstElementChild;
+  const fresh = /** @type {Element} */ (wrapper.firstElementChild);
   old.replaceWith(fresh);
   bindTimerEvents();
 }
@@ -915,7 +933,7 @@ function bindTimerEvents() {
       else if (a === 'resume') await db.resumeFaseTimer(fId);
       else if (a === 'bonus')  await db.addFaseTimerBonus(fId, 60);
       else if (a === 'reset')  await db.resetFaseTimer(fId);
-    } catch (e) {
+    } catch (/** @type {any} */ e) {
       toast(e?.message || t('com.timer.error'), 'error');
     }
   }));
@@ -924,7 +942,7 @@ function bindTimerEvents() {
 // Mount/refresh the floating timer.
 // - presidente: assicura che il record runtime esista e sia allineato sul candidato corrente (auto-start).
 // - tutti: subscribe realtime e disegna lo stato condiviso.
-async function mountFloatingTimer(fase, candidateId, isPresidente) {
+async function mountFloatingTimer(/** @type {any} */ fase, /** @type {string} */ candidateId, /** @type {boolean} */ isPresidente) {
   const totMs = (Number(fase.tempo_minuti) || 0) * 60 * 1000;
   if (totMs <= 0) { unmountFloatingTimer(); return; }
 
@@ -938,7 +956,7 @@ async function mountFloatingTimer(fase, candidateId, isPresidente) {
     timerCtx.faseId = fase.id;
     timerCtx.runtime = null;
     timerCtx.lastBeepAt = null;
-    timerCtx.unsub = await db.subscribeFaseRuntime(fase.id, (record) => {
+    timerCtx.unsub = /** @type {() => Promise<any>} */ (await db.subscribeFaseRuntime(fase.id, (/** @type {any} */ record) => {
       timerCtx.runtime = record;
       // Se il presidente legge un runtime con candidato_fase != quello atteso, lo riallinea.
       if (timerCtx.isPresidente
@@ -947,7 +965,7 @@ async function mountFloatingTimer(fase, candidateId, isPresidente) {
         db.startFaseTimer(timerCtx.faseId, timerCtx.candidateId).catch(() => {});
       }
       rerenderTimer();
-    });
+    }));
   }
 
   // Mount DOM se non c'è
@@ -971,7 +989,7 @@ async function mountFloatingTimer(fase, candidateId, isPresidente) {
     const needsStart = !r || r.candidato_fase !== candidateId;
     if (needsStart) {
       try { await db.startFaseTimer(fase.id, candidateId); }
-      catch (e) { console.warn('startFaseTimer:', e?.message); }
+      catch (/** @type {any} */ e) { console.warn('startFaseTimer:', e?.message); }
     }
   }
 }
@@ -987,23 +1005,24 @@ export function unmountFloatingTimer() {
   timerCtx.lastBeepAt = null;
 }
 
-function bindPresidentePanel(root, concorso) {
-  root.querySelectorAll('[data-pres-action="start"]').forEach(b => b.addEventListener('click', async () => {
+function bindPresidentePanel(/** @type {any} */ root, /** @type {any} */ concorso) {
+  root.querySelectorAll('[data-pres-action="start"]').forEach((/** @type {any} */ b) => b.addEventListener('click', async () => {
     try {
       await db.startFase(b.dataset.id);
       toast(t('com.pres.phase_started'), 'success');
       renderCommissario(root);
-    } catch (e) { toast(e.message, 'error'); }
+    } catch (/** @type {any} */ e) { toast(e.message, 'error'); }
   }));
-  root.querySelectorAll('[data-pres-action="end"]').forEach(b => b.addEventListener('click', () => {
+  root.querySelectorAll('[data-pres-action="end"]').forEach((/** @type {any} */ b) => b.addEventListener('click', () => {
     const id = b.dataset.id;
-    const faseObj = db.state.fasi.find(f => f.id === id);
+    const faseObj = /** @type {any} */ (db.state.fasi.find((/** @type {any} */ f) => f.id === id));
     if (!faseObj) return;
     // Verifica conteggio valutazioni prima di chiudere
+    /** @type {any[]} */
     const cfs = db.candidatiFaseList(id);
     const commissariIds = db.getFaseCommissariIds(faseObj);
-    const fullyVoted = cfs.filter(cf => commissariIds.every(cid =>
-      db.state.valutazioni.some(v => v.candidato_fase_id === cf.id && v.commissario_id === cid)
+    const fullyVoted = cfs.filter((/** @type {any} */ cf) => commissariIds.every((/** @type {any} */ cid) =>
+      db.state.valutazioni.some((/** @type {any} */ v) => v.candidato_fase_id === cf.id && v.commissario_id === cid)
     )).length;
     const total = cfs.length;
     const pct = total > 0 ? Math.round(fullyVoted / total * 100) : 0;
@@ -1035,17 +1054,17 @@ function bindPresidentePanel(root, concorso) {
         try {
           // N144: ammissione = top-`ammessi` della classifica, calcolata qui e
           // applicata atomicamente al conclude.
-          await db.concludiFase(id, computeAdmittedIds(db.state.fasi.find(f => f.id === id)));
+          await db.concludiFase(id, computeAdmittedIds(/** @type {any} */ (db.state.fasi.find((/** @type {any} */ f) => f.id === id))));
           toast(t('com.pres.phase_ended'), 'success');
           renderCommissario(root);
-        } catch (e) { toast(e.message, 'error'); return false; }
+        } catch (/** @type {any} */ e) { toast(e.message, 'error'); return false; }
       },
     });
   }));
 }
 
 // 5-second cancelable countdown before saving the evaluation.
-function showCountdownAlert({ cand, anonimo = false, ammesso, totale, scala, onConfirm, onCancel }) {
+function showCountdownAlert(/** @type {{ cand: any, anonimo?: boolean, ammesso: any, totale: any, scala: any, onConfirm: () => void, onCancel?: () => void }} */ { cand, anonimo = false, ammesso, totale, scala, onConfirm, onCancel }) {
   const verdictText = ammesso ? t('com.confirm.approved') : t('com.confirm.rejected');
   const headerCls = ammesso
     ? 'bg-gradient-to-br from-emerald-500 to-emerald-700'
@@ -1113,13 +1132,13 @@ function showCountdownAlert({ cand, anonimo = false, ammesso, totale, scala, onC
   };
   const intervalId = setInterval(tick, 100);
 
-  overlay.querySelector('[data-cd-cancel]').addEventListener('click', () => {
+  /** @type {HTMLElement} */ (overlay.querySelector('[data-cd-cancel]')).addEventListener('click', () => {
     cancelled = true;
     cleanup();
     onCancel?.();
   });
   // Esc to cancel
-  const onKey = (e) => {
+  const onKey = (/** @type {KeyboardEvent} */ e) => {
     if (e.key === 'Escape') {
       cancelled = true;
       cleanup();
@@ -1131,14 +1150,14 @@ function showCountdownAlert({ cand, anonimo = false, ammesso, totale, scala, onC
   tick();
 }
 
-function pesiLabel(fase) {
-  return getCriteri(fase).map(c => {
+function pesiLabel(/** @type {any} */ fase) {
+  return getCriteri(fase).map((/** @type {any} */ c) => {
     const initial = (c.label || c.key || '?').charAt(0).toUpperCase();
     return `${initial}${Math.round((c.peso || 0) * 100)}`;
   }).join('/');
 }
 
-function sliderHtml(criterio, value, fase) {
+function sliderHtml(/** @type {any} */ criterio, /** @type {any} */ value, /** @type {any} */ fase) {
   const peso = Math.round((criterio.peso || 0) * 100);
   const scala = getScala(fase);
   const step = voteStep(scala);
@@ -1162,9 +1181,9 @@ function sliderHtml(criterio, value, fase) {
   `;
 }
 
-function bindSliders(root, fase) {
+function bindSliders(/** @type {any} */ root, /** @type {any} */ fase) {
   const scala = getScala(fase);
-  root.querySelectorAll('input[data-criterio]').forEach(input => {
+  root.querySelectorAll('input[data-criterio]').forEach((/** @type {any} */ input) => {
     input.addEventListener('input', () => {
       const k = input.dataset.criterio;
       const v = Number(input.value);
@@ -1184,13 +1203,13 @@ function bindSliders(root, fase) {
   });
 }
 
-function bindPictogram(root, fase, scala) {
-  root.querySelectorAll('[data-star]').forEach(btn => {
+function bindPictogram(/** @type {any} */ root, /** @type {any} */ fase, /** @type {number} */ scala) {
+  root.querySelectorAll('[data-star]').forEach((/** @type {any} */ btn) => {
     btn.addEventListener('click', () => {
       const level = Number(btn.dataset.star);
       const target = Math.round(scala * (level / 5) * 10) / 10;
       // Imposta TUTTI gli sliders allo stesso valore proporzionale
-      getCriteri(fase).forEach(c => {
+      getCriteri(fase).forEach((/** @type {any} */ c) => {
         draft.voti[c.key] = target;
         const display = root.querySelector(`[data-display="${c.key}"]`);
         if (display) display.textContent = fmtVoto(target, scala);
@@ -1213,16 +1232,16 @@ function bindPictogram(root, fase, scala) {
   });
 }
 
-function updateStarUI(root, fase) {
+function updateStarUI(/** @type {any} */ root, /** @type {any} */ fase) {
   const level = currentStarLevel(fase);
-  root.querySelectorAll('[data-star]').forEach(btn => {
+  root.querySelectorAll('[data-star]').forEach((/** @type {any} */ btn) => {
     const n = Number(btn.dataset.star);
     btn.textContent = n <= level ? '⭐' : '☆';
     btn.className = `w-9 h-9 rounded-xl flex items-center justify-center text-xl transition-all hover:scale-110 ${n <= level ? 'bg-white ring-2 ring-sun-400 shadow-sm' : 'bg-white/50 text-slate-300'}`;
   });
 }
 
-async function doSave(root, cf, com, fase, ammesso) {
+async function doSave(/** @type {any} */ root, /** @type {any} */ cf, /** @type {any} */ com, /** @type {any} */ fase, /** @type {any} */ ammesso) {
   // Anti doppio-click / race: disabilita il bottone fino a fine save.
   const btn = root.querySelector('[data-action="conferma-salva"]');
   if (btn) {
@@ -1244,7 +1263,7 @@ async function doSave(root, cf, com, fase, ammesso) {
     toast(t('com.save.success', { verdict }), ammesso ? 'success' : 'warn');
     resetDraft(fase);
     renderCommissario(root);
-  } catch (e) {
+  } catch (/** @type {any} */ e) {
     console.error(e);
     toast(t('com.save.error', { msg: e.message }), 'error');
   } finally {
@@ -1255,11 +1274,12 @@ async function doSave(root, cf, com, fase, ammesso) {
   }
 }
 
-function historyCardHtml(cf, fase, commissarioId, anonimo = false) {
-  const cand = db.state.candidati.find(c => c.id === cf.candidato_id);
-  const myVotes = db.state.valutazioni.filter(v => v.candidato_fase_id === cf.id && v.commissario_id === commissarioId);
+function historyCardHtml(/** @type {any} */ cf, /** @type {any} */ fase, /** @type {any} */ commissarioId, /** @type {boolean} */ anonimo = false) {
+  const cand = /** @type {any} */ (db.state.candidati.find((/** @type {any} */ c) => c.id === cf.candidato_id));
+  const myVotes = db.state.valutazioni.filter((/** @type {any} */ v) => v.candidato_fase_id === cf.id && v.commissario_id === commissarioId);
+  /** @type {Record<string, number>} */
   const voti = {};
-  myVotes.forEach(v => { voti[v.criterio] = v.voto; });
+  myVotes.forEach((/** @type {any} */ v) => { voti[v.criterio] = v.voto; });
   const scala = getScala(fase);
   const totale = pesato(voti, fase);
   const norm = scala ? totale / scala : 0;
@@ -1278,7 +1298,7 @@ function historyCardHtml(cf, fase, commissarioId, anonimo = false) {
       ${anonimo ? '' : `<div class="font-medium text-sm text-slate-900 truncate mt-1">${escapeHtml(displayName(cand))}</div>`}
       <div class="text-xs text-slate-500 truncate">${escapeHtml(cand?.strumento || '')}</div>
       <div class="mt-2 grid grid-cols-2 gap-1 text-[11px]">
-        ${getCriteri(fase).map(c => `
+        ${getCriteri(fase).map((/** @type {any} */ c) => `
           <div class="flex justify-between bg-slate-50 px-1.5 py-0.5 rounded" title="${escapeHtml(c.label)}">
             <span class="text-slate-500">${escapeHtml((c.label||'?').charAt(0).toUpperCase())}</span>
             <span class="font-mono font-medium">${fmtVoto(voti[c.key] ?? 0, scala)}</span>
@@ -1293,7 +1313,7 @@ function historyCardHtml(cf, fase, commissarioId, anonimo = false) {
   `;
 }
 
-function renderNotAssigned(root, concorso, fase, com) {
+function renderNotAssigned(/** @type {any} */ root, /** @type {any} */ concorso, /** @type {any} */ fase, /** @type {any} */ com) {
   unmountFloatingTimer();
   root.innerHTML = `
     <section class="view-fade max-w-2xl mx-auto text-center py-16">
@@ -1311,15 +1331,15 @@ function renderNotAssigned(root, concorso, fase, com) {
   });
 }
 
-function renderWaiting(root, concorso, fase, com, cf, allCommissariIds, fasiPresidente = null) {
-  const cand = db.state.candidati.find(c => c.id === cf.candidato_id);
-  const commissari = db.commissariByConcorso(concorso.id).filter(c => allCommissariIds.includes(c.id));
+function renderWaiting(/** @type {any} */ root, /** @type {any} */ concorso, /** @type {any} */ fase, /** @type {any} */ com, /** @type {any} */ cf, /** @type {any} */ allCommissariIds, /** @type {any} */ fasiPresidente = null) {
+  const cand = /** @type {any} */ (db.state.candidati.find((/** @type {any} */ c) => c.id === cf.candidato_id));
+  const commissari = db.commissariByConcorso(concorso.id).filter((/** @type {any} */ c) => allCommissariIds.includes(c.id));
   const votedSet = new Set(
     db.state.valutazioni
-      .filter(v => v.candidato_fase_id === cf.id)
-      .map(v => v.commissario_id)
+      .filter((/** @type {any} */ v) => v.candidato_fase_id === cf.id)
+      .map((/** @type {any} */ v) => v.commissario_id)
   );
-  const votedCount = commissari.filter(c => votedSet.has(c.id)).length;
+  const votedCount = commissari.filter((/** @type {any} */ c) => votedSet.has(c.id)).length;
   const totalCount = commissari.length;
   const eta = ageFromDate(cand?.data_nascita) ?? cand?.eta;
 
@@ -1361,7 +1381,7 @@ function renderWaiting(root, concorso, fase, com, cf, allCommissariIds, fasiPres
             <div class="h-full bg-gradient-to-r from-amber-400 to-amber-500 transition-all" style="width: ${totalCount ? votedCount / totalCount * 100 : 0}%"></div>
           </div>
           <div class="space-y-2">
-            ${commissari.map(c => {
+            ${commissari.map((/** @type {any} */ c) => {
               const v = votedSet.has(c.id);
               const isMe = c.id === com.id;
               return `
@@ -1396,7 +1416,7 @@ function renderWaiting(root, concorso, fase, com, cf, allCommissariIds, fasiPres
   if (isPresidente) bindPresidentePanel(root, concorso);
 }
 
-function renderAllDone(root, concorso, fase, com, evaluated, fasiPresidente = null) {
+function renderAllDone(/** @type {any} */ root, /** @type {any} */ concorso, /** @type {any} */ fase, /** @type {any} */ com, /** @type {any} */ evaluated, /** @type {any} */ fasiPresidente = null) {
   const isPresidente = Array.isArray(fasiPresidente) && fasiPresidente.length > 0;
   const wrapperCls = isPresidente ? 'view-fade c-page max-w-7xl mx-auto py-8' : 'view-fade max-w-2xl mx-auto text-center py-16';
   root.innerHTML = `

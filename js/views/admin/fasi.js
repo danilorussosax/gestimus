@@ -12,9 +12,9 @@ import { icon } from '../../icons.js';
 import { t } from '../../i18n.js';
 import { iconaPerSezione, tiebreakStrategyHtml, computeAdmittedIds } from './common.js';
 
-export function renderFasi(root, concorso) {
-  const fasi = db.fasiByConcorso(concorso.id);
-  const sezioni = db.sezioniByConcorso(concorso.id);
+export function renderFasi(/** @type {any} */ root, /** @type {any} */ concorso) {
+  const fasi = /** @type {any[]} */ (db.fasiByConcorso(concorso.id));
+  const sezioni = /** @type {any[]} */ (db.sezioniByConcorso(concorso.id));
   const groups = gruppoFasi(fasi, sezioni);
   // Concorso senza sezioni: niente raggruppamento (legacy / micro-concorsi).
   // In quel caso usiamo la vista piatta di prima.
@@ -46,7 +46,7 @@ export function renderFasi(root, concorso) {
     openFaseForm(concorso, null, () => renderFasi(root, concorso));
   });
   // Vista legacy (senza sezioni): mantieni il bottone "new-fase" se compare.
-  root.querySelectorAll('[data-action="new-fase"]').forEach(b => b.addEventListener('click', () => {
+  root.querySelectorAll('[data-action="new-fase"]').forEach((/** @type {any} */ b) => b.addEventListener('click', () => {
     openFaseForm(concorso, null, () => renderFasi(root, concorso));
   }));
 
@@ -66,7 +66,7 @@ export function renderFasi(root, concorso) {
   };
 
   // Handler dei pulsanti a livello gruppo (add-fase, edit-shared, wizard, delete-group).
-  root.querySelectorAll('[data-group-action]').forEach(btn => {
+  root.querySelectorAll('[data-group-action]').forEach((/** @type {any} */ btn) => {
     btn.addEventListener('click', () => {
       if (btn.disabled) return;
       const action = btn.dataset.groupAction;
@@ -81,20 +81,20 @@ export function renderFasi(root, concorso) {
         // Elimina TUTTE le sotto-fasi del gruppo. Safety: blocco preventivo se
         // c'è qualcosa IN_CORSO (gestito anche dall'attributo `disabled` sul
         // bottone, replicato qui per resistenza a manipolazioni DOM).
-        const running = group.fasi.filter(f => f.stato === 'IN_CORSO');
+        const running = group.fasi.filter((/** @type {any} */ f) => f.stato === 'IN_CORSO');
         if (running.length > 0) {
           toast((t('admin.fasi.group.delete_block_running') || 'Impossibile eliminare: {n} sotto-fasi sono IN_CORSO. Concludile prima.').replace('{n}', running.length), 'error');
           return;
         }
-        const concluse = group.fasi.filter(f => f.stato === 'CONCLUSA').length;
-        const sezioniRecord = group.sezioneIds.map(id => db.state.sezioni.find(s => s.id === id)).filter(Boolean);
+        const concluse = group.fasi.filter((/** @type {any} */ f) => f.stato === 'CONCLUSA').length;
+        const sezioniRecord = /** @type {any[]} */ (group.sezioneIds.map((/** @type {any} */ id) => db.state.sezioni.find((/** @type {any} */ s) => s.id === id)).filter(Boolean));
         const groupLabel = group.type === 'shared'
           ? (t('admin.fasi.group.shared_title') || 'Fasi globali (tutte le sezioni)')
-          : sezioniRecord.map(s => s.nome).join(', ');
+          : sezioniRecord.map((/** @type {any} */ s) => s.nome).join(', ');
         const listaNomi = group.fasi
           .slice()
-          .sort((a, b) => a.ordine - b.ordine)
-          .map(f => `<li class="flex items-center justify-between gap-2"><span><span class="font-mono text-slate-400">#${f.ordine}</span> ${escapeHtml(f.nome)}</span><span class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full ${f.stato === 'CONCLUSA' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}">${escapeHtml(prettyStato(f.stato))}</span></li>`)
+          .sort((/** @type {any} */ a, /** @type {any} */ b) => a.ordine - b.ordine)
+          .map((/** @type {any} */ f) => `<li class="flex items-center justify-between gap-2"><span><span class="font-mono text-slate-400">#${f.ordine}</span> ${escapeHtml(f.nome)}</span><span class="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded-full ${f.stato === 'CONCLUSA' ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}">${escapeHtml(prettyStato(f.stato))}</span></li>`)
           .join('');
         modal({
           title: t('admin.fasi.group.delete_confirm_title') || 'Elimina gruppo di fasi',
@@ -111,17 +111,17 @@ export function renderFasi(root, concorso) {
           onPrimary: async () => {
             // Sequenziale: ogni deleteFase fa loadAll → non parallelizzo per
             // evitare race su state.fasi. Tolleriamo errori singoli.
-            const failed = [];
+            const failed = /** @type {any[]} */ ([]);
             for (const f of group.fasi) {
               try { await db.deleteFase(f.id); }
-              catch (e) { failed.push({ id: f.id, nome: f.nome, msg: e?.message || 'errore' }); }
+              catch (e) { failed.push({ id: f.id, nome: f.nome, msg: /** @type {any} */ (e)?.message || 'errore' }); }
             }
             if (failed.length === 0) {
               toast((t('admin.fasi.group.delete_ok') || '{n} sotto-fasi eliminate').replace('{n}', group.fasi.length), 'success');
             } else {
               const ok = group.fasi.length - failed.length;
-              const why = failed.map(f => `${f.nome}: ${f.msg}`).slice(0, 3).join(' · ');
-              toast((t('admin.fasi.group.delete_partial') || 'Eliminate {ok}/{tot} — {ko} errori: {why}').replace('{ok}', ok).replace('{tot}', group.fasi.length).replace('{ko}', failed.length).replace('{why}', why), 'error');
+              const why = failed.map((/** @type {any} */ f) => `${f.nome}: ${f.msg}`).slice(0, 3).join(' · ');
+              toast((t('admin.fasi.group.delete_partial') || 'Eliminate {ok}/{tot} — {ko} errori: {why}').replace('{ok}', String(ok)).replace('{tot}', String(group.fasi.length)).replace('{ko}', String(failed.length)).replace('{why}', why), 'error');
             }
             refresh();
           },
@@ -130,12 +130,12 @@ export function renderFasi(root, concorso) {
     });
   });
 
-  root.querySelectorAll('[data-fase-action]').forEach(btn => {
+  root.querySelectorAll('[data-fase-action]').forEach((/** @type {any} */ btn) => {
     btn.addEventListener('click', async () => {
       if (btn.disabled) return;
       const action = btn.dataset.faseAction;
       const id = btn.dataset.id;
-      const fase = db.state.fasi.find(f => f.id === id);
+      const fase = /** @type {any} */ (db.state.fasi.find((/** @type {any} */ f) => f.id === id));
       if (!fase) return;
       btn.disabled = true;
       try {
@@ -157,7 +157,7 @@ export function renderFasi(root, concorso) {
                 await db.concludiFase(id, computeAdmittedIds(fase));
                 toast(t('admin.fase.ended') || 'Fase conclusa', 'success');
                 fullRefresh();
-              } catch (e) { toast(e?.message || 'Errore', 'error'); }
+              } catch (e) { toast(/** @type {any} */ (e)?.message || 'Errore', 'error'); }
             },
           });
         } else if (action === 'sorteggio') {
@@ -167,10 +167,10 @@ export function renderFasi(root, concorso) {
             message: t('admin.fase.sorteggio_msg', { nome: fase.nome }) || `Generare un nuovo ordine casuale dei candidati per "${fase.nome}"?`,
             onConfirm: async () => {
               try {
-                const r = await db.sorteggiaFase(id);
+                const r = await db.sorteggiaFase(id, undefined);
                 toast(t('admin.fase.sorteggio_done', { seed: r?.seed }) || `Ordine sorteggiato (seed: ${r?.seed})`, 'success');
                 fullRefresh();
-              } catch (e) { toast(e?.message || 'Errore', 'error'); }
+              } catch (e) { toast(/** @type {any} */ (e)?.message || 'Errore', 'error'); }
             },
           });
         } else if (action === 'delete') {
@@ -183,20 +183,20 @@ export function renderFasi(root, concorso) {
                 await db.deleteFase(id);
                 toast(t('admin.fase.deleted') || 'Fase eliminata', 'success');
                 fullRefresh();
-              } catch (e) { toast(e?.message || 'Errore', 'error'); }
+              } catch (e) { toast(/** @type {any} */ (e)?.message || 'Errore', 'error'); }
             },
           });
         } else if (action === 'move-up' || action === 'move-down') {
-          const idx = fasi.findIndex(f => f.id === id);
+          const idx = fasi.findIndex((/** @type {any} */ f) => f.id === id);
           const newIdx = action === 'move-up' ? idx - 1 : idx + 1;
           if (newIdx < 0 || newIdx >= fasi.length) return;
-          const ids = fasi.map(f => f.id);
+          const ids = fasi.map((/** @type {any} */ f) => f.id);
           [ids[idx], ids[newIdx]] = [ids[newIdx], ids[idx]];
           await db.reorderFasi(concorso.id, ids);
           refresh();
         }
       } catch (e) {
-        toast(e?.message || 'Errore', 'error');
+        toast(/** @type {any} */ (e)?.message || 'Errore', 'error');
       } finally {
         btn.disabled = false;
       }
@@ -219,7 +219,7 @@ const SHARED_FIELDS = ['commissione_id', 'scala', 'metodo_media', 'modo_valutazi
 
 // Ritorna il valore se TUTTE le fasi concordano, altrimenti undefined.
 // Usa JSON.stringify per confronti strutturali (criteri = array di oggetti).
-function sharedValue(fasi, key) {
+function sharedValue(/** @type {any} */ fasi, /** @type {any} */ key) {
   if (!fasi || fasi.length === 0) return undefined;
   const first = JSON.stringify(fasi[0][key] ?? null);
   for (let i = 1; i < fasi.length; i++) {
@@ -229,15 +229,15 @@ function sharedValue(fasi, key) {
 }
 
 // Lista dei campi condivisi che divergono tra le sotto-fasi del gruppo.
-function computeDrift(fasi) {
+function computeDrift(/** @type {any} */ fasi) {
   if (!fasi || fasi.length < 2) return [];
   return SHARED_FIELDS.filter(k => sharedValue(fasi, k) === undefined);
 }
 
 // Raggruppa le fasi del concorso per signature di sezioni_ids e garantisce
 // che ogni sezione del concorso abbia un gruppo (anche vuoto, per CTA).
-function gruppoFasi(fasi, sezioni) {
-  const groups = new Map();
+function gruppoFasi(/** @type {any} */ fasi, /** @type {any} */ sezioni) {
+  const groups = /** @type {Map<string, any>} */ (new Map());
   for (const f of fasi) {
     const ids = Array.isArray(f.sezioni_ids) ? [...f.sezioni_ids].sort() : [];
     const key = ids.length === 0 ? '__shared__' : ids.length === 1 ? `s:${ids[0]}` : `m:${ids.join(',')}`;
@@ -246,19 +246,19 @@ function gruppoFasi(fasi, sezioni) {
     groups.get(key).fasi.push(f);
   }
   // Ordina le sotto-fasi per ordine globale (rispecchia la sequenza di valutazione).
-  for (const g of groups.values()) g.fasi.sort((a, b) => a.ordine - b.ordine);
+  for (const g of groups.values()) g.fasi.sort((/** @type {any} */ a, /** @type {any} */ b) => a.ordine - b.ordine);
   // Sezioni del concorso senza fasi → card vuota con CTA "Crea fasi per X".
   for (const s of sezioni) {
     const key = `s:${s.id}`;
     if (!groups.has(key)) groups.set(key, { key, type: 'single', sezioneIds: [s.id], fasi: [] });
   }
   // Ordering: shared in cima, poi per nome sezione, poi i multi-section in fondo.
-  const rank = { shared: 0, single: 1, multi: 2 };
-  return [...groups.values()].sort((a, b) => {
+  const rank = /** @type {Record<string, number>} */ ({ shared: 0, single: 1, multi: 2 });
+  return [...groups.values()].sort((/** @type {any} */ a, /** @type {any} */ b) => {
     if (rank[a.type] !== rank[b.type]) return rank[a.type] - rank[b.type];
     if (a.type === 'single') {
-      const sa = sezioni.find(s => s.id === a.sezioneIds[0])?.nome || '';
-      const sb = sezioni.find(s => s.id === b.sezioneIds[0])?.nome || '';
+      const sa = sezioni.find((/** @type {any} */ s) => s.id === a.sezioneIds[0])?.nome || '';
+      const sb = sezioni.find((/** @type {any} */ s) => s.id === b.sezioneIds[0])?.nome || '';
       return sa.localeCompare(sb);
     }
     return 0;
@@ -267,7 +267,7 @@ function gruppoFasi(fasi, sezioni) {
 
 // Label "umana" di uno stato fase: lo stato interno usa underscore per leggibilità
 // del codice (IN_CORSO), la UI lo mostra senza (IN CORSO).
-function prettyStato(stato) {
+function prettyStato(/** @type {any} */ stato) {
   return String(stato || 'PIANIFICATA').replace(/_/g, ' ');
 }
 
@@ -275,12 +275,12 @@ function prettyStato(stato) {
 // Header con titolo (sezione o "Fasi globali"), valori condivisi e drift,
 // più i pulsanti per il batch edit e l'aggiunta di sotto-fasi. Body con la
 // lista delle sotto-fasi (innerFaseRowHtml) o uno stato vuoto + wizard CTA.
-function gruppoFasiCardHtml(group, concorso) {
-  const sezioniRecord = group.sezioneIds.map(id => db.state.sezioni.find(s => s.id === id)).filter(Boolean);
+function gruppoFasiCardHtml(/** @type {any} */ group, /** @type {any} */ concorso) {
+  const sezioniRecord = /** @type {any[]} */ (group.sezioneIds.map((/** @type {any} */ id) => db.state.sezioni.find((/** @type {any} */ s) => s.id === id)).filter(Boolean));
   const title = group.type === 'shared'
     ? (t('admin.fasi.group.shared_title') || 'Fasi globali (tutte le sezioni)')
     : group.type === 'multi'
-      ? (t('admin.fasi.group.multi_title', { names: sezioniRecord.map(s => s.nome).join(' + ') }) || `Fasi su: ${sezioniRecord.map(s => s.nome).join(' + ')}`)
+      ? (t('admin.fasi.group.multi_title', { names: sezioniRecord.map((/** @type {any} */ s) => s.nome).join(' + ') }) || `Fasi su: ${sezioniRecord.map((/** @type {any} */ s) => s.nome).join(' + ')}`)
       : (sezioniRecord[0]?.nome || '???');
   const subtitle = group.type === 'shared'
     ? (t('admin.fasi.group.shared_sub') || 'Si applicano a tutti i candidati del concorso, indipendentemente dalla sezione.')
@@ -302,7 +302,7 @@ function gruppoFasiCardHtml(group, concorso) {
   const sharedScala = sharedValue(group.fasi, 'scala');
   const sharedModo = sharedValue(group.fasi, 'modo_valutazione');
   const sharedTempo = sharedValue(group.fasi, 'tempo_minuti');
-  const commAssegnata = sharedComm ? db.state.commissioni.find(c => c.id === sharedComm) : null;
+  const commAssegnata = /** @type {any} */ (sharedComm ? db.state.commissioni.find((/** @type {any} */ c) => c.id === sharedComm) : null);
 
   const metaPills = group.fasi.length === 0 ? '' : `
     <div class="mt-2 flex flex-wrap items-center gap-1.5 text-[11px]">
@@ -339,7 +339,7 @@ function gruppoFasiCardHtml(group, concorso) {
         <div class="flex items-center gap-2 shrink-0">
           ${group.fasi.length > 1 ? `<button data-group-action="edit-shared" data-key="${escapeHtml(group.key)}" class="text-xs font-medium text-brand-700 hover:bg-brand-50 px-3 py-1.5 rounded-lg border border-brand-100">⚙ ${escapeHtml(t('admin.fasi.group.edit_shared') || 'Configurazione condivisa')}</button>` : ''}
           ${group.fasi.length > 0 ? (() => {
-            const anyRunning = group.fasi.some(f => f.stato === 'IN_CORSO');
+            const anyRunning = group.fasi.some((/** @type {any} */ f) => f.stato === 'IN_CORSO');
             const disabled = anyRunning ? 'disabled' : '';
             const titleAttr = anyRunning
               ? (t('admin.fasi.group.delete_disabled_title') || 'Impossibile: c\'è almeno una sotto-fase IN_CORSO. Concludila prima.')
@@ -358,7 +358,7 @@ function gruppoFasiCardHtml(group, concorso) {
         </div>
       ` : `
         <div class="divide-y divide-slate-100">
-          ${group.fasi.map((f, i) => innerFaseRowHtml(f, concorso, group, i)).join('')}
+          ${group.fasi.map((/** @type {any} */ f, /** @type {any} */ i) => innerFaseRowHtml(f, concorso, group, i)).join('')}
         </div>
       `}
     </section>
@@ -368,13 +368,13 @@ function gruppoFasiCardHtml(group, concorso) {
 // Riga compatta di sotto-fase dentro la card-gruppo. Mantiene tutte le azioni
 // della card piatta esistente (start/end/sorteggio/edit/delete/move) ma rimuove
 // le info già visibili nel header del gruppo (scope sezione, commissione condivisa).
-function innerFaseRowHtml(f, concorso, group, indexInGroup) {
+function innerFaseRowHtml(/** @type {any} */ f, /** @type {any} */ concorso, /** @type {any} */ group, /** @type {any} */ indexInGroup) {
   const stato = f.stato || 'PIANIFICATA';
-  const statoColors = {
+  const statoColors = /** @type {Record<string, string>} */ ({
     PIANIFICATA: 'bg-slate-100 text-slate-700 border-slate-200',
     IN_CORSO:    'bg-blue-100 text-blue-800 border-blue-200',
     CONCLUSA:    'bg-emerald-100 text-emerald-800 border-emerald-200',
-  };
+  });
   const drift = computeDrift(group.fasi);
   const cfs = db.candidatiFaseList(f.id).length;
   const commIds = db.getFaseCommissariIds(f);
@@ -388,7 +388,7 @@ function innerFaseRowHtml(f, concorso, group, indexInGroup) {
   if (drift.includes('metodo_media')) driftPills.push(`media ${f.metodo_media || 'aritmetica'}`);
   if (drift.includes('criteri')) driftPills.push(`${criteriCount} criteri`);
   if (drift.includes('commissione_id')) {
-    const c = f.commissione_id ? db.state.commissioni.find(x => x.id === f.commissione_id) : null;
+    const c = /** @type {any} */ (f.commissione_id ? db.state.commissioni.find((/** @type {any} */ x) => x.id === f.commissione_id) : null);
     driftPills.push(c ? `🎼 ${c.nome}` : (t('admin.fasi.group.no_comm') || 'nessuna comm.'));
   }
 
@@ -474,22 +474,22 @@ function fasiEmptyHtml() {
   `;
 }
 
-function faseCardHtml(f, concorso) {
+function faseCardHtml(/** @type {any} */ f, /** @type {any} */ concorso) {
   const stato = f.stato || 'PIANIFICATA';
-  const statoColors = {
+  const statoColors = /** @type {Record<string, string>} */ ({
     PIANIFICATA: 'bg-slate-100 text-slate-700 border-slate-200',
     IN_CORSO:    'bg-blue-100 text-blue-800 border-blue-200',
     CONCLUSA:    'bg-emerald-100 text-emerald-800 border-emerald-200',
-  };
+  });
   const cfs = db.candidatiFaseList(f.id).length;
   const commIds = db.getFaseCommissariIds(f);
   const criteriCount = Array.isArray(f.criteri) ? f.criteri.length : 0;
   const tempo = Number(f.tempo_minuti) || 0;
   // Scope: sezioni a cui la fase è ristretta + commissione assegnata.
-  const scopeSezioni = Array.isArray(f.sezioni_ids)
-    ? f.sezioni_ids.map(id => db.state.sezioni.find(s => s.id === id)).filter(Boolean)
-    : [];
-  const commAssegnata = f.commissione_id ? db.state.commissioni.find(c => c.id === f.commissione_id) : null;
+  const scopeSezioni = /** @type {any[]} */ (Array.isArray(f.sezioni_ids)
+    ? f.sezioni_ids.map((/** @type {any} */ id) => db.state.sezioni.find((/** @type {any} */ s) => s.id === id)).filter(Boolean)
+    : []);
+  const commAssegnata = /** @type {any} */ (f.commissione_id ? db.state.commissioni.find((/** @type {any} */ c) => c.id === f.commissione_id) : null);
   return `
     <div class="bg-white border border-slate-200 rounded-2xl p-4 shadow-soft hover:shadow-md transition-shadow">
       <div class="flex items-start justify-between gap-3 flex-wrap">
@@ -504,7 +504,7 @@ function faseCardHtml(f, concorso) {
             <div class="mt-1.5 flex flex-wrap items-center gap-1.5 text-[11px]">
               ${scopeSezioni.length > 0 ? `
                 <span class="text-slate-500 font-mono uppercase tracking-wider">Solo:</span>
-                ${scopeSezioni.map(s => `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-200">${iconaPerSezione(s.nome)} ${escapeHtml(s.nome)}</span>`).join('')}
+                ${scopeSezioni.map((/** @type {any} */ s) => `<span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-sky-50 text-sky-700 border border-sky-200">${iconaPerSezione(s.nome)} ${escapeHtml(s.nome)}</span>`).join('')}
               ` : `<span class="text-slate-500 italic">Tutte le sezioni</span>`}
               ${commAssegnata ? `<span class="ml-2 inline-flex items-center px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">🎼 ${escapeHtml(commAssegnata.nome)}</span>` : ''}
             </div>
@@ -537,7 +537,7 @@ function faseCardHtml(f, concorso) {
   `;
 }
 
-function openFaseForm(concorso, fase, onSaved, defaults = null) {
+function openFaseForm(/** @type {any} */ concorso, /** @type {any} */ fase, /** @type {any} */ onSaved, /** @type {any} */ defaults = null) {
   const isEdit = !!fase;
   // In creazione, `defaults` permette di pre-popolare i campi (es. il wizard
   // passa i valori condivisi del gruppo + sezioni_ids della fase madre).
@@ -665,7 +665,7 @@ function openFaseForm(concorso, fase, onSaved, defaults = null) {
           <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-3 mb-3 flex items-start gap-3">
             <span class="text-lg shrink-0">🎯</span>
             <div class="text-sm">
-              <p class="font-semibold text-emerald-900">Consigliato: ${escapeHtml(METODI_MEDIA[suggerito.metodo]?.nome || suggerito.metodo)}</p>
+              <p class="font-semibold text-emerald-900">Consigliato: ${escapeHtml(/** @type {Record<string, any>} */ (METODI_MEDIA)[suggerito.metodo]?.nome || suggerito.metodo)}</p>
               <p class="text-emerald-800 text-xs mt-0.5">${escapeHtml(suggerito.motivo)}</p>
             </div>
           </div>
@@ -686,7 +686,7 @@ function openFaseForm(concorso, fase, onSaved, defaults = null) {
           </header>
           <p class="text-xs text-slate-600 mb-2">Ogni criterio contribuisce alla media finale in base al suo peso. La somma dei pesi dovrebbe essere 100%.</p>
           <div data-criteri-list class="space-y-2">
-            ${criteri.map((c, i) => criterioRowHtml(c, i)).join('')}
+            ${criteri.map((/** @type {any} */ c, /** @type {any} */ i) => criterioRowHtml(c, i)).join('')}
           </div>
           <button type="button" data-add-criterio class="mt-2 text-xs font-medium text-brand-700 hover:text-brand-900 inline-flex items-center gap-1">+ Aggiungi criterio</button>
         </section>
@@ -712,13 +712,13 @@ function openFaseForm(concorso, fase, onSaved, defaults = null) {
       </div>
     `,
     primaryLabel: isEdit ? (t('common.save') || 'Salva') : (t('common.create') || 'Crea'),
-    onMount: (body) => {
+    onMount: (/** @type {any} */ body) => {
       // -- Criteri: lista dinamica + totale live --
-      const listEl = body.querySelector('[data-criteri-list]');
-      const sumEl = body.querySelector('[data-pesi-sum]');
+      const listEl = /** @type {HTMLElement} */ (body.querySelector('[data-criteri-list]'));
+      const sumEl = /** @type {HTMLElement} */ (body.querySelector('[data-pesi-sum]'));
       const recompute = () => {
         const tot = Array.from(listEl.querySelectorAll('[name="crit_peso"]'))
-          .reduce((s, /** @type {HTMLInputElement} */ inp) => s + (Number(inp.value) || 0), 0);
+          .reduce((s, inp) => s + (Number(/** @type {HTMLInputElement} */ (inp).value) || 0), 0);
         sumEl.textContent = `${tot}%`;
         sumEl.className = tot === 100 ? 'font-bold text-emerald-600' : 'font-bold text-amber-600';
       };
@@ -726,7 +726,7 @@ function openFaseForm(concorso, fase, onSaved, defaults = null) {
         const i = listEl.querySelectorAll('[data-criterio-row]').length;
         const div = document.createElement('div');
         div.innerHTML = criterioRowHtml({ key: '', label: '', peso: 0 }, i);
-        listEl.appendChild(div.firstElementChild);
+        if (div.firstElementChild) listEl.appendChild(div.firstElementChild);
         recompute();
       });
       listEl.addEventListener('click', (ev) => {
@@ -741,20 +741,21 @@ function openFaseForm(concorso, fase, onSaved, defaults = null) {
       recompute();
 
       // -- Metodo media: radio-card selection --
-      const cardsEl = body.querySelector('[data-metodo-cards]');
+      const cardsEl = /** @type {HTMLElement} */ (body.querySelector('[data-metodo-cards]'));
       const hidden = /** @type {HTMLInputElement} */ (body.querySelector('[name="metodo_media"]'));
       cardsEl.addEventListener('click', (ev) => {
         const card = /** @type {HTMLElement} */ (ev.target).closest('[data-metodo-key]');
         if (!card) return;
         const key = /** @type {HTMLElement} */ (card).dataset.metodoKey;
-        hidden.value = key;
+        hidden.value = key || '';
         cardsEl.querySelectorAll('[data-metodo-key]').forEach(el => {
           const isSel = /** @type {HTMLElement} */ (el).dataset.metodoKey === key;
           el.classList.toggle('ring-2', isSel);
           el.classList.toggle('ring-brand-500', isSel);
           el.classList.toggle('bg-brand-50/40', isSel);
           el.classList.toggle('border-brand-300', isSel);
-          el.querySelector('[data-metodo-check]').textContent = isSel ? '●' : '○';
+          const chk = el.querySelector('[data-metodo-check]');
+          if (chk) chk.textContent = isSel ? '●' : '○';
         });
       });
 
@@ -762,11 +763,11 @@ function openFaseForm(concorso, fase, onSaved, defaults = null) {
       const sezChipsEl = body.querySelector('[data-sez-chips]');
       const sezHidden = /** @type {HTMLInputElement} */ (sezChipsEl ? body.querySelector('[name="sezioni_ids"]') : null);
       if (sezChipsEl && sezHidden) {
-        sezChipsEl.addEventListener('click', (ev) => {
+        sezChipsEl.addEventListener('click', (/** @type {Event} */ ev) => {
           const btn = /** @type {HTMLElement} */ (ev.target).closest('[data-sez-id]');
           if (!btn) return;
           const cur = new Set(sezHidden.value ? sezHidden.value.split(',').filter(Boolean) : []);
-          const id = /** @type {HTMLElement} */ (btn).dataset.sezId;
+          const id = /** @type {HTMLElement} */ (btn).dataset.sezId || '';
           if (cur.has(id)) cur.delete(id); else cur.add(id);
           sezHidden.value = [...cur].join(',');
           const isSel = cur.has(id);
@@ -783,33 +784,34 @@ function openFaseForm(concorso, fase, onSaved, defaults = null) {
       }
 
       // -- Card numeriche (scala / tempo / ammessi): chip preset cliccabili --
-      body.querySelectorAll('[data-numcard-presets]').forEach(grp => {
+      body.querySelectorAll('[data-numcard-presets]').forEach((/** @type {any} */ grp) => {
         const inputName = /** @type {HTMLElement} */ (grp).dataset.numcardPresets;
         const input = /** @type {HTMLInputElement} */ (body.querySelector(`[name="${inputName}"]`));
         if (!input) return;
-        grp.addEventListener('click', (ev) => {
+        grp.addEventListener('click', (/** @type {Event} */ ev) => {
           const btn = /** @type {HTMLElement} */ (ev.target).closest('[data-preset]');
           if (!btn) return;
-          input.value = /** @type {HTMLElement} */ (btn).dataset.preset;
+          input.value = /** @type {HTMLElement} */ (btn).dataset.preset || '';
           input.dispatchEvent(new Event('input', { bubbles: true }));
         });
       });
 
       // -- Modo valutazione: radio-card selection (autonoma / sincrona) --
-      const modoCards = body.querySelector('[data-modo-cards]');
+      const modoCards = /** @type {HTMLElement} */ (body.querySelector('[data-modo-cards]'));
       const modoHidden = /** @type {HTMLInputElement} */ (body.querySelector('[name="modo_valutazione"]'));
       modoCards.addEventListener('click', (ev) => {
         const card = /** @type {HTMLElement} */ (ev.target).closest('[data-modo-key]');
         if (!card) return;
         const key = /** @type {HTMLElement} */ (card).dataset.modoKey;
-        modoHidden.value = key;
+        modoHidden.value = key || '';
         modoCards.querySelectorAll('[data-modo-key]').forEach(el => {
           const isSel = /** @type {HTMLElement} */ (el).dataset.modoKey === key;
           el.classList.toggle('ring-2', isSel);
           el.classList.toggle('ring-brand-500', isSel);
           el.classList.toggle('bg-brand-50/40', isSel);
           el.classList.toggle('border-brand-300', isSel);
-          el.querySelector('[data-modo-check]').textContent = isSel ? '●' : '○';
+          const chk = el.querySelector('[data-modo-check]');
+          if (chk) chk.textContent = isSel ? '●' : '○';
         });
       });
 
@@ -820,12 +822,12 @@ function openFaseForm(concorso, fase, onSaved, defaults = null) {
       if (tbContainer) {
         const startTouched = Array.isArray(f.tiebreak_strategy) && f.tiebreak_strategy.length > 0;
         if (startTouched) /** @type {HTMLElement} */ (tbContainer).dataset.tbTouched = '1';
-        tbContainer.addEventListener('change', (ev) => {
+        tbContainer.addEventListener('change', (/** @type {Event} */ ev) => {
           if (/** @type {HTMLElement} */ (ev.target).matches('[data-tb-enabled]')) /** @type {HTMLElement} */ (tbContainer).dataset.tbTouched = '1';
         });
       }
     },
-    onPrimary: async (body) => {
+    onPrimary: async (/** @type {any} */ body) => {
       const nome = /** @type {HTMLInputElement} */ (body.querySelector('[name="nome"]')).value.trim();
       const scala = Number(/** @type {HTMLInputElement} */ (body.querySelector('[name="scala"]')).value) || 10;
       const tempo_minuti = Number(/** @type {HTMLInputElement} */ (body.querySelector('[name="tempo_minuti"]')).value) || 0;
@@ -874,7 +876,7 @@ function openFaseForm(concorso, fase, onSaved, defaults = null) {
       }
 
       try {
-        const payload = { nome, scala, tempo_minuti, ammessi, data_prevista, modo_valutazione, metodo_media, criteri: criteriParsed, sezioni_ids, commissione_id, tiebreak_strategy, testo_esito_promosso, testo_esito_eliminato };
+        const payload = /** @type {any} */ ({ nome, scala, tempo_minuti, ammessi, data_prevista, modo_valutazione, metodo_media, criteri: criteriParsed, sezioni_ids, commissione_id, tiebreak_strategy, testo_esito_promosso, testo_esito_eliminato });
         if (isEdit) {
           await db.updateFase(fase.id, payload);
           toast(t('admin.fase.updated') || 'Fase aggiornata', 'success');
@@ -884,7 +886,7 @@ function openFaseForm(concorso, fase, onSaved, defaults = null) {
         }
         if (onSaved) onSaved();
       } catch (e) {
-        toast(e?.message || 'Errore', 'error');
+        toast(/** @type {any} */ (e)?.message || 'Errore', 'error');
         return false;
       }
     },
@@ -898,12 +900,12 @@ function openFaseForm(concorso, fase, onSaved, defaults = null) {
 //     condivisi (commissione/scala/criteri/modo/tempo). Submit: crea N record.
 //   - Gruppo con fasi esistenti → delega a openFaseForm pre-popolando i campi
 //     dai sharedValue del gruppo (così la nuova sotto-fase eredita la config).
-function openFaseWizard(concorso, group, onSaved) {
+function openFaseWizard(/** @type {any} */ concorso, /** @type {any} */ group, /** @type {any} */ onSaved) {
   // Caso "add": ricava i defaults dai campi condivisi del gruppo e delega
   // al form standard. Non chiediamo template all'admin: sta solo aggiungendo
   // una sotto-fase a una sequenza esistente.
   if (group.fasi.length > 0) {
-    const defaults = { sezioni_ids: group.sezioneIds.slice() };
+    const defaults = /** @type {Record<string, any>} */ ({ sezioni_ids: group.sezioneIds.slice() });
     for (const k of SHARED_FIELDS) {
       const sv = sharedValue(group.fasi, k);
       if (sv !== undefined) defaults[k] = sv;
@@ -912,10 +914,10 @@ function openFaseWizard(concorso, group, onSaved) {
   }
 
   // Caso "initial": wizard completo per configurare le fasi di una sezione vuota.
-  const sezioniRecord = group.sezioneIds.map(id => db.state.sezioni.find(s => s.id === id)).filter(Boolean);
+  const sezioniRecord = /** @type {any[]} */ (group.sezioneIds.map((/** @type {any} */ id) => db.state.sezioni.find((/** @type {any} */ s) => s.id === id)).filter(Boolean));
   const groupLabel = group.type === 'shared'
     ? (t('admin.fasi.wizard.scope_shared') || 'tutte le sezioni')
-    : sezioniRecord.map(s => s.nome).join(', ');
+    : sezioniRecord.map((/** @type {any} */ s) => s.nome).join(', ');
 
   // Template preset: ognuno definisce la lista di nomi+ammessi suggeriti.
   // L'admin può sempre passare a "personalizzato" e gestire la lista a mano.
@@ -937,7 +939,7 @@ function openFaseWizard(concorso, group, onSaved) {
   const nCommissari = db.commissariByConcorso(concorso.id).length;
   const suggerito = suggerisciMetodo(nCommissari);
 
-  const renderItemsList = (items) => items.map((it, i) => `
+  const renderItemsList = (/** @type {any} */ items) => items.map((/** @type {any} */ it, /** @type {any} */ i) => `
     <div class="grid grid-cols-12 gap-2 items-center" data-wiz-row="${i}">
       <div class="col-span-1 text-center text-xs font-mono text-slate-400">#${i + 1}</div>
       <input type="text" data-wiz-nome class="col-span-7 c-input" placeholder="${escapeHtml(t('admin.fase.field_nome') || 'Nome fase')}" value="${escapeHtml(it.nome)}" />
@@ -985,7 +987,7 @@ function openFaseWizard(concorso, group, onSaved) {
             <button type="button" data-wiz-add class="text-xs font-medium text-brand-700 hover:text-brand-900 inline-flex items-center gap-1">+ ${escapeHtml(t('admin.fasi.wizard.add_row') || 'Aggiungi fase')}</button>
           </header>
           <p class="text-xs text-slate-500 mb-2">${escapeHtml(t('admin.fasi.wizard.list_help') || '"Ammessi" = quanti candidati passano alla fase successiva. Vuoto = passano tutti gli ammessi dal verdetto della commissione.')}</p>
-          <div class="space-y-2" data-wiz-items>${renderItemsList(TEMPLATES[currentTpl].items)}</div>
+          <div class="space-y-2" data-wiz-items>${renderItemsList(/** @type {Record<string, any>} */ (TEMPLATES)[currentTpl].items)}</div>
         </section>
 
         <!-- Step 3: configurazione comune -->
@@ -1016,7 +1018,7 @@ function openFaseWizard(concorso, group, onSaved) {
               <p class="text-xs text-slate-600">${escapeHtml(t('admin.fasi.wizard.comm_help') || 'Stessa commissione per tutte le sotto-fasi. Vuoto = tutti i commissari del concorso.')}</p>
               <select name="commissione_id" class="c-input">
                 <option value="">${escapeHtml(t('admin.fasi.wizard.comm_none') || '— Nessuna —')}</option>
-                ${db.commissioniByConcorso(concorso.id).map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.nome)} · ${(c.commissari_ids || []).length} comm.</option>`).join('')}
+                ${db.commissioniByConcorso(concorso.id).map((/** @type {any} */ c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.nome)} · ${(c.commissari_ids || []).length} comm.</option>`).join('')}
               </select>
             </div>
           </div>
@@ -1044,21 +1046,22 @@ function openFaseWizard(concorso, group, onSaved) {
       </div>
     `,
     primaryLabel: t('admin.fasi.wizard.cta_create') || 'Crea fasi',
-    onMount: (body) => {
+    onMount: (/** @type {any} */ body) => {
       // Template chooser: cliccando un template rigenera la lista.
-      body.querySelector('[data-wiz-templates]').addEventListener('click', (ev) => {
+      body.querySelector('[data-wiz-templates]').addEventListener('click', (/** @type {any} */ ev) => {
         const btn = /** @type {HTMLElement} */ (ev.target).closest('[data-wiz-tpl]');
         if (!btn) return;
-        currentTpl = /** @type {HTMLElement} */ (btn).dataset.wizTpl;
-        body.querySelectorAll('[data-wiz-tpl]').forEach(el => {
+        currentTpl = /** @type {HTMLElement} */ (btn).dataset.wizTpl || '';
+        body.querySelectorAll('[data-wiz-tpl]').forEach((/** @type {any} */ el) => {
           const sel = /** @type {HTMLElement} */ (el).dataset.wizTpl === currentTpl;
           el.classList.toggle('ring-2', sel);
           el.classList.toggle('ring-brand-500', sel);
           el.classList.toggle('bg-brand-50/40', sel);
           el.classList.toggle('border-brand-300', sel);
-          el.querySelector('[data-wiz-check]').textContent = sel ? '●' : '○';
+          const chk = el.querySelector('[data-wiz-check]');
+          if (chk) chk.textContent = sel ? '●' : '○';
         });
-        body.querySelector('[data-wiz-items]').innerHTML = renderItemsList(TEMPLATES[currentTpl].items);
+        body.querySelector('[data-wiz-items]').innerHTML = renderItemsList(/** @type {Record<string, any>} */ (TEMPLATES)[currentTpl].items);
       });
       // Add row + remove row.
       body.querySelector('[data-wiz-add]').addEventListener('click', () => {
@@ -1066,21 +1069,21 @@ function openFaseWizard(concorso, group, onSaved) {
         const i = list.querySelectorAll('[data-wiz-row]').length;
         const div = document.createElement('div');
         div.innerHTML = renderItemsList([{ nome: `Fase ${i + 1}`, ammessi: '' }]).trim();
-        list.appendChild(div.firstElementChild);
+        if (div.firstElementChild) list.appendChild(div.firstElementChild);
       });
-      body.querySelector('[data-wiz-items]').addEventListener('click', (ev) => {
+      body.querySelector('[data-wiz-items]').addEventListener('click', (/** @type {any} */ ev) => {
         const rm = /** @type {HTMLElement} */ (ev.target).closest('[data-wiz-remove]');
         if (!rm) return;
         const list = body.querySelector('[data-wiz-items]');
-        if (list.querySelectorAll('[data-wiz-row]').length > 1) rm.closest('[data-wiz-row]').remove();
+        if (list.querySelectorAll('[data-wiz-row]').length > 1) rm.closest('[data-wiz-row]')?.remove();
       });
       // -- Replica handler dei sotto-componenti riusati da openFaseForm --
       // (criteri sum, modo cards, metodo cards, numeric presets)
-      const listEl = body.querySelector('[data-criteri-list]');
-      const sumEl = body.querySelector('[data-pesi-sum]');
+      const listEl = /** @type {HTMLElement} */ (body.querySelector('[data-criteri-list]'));
+      const sumEl = /** @type {HTMLElement} */ (body.querySelector('[data-pesi-sum]'));
       const recompute = () => {
         const tot = Array.from(listEl.querySelectorAll('[name="crit_peso"]'))
-          .reduce((s, /** @type {HTMLInputElement} */ inp) => s + (Number(inp.value) || 0), 0);
+          .reduce((s, inp) => s + (Number(/** @type {HTMLInputElement} */ (inp).value) || 0), 0);
         sumEl.textContent = `${tot}%`;
         sumEl.className = tot === 100 ? 'font-bold text-emerald-600' : 'font-bold text-amber-600';
       };
@@ -1088,63 +1091,65 @@ function openFaseWizard(concorso, group, onSaved) {
         const i = listEl.querySelectorAll('[data-criterio-row]').length;
         const div = document.createElement('div');
         div.innerHTML = criterioRowHtml({ key: '', label: '', peso: 0 }, i);
-        listEl.appendChild(div.firstElementChild);
+        if (div.firstElementChild) listEl.appendChild(div.firstElementChild);
         recompute();
       });
       listEl.addEventListener('click', (ev) => {
         const rm = /** @type {HTMLElement} */ (ev.target).closest('[data-remove-criterio]');
         if (!rm) return;
-        if (listEl.querySelectorAll('[data-criterio-row]').length > 1) { rm.closest('[data-criterio-row]').remove(); recompute(); }
+        if (listEl.querySelectorAll('[data-criterio-row]').length > 1) { rm.closest('[data-criterio-row]')?.remove(); recompute(); }
       });
       listEl.addEventListener('input', (ev) => { if (/** @type {HTMLElement} */ (ev.target).matches('[name="crit_peso"]')) recompute(); });
       recompute();
 
-      const modoCards = body.querySelector('[data-modo-cards]');
+      const modoCards = /** @type {HTMLElement} */ (body.querySelector('[data-modo-cards]'));
       const modoHidden = /** @type {HTMLInputElement} */ (body.querySelector('[name="modo_valutazione"]'));
       modoCards.addEventListener('click', (ev) => {
         const card = /** @type {HTMLElement} */ (ev.target).closest('[data-modo-key]');
         if (!card) return;
         const key = /** @type {HTMLElement} */ (card).dataset.modoKey;
-        modoHidden.value = key;
+        modoHidden.value = key || '';
         modoCards.querySelectorAll('[data-modo-key]').forEach(el => {
           const isSel = /** @type {HTMLElement} */ (el).dataset.modoKey === key;
           el.classList.toggle('ring-2', isSel); el.classList.toggle('ring-brand-500', isSel);
           el.classList.toggle('bg-brand-50/40', isSel); el.classList.toggle('border-brand-300', isSel);
-          el.querySelector('[data-modo-check]').textContent = isSel ? '●' : '○';
+          const chk = el.querySelector('[data-modo-check]');
+          if (chk) chk.textContent = isSel ? '●' : '○';
         });
       });
 
-      const metodoCards = body.querySelector('[data-metodo-cards]');
+      const metodoCards = /** @type {HTMLElement} */ (body.querySelector('[data-metodo-cards]'));
       const metodoHidden = /** @type {HTMLInputElement} */ (body.querySelector('[name="metodo_media"]'));
       metodoCards.addEventListener('click', (ev) => {
         const card = /** @type {HTMLElement} */ (ev.target).closest('[data-metodo-key]');
         if (!card) return;
         const key = /** @type {HTMLElement} */ (card).dataset.metodoKey;
-        metodoHidden.value = key;
+        metodoHidden.value = key || '';
         metodoCards.querySelectorAll('[data-metodo-key]').forEach(el => {
           const isSel = /** @type {HTMLElement} */ (el).dataset.metodoKey === key;
           el.classList.toggle('ring-2', isSel); el.classList.toggle('ring-brand-500', isSel);
           el.classList.toggle('bg-brand-50/40', isSel); el.classList.toggle('border-brand-300', isSel);
-          el.querySelector('[data-metodo-check]').textContent = isSel ? '●' : '○';
+          const chk = el.querySelector('[data-metodo-check]');
+          if (chk) chk.textContent = isSel ? '●' : '○';
         });
       });
 
-      body.querySelectorAll('[data-numcard-presets]').forEach(grp => {
+      body.querySelectorAll('[data-numcard-presets]').forEach((/** @type {any} */ grp) => {
         const inputName = /** @type {HTMLElement} */ (grp).dataset.numcardPresets;
         const input = /** @type {HTMLInputElement} */ (body.querySelector(`[name="${inputName}"]`));
         if (!input) return;
-        grp.addEventListener('click', (ev) => {
+        grp.addEventListener('click', (/** @type {any} */ ev) => {
           const btn = /** @type {HTMLElement} */ (ev.target).closest('[data-preset]');
           if (!btn) return;
-          input.value = /** @type {HTMLElement} */ (btn).dataset.preset;
+          input.value = /** @type {HTMLElement} */ (btn).dataset.preset || '';
           input.dispatchEvent(new Event('input', { bubbles: true }));
         });
       });
     },
-    onPrimary: async (body) => {
+    onPrimary: async (/** @type {any} */ body) => {
       // Raccogli items (nome + ammessi).
       const rows = Array.from(body.querySelectorAll('[data-wiz-row]'));
-      const items = rows.map(r => ({
+      const items = rows.map((/** @type {any} */ r) => ({
         nome: /** @type {HTMLInputElement} */ (r.querySelector('[data-wiz-nome]')).value.trim(),
         ammessi: /** @type {HTMLInputElement} */ (r.querySelector('[data-wiz-ammessi]')).value,
       })).filter(it => it.nome);
@@ -1170,7 +1175,7 @@ function openFaseWizard(concorso, group, onSaved) {
       if (criteriParsed.length === 0) { toast(t('admin.fase.err_no_criteri') || 'Almeno un criterio richiesto', 'error'); return false; }
       const totPct = Math.round(criteriParsed.reduce((s, c) => s + c.peso * 100, 0));
       if (totPct !== 100) {
-        const ok = confirm((t('admin.fase.warn_pesi') || 'La somma dei pesi è {tot}% (consigliato 100%). Continuo?').replace('{tot}', totPct));
+        const ok = confirm((t('admin.fase.warn_pesi') || 'La somma dei pesi è {tot}% (consigliato 100%). Continuo?').replace('{tot}', String(totPct)));
         if (!ok) return false;
       }
 
@@ -1193,10 +1198,10 @@ function openFaseWizard(concorso, group, onSaved) {
           });
           created.push(rec);
         }
-        toast((t('admin.fasi.wizard.ok_created') || '{n} fasi create').replace('{n}', created.length), 'success');
+        toast((t('admin.fasi.wizard.ok_created') || '{n} fasi create').replace('{n}', String(created.length)), 'success');
         if (onSaved) onSaved();
       } catch (e) {
-        toast((t('admin.fasi.wizard.err_partial') || 'Errore dopo {n} fasi: {msg}').replace('{n}', created.length).replace('{msg}', e?.message || ''), 'error');
+        toast((t('admin.fasi.wizard.err_partial') || 'Errore dopo {n} fasi: {msg}').replace('{n}', String(created.length)).replace('{msg}', /** @type {any} */ (e)?.message || ''), 'error');
         if (onSaved) onSaved();
         return false;
       }
@@ -1209,7 +1214,7 @@ function openFaseWizard(concorso, group, onSaved) {
 // propagherà il nuovo valore SOVRASCRIVENDO la differenza esistente. Per
 // ogni campo l'admin può scegliere "non modificare" (mantieni come adesso,
 // niente write per quel campo) oppure imposta un nuovo valore.
-function openSharedFieldsModal(concorso, group, onSaved) {
+function openSharedFieldsModal(/** @type {any} */ concorso, /** @type {any} */ group, /** @type {any} */ onSaved) {
   const drift = computeDrift(group.fasi);
   const fasi = group.fasi;
   // Valori correnti consensus (se tutte le fasi concordano) o vuoto/null.
@@ -1222,7 +1227,7 @@ function openSharedFieldsModal(concorso, group, onSaved) {
     criteri: sharedValue(fasi, 'criteri') || (Array.isArray(fasi[0].criteri) ? fasi[0].criteri : []),
   };
 
-  const fieldRow = (key, label, html, isDrift) => `
+  const fieldRow = (/** @type {any} */ key, /** @type {any} */ label, /** @type {any} */ html, /** @type {any} */ isDrift) => `
     <div class="border ${isDrift ? 'border-amber-200 bg-amber-50/30' : 'border-slate-200 bg-white'} rounded-xl p-3">
       <label class="flex items-start gap-3">
         <input type="checkbox" data-batch-toggle="${key}" class="mt-1 w-4 h-4" />
@@ -1250,7 +1255,7 @@ function openSharedFieldsModal(concorso, group, onSaved) {
         ${fieldRow('commissione_id', t('admin.fase.commissione') || 'Commissione', `
           <select name="commissione_id" class="c-input w-full">
             <option value="" ${!cur.commissione_id ? 'selected' : ''}>— ${escapeHtml(t('admin.fasi.wizard.comm_none') || 'Nessuna')} —</option>
-            ${db.commissioniByConcorso(concorso.id).map(c => `<option value="${escapeHtml(c.id)}" ${cur.commissione_id === c.id ? 'selected' : ''}>${escapeHtml(c.nome)} · ${(c.commissari_ids || []).length} comm.</option>`).join('')}
+            ${db.commissioniByConcorso(concorso.id).map((/** @type {any} */ c) => `<option value="${escapeHtml(c.id)}" ${cur.commissione_id === c.id ? 'selected' : ''}>${escapeHtml(c.nome)} · ${(c.commissari_ids || []).length} comm.</option>`).join('')}
           </select>
         `, drift.includes('commissione_id'))}
 
@@ -1285,7 +1290,7 @@ function openSharedFieldsModal(concorso, group, onSaved) {
                 <span class="text-xs font-mono text-slate-600 ml-auto">Tot: <span data-pesi-sum class="font-bold">0%</span></span>
               </div>
               <p class="text-[11px] text-slate-500 mt-1.5 mb-2">${escapeHtml(t('admin.fasi.batch.criteri_help') || 'Attiva la spunta per propagare la stessa lista di criteri/pesi a tutte le sotto-fasi.')}</p>
-              <div data-criteri-list class="space-y-2">${(cur.criteri.length ? cur.criteri : [{ key: 'tecnica', label: 'Tecnica', peso: 1 }]).map((c, i) => criterioRowHtml(c, i)).join('')}</div>
+              <div data-criteri-list class="space-y-2">${(cur.criteri.length ? cur.criteri : [{ key: 'tecnica', label: 'Tecnica', peso: 1 }]).map((/** @type {any} */ c, /** @type {any} */ i) => criterioRowHtml(c, i)).join('')}</div>
               <button type="button" data-add-criterio class="mt-2 text-xs font-medium text-brand-700 hover:text-brand-900 inline-flex items-center gap-1">+ ${escapeHtml(t('admin.fase.add_criterio') || 'Aggiungi criterio')}</button>
             </div>
           </label>
@@ -1293,13 +1298,13 @@ function openSharedFieldsModal(concorso, group, onSaved) {
       </div>
     `,
     primaryLabel: t('admin.fasi.batch.cta_save') || 'Applica alle sotto-fasi',
-    onMount: (body) => {
+    onMount: (/** @type {any} */ body) => {
       // Criteri list events (uguali al form principale).
-      const listEl = body.querySelector('[data-criteri-list]');
-      const sumEl = body.querySelector('[data-pesi-sum]');
+      const listEl = /** @type {HTMLElement} */ (body.querySelector('[data-criteri-list]'));
+      const sumEl = /** @type {HTMLElement} */ (body.querySelector('[data-pesi-sum]'));
       const recompute = () => {
         const tot = Array.from(listEl.querySelectorAll('[name="crit_peso"]'))
-          .reduce((s, /** @type {HTMLInputElement} */ inp) => s + (Number(inp.value) || 0), 0);
+          .reduce((s, inp) => s + (Number(/** @type {HTMLInputElement} */ (inp).value) || 0), 0);
         sumEl.textContent = `${tot}%`;
         sumEl.className = tot === 100 ? 'font-bold text-emerald-600' : 'font-bold text-amber-600';
       };
@@ -1307,26 +1312,26 @@ function openSharedFieldsModal(concorso, group, onSaved) {
         const i = listEl.querySelectorAll('[data-criterio-row]').length;
         const div = document.createElement('div');
         div.innerHTML = criterioRowHtml({ key: '', label: '', peso: 0 }, i);
-        listEl.appendChild(div.firstElementChild);
+        if (div.firstElementChild) listEl.appendChild(div.firstElementChild);
         recompute();
       });
       listEl.addEventListener('click', (ev) => {
         const rm = /** @type {HTMLElement} */ (ev.target).closest('[data-remove-criterio]');
         if (!rm) return;
-        if (listEl.querySelectorAll('[data-criterio-row]').length > 1) { rm.closest('[data-criterio-row]').remove(); recompute(); }
+        if (listEl.querySelectorAll('[data-criterio-row]').length > 1) { rm.closest('[data-criterio-row]')?.remove(); recompute(); }
       });
       listEl.addEventListener('input', (ev) => { if (/** @type {HTMLElement} */ (ev.target).matches('[name="crit_peso"]')) recompute(); });
       recompute();
     },
-    onPrimary: async (body) => {
+    onPrimary: async (/** @type {any} */ body) => {
       // Raccogli solo i campi con la spunta attiva.
-      const patch = {};
-      body.querySelectorAll('[data-batch-toggle]').forEach(cb => {
+      const patch = /** @type {Record<string, any>} */ ({});
+      body.querySelectorAll('[data-batch-toggle]').forEach((/** @type {any} */ cb) => {
         if (!(/** @type {HTMLInputElement} */ (cb).checked)) return;
-        const key = /** @type {HTMLElement} */ (cb).dataset.batchToggle;
+        const key = /** @type {HTMLElement} */ (cb).dataset.batchToggle || '';
         if (key === 'criteri') {
-          const list = body.querySelector('[data-criteri-list]');
-          const criteri = Array.from(list.querySelectorAll('[data-criterio-row]')).map((row, i) => {
+          const list = /** @type {HTMLElement} */ (body.querySelector('[data-criteri-list]'));
+          const criteri = Array.from(list.querySelectorAll('[data-criterio-row]')).map((/** @type {any} */ row, /** @type {any} */ i) => {
             const label = /** @type {HTMLInputElement} */ (row.querySelector('[name="crit_label"]')).value.trim();
             const keyRaw = /** @type {HTMLInputElement} */ (row.querySelector('[name="crit_key"]')).value.trim();
             const k = keyRaw || slugifyKey(label) || `crit_${i+1}`;
@@ -1349,14 +1354,14 @@ function openSharedFieldsModal(concorso, group, onSaved) {
       }
       // Applica a tutte le sotto-fasi del gruppo. Promise.allSettled per non
       // perdere update parziali se uno fallisce (es. fase IN_CORSO / hook server).
-      const results = await Promise.allSettled(fasi.map(f => db.updateFase(f.id, patch)));
+      const results = await Promise.allSettled(fasi.map((/** @type {any} */ f) => db.updateFase(f.id, patch)));
       const ok = results.filter(r => r.status === 'fulfilled').length;
       const ko = results.filter(r => r.status === 'rejected');
       if (ko.length === 0) {
-        toast((t('admin.fasi.batch.ok') || 'Configurazione propagata a {n} sotto-fasi').replace('{n}', ok), 'success');
+        toast((t('admin.fasi.batch.ok') || 'Configurazione propagata a {n} sotto-fasi').replace('{n}', String(ok)), 'success');
       } else {
         const reasons = ko.map(r => r.reason?.message || 'errore').slice(0, 3).join(' · ');
-        toast((t('admin.fasi.batch.partial') || 'Aggiornate {ok}/{tot} — {ko} errori: {why}').replace('{ok}', ok).replace('{tot}', fasi.length).replace('{ko}', ko.length).replace('{why}', reasons), 'error');
+        toast((t('admin.fasi.batch.partial') || 'Aggiornate {ok}/{tot} — {ko} errori: {why}').replace('{ok}', String(ok)).replace('{tot}', String(fasi.length)).replace('{ko}', String(ko.length)).replace('{why}', reasons), 'error');
       }
       if (onSaved) onSaved();
     },
@@ -1376,9 +1381,9 @@ function openSharedFieldsModal(concorso, group, onSaved) {
 //   delle sezioni scelte passano in questa fase. Permette tracce parallele per sezione.
 // - Commissione: se assegnata, sostituisce la lista commissari della fase con i
 //   membri della commissione (gestita da getFaseCommissariIds in db.js).
-function faseScopeHtml(concorso, f) {
-  const sezioniConcorso = db.sezioniByConcorso(concorso.id);
-  const commissioniConcorso = db.commissioniByConcorso(concorso.id);
+function faseScopeHtml(/** @type {any} */ concorso, /** @type {any} */ f) {
+  const sezioniConcorso = /** @type {any[]} */ (db.sezioniByConcorso(concorso.id));
+  const commissioniConcorso = /** @type {any[]} */ (db.commissioniByConcorso(concorso.id));
   const selSez = new Set(Array.isArray(f.sezioni_ids) ? f.sezioni_ids : []);
   const selComm = f.commissione_id || '';
   return `
@@ -1427,7 +1432,8 @@ function faseScopeHtml(concorso, f) {
 // Card con input numerico + chip preset cliccabili. Riusata per scala / tempo / ammessi
 // nella sezione "Modalità di esecuzione". Lo stile è coerente con le radio-card di
 // modalità di valutazione e metodo di media.
-function numericCardHtml({ key, icon, title, value, min, max, suffix, desc, presets, tip }) {
+function numericCardHtml(/** @type {any} */ p) {
+  const { key, icon, title, value, min, max, suffix, desc, presets, tip } = p;
   const isEmpty = value === '' || value == null;
   const inputAttrs = `name="${escapeHtml(key)}" type="number" min="${min}" max="${max}" class="c-input pr-12 text-xl font-bold tabular-nums"`;
   return `
@@ -1442,7 +1448,7 @@ function numericCardHtml({ key, icon, title, value, min, max, suffix, desc, pres
         ${suffix ? `<span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-slate-500 pointer-events-none">${escapeHtml(suffix)}</span>` : ''}
       </div>
       <div class="flex flex-wrap gap-1" data-numcard-presets="${escapeHtml(key)}">
-        ${presets.map(p => `<button type="button" data-preset="${escapeHtml(String(p.v))}" class="text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-brand-100 hover:text-brand-800 px-2 py-1 rounded-md transition-colors">${escapeHtml(p.label)}</button>`).join('')}
+        ${presets.map((/** @type {any} */ p) => `<button type="button" data-preset="${escapeHtml(String(p.v))}" class="text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-brand-100 hover:text-brand-800 px-2 py-1 rounded-md transition-colors">${escapeHtml(p.label)}</button>`).join('')}
       </div>
       <p class="text-[11px] text-slate-500 leading-snug mt-auto pt-1 border-t border-slate-100">${tip}</p>
     </div>
@@ -1476,8 +1482,8 @@ const MODI_VALUTAZIONE = {
   },
 };
 
-function modoValutazioneCardHtml(key, selected) {
-  const m = MODI_VALUTAZIONE[key];
+function modoValutazioneCardHtml(/** @type {any} */ key, /** @type {any} */ selected) {
+  const m = /** @type {Record<string, any>} */ (MODI_VALUTAZIONE)[key];
   const ringCls = selected ? 'ring-2 ring-brand-500 bg-brand-50/40 border-brand-300' : 'border-slate-200 hover:border-brand-200';
   return `
     <button type="button" data-modo-key="${escapeHtml(key)}"
@@ -1492,7 +1498,7 @@ function modoValutazioneCardHtml(key, selected) {
       <p class="text-xs text-slate-600 leading-snug">${escapeHtml(m.breve)}</p>
       <div class="text-[11px] text-slate-500 space-y-0.5 mt-1 pt-2 border-t border-slate-100">
         <p class="font-semibold text-slate-700 mb-0.5">Quando usarla:</p>
-        ${m.scenari.map(s => `<p class="flex gap-1.5"><span class="text-brand-500">·</span><span>${escapeHtml(s)}</span></p>`).join('')}
+        ${m.scenari.map((/** @type {any} */ s) => `<p class="flex gap-1.5"><span class="text-brand-500">·</span><span>${escapeHtml(s)}</span></p>`).join('')}
         <p class="text-slate-400 italic mt-1">${escapeHtml(m.tip)}</p>
       </div>
     </button>
@@ -1502,7 +1508,7 @@ function modoValutazioneCardHtml(key, selected) {
 // Card di selezione metodo di media. `key` = chiave (aritmetica/olimpica/...),
 // `m` = descrittore da METODI_MEDIA, `selected` = chiave correntemente scelta,
 // `suggerito` = chiave consigliata in base al numero di commissari.
-function metodoMediaCardHtml(key, m, selected, suggerito) {
+function metodoMediaCardHtml(/** @type {any} */ key, /** @type {any} */ m, /** @type {any} */ selected, /** @type {any} */ suggerito) {
   const isSel = key === selected;
   const isSug = key === suggerito;
   const ringCls = isSel ? 'ring-2 ring-brand-500 bg-brand-50/40 border-brand-300' : 'border-slate-200 hover:border-brand-200';
@@ -1529,7 +1535,7 @@ function metodoMediaCardHtml(key, m, selected, suggerito) {
   `;
 }
 
-function criterioRowHtml(c, i) {
+function criterioRowHtml(/** @type {any} */ c, /** @type {any} */ i) {
   // Il peso è memorizzato come decimale 0-1 nel DB ma mostrato in % all'utente.
   const pesoPct = Math.round((Number(c.peso) || 0) * 100);
   return `
@@ -1555,16 +1561,16 @@ function criterioRowHtml(c, i) {
 }
 
 // ---------- Fase Detail Modal ----------
-function openFaseDetail(faseId) {
-  const fase = db.state.fasi.find(f => f.id === faseId);
+function openFaseDetail(/** @type {any} */ faseId) {
+  const fase = /** @type {any} */ (db.state.fasi.find((/** @type {any} */ f) => f.id === faseId));
   if (!fase) return;
-  const cfs = db.candidatiFaseList(faseId);
-  const rows = cfs.map(cf => {
-    const cand = db.state.candidati.find(c => c.id === cf.candidato_id);
-    const vs = db.valutazioniByCandidatoFase(cf.id);
+  const cfs = /** @type {any[]} */ (db.candidatiFaseList(faseId));
+  const rows = cfs.map((/** @type {any} */ cf) => {
+    const cand = /** @type {any} */ (db.state.candidati.find((/** @type {any} */ c) => c.id === cf.candidato_id));
+    const vs = /** @type {any[]} */ (db.valutazioniByCandidatoFase(cf.id));
     const media = mediaCandidato(vs, fase);
     return { cf, cand, media, voti: vs };
-  }).sort((a,b) => b.media - a.media);
+  }).sort((/** @type {any} */ a, /** @type {any} */ b) => b.media - a.media);
 
   modal({
     title: t('admin.fase.detail_title', { nome: fase.nome }),

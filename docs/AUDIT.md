@@ -18,7 +18,7 @@ Questo documento descrive lo **stato attuale** della robustezza del codice. Le a
 | Affidabilità runtime | 🟢 Alto | `/readyz` con ping DB, pool error listener, handler globali, shutdown idempotente con timeout, hub realtime auto-recuperante |
 | Performance/scalabilità | 🟢 Alto | Paginazione su tutti i list endpoint, export GDPR e backup tenant in streaming, cache tenant, indici FK |
 | Test coverage | 🟢 Alto | Suite server in CI su Postgres 18 (rls/auth incl. 2FA/crud incl. calendario/realtime/concorrenza/route) + unit sul core algoritmico |
-| Manutenibilità | 🟢 Alto | Type-check `checkJs` su **tutto** il frontend (gate CI), separazione route/service/middleware, i18n splittato per lingua |
+| Manutenibilità | 🟢 Alto | Type-check `checkJs` **strict** su **tutto** il frontend (gate CI, pari al backend), separazione route/service/middleware, i18n splittato per lingua |
 
 **Giudizio**: base solida e ben difesa su tutti gli assi. Il debito residuo è puramente **evolutivo** (split dei restanti file frontend grandi, lazy-load client), non correttezza né sicurezza, e non blocca l'uso attuale.
 
@@ -84,6 +84,7 @@ Punti critici coperti, provati da test (`tests/crud/concurrency.test.ts`):
 - **Streaming**: export GDPR e backup tenant scritti in streaming (picco memoria = tabella più grande, non la somma) → no OOM su tenant grandi.
 - **Indici**: cache LRU tenant (TTL 60s), indici su FK e colonne filtrate, bulk UPDATE sorteggio, ring-buffer metriche.
 - **Realtime hub**: riconnessione con backoff esponenziale, niente client orfani/morti, timer di reconnect `.unref()`.
+- **Alta disponibilità**: l'app è già failover-aware (pool con reconnect, hub realtime con backoff, retry idempotente lato client, cleanup transazionale) e **stateless** (sessioni in DB) → scalabile a N processi. Topologia HA completa (replica streaming + failover automatico Patroni/HAProxy + PITR + runbook) in [`docs/HA-POSTGRES.md`]. ⚠️ Il cluster va **provisionato al deploy** (≥3 nodi): non è ancora montato/validato — è un deliverable infrastrutturale, non di codice.
 - **PgBouncer-ready**: l'intero stack è compatibile con PgBouncer in *transaction mode* (RLS tenant via `set_config(...,true)` tx-local, advisory lock di candidato transaction-scoped, niente prepared statement con nome né `SET` di sessione). I due soli percorsi session-stateful (LISTEN/NOTIFY del realtime e advisory lock di sessione del cleanup) sono isolati su `DATABASE_URL_DIRECT` che bypassa il bouncer → APP e SUPER possono essere multiplexati. Pool dimensionabili via `DB_APP_POOL_MAX`/`DB_SUPER_POOL_MAX`.
 
 **Residuo evolutivo**: il client carica ancora `db.loadAll` in memoria — adeguato ai volumi attesi; la migrazione a lazy-load per-vista è un'evoluzione successiva da validare in browser.
@@ -102,7 +103,7 @@ Punti critici coperti, provati da test (`tests/crud/concurrency.test.ts`):
 ## 8. Manutenibilità
 
 - ✅ Codice commentato (il *perché*), separazione route/service/middleware netta, TypeScript strict + Drizzle tipizzato.
-- ✅ Type-check `tsc --checkJs` su **tutto** `js/` (gate CI): tipi via JSDoc + cast DOM, globals CDN in `js/globals.d.ts`. Era limitato al core algoritmico.
+- ✅ Type-check `tsc --checkJs` **`strict`** su **tutto** `js/` (gate CI): `strictNullChecks` + `noImplicitAny` + … come il backend. Tipi via JSDoc + cast DOM, globals CDN in `js/globals.d.ts`.
 - ✅ `i18n.js` splittato per lingua (`js/i18n/{it,en,fr,es}.js`, loader da 50 LOC) — l'ex-monolite da ~5.200 LOC non c'è più.
 - ⚠️ File frontend grandi residui (`db.js` ~2.100, `views/superadmin.js` ~1.800, `views/admin/fasi.js` ~1.600 LOC) candidati a split.
 - ✅ Frontend interamente type-checked (`checkJs` su tutto `js/`), oltre a `node --check` + i18n coverage.
@@ -205,3 +206,19 @@ Innalzamento del frontend al livello del backend su type-safety e copertura E2E.
 - Determinismo: il rate-limit login (10/15min per-IP) esauriva il budget durante la suite → ora **gated su `NODE_ENV==='production'`** (invariato in prod, di fatto disattivato in dev/test). Suite ripetibile.
 
 **Verifica:** `tsc -p tsconfig.frontend.json` → 0 errori · `node --check` su tutti i `js/` · unit 47/47 · **E2E 21/21 verdi** (server live dietro PgBouncer :6433) · lint server pulito.
+
+---
+
+## 15. Cronologia — Round R18 (2026-05-24)
+
+Innalzamento a maturità produzione su due assi: type-safety piena e alta disponibilità.
+
+**Type-check `strict` su tutto il frontend (pari al backend):**
+- Da `checkJs strict:false` a **`strict:true`** su tutto `js/`: **2518 errori → 0**, gate CI. Abilita `strictNullChecks` (null-safety reale: ~225 fix di guardie/`?.`/cast che prevengono crash da null-deref) + `noImplicitAny` (~1341, annotazioni di param) + il resto.
+- Eseguito a ondate con subagent paralleli per file + sweep finale dei cascade; tipi precisi sul core logico (`scoring`/`rng`/`tiebreak`), `any` esplicito dove il valore è genuinamente loose (data layer/risposte API). Nessun `@ts-ignore`. Nota: il non-null `!` non è valido in `.js` → usati cast/guardie.
+
+**Alta disponibilità PostgreSQL (replica + failover):**
+- Nuovo runbook completo [`docs/HA-POSTGRES.md`]: topologia (3 nodi PG18 + Patroni + etcd, HAProxy per il routing write/read), replica streaming sincrona, failover automatico (RTO < 30s), PITR (pgBackRest), config app (DSN → HAProxy, incluso `DATABASE_URL_DIRECT`), comportamento dell'app durante il failover, runbook operativo + checklist go-live.
+- **Onesto**: il failover *automatico* è infrastruttura — l'app è già failover-aware e stateless, ma il cluster va provisionato/validato su nodi reali al deploy (qui non riproducibile). Scelta concordata: doc-only, niente modifiche al codice app.
+
+**Verifica:** `tsc -p tsconfig.frontend.json` (strict) → **0** · `node --check` tutti i `js/` · unit **47/47** · **E2E 21/21 verdi** · lint server pulito. ⚠️ HA non ancora montata su infra reale.

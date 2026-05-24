@@ -3,7 +3,7 @@ import { t } from '../i18n.js';
 import { icon } from '../icons.js';
 import { escapeHtml, toast, readImageResized, formFields } from '../utils.js';
 
-export function renderImpostazioni(root) {
+export function renderImpostazioni(/** @type {HTMLElement} */ root) {
   const ente = db.getEnte();
 
   root.innerHTML = `
@@ -103,33 +103,34 @@ export function renderImpostazioni(root) {
     </section>
   `;
 
-  const form = root.querySelector('#ente-form');
+  const form = /** @type {HTMLFormElement} */ (root.querySelector('#ente-form'));
   // Memorizziamo il logo come dataURL già ridimensionato + format-preserving
   // (readImageResized mantiene PNG/WebP con alpha, ricomprime solo JPEG).
-  let logoDataURL = null;
+  let logoDataURL = /** @type {string|null} */ (null);
 
   // Sync color picker <-> text input
-  const cp1 = form.querySelector('[name="colore_primario"]');
-  const ct1 = form.querySelector('[name="colore_primario_text"]');
-  const cp2 = form.querySelector('[name="colore_secondario"]');
-  const ct2 = form.querySelector('[name="colore_secondario_text"]');
+  const cp1 = /** @type {HTMLInputElement} */ (form.querySelector('[name="colore_primario"]'));
+  const ct1 = /** @type {HTMLInputElement} */ (form.querySelector('[name="colore_primario_text"]'));
+  const cp2 = /** @type {HTMLInputElement} */ (form.querySelector('[name="colore_secondario"]'));
+  const ct2 = /** @type {HTMLInputElement} */ (form.querySelector('[name="colore_secondario_text"]'));
   cp1.addEventListener('input', () => { ct1.value = cp1.value; });
   ct1.addEventListener('input', () => { if (/^#[0-9a-f]{6}$/i.test(ct1.value)) cp1.value = ct1.value; });
   cp2.addEventListener('input', () => { ct2.value = cp2.value; });
   ct2.addEventListener('input', () => { if (/^#[0-9a-f]{6}$/i.test(ct2.value)) cp2.value = ct2.value; });
 
   // Logo preview + resize a max 800px (dataURL inline, format-preserving)
-  form.querySelector('[name="logo"]').addEventListener('change', async (e) => {
-    const file = e.target.files[0];
+  /** @type {HTMLElement} */ (form.querySelector('[name="logo"]')).addEventListener('change', async (/** @type {Event} */ e) => {
+    const input = /** @type {HTMLInputElement} */ (e.target);
+    const file = input.files && input.files[0];
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) {
       toast(t('admin.settings.logo_error') || 'File troppo grande (max 5 MB)', 'error');
-      e.target.value = '';
+      input.value = '';
       return;
     }
     try {
       const url = await readImageResized(file, 800, 0.85);
-      const preview = root.querySelector('#ente-logo-preview');
+      const preview = /** @type {any} */ (root.querySelector('#ente-logo-preview'));
       if (preview.tagName === 'IMG') {
         preview.src = url;
       } else {
@@ -146,9 +147,9 @@ export function renderImpostazioni(root) {
     }
   });
 
-  form.addEventListener('submit', async (e) => {
+  form.addEventListener('submit', async (/** @type {Event} */ e) => {
     e.preventDefault();
-    const formData = formFields(e.target);
+    const formData = /** @type {Record<string, any>} */ (formFields(/** @type {HTMLFormElement} */ (e.target)));
     const patch = {
       nome: formData.nome.trim(),
       descrizione: formData.descrizione.trim(),
@@ -160,13 +161,13 @@ export function renderImpostazioni(root) {
       colore_secondario: formData.colore_secondario,
     };
     if (logoDataURL) {
-      patch.logo = logoDataURL;
+      /** @type {Record<string, any>} */ (patch).logo = logoDataURL;
     }
     try {
       await db.saveEnte(patch);
       toast(t('admin.settings.saved'), 'success');
     } catch (err) {
-      toast(err.message, 'error');
+      toast((/** @type {any} */ (err)).message, 'error');
     }
   });
 }

@@ -20,7 +20,7 @@ const AUDIT_LABEL_KEYS = {
   'auth.logout':      ['🔒', 'admin.audit.label.auth_logout'],
 };
 
-export async function renderAudit(root, concorso) {
+export async function renderAudit(/** @type {HTMLElement} */ root, /** @type {any} */ concorso) {
   let scope = 'concorso'; // 'concorso' | 'all'
   let q = '';
 
@@ -43,29 +43,29 @@ export async function renderAudit(root, concorso) {
         <div class="px-4 py-12 text-center text-sm text-ink-500">${escapeHtml(t('admin.audit.loading'))}</div>
       </div>
     `;
-    root.querySelectorAll('[data-scope]').forEach(b => b.addEventListener('click', () => {
+    root.querySelectorAll('[data-scope]').forEach((/** @type {any} */ b) => b.addEventListener('click', () => {
       scope = b.dataset.scope;
       load();
     }));
-    const qEl = root.querySelector('[data-q]');
+    const qEl = /** @type {HTMLInputElement} */ (root.querySelector('[data-q]'));
     qEl.addEventListener('input', () => { q = qEl.value; renderList(); });
   };
 
-  let items = [];
+  let items = /** @type {any[]} */ ([]);
   const load = async () => {
-    const list = root.querySelector('[data-list]');
+    const list = /** @type {HTMLElement} */ (root.querySelector('[data-list]'));
     list.innerHTML = `<div class="px-4 py-12 text-center text-sm text-ink-500">${escapeHtml(t('admin.audit.loading'))}</div>`;
     try {
       items = await db.fetchAuditLog({ concorsoId: scope === 'concorso' ? concorso.id : null });
     } catch (e) {
-      list.innerHTML = `<div class="px-4 py-12 text-center text-sm text-rose-600">${escapeHtml(t('admin.audit.error', { msg: e.message }))}</div>`;
+      list.innerHTML = `<div class="px-4 py-12 text-center text-sm text-rose-600">${escapeHtml(t('admin.audit.error', { msg: (/** @type {any} */ (e)).message }))}</div>`;
       return;
     }
     renderList();
   };
 
   const renderList = () => {
-    const list = root.querySelector('[data-list]');
+    const list = /** @type {HTMLElement} */ (root.querySelector('[data-list]'));
     const filtered = q.trim()
       ? items.filter(i => {
           const hay = `${i.action} ${i.actor_email} ${i.target_label}`.toLowerCase();
@@ -77,7 +77,7 @@ export async function renderAudit(root, concorso) {
       return;
     }
     list.innerHTML = filtered.map(it => {
-      const mapping = AUDIT_LABEL_KEYS[it.action];
+      const mapping = /** @type {Record<string, string[]>} */ (AUDIT_LABEL_KEYS)[it.action];
       const icon = mapping ? mapping[0] : '•';
       const label = mapping ? t(mapping[1]) : it.action;
       const ts = new Date(it.created).toLocaleString('it-IT', { dateStyle: 'short', timeStyle: 'short' });

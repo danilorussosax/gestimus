@@ -8,7 +8,7 @@ import { t } from '../../i18n.js';
 import { iconaPerSezione, rankFase } from './common.js';
 import { buildVerbaleBlock, bindVerbaleBlock } from './verbale.js';
 
-export function renderRisultati(root, concorso) {
+export function renderRisultati(/** @type {any} */ root, /** @type {any} */ concorso) {
   const fasi = db.fasiByConcorso(concorso.id);
 
   // Calcola la dimensione del gruppo (signature sezioni_ids) per ogni fase:
@@ -17,7 +17,7 @@ export function renderRisultati(root, concorso) {
   const groupSize = computeGroupSizes(fasi);
   root.innerHTML = `
     <div class="space-y-6">
-      ${fasi.map(f => buildFaseSummary(f, (groupSize.get(f.id) || 1) > 1)).join('')}
+      ${fasi.map((/** @type {any} */ f) => buildFaseSummary(f, (groupSize.get(f.id) || 1) > 1)).join('')}
       ${buildVerbaleBlock(concorso)}
       <div class="flex justify-end gap-2">
         <button data-action="export-pdf" class="text-sm font-medium text-white bg-brand-500 hover:bg-brand-600 px-3.5 py-2 rounded-lg shadow-soft">${escapeHtml(t('admin.risultati.export_pdf'))}</button>
@@ -31,14 +31,14 @@ export function renderRisultati(root, concorso) {
   bindVerbaleBlock(root, concorso);
 }
 
-async function exportProtocolloPdf(concorso) {
+async function exportProtocolloPdf(/** @type {any} */ concorso) {
   // Verifica che jsPDF + autoTable siano caricati (defer, possono non essere ancora pronti).
   if (!window.jspdf || !window.jspdf.jsPDF) {
     toast(t('admin.risultati.pdf_not_loaded'), 'warn');
     return;
   }
   const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const doc = /** @type {any} */ (new jsPDF({ unit: 'pt', format: 'a4' }));
   // jspdf-autotable estende il prototype: se il CDN non l'ha caricato, doc.autoTable è undefined.
   if (typeof doc.autoTable !== 'function') {
     toast(t('admin.risultati.pdf_not_loaded') || 'Plugin autoTable non caricato. Ricarica la pagina.', 'warn');
@@ -137,7 +137,7 @@ async function exportProtocolloPdf(concorso) {
       styles: { fontSize: 9, cellPadding: 5, lineColor: [231, 229, 235], textColor: [46, 38, 61] },
       headStyles: { fillColor: [115, 103, 240], textColor: 255, fontStyle: 'bold' },
       alternateRowStyles: { fillColor: [248, 247, 250] },
-      didParseCell: (d) => {
+      didParseCell: (/** @type {any} */ d) => {
         // Solo i candidati AMMESSI sono evidenziati col verde emerald (#10b981).
         // I non ammessi restano nel colore default (slate-700) — no rosso.
         if (showEsito && d.section === 'body' && d.column.index === 5 && d.cell.raw === PROMOSSO_LABEL) {
@@ -181,7 +181,7 @@ async function exportProtocolloPdf(concorso) {
   toast(t('admin.risultati.pdf_done'), 'success');
 }
 
-function loadImageDataURL(src) {
+function loadImageDataURL(/** @type {any} */ src) {
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -189,7 +189,7 @@ function loadImageDataURL(src) {
       try {
         const c = document.createElement('canvas');
         c.width = img.naturalWidth; c.height = img.naturalHeight;
-        c.getContext('2d').drawImage(img, 0, 0);
+        /** @type {CanvasRenderingContext2D} */ (c.getContext('2d')).drawImage(img, 0, 0);
         resolve(c.toDataURL('image/png'));
       } catch { resolve(null); }
     };
@@ -205,7 +205,7 @@ function loadImageDataURL(src) {
 // Mappa { faseId → quanti gemelli (incluso self) condividono la stessa
 // signature `sezioni_ids` nello stesso concorso }. Usata per decidere se la
 // colonna esito ha senso: per gruppi con una sola fase l'esito è ridondante.
-function computeGroupSizes(fasi) {
+function computeGroupSizes(/** @type {any} */ fasi) {
   const counts = new Map();
   const signatures = new Map(); // faseId → sig
   for (const f of fasi) {
@@ -219,10 +219,10 @@ function computeGroupSizes(fasi) {
   return result;
 }
 
-function faseScopeLabel(fase) {
+function faseScopeLabel(/** @type {any} */ fase) {
   const ids = Array.isArray(fase?.sezioni_ids) ? fase.sezioni_ids : [];
   if (ids.length === 0) return '';
-  const nomi = ids.map(id => db.state.sezioni.find(s => s.id === id)?.nome).filter(Boolean);
+  const nomi = ids.map((/** @type {any} */ id) => db.state.sezioni.find((/** @type {any} */ s) => s.id === id)?.nome).filter(Boolean);
   if (nomi.length === 0) return '';
   return ' · ' + nomi.join(' + ');
 }
@@ -231,13 +231,13 @@ function faseScopeLabel(fase) {
 // congelata (campo presente da migration 1700000041_tiebreak_strategy.js),
 // usiamo la classifica congelata + badge spareggio + gestione ex aequo.
 // Altrimenti (fase IN_CORSO o legacy) calcoliamo live ordinando per media.
-function buildFaseSummary(fase, showEsito = true) {
+function buildFaseSummary(/** @type {any} */ fase, showEsito = true) {
   const cfs = db.candidatiFaseList(fase.id);
   // Etichette esito custom (default "PROMOSSO"/"ELIMINATO" se vuoti)
   const PROMOSSO_LABEL = fase.testo_esito_promosso || t('admin.risultati.promosso');
   const ELIMINATO_LABEL = fase.testo_esito_eliminato || t('admin.risultati.eliminato');
   const scope = faseScopeLabel(fase);
-  const ic = scope ? iconaPerSezione(fase.sezioni_ids?.[0] ? db.state.sezioni.find(s => s.id === fase.sezioni_ids[0])?.nome : '') : '';
+  const ic = scope ? iconaPerSezione(fase.sezioni_ids?.[0] ? db.state.sezioni.find((/** @type {any} */ s) => s.id === fase.sezioni_ids[0])?.nome : '') : '';
   const titleHtml = `<span class="text-slate-400 font-mono mr-1">#${fase.ordine}</span>${ic ? ic + ' ' : ''}${escapeHtml(fase.nome)}${scope ? `<span class="text-slate-500 font-normal">${escapeHtml(scope)}</span>` : `<span class="text-xs text-slate-400 italic ml-2">${escapeHtml(t('admin.risultati.fase_scope_all') || 'tutte le sezioni')}</span>`}`;
   if (cfs.length === 0) return `
     <div class="bg-white border border-slate-200 rounded-2xl p-5">
@@ -257,8 +257,8 @@ function buildFaseSummary(fase, showEsito = true) {
       <div class="flex items-center justify-between mb-3 flex-wrap gap-2">
         <h3 class="font-semibold text-slate-900">${titleHtml}</h3>
         <div class="flex items-center gap-2 flex-wrap">
-          ${tiebreakCount > 0 ? `<span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200" title="${escapeHtml(t('admin.risultati.tiebreak_badge_title') || 'Spareggi applicati per risolvere parità di punteggio')}">⚖ ${escapeHtml((t('admin.risultati.tiebreak_badge') || '{n} spareggi').replace('{n}', tiebreakCount))}</span>` : ''}
-          ${exAequoGroups.size > 0 ? `<span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-violet-100 text-violet-800 border border-violet-200">🤝 ${escapeHtml((t('admin.risultati.ex_aequo_badge') || '{n} ex aequo').replace('{n}', exAequoGroups.size))}</span>` : ''}
+          ${tiebreakCount > 0 ? `<span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200" title="${escapeHtml(t('admin.risultati.tiebreak_badge_title') || 'Spareggi applicati per risolvere parità di punteggio')}">⚖ ${escapeHtml((t('admin.risultati.tiebreak_badge') || '{n} spareggi').replace('{n}', String(tiebreakCount)))}</span>` : ''}
+          ${exAequoGroups.size > 0 ? `<span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-violet-100 text-violet-800 border border-violet-200">🤝 ${escapeHtml((t('admin.risultati.ex_aequo_badge') || '{n} ex aequo').replace('{n}', String(exAequoGroups.size)))}</span>` : ''}
           <span class="text-xs px-2 py-0.5 rounded-full ${fase.stato === 'CONCLUSA' ? 'bg-slate-200 text-slate-700' : 'bg-brand-100 text-brand-800'}">${escapeHtml(String(fase.stato || 'PIANIFICATA').replace(/_/g, ' '))}</span>
         </div>
       </div>
@@ -278,7 +278,7 @@ function buildFaseSummary(fase, showEsito = true) {
               const isExAequo = !!r.ex_aequo_group;
               const hadTiebreak = Array.isArray(r.tiebreak_log) && r.tiebreak_log.length > 1;
               const tbTooltip = hadTiebreak
-                ? r.tiebreak_log.map(s => `• ${s.motivazione || s.step}`).join('\n')
+                ? r.tiebreak_log.map((/** @type {any} */ s) => `• ${s.motivazione || s.step}`).join('\n')
                 : '';
               return `
               <tr ${isExAequo ? 'class="bg-violet-50/40"' : ''}>
@@ -309,7 +309,7 @@ function buildFaseSummary(fase, showEsito = true) {
               ${rows.filter(r => Array.isArray(r.tiebreak_log) && r.tiebreak_log.length > 1).map(r => `
                 <li>
                   <span class="font-semibold">#${String(r.cand?.numero_candidato||'').padStart(3,'0')} ${escapeHtml(displayName(r.cand))}</span> →
-                  <span>${r.tiebreak_log.map(s => escapeHtml(s.motivazione || s.step)).join(' → ')}</span>
+                  <span>${r.tiebreak_log.map((/** @type {any} */ s) => escapeHtml(s.motivazione || s.step)).join(' → ')}</span>
                 </li>
               `).join('')}
             </ul>
@@ -320,16 +320,16 @@ function buildFaseSummary(fase, showEsito = true) {
   `;
 }
 
-function exportCsv(concorso) {
+function exportCsv(/** @type {any} */ concorso) {
   // Helper: quota qualsiasi valore CSV-safe (RFC 4180) + protezione formula injection.
-  const csvField = (v) => {
+  const csvField = (/** @type {any} */ v) => {
     let s = String(v ?? '');
     if (s.length && /^[=+\-@\t\r]/.test(s)) s = "'" + s;
     return `"${s.replaceAll('"', '""')}"`;
   };
   const fasi = db.fasiByConcorso(concorso.id);
   const lines = ['Fase,Posizione,Numero,Nome,Cognome,Strumento,Nazionalita,Eta,Media,Esito'];
-  fasi.forEach(fase => {
+  fasi.forEach((/** @type {any} */ fase) => {
     const cfs = db.candidatiFaseList(fase.id);
     // N124/M163: export CSV con la stessa risoluzione pareggi della UI.
     const rows = rankFase(fase, cfs);

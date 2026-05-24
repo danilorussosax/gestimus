@@ -6,6 +6,7 @@
 // fase doesn't override it (backward compat with the original spec).
 
 // Default weights per fase ordine (legacy spec).
+/** @type {Record<number, Record<string, number>>} */
 export const PESI = {
   1: { tecnica: 0.40, interpretazione: 0.30, intonazione: 0.20, musicalita: 0.10 },
   2: { tecnica: 0.35, interpretazione: 0.35, intonazione: 0.15, musicalita: 0.15 },
@@ -14,6 +15,7 @@ export const PESI = {
 
 // Default criteri keys & labels.
 export const DEFAULT_CRITERI_KEYS = ['tecnica','interpretazione','intonazione','musicalita'];
+/** @type {Record<string, string>} */
 export const DEFAULT_CRITERI_LABEL = {
   tecnica: 'Tecnica',
   interpretazione: 'Interpretazione',
@@ -35,7 +37,7 @@ export function defaultCriteri(ordine = 1) {
 }
 
 // Slugify a label into a safe key.
-export function slugifyKey(s) {
+export function slugifyKey(/** @type {any} */ s) {
   return String(s || '').toLowerCase()
     .normalize('NFD').replace(/[̀-ͯ]/g, '')
     .replace(/[^a-z0-9]+/g, '_')
@@ -47,10 +49,10 @@ export function slugifyKey(s) {
 //   • fase.criteri = [{key,label,peso}, …]  (preferred, dynamic)
 //   • fase.pesi    = {tecnica:..., …}        (legacy mapping, builds default 4-criteri)
 //   • else: defaults from PESI[ordine].
-export function getCriteri(faseOrOrdine) {
+export function getCriteri(/** @type {any} */ faseOrOrdine) {
   if (faseOrOrdine && typeof faseOrOrdine === 'object') {
     if (Array.isArray(faseOrOrdine.criteri) && faseOrOrdine.criteri.length > 0) {
-      return faseOrOrdine.criteri.map((c, i) => ({
+      return faseOrOrdine.criteri.map((/** @type {any} */ c, /** @type {number} */ i) => ({
         key:   c.key   || slugifyKey(c.label) || `crit_${i+1}`,
         label: c.label || c.key || `Criterio ${i+1}`,
         peso:  Number(c.peso) || 0,
@@ -68,9 +70,10 @@ export function getCriteri(faseOrOrdine) {
 }
 
 // Backward-compat: returns a {key: peso} map. Built from getCriteri.
-export function getPesiFor(faseOrOrdine) {
+export function getPesiFor(/** @type {any} */ faseOrOrdine) {
+  /** @type {Record<string, number>} */
   const out = {};
-  getCriteri(faseOrOrdine).forEach(c => { out[c.key] = c.peso || 0; });
+  getCriteri(faseOrOrdine).forEach((/** @type {any} */ c) => { out[c.key] = c.peso || 0; });
   return out;
 }
 
@@ -81,7 +84,7 @@ export function getPesiFor(faseOrOrdine) {
 // significa "non ancora valutato", non un errore. Un voto legittimo di 0 e una
 // chiave assente coincidono intenzionalmente (entrambi → 0). Centralizzato qui
 // così l'intento è chiaro e non sembra una coercizione silenziosa accidentale.
-function votoCriterio(voti, key) {
+function votoCriterio(/** @type {Record<string, any> | null | undefined} */ voti, /** @type {string} */ key) {
   const raw = voti?.[key];
   if (raw == null) return 0; // criterio non valutato → 0 (intenzionale)
   const n = Number(raw);
@@ -89,24 +92,25 @@ function votoCriterio(voti, key) {
 }
 
 // Total weighted score for a single commissario across the fase's criteri.
-function pesatoVoti(criteri, voti) {
-  return criteri.reduce((s, c) => s + votoCriterio(voti, c.key) * (c.peso || 0), 0);
+function pesatoVoti(/** @type {any[]} */ criteri, /** @type {Record<string, any> | null | undefined} */ voti) {
+  return criteri.reduce((/** @type {number} */ s, /** @type {any} */ c) => s + votoCriterio(voti, c.key) * (c.peso || 0), 0);
 }
 
-export function pesato(voti, faseOrOrdine) {
+export function pesato(/** @type {Record<string, any> | null | undefined} */ voti, /** @type {any} */ faseOrOrdine) {
   return pesatoVoti(getCriteri(faseOrOrdine), voti);
 }
 
 // Aggregate per-candidato media across all commissioners' weighted totals.
 // Uses the fase-configured criteri (number/labels/pesi) and metodo_media.
-export function mediaCandidato(valutazioni, faseOrOrdine) {
+export function mediaCandidato(/** @type {any[]} */ valutazioni, /** @type {any} */ faseOrOrdine) {
   const criteri = getCriteri(faseOrOrdine);
   const metodo = getMetodoMedia(faseOrOrdine);
+  /** @type {Record<string, Record<string, any>>} */
   const byCom = {};
-  valutazioni.forEach(v => {
+  valutazioni.forEach((/** @type {any} */ v) => {
     (byCom[v.commissario_id] ||= {})[v.criterio] = v.voto;
   });
-  const totals = Object.values(byCom).map(voti => pesatoVoti(criteri, voti));
+  const totals = Object.values(byCom).map((/** @type {any} */ voti) => pesatoVoti(criteri, voti));
   if (!totals.length) return 0;
   return computeAggregate(totals, metodo);
 }
@@ -161,13 +165,13 @@ export const METODI_MEDIA = {
   },
 };
 
-export function getMetodoMedia(fase) {
+export function getMetodoMedia(/** @type {any} */ fase) {
   if (!fase) return 'aritmetica';
   const m = fase.metodo_media;
   return Object.prototype.hasOwnProperty.call(METODI_MEDIA, m) ? m : 'aritmetica';
 }
 
-export function suggerisciMetodo(nCommissari) {
+export function suggerisciMetodo(/** @type {any} */ nCommissari) {
   const n = Number(nCommissari) || 0;
   if (n <= 2) return { metodo: 'aritmetica', motivo: `Con ${n} commissari un filtro statistico non ha abbastanza dati per essere significativo.` };
   if (n === 3) return { metodo: 'mediana',    motivo: 'Con 3 commissari la mediana è la scelta più robusta — non viene influenzata da un singolo voto estremo.' };
@@ -177,16 +181,16 @@ export function suggerisciMetodo(nCommissari) {
   return { metodo: 'deviazione_std', motivo: `Con ${n} commissari la deviazione standard è statisticamente affidabile e identifica voti anomali.` };
 }
 
-function aritmeticaArr(arr) {
+function aritmeticaArr(/** @type {number[]} */ arr) {
   if (!arr.length) return 0;
   return arr.reduce((s,x) => s + x, 0) / arr.length;
 }
-function olimpicaArr(arr) {
+function olimpicaArr(/** @type {number[]} */ arr) {
   if (arr.length <= 2) return aritmeticaArr(arr);
   const sorted = [...arr].sort((a,b) => a - b);
   return aritmeticaArr(sorted.slice(1, -1));
 }
-function winsorizzataArr(arr) {
+function winsorizzataArr(/** @type {number[]} */ arr) {
   if (arr.length <= 2) return aritmeticaArr(arr);
   // M161 (non è un bug): con n=3, winsorizzare 1 valore da ciascun estremo
   // sostituisce min e max con il valore centrale → tutti e tre diventano la
@@ -198,14 +202,14 @@ function winsorizzataArr(arr) {
   capped[capped.length - 1] = sorted[sorted.length - 2];
   return aritmeticaArr(capped);
 }
-function medianaArr(arr) {
+function medianaArr(/** @type {number[]} */ arr) {
   if (!arr.length) return 0;
   const sorted = [...arr].sort((a,b) => a - b);
   const n = sorted.length;
   if (n % 2 === 1) return sorted[(n - 1) / 2];
   return (sorted[n/2 - 1] + sorted[n/2]) / 2;
 }
-function deviazioneStdArr(arr, k = 2) {
+function deviazioneStdArr(/** @type {number[]} */ arr, k = 2) {
   if (arr.length < 3) return aritmeticaArr(arr);
   const mean = aritmeticaArr(arr);
   // L11: deviazione standard CAMPIONARIA (divisione per n-1, correzione di
@@ -219,7 +223,7 @@ function deviazioneStdArr(arr, k = 2) {
   return aritmeticaArr(filtered.length ? filtered : arr);
 }
 
-export function computeAggregate(values, metodo = 'aritmetica') {
+export function computeAggregate(/** @type {any} */ values, metodo = 'aritmetica') {
   // L250: scarta valori non finiti (NaN/Infinity) → robusto anche se chiamata
   // direttamente con input sporchi (l'uso interno passa già voti finiti).
   const vals = (Array.isArray(values) ? values : []).filter((v) => Number.isFinite(v));
@@ -235,7 +239,7 @@ export function computeAggregate(values, metodo = 'aritmetica') {
 
 // Resolve the score scale (max value of an individual vote) of a fase.
 // Default 10. Backward compatible: if fase has no .scala, return 10.
-export function getScala(faseOrScala) {
+export function getScala(/** @type {any} */ faseOrScala) {
   // N83: una scala negativa è truthy in JS (`-5 || 10` → -5) e si propagherebbe
   // in suggestEliminatoria (media/scala negativa). Clamp al minimo valido (2).
   if (faseOrScala == null) return 10;
@@ -244,18 +248,18 @@ export function getScala(faseOrScala) {
   return Math.max(2, n);
 }
 
-export function voteStep(scala) {
+export function voteStep(/** @type {any} */ scala) {
   return (Number(scala) || 10) <= 10 ? 0.5 : 1;
 }
 
 // Modalità di valutazione: 'autonoma' (default) o 'sincrona'.
 // Sincrona: nessun commissario avanza finché tutti non hanno votato il candidato corrente.
-export function getModoValutazione(fase) {
+export function getModoValutazione(/** @type {any} */ fase) {
   if (!fase) return 'autonoma';
   return fase.modo_valutazione === 'sincrona' ? 'sincrona' : 'autonoma';
 }
 
-export function fmtVoto(v, scala) {
+export function fmtVoto(/** @type {any} */ v, /** @type {any} */ scala) {
   // M162: su scala >10 i voti individuali sono interi (voteStep=1), ma le MEDIE
   // possono essere frazionarie (es. 7.5). Mantieni 1 decimale per i non interi,
   // altrimenti 7.5 verrebbe mostrato come "8".
@@ -271,12 +275,12 @@ export function fmtVoto(v, scala) {
 //   - media >= 6.5  → ammesso (STANDARD), MERITO se >= 8.0;
 //   - media 6.0–6.5 e al più 2 voti sotto 6 → ammesso con tolleranza (STANDARD).
 // Generalized: norm = media/scala. Soglie 0.65 / 0.80 / 0.60.
-export function suggestEliminatoria({ media, voti, scala = 10 }) {
+export function suggestEliminatoria(/** @type {{ media: number, voti?: number[], scala?: number }} */ { media, voti, scala = 10 }) {
   const s = Number(scala) || 10;
   const norm = s ? media / s : 0;
   if (norm >= 0.65) return { ammesso: true, fascia: norm >= 0.80 ? 'MERITO' : 'STANDARD' };
   if (norm >= 0.60) {
-    const sotto = (voti || []).filter(v => (v / s) < 0.60).length;
+    const sotto = (voti || []).filter((/** @type {number} */ v) => (v / s) < 0.60).length;
     if (sotto <= 2) return { ammesso: true, fascia: 'STANDARD' };
   }
   return { ammesso: false, fascia: 'ELIMINATO' };

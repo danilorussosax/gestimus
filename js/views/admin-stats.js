@@ -3,7 +3,7 @@ import { t } from '../i18n.js';
 import { icon } from '../icons.js';
 import { escapeHtml } from '../utils.js';
 
-export function renderStats(root) {
+export function renderStats(/** @type {HTMLElement} */ root) {
   const s = db.state;
   const concorsi = s.concorsi;
 
@@ -16,18 +16,18 @@ export function renderStats(root) {
         </div>`;
     }
 
-    const concorso = concorsi.find(c => c.id === s.meta.activeConcorsoId) || concorsi[0];
+    const concorso = concorsi.find((/** @type {any} */ c) => c.id === s.meta.activeConcorsoId) || concorsi[0];
     const fasi = db.fasiByConcorso(concorso.id);
     const candidati = db.candidatiByConcorso(concorso.id);
     const commissari = db.commissariByConcorso(concorso.id);
-    const valutazioni = s.valutazioni.filter(v => {
-      const cf = s.candidati_fase.find(x => x.id === v.candidato_fase_id);
-      return cf && fasi.some(f => f.id === cf.fase_id);
+    const valutazioni = s.valutazioni.filter((/** @type {any} */ v) => {
+      const cf = s.candidati_fase.find((/** @type {any} */ x) => x.id === v.candidato_fase_id);
+      return cf && fasi.some((/** @type {any} */ f) => f.id === cf.fase_id);
     });
 
     // Strumenti distribution
-    const strumentiMap = {};
-    candidati.forEach(c => {
+    const strumentiMap = /** @type {Record<string, number>} */ ({});
+    candidati.forEach((/** @type {any} */ c) => {
       const strum = c.strumento || 'Altro';
       strumentiMap[strum] = (strumentiMap[strum] || 0) + 1;
     });
@@ -37,8 +37,8 @@ export function renderStats(root) {
     const maxStrumenti = Math.max(1, ...strumentiSorted.map(p => p[1]));
 
     // Nazionalità
-    const nazMap = {};
-    candidati.forEach(c => {
+    const nazMap = /** @type {Record<string, number>} */ ({});
+    candidati.forEach((/** @type {any} */ c) => {
       const n = c.nazionalita || '—';
       nazMap[n] = (nazMap[n] || 0) + 1;
     });
@@ -46,13 +46,13 @@ export function renderStats(root) {
     const maxNaz = Math.max(1, ...nazSorted.map(p => p[1]));
 
     // Fasi stats
-    const fasiStats = fasi.map(f => {
-      const cfs = s.candidati_fase.filter(cf => cf.fase_id === f.id);
-      const valCount = valutazioni.filter(v => {
-        const cf = cfs.find(x => x.id === v.candidato_fase_id);
+    const fasiStats = fasi.map((/** @type {any} */ f) => {
+      const cfs = s.candidati_fase.filter((/** @type {any} */ cf) => cf.fase_id === f.id);
+      const valCount = valutazioni.filter((/** @type {any} */ v) => {
+        const cf = cfs.find((/** @type {any} */ x) => x.id === v.candidato_fase_id);
         return !!cf;
       }).length;
-      const passed = cfs.filter(cf => cf.ammesso_prossima_fase).length;
+      const passed = cfs.filter((/** @type {any} */ cf) => cf.ammesso_prossima_fase).length;
       return { nome: f.nome, ordine: f.ordine, totale: cfs.length, valutazioni: valCount, ammessi: passed };
     });
 
@@ -111,7 +111,7 @@ export function renderStats(root) {
               </tr>
             </thead>
             <tbody>
-              ${fasiStats.map(fs => `
+              ${fasiStats.map((/** @type {any} */ fs) => `
                 <tr class="border-b border-brand-50 hover:bg-brand-50/30 transition-colors">
                   <td class="px-3 py-2.5 font-medium text-ink-900">${escapeHtml(fs.nome)}</td>
                   <td class="px-3 py-2.5 text-center font-mono text-ink-700">${fs.totale}</td>

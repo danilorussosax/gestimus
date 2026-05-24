@@ -10,17 +10,17 @@ import { t } from '../../i18n.js';
 import { iconaPerSezione } from './common.js';
 import { openImportModal } from './import.js';
 
-export function openStoricoCandidato(cand) {
-  const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+export function openStoricoCandidato(/** @type {any} */ cand) {
+  const norm = (/** @type {any} */ s) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
   const key = `${norm(cand.nome)}|${norm(cand.cognome)}`;
-  const allMatches = db.state.candidati.filter(c =>
+  const allMatches = db.state.candidati.filter((/** @type {any} */ c) =>
     c.id !== cand.id && `${norm(c.nome)}|${norm(c.cognome)}` === key
   );
 
-  const rows = allMatches.map(c => {
-    const concorso = db.state.concorsi.find(x => x.id === c.concorso_id);
+  const rows = allMatches.map((/** @type {any} */ c) => {
+    const concorso = db.state.concorsi.find((/** @type {any} */ x) => x.id === c.concorso_id);
     return { cand: c, concorso };
-  }).sort((a, b) => (b.concorso?.anno || 0) - (a.concorso?.anno || 0));
+  }).sort((/** @type {any} */ a, /** @type {any} */ b) => (b.concorso?.anno || 0) - (a.concorso?.anno || 0));
 
   modal({
     title: t('admin.storico.title', { nome: displayName(cand) }),
@@ -29,10 +29,10 @@ export function openStoricoCandidato(cand) {
       <p class="text-sm text-slate-500 italic text-center py-8">${t('admin.storico.empty')}</p>
     ` : `
       <div class="space-y-3">
-        ${rows.map(({ cand: c, concorso }) => {
+        ${rows.map((/** @type {{cand:any,concorso:any}} */ { cand: c, concorso }) => {
           const fasi = db.fasiByConcorso(concorso?.id);
-          const cfs = db.state.candidati_fase.filter(cf => cf.candidato_id === c.id);
-          const vals = db.state.valutazioni.filter(v => cfs.some(cf => cf.id === v.candidato_fase_id));
+          const cfs = db.state.candidati_fase.filter((/** @type {any} */ cf) => cf.candidato_id === c.id);
+          const vals = db.state.valutazioni.filter((/** @type {any} */ v) => cfs.some((/** @type {any} */ cf) => cf.id === v.candidato_fase_id));
           return `
             <div class="bg-white border border-slate-200 rounded-xl p-4">
               <div class="flex items-center justify-between gap-3 mb-2">
@@ -76,23 +76,23 @@ export function openStoricoCandidato(cand) {
 //  - Altrimenti: elimina i record originali assenti dal nuovo elenco, aggiorna
 //    quelli con id rimasti se i campi sono cambiati, crea i nuovi (senza id).
 //  - Le righe completamente vuote (no nome) vengono scartate.
-async function syncMembriGruppo(candidatoId, isGroupLike, original, current) {
+async function syncMembriGruppo(/** @type {any} */ candidatoId, /** @type {any} */ isGroupLike, /** @type {any} */ original, /** @type {any} */ current) {
   const sanitized = (current || [])
-    .map(m => ({
+    .map((/** @type {any} */ m) => ({
       id: m.id || null,
       nome: (m.nome || '').trim(),
       cognome: (m.cognome || '').trim(),
       strumento: (m.strumento || '').trim(),
       data_nascita: (m.data_nascita || '').trim(),
     }))
-    .filter(m => m.nome);
+    .filter((/** @type {any} */ m) => m.nome);
   if (!isGroupLike) {
     for (const o of original) {
       await db.removeMembroGruppo(candidatoId, o.id);
     }
     return;
   }
-  const keptIds = new Set(sanitized.filter(m => m.id).map(m => m.id));
+  const keptIds = new Set(sanitized.filter((/** @type {any} */ m) => m.id).map((/** @type {any} */ m) => m.id));
   for (const o of original) {
     if (!keptIds.has(o.id)) {
       await db.removeMembroGruppo(candidatoId, o.id);
@@ -100,7 +100,7 @@ async function syncMembriGruppo(candidatoId, isGroupLike, original, current) {
   }
   for (const m of sanitized) {
     if (m.id) {
-      const old = original.find(o => o.id === m.id);
+      const old = original.find((/** @type {any} */ o) => o.id === m.id);
       const changed = !old
         || (old.nome || '') !== m.nome
         || (old.cognome || '') !== m.cognome
@@ -116,16 +116,16 @@ async function syncMembriGruppo(candidatoId, isGroupLike, original, current) {
 }
 
 // ---------- Gestione membri gruppo ----------
-export function openMembriGruppoModal(concorso, gruppo, onSaved) {
+export function openMembriGruppoModal(/** @type {any} */ concorso, /** @type {any} */ gruppo, /** @type {any} */ onSaved) {
   // Guardia: la modale ha senso solo per candidati di tipo gruppo/orchestra.
   if (!gruppo || (gruppo.tipo !== 'gruppo' && gruppo.tipo !== 'orchestra')) {
     toast(t('admin.gruppo.not_group') || 'Questo candidato non è un gruppo', 'error');
     return;
   }
   const membri = db.membriGruppo(gruppo.id);
-  const membriIds = new Set(membri.map(m => m.candidato_id));
+  const membriIds = new Set(membri.map((/** @type {any} */ m) => m.candidato_id));
   const candidatiDisponibili = db.candidatiByConcorso(concorso.id)
-    .filter(c => c.id !== gruppo.id && c.tipo !== 'gruppo' && c.tipo !== 'orchestra' && !membriIds.has(c.id));
+    .filter((/** @type {any} */ c) => c.id !== gruppo.id && c.tipo !== 'gruppo' && c.tipo !== 'orchestra' && !membriIds.has(c.id));
 
   modal({
     title: t('admin.gruppo.members_title', { nome: gruppo.nome }),
@@ -136,7 +136,7 @@ export function openMembriGruppoModal(concorso, gruppo, onSaved) {
           <div>
             <p class="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">${escapeHtml(t('admin.gruppo.current_members'))} (${membri.length})</p>
             <div class="space-y-2">
-              ${membri.map(m => `
+              ${membri.map((/** @type {any} */ m) => `
                 <div class="flex items-center justify-between bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
                   <div class="flex items-center gap-2 min-w-0">
                     <span class="font-medium text-slate-800 text-sm truncate">${escapeHtml(displayName(m))}</span>
@@ -154,7 +154,7 @@ export function openMembriGruppoModal(concorso, gruppo, onSaved) {
           <input type="text" data-search-candidate class="mb-2 w-full border border-slate-300 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-brand-500" placeholder="Cerca candidato..." />
           ${candidatiDisponibili.length === 0 ? `<p class="text-sm text-slate-400 italic">${escapeHtml(t('admin.gruppo.no_candidates'))}</p>` : `
             <div class="space-y-2 max-h-48 overflow-y-auto">
-              ${candidatiDisponibili.map(c => `
+              ${candidatiDisponibili.map((/** @type {any} */ c) => `
                 <div data-candidate-row class="flex items-center justify-between bg-white border border-slate-200 rounded-lg px-3 py-2 hover:border-brand-200 transition">
                   <div class="min-w-0">
                     <div class="font-medium text-slate-800 text-sm truncate">${escapeHtml(displayName(c))} · ${escapeHtml(c.strumento || '—')}</div>
@@ -183,9 +183,9 @@ export function openMembriGruppoModal(concorso, gruppo, onSaved) {
       body.querySelector('[data-search-candidate]')?.addEventListener('input', (e) => {
         const q = /** @type {HTMLInputElement} */ (e.target).value.toLowerCase().trim();
         const rows = body.querySelectorAll('[data-candidate-row]');
-        rows.forEach(row => {
-          const text = row.textContent.toLowerCase();
-          row.classList.toggle('hidden', q && !text.includes(q));
+        rows.forEach((/** @type {any} */ row) => {
+          const text = (row.textContent || '').toLowerCase();
+          row.classList.toggle('hidden', !!q && !text.includes(q));
         });
       });
     },
@@ -194,7 +194,7 @@ export function openMembriGruppoModal(concorso, gruppo, onSaved) {
 
 // ---------- Fasi (tab admin) ----------
 
-export function renderCandidati(root, concorso) {
+export function renderCandidati(/** @type {any} */ root, /** @type {any} */ concorso) {
   const list = db.candidatiByConcorso(concorso.id);
   root.innerHTML = `
     <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
@@ -212,7 +212,7 @@ export function renderCandidati(root, concorso) {
       </div>
     ` : `
       <div class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-3">
-        ${list.map(c => candidatoCardHtml(c)).join('')}
+        ${list.map((/** @type {any} */ c) => candidatoCardHtml(c)).join('')}
       </div>
     `}
   `;
@@ -220,12 +220,12 @@ export function renderCandidati(root, concorso) {
   root.querySelector('[data-action="add"]').addEventListener('click', () => openCandidatoForm(concorso, null, () => renderCandidati(root, concorso)));
   root.querySelector('[data-action="import"]').addEventListener('click', () => openImportModal(concorso, 'candidati', () => renderCandidati(root, concorso)));
 
-  root.querySelectorAll('[data-edit]').forEach(b => b.addEventListener('click', () => {
-    const c = db.state.candidati.find(x => x.id === b.dataset.edit);
+  root.querySelectorAll('[data-edit]').forEach((/** @type {any} */ b) => b.addEventListener('click', () => {
+    const c = db.state.candidati.find((/** @type {any} */ x) => x.id === b.dataset.edit);
     if (c) openCandidatoForm(concorso, c, () => renderCandidati(root, concorso));
   }));
 
-  root.querySelectorAll('[data-del]').forEach(b => b.addEventListener('click', () => {
+  root.querySelectorAll('[data-del]').forEach((/** @type {any} */ b) => b.addEventListener('click', () => {
     const id = b.dataset.del;
     confirmDialog({
       title: t('admin.candidati.delete_title'),
@@ -233,28 +233,28 @@ export function renderCandidati(root, concorso) {
       danger: true,
       onConfirm: async () => {
         try { await db.deleteCandidato(id); renderCandidati(root, concorso); }
-        catch (e) { toast(e.message, 'error'); }
+        catch (e) { toast((/** @type {any} */ (e))?.message, 'error'); }
       }
     });
   }));
 
-  root.querySelectorAll('[data-manage-members]').forEach(b => b.addEventListener('click', () => {
-    const c = db.state.candidati.find(x => x.id === b.dataset.manageMembers);
+  root.querySelectorAll('[data-manage-members]').forEach((/** @type {any} */ b) => b.addEventListener('click', () => {
+    const c = db.state.candidati.find((/** @type {any} */ x) => x.id === b.dataset.manageMembers);
     if (c) openMembriGruppoModal(concorso, c, () => renderCandidati(root, concorso));
   }));
-  root.querySelectorAll('[data-history]').forEach(b => b.addEventListener('click', () => {
-    const c = db.state.candidati.find(x => x.id === b.dataset.history);
+  root.querySelectorAll('[data-history]').forEach((/** @type {any} */ b) => b.addEventListener('click', () => {
+    const c = db.state.candidati.find((/** @type {any} */ x) => x.id === b.dataset.history);
     if (c) openStoricoCandidato(c);
   }));
 }
 
-function candidatoCardHtml(c) {
+function candidatoCardHtml(/** @type {any} */ c) {
   const eta = ageFromDate(c.data_nascita) ?? c.eta;
   const docenti = c.docenti_preparatori || [];
   // Lo schema DB è N:1 (una sezione, una categoria per candidato), non N:M.
   // Normalizzo a singleton-array così il rendering del badge sotto resta uguale.
-  const sezione = c.sezione_id ? db.state.sezioni.find(s => s.id === c.sezione_id) : null;
-  const categoria = c.categoria_id ? db.state.categorie.find(x => x.id === c.categoria_id) : null;
+  const sezione = c.sezione_id ? db.state.sezioni.find((/** @type {any} */ s) => s.id === c.sezione_id) : null;
+  const categoria = c.categoria_id ? db.state.categorie.find((/** @type {any} */ x) => x.id === c.categoria_id) : null;
   const sezioni = sezione ? [sezione] : [];
   const categorie = categoria ? [categoria] : [];
   const isOrchestra = c.tipo === 'orchestra';
@@ -277,7 +277,7 @@ function candidatoCardHtml(c) {
         <p class="text-xs text-slate-600 truncate">${escapeHtml(c.strumento || '—')}${!isGruppo && eta ? ` · ${escapeHtml(t('admin.candidati.years', { n: eta }))}` : ''}</p>
         ${isGruppo && membri.length > 0 ? `
           <div class="mt-1.5 flex items-center gap-1 flex-wrap">
-            ${membri.map(m => `<span class="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded-full font-medium">${escapeHtml(m.nome || '')} ${escapeHtml(m.cognome || '')}${m.strumento ? ' · ' + escapeHtml(m.strumento) : ''}</span>`).join('')}
+            ${membri.map((/** @type {any} */ m) => `<span class="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded-full font-medium">${escapeHtml(m.nome || '')} ${escapeHtml(m.cognome || '')}${m.strumento ? ' · ' + escapeHtml(m.strumento) : ''}</span>`).join('')}
           </div>
         ` : ''}
         ${membri.length > 0 ? `<p class="text-[10px] text-purple-600 mt-0.5 font-medium">${escapeHtml(t('admin.candidati.members_count', { n: membri.length }))}</p>` : ''}
@@ -302,7 +302,7 @@ function candidatoCardHtml(c) {
   `;
 }
 
-function openCv(cv) {
+function openCv(/** @type {any} */ cv) {
   if (!cv?.dataURL) return;
   if (cv.type === 'application/pdf') {
     const win = window.open();
@@ -322,7 +322,7 @@ function openCv(cv) {
   a.remove();
 }
 
-function cvBadge(cv) {
+function cvBadge(/** @type {any} */ cv) {
   return `
     <div class="flex items-center justify-between gap-2 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
       <div class="min-w-0">
@@ -337,7 +337,7 @@ function cvBadge(cv) {
   `;
 }
 
-function fotoPreviewHtml(fotoData) {
+function fotoPreviewHtml(/** @type {any} */ fotoData) {
   // A4: safeUrl anche nella preview del form. fotoData può essere un dataURL
   // (upload appena scelto) o un foto_url esistente; safeUrl ammette entrambi.
   return fotoData && safeUrl(fotoData)
@@ -345,7 +345,7 @@ function fotoPreviewHtml(fotoData) {
     : '<span class="text-3xl text-slate-400">👤</span>';
 }
 
-function openCandidatoForm(concorso, candidato, onSaved) {
+function openCandidatoForm(/** @type {any} */ concorso, /** @type {any} */ candidato, /** @type {any} */ onSaved) {
   const isEdit = !!candidato;
   // Backward compat: split legacy combined nome.
   let initNome = candidato?.nome || '';
@@ -383,7 +383,7 @@ function openCandidatoForm(concorso, candidato, onSaved) {
   // Membri esistenti (solo in edit mode). Manteniamo lo state inline (con id
   // per i membri persistiti); su submit calcoliamo il diff (add/remove/update).
   const initialMembri = (isEdit && (candidato?.tipo === 'gruppo' || candidato?.tipo === 'orchestra'))
-    ? db.membriGruppo(candidato.id).map(m => ({
+    ? db.membriGruppo(candidato.id).map((/** @type {any} */ m) => ({
         id: m.id,
         nome: m.nome || '',
         cognome: m.cognome || '',
@@ -392,11 +392,11 @@ function openCandidatoForm(concorso, candidato, onSaved) {
       }))
     : [];
   // Stato editabile (oggetti mutabili; index = chiave riga). Cambia solo via UI.
-  const membriState = initialMembri.map(m => ({ ...m }));
+  const membriState = initialMembri.map((/** @type {any} */ m) => ({ ...m }));
 
   const inputCls = 'mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500';
   const labelCls = 'block';
-  const labelText = (text, required = false) => `<span class="text-sm font-medium text-slate-700">${text}${required ? ' <span class="text-rose-500">*</span>' : ''}</span>`;
+  const labelText = (/** @type {any} */ text, required = false) => `<span class="text-sm font-medium text-slate-700">${text}${required ? ' <span class="text-rose-500">*</span>' : ''}</span>`;
 
   modal({
     title: isEdit ? t('admin.candidato.edit_title') : t('admin.candidato.add_title'),
@@ -565,7 +565,7 @@ function openCandidatoForm(concorso, candidato, onSaved) {
                 <input type="radio" name="sezione_id" value="" ${!initSezId ? 'checked' : ''} class="w-4 h-4" />
                 <span class="text-sm text-slate-600 italic">— Nessuna sezione —</span>
               </label>
-              ${allSezioni.map(s => {
+              ${allSezioni.map((/** @type {any} */ s) => {
                 const cats = db.categorieBySezione(s.id);
                 const isSelected = initSezId === s.id;
                 return `
@@ -577,7 +577,7 @@ function openCandidatoForm(concorso, candidato, onSaved) {
                     </label>
                     ${cats.length > 0 ? `
                       <div class="mt-2 ml-6 grid grid-cols-1 sm:grid-cols-2 gap-1" data-cats-for="${s.id}" ${isSelected ? '' : 'hidden'}>
-                        ${cats.map(c => `
+                        ${cats.map((/** @type {any} */ c) => `
                           <label class="flex items-center gap-2 bg-white hover:bg-brand-50 border border-slate-200 rounded-md px-2 py-1 cursor-pointer">
                             <input type="radio" name="categoria_id_${s.id}" value="${c.id}" ${isSelected && initCatId === c.id ? 'checked' : ''} class="w-3.5 h-3.5" />
                             <span class="text-xs text-slate-700">${escapeHtml(c.nome)}</span>
@@ -616,7 +616,7 @@ function openCandidatoForm(concorso, candidato, onSaved) {
 
       fotoPick.addEventListener('click', () => fotoInput.click());
       fotoInput.addEventListener('change', async (e) => {
-        const file = /** @type {HTMLInputElement} */ (e.target).files[0];
+        const file = (/** @type {any} */ (/** @type {HTMLInputElement} */ (e.target).files))[0];
         if (!file) return;
         try {
           fotoData = await readImageResized(file, 480, 0.85);
@@ -658,10 +658,10 @@ function openCandidatoForm(concorso, candidato, onSaved) {
       syncRequiredByTipo();
 
       // ----- Editor inline dei membri del gruppo/orchestra -----
-      const membriList = body.querySelector('[data-admin-membri-list]');
+      const membriList = /** @type {HTMLElement} */ (body.querySelector('[data-admin-membri-list]'));
       const membriCount = body.querySelector('[data-membri-count]');
       const addMembroBtn = body.querySelector('[data-admin-add-membro]');
-      const renderMembroRow = (m, i) => `
+      const renderMembroRow = (/** @type {any} */ m, /** @type {any} */ i) => `
         <div data-admin-membro-row data-idx="${i}" class="grid grid-cols-12 gap-2 items-start">
           <input data-field="nome" class="${inputCls} col-span-3" placeholder="Nome" value="${escapeHtml(m?.nome || '')}" />
           <input data-field="cognome" class="${inputCls} col-span-3" placeholder="Cognome" value="${escapeHtml(m?.cognome || '')}" />
@@ -672,7 +672,7 @@ function openCandidatoForm(concorso, candidato, onSaved) {
       `;
       const renderMembriList = () => {
         membriList.innerHTML = membriState.length
-          ? membriState.map((m, i) => renderMembroRow(m, i)).join('')
+          ? membriState.map((/** @type {any} */ m, /** @type {any} */ i) => renderMembroRow(m, i)).join('')
           : '<p class="text-xs text-slate-400 italic">Nessun membro inserito.</p>';
         if (membriCount) membriCount.textContent = `${membriState.length} membri`;
       };
@@ -816,13 +816,13 @@ function openCandidatoForm(concorso, candidato, onSaved) {
             await syncMembriGruppo(candidatoId, isGroupLike, initialMembri, membriState);
           } catch (eMembri) {
             console.warn('sync membri gruppo:', eMembri);
-            toast('Errore nella sincronizzazione dei membri: ' + (eMembri?.message || eMembri), 'error');
+            toast('Errore nella sincronizzazione dei membri: ' + ((/** @type {any} */ (eMembri))?.message || eMembri), 'error');
           }
         }
         if (onSaved) onSaved();
       } catch (e) {
         console.error(e);
-        toast(t('admin.concorso.error_prefix', { msg: e.message }), 'error');
+        toast(t('admin.concorso.error_prefix', { msg: (/** @type {any} */ (e))?.message }), 'error');
         return false;
       }
     }

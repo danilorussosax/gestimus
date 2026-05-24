@@ -72,14 +72,14 @@ export const PIANI = {
 
 export const PIANO_KEYS = Object.keys(PIANI);
 
-export function getPianoOrDefault(key) {
-  return PIANI[key] || PIANI.trial;
+export function getPianoOrDefault(/** @type {string} */ key) {
+  return /** @type {Record<string, any>} */ (PIANI)[key] || PIANI.trial;
 }
 
 // Restituisce le impostazioni iniziali da scrivere su `tenants` quando l'admin
 // assegna un piano a un ente. `now` è opzionale (default = adesso); torna un
 // oggetto pronto da merge nel record tenant.
-export function pianoDefaults(key, now = new Date()) {
+export function pianoDefaults(/** @type {string} */ key, now = new Date()) {
   const p = getPianoOrDefault(key);
   const inizio = now.toISOString();
   const scadenza = p.durata_giorni
@@ -98,7 +98,7 @@ export function pianoDefaults(key, now = new Date()) {
 
 // Stato runtime del piano: scaduto / attivo / scadenza vicina (<7 giorni).
 // `tenant` è il record raw da PB (snake_case).
-export function pianoStatus(tenant, now = new Date()) {
+export function pianoStatus(/** @type {any} */ tenant, now = new Date()) {
   const p = getPianoOrDefault(tenant?.piano);
   if (p.is_ppe || !tenant?.piano_scadenza) {
     return { state: 'active', label: p.is_ppe ? 'Pay-as-you-go' : 'Attivo', daysLeft: null };
@@ -112,7 +112,7 @@ export function pianoStatus(tenant, now = new Date()) {
 }
 
 // Formattazione prezzo human-readable.
-export function pianoPriceLabel(key) {
+export function pianoPriceLabel(/** @type {string} */ key) {
   const p = getPianoOrDefault(key);
   if (p.is_ppe) {
     return `€${p.ppe_setup_per_concorso}/concorso + €${p.ppe_per_iscritto.toFixed(2)}/iscr`;

@@ -20,7 +20,7 @@ import { registerPaletteShortcut } from './palette.js';
 import { icon } from './icons.js';
 import { t, getLang, setLang, SUPPORTED_LANGS, LANG_LABELS, LANG_FLAGS } from './i18n.js';
 
-const root = $('#app-root');
+const root = /** @type {HTMLElement} */ ($('#app-root'));
 
 function currentRoute() {
   const h = location.hash || '#/';
@@ -87,12 +87,15 @@ function render() {
   // Se siamo già su home il setting di hash non triggera hashchange — riprendiamo
   // esplicitamente con un nuovo render() per non lasciare root vuoto.
   const authRole = pb.authStore.model?.role || null;
+  /** @type {Record<string, number>} */
   const rank = { commissario: 1, admin: 2, superadmin: 3 };
   const authRank = rank[authRole] || 0;
+  /** @param {string} needed */
   const allowed = (needed) => (rank[needed] || 0) <= authRank;
   // L14: nome esplicito. Dato `isAllowed`, se NON è permesso reindirizza a
   // home e ritorna true (= "ho reindirizzato, il caller deve fermarsi").
   // Se già su home non reindirizza (evita loop) e ritorna false.
+  /** @param {boolean} isAllowed */
   const redirectHomeUnlessAllowed = (isAllowed) => {
     if (isAllowed) return false;
     if (location.hash === '#/' || location.hash === '') return false;
@@ -120,6 +123,7 @@ function render() {
       try { history.replaceState(null, '', '#/superadmin'); } catch {}
     }
   }
+  /** @type {any} */
   let renderErr = null;
   try {
     if (effectiveRoute === 'privacy') { unmountFloatingTimer(); renderPrivacy(root); }
@@ -153,7 +157,7 @@ function render() {
           <div class="bg-rose-50 border border-rose-200 rounded-2xl p-5 mt-6">
             <p class="text-[11px] font-mono uppercase tracking-[0.12em] text-rose-700 font-bold">Errore di rendering</p>
             <h2 class="text-lg font-bold text-rose-900 mt-1">Vista \`${effectiveRoute}\`</h2>
-            <pre class="mt-3 bg-white border border-rose-200 rounded-xl p-3 text-xs text-rose-900 overflow-x-auto">${(renderErr.stack || renderErr.message || String(renderErr)).replace(/[<>&]/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[c]))}</pre>
+            <pre class="mt-3 bg-white border border-rose-200 rounded-xl p-3 text-xs text-rose-900 overflow-x-auto">${(renderErr.stack || renderErr.message || String(renderErr)).replace(/[<>&]/g, (/** @type {string} */ c) => (/** @type {Record<string, string>} */ ({'<':'&lt;','>':'&gt;','&':'&amp;'})[c]))}</pre>
             <a href="#/" class="c-btn c-btn--outline c-btn--sm mt-4">Torna alla home</a>
           </div>
         </section>`;
@@ -166,9 +170,9 @@ function render() {
 
 function updateHeader() {
   const meta = db.state.meta;
-  const sub = $('#header-subtitle');
-  const badge = $('#role-badge');
-  const logoutBtn = $('#logout-btn');
+  const sub = /** @type {HTMLElement} */ ($('#header-subtitle'));
+  const badge = /** @type {HTMLElement} */ ($('#role-badge'));
+  const logoutBtn = /** @type {HTMLElement} */ ($('#logout-btn'));
   const headerLogo = /** @type {HTMLImageElement} */ ($('#header-logo'));
   const seedBtn = $('#seed-btn');
   // Funzionalità riservata al superadmin: caricamento dati di esempio.
@@ -182,15 +186,15 @@ function updateHeader() {
   if (headerLogo) {
     let activeLogo = null;
     if (meta.activeConcorsoId) {
-      const c = db.state.concorsi.find(x => x.id === meta.activeConcorsoId);
+      const c = db.state.concorsi.find((/** @type {any} */ x) => x.id === meta.activeConcorsoId);
       if (c?.logo_url) activeLogo = c.logo_url;
     } else if (meta.role === 'commissario') {
       // Il commissario può essere assegnato a più concorsi: prendiamo il primo
       // della lista come "primario" per il logo header (fallback se non c'è un
       // activeConcorsoId selezionato).
-      const com = db.state.commissari.find(x => x.id === meta.currentCommissarioId);
+      const com = db.state.commissari.find((/** @type {any} */ x) => x.id === meta.currentCommissarioId);
       const firstId = com && Array.isArray(com.concorsi_ids) ? com.concorsi_ids[0] : null;
-      const c = firstId ? db.state.concorsi.find(x => x.id === firstId) : null;
+      const c = firstId ? db.state.concorsi.find((/** @type {any} */ x) => x.id === firstId) : null;
       if (c?.logo_url) activeLogo = c.logo_url;
     }
     if (!activeLogo && ente?.logo_url) activeLogo = ente.logo_url;
@@ -205,7 +209,7 @@ function updateHeader() {
     badge.className = `${baseBadge} bg-purple-50 text-purple-700 border border-purple-200`;
     logoutBtn.classList.remove('hidden');
   } else if (meta.role === 'admin') {
-    const c = db.state.concorsi.find(x => x.id === meta.activeConcorsoId);
+    const c = db.state.concorsi.find((/** @type {any} */ x) => x.id === meta.activeConcorsoId);
     sub.textContent = c ? `${c.nome} · ${c.anno}` : t('app.no_concorso');
     badge.innerHTML = `${icon('tools', { size: 14 })} <span>${escapeHtml(t('app.role.admin'))}</span>`;
     badge.className = `${baseBadge} bg-brand-50 text-brand-700 border border-brand-100`;
@@ -213,7 +217,7 @@ function updateHeader() {
     badge.style.borderColor = '';
     logoutBtn.classList.remove('hidden');
   } else if (meta.role === 'commissario') {
-    const com = db.state.commissari.find(x => x.id === meta.currentCommissarioId);
+    const com = db.state.commissari.find((/** @type {any} */ x) => x.id === meta.currentCommissarioId);
     sub.textContent = com ? `${displayName(com)} · ${com.specialita || t('app.role.commissario')}` : t('app.role.commissario');
     if (com && db.isPresidenteDiQualcheCommissione(com.id)) {
       badge.innerHTML = `${icon('star', { size: 14 })} <span>${escapeHtml(t('app.role.presidente'))}</span>`;
@@ -245,10 +249,10 @@ function updateHeader() {
 function applyStaticI18n() {
   document.querySelectorAll('[data-i18n]').forEach(el => {
     const key = el.getAttribute('data-i18n');
-    el.textContent = t(key);
+    el.textContent = t(/** @type {string} */ (key));
   });
   document.querySelectorAll('[data-i18n-aria-label]').forEach(el => {
-    el.setAttribute('aria-label', t(el.getAttribute('data-i18n-aria-label')));
+    el.setAttribute('aria-label', t(/** @type {string} */ (el.getAttribute('data-i18n-aria-label'))));
   });
 }
 
@@ -262,9 +266,9 @@ function setupLanguageSwitcher() {
 
   const refreshTrigger = () => {
     const lang = getLang();
-    if (flagEl) flagEl.textContent = LANG_FLAGS[lang] || '🌐';
+    if (flagEl) flagEl.textContent = /** @type {Record<string, string>} */ (LANG_FLAGS)[lang] || '🌐';
     if (codeEl) codeEl.textContent = lang.toUpperCase();
-    btn.setAttribute('aria-label', `${t('app.lang.label')}: ${LANG_LABELS[lang]}`);
+    btn.setAttribute('aria-label', `${t('app.lang.label')}: ${/** @type {Record<string, string>} */ (LANG_LABELS)[lang]}`);
   };
 
   const renderMenu = () => {
@@ -272,14 +276,14 @@ function setupLanguageSwitcher() {
     menu.innerHTML = SUPPORTED_LANGS.map(l => `
       <button type="button" role="menuitem" data-lang="${l}"
               class="flex items-center gap-3 w-full px-3 py-2.5 text-sm text-ink-800 hover:bg-brand-50 hover:text-brand-700 transition ${l === cur ? 'bg-brand-50 font-bold text-brand-700' : 'font-medium'}">
-        <span aria-hidden="true" class="text-base">${LANG_FLAGS[l]}</span>
-        <span class="flex-1 text-left">${LANG_LABELS[l]}</span>
+        <span aria-hidden="true" class="text-base">${/** @type {Record<string, string>} */ (LANG_FLAGS)[l]}</span>
+        <span class="flex-1 text-left">${/** @type {Record<string, string>} */ (LANG_LABELS)[l]}</span>
         ${l === cur ? '<span aria-hidden="true">✓</span>' : ''}
       </button>
     `).join('');
     menu.querySelectorAll('[data-lang]').forEach(b => {
       b.addEventListener('click', () => {
-        setLang(/** @type {HTMLElement} */ (b).dataset.lang);
+        setLang(/** @type {string} */ (/** @type {HTMLElement} */ (b).dataset.lang));
         menu.classList.add('hidden');
         btn.setAttribute('aria-expanded', 'false');
       });
@@ -321,6 +325,7 @@ function showLoading() {
   `;
 }
 
+/** @param {any} err */
 function showConnectionError(err) {
   root.innerHTML = `
     <header class="c-page-header" style="border-left: 3px solid #da1e28">
@@ -336,7 +341,7 @@ function showConnectionError(err) {
       </div>
     </div>
   `;
-  root.querySelector('#retry-btn').addEventListener('click', () => boot());
+  /** @type {Element} */ (root.querySelector('#retry-btn')).addEventListener('click', () => boot());
 }
 
 async function boot() {
@@ -374,7 +379,7 @@ async function boot() {
         db.setActiveConcorso(db.state.concorsi[0].id);
       }
     } else if (acc?.role === 'commissario' && acc.commissario) {
-      const com = db.state.commissari.find(c => c.id === acc.commissario);
+      const com = db.state.commissari.find((/** @type {any} */ c) => c.id === acc.commissario);
       if (com) {
         // Il commissario ora è anagrafica con concorsi[]: se ne ha almeno uno,
         // attiva il primo come default (la home permette di scegliere gli altri).
@@ -411,9 +416,9 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') {
   });
 }
 
-$('#security-btn').addEventListener('click', () => { openAccountSecurity(); });
+/** @type {Element} */ ($('#security-btn')).addEventListener('click', () => { openAccountSecurity(); });
 
-$('#logout-btn').addEventListener('click', async () => {
+/** @type {Element} */ ($('#logout-btn')).addEventListener('click', async () => {
   await db.logout(); // invalida la sessione server-side, poi pulisce authStore + role meta
   // L9: replaceState invece di settare l'hash, così il back button non
   // ritorna su rotte admin/commissario (che poi rediretterebbero a home
@@ -422,7 +427,7 @@ $('#logout-btn').addEventListener('click', async () => {
   render(); // will land on login since authStore.isValid=false
 });
 
-$('#seed-btn').addEventListener('click', async () => {
+/** @type {Element} */ ($('#seed-btn')).addEventListener('click', async () => {
   if (!confirm(t('seed.confirm'))) return;
   const btn = /** @type {HTMLButtonElement} */ ($('#seed-btn'));
   btn.disabled = true;
@@ -434,7 +439,7 @@ $('#seed-btn').addEventListener('click', async () => {
     render();
   } catch (e) {
     console.error(e);
-    toast(t('seed.error', { msg: e.message || e }), 'error');
+    toast(t('seed.error', { msg: (/** @type {any} */ (e))?.message || e }), 'error');
   } finally {
     btn.disabled = false;
     btn.textContent = old;

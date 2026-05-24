@@ -8,7 +8,7 @@ import { t } from '../../i18n.js';
 import { tiebreakStrategyHtml } from './common.js';
 import { setAdminTab, renderAdmin } from '../admin.js';
 
-export function renderConcorsoSelector(root) {
+export function renderConcorsoSelector(/** @type {any} */ root) {
   const concorsi = db.state.concorsi;
   root.innerHTML = `
     <section class="view-fade">
@@ -22,7 +22,7 @@ export function renderConcorsoSelector(root) {
           <a href="#/" class="c-btn c-btn--outline c-btn--sm">${escapeHtml(t('app.dashboard'))}</a>
         </div>
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          ${concorsi.map(c => {
+          ${concorsi.map((/** @type {any} */ c) => {
             const fs = db.fasiByConcorso(c.id);
             const cs = db.candidatiByConcorso(c.id);
             const coms = db.commissariByConcorso(c.id);
@@ -58,7 +58,7 @@ export function renderConcorsoSelector(root) {
       </div>
     </section>
   `;
-  root.querySelectorAll('[data-pick]').forEach(b => {
+  root.querySelectorAll('[data-pick]').forEach((/** @type {any} */ b) => {
     b.addEventListener('click', () => {
       // Scegliendo un concorso, l'utente atterra sempre sulla Dashboard (non
       // sull'ultima tab attiva — che potrebbe essere stale dalla sessione
@@ -70,18 +70,18 @@ export function renderConcorsoSelector(root) {
   });
   root.querySelector('[data-action="new-concorso"]').addEventListener('click', openCreateConcorso);
 
-  root.querySelectorAll('[data-edit-concorso]').forEach(b => {
-    b.addEventListener('click', (e) => {
+  root.querySelectorAll('[data-edit-concorso]').forEach((/** @type {any} */ b) => {
+    b.addEventListener('click', (/** @type {Event} */ e) => {
       e.stopPropagation();
-      const c = concorsi.find(x => x.id === b.dataset.editConcorso);
+      const c = concorsi.find((/** @type {any} */ x) => x.id === b.dataset.editConcorso);
       if (c) openEditConcorso(c, () => renderConcorsoSelector(root));
     });
   });
 
-  root.querySelectorAll('[data-delete-concorso]').forEach(b => {
-    b.addEventListener('click', (e) => {
+  root.querySelectorAll('[data-delete-concorso]').forEach((/** @type {any} */ b) => {
+    b.addEventListener('click', (/** @type {Event} */ e) => {
       e.stopPropagation();
-      const c = concorsi.find(x => x.id === b.dataset.deleteConcorso);
+      const c = concorsi.find((/** @type {any} */ x) => x.id === b.dataset.deleteConcorso);
       if (!c) return;
       const fs = db.fasiByConcorso(c.id).length;
       const cs = db.candidatiByConcorso(c.id).length;
@@ -95,7 +95,7 @@ export function renderConcorsoSelector(root) {
             await db.deleteConcorso(c.id);
             toast(t('admin.concorso.deleted'), 'success');
             renderConcorsoSelector(root);
-          } catch (e) {
+          } catch (/** @type {any} */ e) {
             toast(t('admin.concorso.delete_error', { msg: e.message }), 'error');
           }
         },
@@ -142,7 +142,7 @@ export function openCreateConcorso() {
       const anno = /** @type {HTMLInputElement} */ (body.querySelector('[name="anno"]')).value;
       const data_inizio = /** @type {HTMLInputElement} */ (body.querySelector('[name="data_inizio"]')).value || null;
       const anonimo = /** @type {HTMLInputElement} */ (body.querySelector('[name="anonimo"]')).checked;
-      const logoFile = /** @type {HTMLInputElement} */ (body.querySelector('[name="logo"]')).files[0] || null;
+      const logoFile = /** @type {HTMLInputElement} */ (body.querySelector('[name="logo"]')).files?.[0] || null;
       if (!nome) { toast(t('admin.concorso.required_nome') || 'Il nome è obbligatorio', 'error'); return false; }
       try {
         // db.createConcorso si aspetta { dataURL, name } — non la sola stringa.
@@ -154,7 +154,7 @@ export function openCreateConcorso() {
         db.setActiveConcorso(c.id);
         toast(t('admin.concorso.created') || 'Concorso creato', 'success');
         renderAdmin(document.getElementById('app-root'));
-      } catch (e) {
+      } catch (/** @type {any} */ e) {
         toast(e?.message || 'Errore', 'error');
         return false;
       }
@@ -163,7 +163,7 @@ export function openCreateConcorso() {
 }
 
 // Modale "Modifica concorso" — usato dal pulsante data-action="edit-concorso".
-export function openEditConcorso(concorso, onSaved) {
+export function openEditConcorso(/** @type {any} */ concorso, /** @type {any} */ onSaved) {
   modal({
     title: t('admin.concorso.edit_title') || 'Modifica concorso',
     contentHtml: `
@@ -245,7 +245,7 @@ export function openEditConcorso(concorso, onSaved) {
       // z.string().date() (YYYY-MM-DD). Inviare un timestamp ISO completo
       // (new Date(...).toISOString()) faceva fallire l'intero PATCH del concorso.
       const iscrizioni_chiusura = iscrizioniChiusuraRaw ? iscrizioniChiusuraRaw.slice(0, 10) : '';
-      const logoFile = /** @type {HTMLInputElement} */ (body.querySelector('[name="logo"]')).files[0] || null;
+      const logoFile = /** @type {HTMLInputElement} */ (body.querySelector('[name="logo"]')).files?.[0] || null;
       if (!nome) { toast(t('admin.concorso.required_nome') || 'Il nome è obbligatorio', 'error'); return false; }
       // Tiebreak default: invia array solo se l'admin ha toccato qualcosa.
       const tbContainer = /** @type {HTMLElement|null} */ (body.querySelector('[data-tiebreak-steps]'));
@@ -257,7 +257,7 @@ export function openEditConcorso(concorso, onSaved) {
         }));
       }
       try {
-        const patch = { nome, anno: Number(anno), data_inizio, stato, anonimo, iscrizioni_aperte, iscrizioni_chiusura };
+        const patch = /** @type {Record<string, any>} */ ({ nome, anno: Number(anno), data_inizio, stato, anonimo, iscrizioni_aperte, iscrizioni_chiusura });
         if (default_tiebreak_strategy !== null) patch.default_tiebreak_strategy = default_tiebreak_strategy;
         if (logoFile) {
           patch.logo = { dataURL: await readImageResized(logoFile, 800, 0.85), name: logoFile.name };
@@ -265,7 +265,7 @@ export function openEditConcorso(concorso, onSaved) {
         await db.updateConcorso(concorso.id, patch);
         toast(t('admin.concorso.updated') || 'Concorso aggiornato', 'success');
         if (onSaved) onSaved();
-      } catch (e) {
+      } catch (/** @type {any} */ e) {
         toast(e?.message || 'Errore', 'error');
         return false;
       }

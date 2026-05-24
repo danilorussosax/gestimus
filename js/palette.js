@@ -14,32 +14,32 @@ const KIND_ICON = {
   commissario: 'judge',
 };
 
-let openEl = null;
+let openEl = /** @type {HTMLElement | null} */ (null);
 
-function normalize(s) {
+function normalize(/** @type {any} */ s) {
   return String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
 }
 
 function buildIndex() {
-  const out = [];
+  const out = /** @type {any[]} */ ([]);
   const s = db.state;
-  const concorsoNome = (id) => s.concorsi.find(c => c.id === id)?.nome || '';
+  const concorsoNome = (/** @type {any} */ id) => s.concorsi.find((/** @type {any} */ c) => c.id === id)?.nome || '';
 
-  s.concorsi.forEach(c => {
+  s.concorsi.forEach((/** @type {any} */ c) => {
     out.push({
       kind: 'concorso', id: c.id,
       label: c.nome, sub: t('palette.sub.concorso', { anno: c.anno, stato: c.stato }),
       hay: normalize(`${c.nome} ${c.anno} concorso`),
     });
   });
-  s.fasi.forEach(f => {
+  s.fasi.forEach((/** @type {any} */ f) => {
     out.push({
       kind: 'fase', id: f.id, concorso_id: f.concorso_id,
       label: f.nome, sub: t('palette.sub.fase', { concorso: concorsoNome(f.concorso_id), stato: f.stato }),
       hay: normalize(`${f.nome} fase ${concorsoNome(f.concorso_id)}`),
     });
   });
-  s.candidati.forEach(c => {
+  s.candidati.forEach((/** @type {any} */ c) => {
     const num = String(c.numero_candidato || '').padStart(3, '0');
     out.push({
       kind: 'candidato', id: c.id, concorso_id: c.concorso_id,
@@ -48,13 +48,13 @@ function buildIndex() {
       hay: normalize(`${num} ${displayName(c)} ${c.strumento} candidato ${concorsoNome(c.concorso_id)}`),
     });
   });
-  s.commissari.forEach(c => {
+  s.commissari.forEach((/** @type {any} */ c) => {
     // I commissari sono anagrafica per-tenant: possono essere assegnati a più
     // concorsi. Per la palette mostriamo l'elenco dei concorsi (o "Archivio" se
     // non assegnati). Il `concorso_id` per la navigazione è il primo della lista
     // (se esiste) — apre quel concorso nel pannello admin.
     const concorsiNomi = (c.concorsi_ids || [])
-      .map(id => concorsoNome(id))
+      .map((/** @type {any} */ id) => concorsoNome(id))
       .filter(Boolean);
     const concorsiLabel = concorsiNomi.length === 0
       ? t('palette.archive') || 'archivio'
@@ -70,23 +70,23 @@ function buildIndex() {
   return out;
 }
 
-function search(index, q) {
+function search(/** @type {any[]} */ index, /** @type {any} */ q) {
   const nq = normalize(q.trim());
   if (!nq) return index.slice(0, 20);
   const tokens = nq.split(/\s+/).filter(Boolean);
   return index
-    .map(item => {
-      const hits = tokens.filter(t => item.hay.includes(t)).length;
+    .map((/** @type {any} */ item) => {
+      const hits = tokens.filter((/** @type {any} */ t) => item.hay.includes(t)).length;
       const score = hits === tokens.length ? hits + (item.hay.startsWith(tokens[0]) ? 0.5 : 0) : 0;
       return { item, score };
     })
-    .filter(x => x.score > 0)
-    .sort((a, b) => b.score - a.score)
+    .filter((/** @type {any} */ x) => x.score > 0)
+    .sort((/** @type {any} */ a, /** @type {any} */ b) => b.score - a.score)
     .slice(0, 30)
-    .map(x => x.item);
+    .map((/** @type {any} */ x) => x.item);
 }
 
-function navigateTo(item) {
+function navigateTo(/** @type {any} */ item) {
   // R15: gate sul ruolo dell'account autenticato (fonte di verità), non su
   // db.state.meta.role (mutabile client-side) — coerente con app.js. Ammette
   // admin E superadmin (prima un superadmin veniva rimbalzato a home).
@@ -96,7 +96,7 @@ function navigateTo(item) {
     return;
   }
   if (item.concorso_id) db.setActiveConcorso(item.concorso_id);
-  const tabMap = { fase: 'fasi', candidato: 'candidati', commissario: 'commissari', concorso: 'fasi' };
+  const tabMap = /** @type {Record<string, any>} */ ({ fase: 'fasi', candidato: 'candidati', commissario: 'commissari', concorso: 'fasi' });
   const tab = tabMap[item.kind] || 'fasi';
   location.hash = `#/admin?tab=${tab}`;
   // Forziamo re-render via hashchange
@@ -110,7 +110,7 @@ export function openPalette() {
   const index = buildIndex();
   const previousActive = /** @type {HTMLElement | null} */ (document.activeElement);
 
-  const root = document.getElementById('modal-root');
+  const root = /** @type {HTMLElement} */ (document.getElementById('modal-root'));
   const id = `palette-${Date.now()}`;
   const wrap = document.createElement('div');
   wrap.id = id;
@@ -136,20 +136,20 @@ export function openPalette() {
   openEl = wrap;
 
   const input = /** @type {HTMLInputElement} */ (wrap.querySelector('[data-q]'));
-  const listEl = wrap.querySelector('[data-list]');
+  const listEl = /** @type {HTMLElement} */ (wrap.querySelector('[data-list]'));
   let active = 0;
-  let results = [];
+  let results = /** @type {any[]} */ ([]);
 
-  const renderList = (q) => {
+  const renderList = (/** @type {any} */ q) => {
     results = search(index, q);
     active = 0;
     if (results.length === 0) {
       listEl.innerHTML = `<li class="px-4 py-8 text-center text-sm text-ink-700">${escapeHtml(t('palette.no_results'))}</li>`;
       return;
     }
-    listEl.innerHTML = results.map((r, i) => `
+    listEl.innerHTML = results.map((/** @type {any} */ r, /** @type {any} */ i) => `
       <li role="option" data-i="${i}" class="px-4 h-12 flex items-center gap-3 cursor-pointer border-l-2 ${i === active ? 'bg-[#edf5ff] border-l-brand-500' : 'border-l-transparent hover:bg-brand-50'}">
-        <span aria-hidden="true" class="shrink-0 w-7 h-7 bg-brand-50 text-ink-700 flex items-center justify-center">${icon(KIND_ICON[r.kind] || 'document', { size: 14 })}</span>
+        <span aria-hidden="true" class="shrink-0 w-7 h-7 bg-brand-50 text-ink-700 flex items-center justify-center">${icon(/** @type {Record<string, any>} */ (KIND_ICON)[r.kind] || 'document', { size: 14 })}</span>
         <div class="flex-1 min-w-0">
           <div class="text-sm font-medium text-ink-900 truncate flex items-center gap-1.5">
             ${escapeHtml(r.label)}
@@ -162,7 +162,7 @@ export function openPalette() {
     `).join('');
   };
 
-  const setActive = (i) => {
+  const setActive = (/** @type {any} */ i) => {
     active = (i + results.length) % Math.max(results.length, 1);
     listEl.querySelectorAll('li[data-i]').forEach((el, idx) => {
       el.classList.toggle('bg-[#edf5ff]', idx === active);
@@ -189,7 +189,7 @@ export function openPalette() {
     navigateTo(item);
   };
 
-  function onKey(ev) {
+  function onKey(/** @type {KeyboardEvent} */ ev) {
     if (ev.key === 'Escape') { ev.preventDefault(); close(); }
     else if (ev.key === 'ArrowDown') { ev.preventDefault(); setActive(active + 1); }
     else if (ev.key === 'ArrowUp')   { ev.preventDefault(); setActive(active - 1); }

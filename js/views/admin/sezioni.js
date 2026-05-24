@@ -9,7 +9,7 @@ import { t } from '../../i18n.js';
 import { iconaPerSezione } from './common.js';
 import { openImportModal } from './import.js';
 
-export function renderSezioni(root, concorso) {
+export function renderSezioni(/** @type {any} */ root, /** @type {any} */ concorso) {
   const sezioni = db.sezioniByConcorso(concorso.id);
   root.innerHTML = `
     <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
@@ -27,19 +27,19 @@ export function renderSezioni(root, concorso) {
       </div>
     ` : `
       <ul class="space-y-3">
-        ${sezioni.map(s => sezioneCardHtml(s)).join('')}
+        ${sezioni.map((/** @type {any} */ s) => sezioneCardHtml(s)).join('')}
       </ul>
     `}
   `;
   root.querySelector('[data-action="add-sez"]').addEventListener('click', () => openSezioneForm(concorso, null, () => renderSezioni(root, concorso)));
   root.querySelector('[data-action="import-sez"]').addEventListener('click', () => openImportModal(concorso, 'sezioni', () => renderSezioni(root, concorso)));
-  root.querySelectorAll('[data-edit-sez]').forEach(b => b.addEventListener('click', () => {
-    const s = db.state.sezioni.find(x => x.id === b.dataset.editSez);
+  root.querySelectorAll('[data-edit-sez]').forEach((/** @type {any} */ b) => b.addEventListener('click', () => {
+    const s = db.state.sezioni.find((/** @type {any} */ x) => x.id === b.dataset.editSez);
     if (s) openSezioneForm(concorso, s, () => renderSezioni(root, concorso));
   }));
-  root.querySelectorAll('[data-del-sez]').forEach(b => b.addEventListener('click', () => {
+  root.querySelectorAll('[data-del-sez]').forEach((/** @type {any} */ b) => b.addEventListener('click', () => {
     const id = b.dataset.delSez;
-    const s = db.state.sezioni.find(x => x.id === id);
+    const s = db.state.sezioni.find((/** @type {any} */ x) => x.id === id);
     confirmDialog({
       title: t('admin.sezioni.delete_title', { nome: s?.nome }),
       message: t('admin.sezioni.delete_msg'),
@@ -50,23 +50,24 @@ export function renderSezioni(root, concorso) {
           // 409 = sezione in uso → il backend manda body.error pulito (vedi
           // server/src/routes/sezioni.ts). Usiamo quello invece del wrap di
           // ApiError, più leggibile per l'admin.
-          const msg = e?.status === 409 && e?.body?.error ? e.body.error : e.message;
+          const err = /** @type {any} */ (e);
+          const msg = err?.status === 409 && err?.body?.error ? err.body.error : err?.message;
           toast(msg, 'error');
         }
       }
     });
   }));
-  root.querySelectorAll('[data-add-cat]').forEach(b => b.addEventListener('click', () => {
+  root.querySelectorAll('[data-add-cat]').forEach((/** @type {any} */ b) => b.addEventListener('click', () => {
     const sezId = b.dataset.addCat;
     openCategoriaForm(sezId, null, () => renderSezioni(root, concorso));
   }));
-  root.querySelectorAll('[data-edit-cat]').forEach(b => b.addEventListener('click', () => {
-    const c = db.state.categorie.find(x => x.id === b.dataset.editCat);
+  root.querySelectorAll('[data-edit-cat]').forEach((/** @type {any} */ b) => b.addEventListener('click', () => {
+    const c = db.state.categorie.find((/** @type {any} */ x) => x.id === b.dataset.editCat);
     if (c) openCategoriaForm(c.sezione_id, c, () => renderSezioni(root, concorso));
   }));
-  root.querySelectorAll('[data-del-cat]').forEach(b => b.addEventListener('click', () => {
+  root.querySelectorAll('[data-del-cat]').forEach((/** @type {any} */ b) => b.addEventListener('click', () => {
     const id = b.dataset.delCat;
-    const c = db.state.categorie.find(x => x.id === id);
+    const c = db.state.categorie.find((/** @type {any} */ x) => x.id === id);
     confirmDialog({
       title: t('admin.categoria.delete_title', { nome: c?.nome }),
       message: t('admin.categoria.delete_msg'),
@@ -74,23 +75,24 @@ export function renderSezioni(root, concorso) {
       onConfirm: async () => {
         try { await db.deleteCategoria(id); renderSezioni(root, concorso); }
         catch (e) {
-          const msg = e?.status === 409 && e?.body?.error ? e.body.error : e.message;
+          const err = /** @type {any} */ (e);
+          const msg = err?.status === 409 && err?.body?.error ? err.body.error : err?.message;
           toast(msg, 'error');
         }
       }
     });
   }));
-  root.querySelectorAll('[data-copy-cats-from]').forEach(b => b.addEventListener('click', () => {
+  root.querySelectorAll('[data-copy-cats-from]').forEach((/** @type {any} */ b) => b.addEventListener('click', () => {
     openCopyCategorieModal(concorso, b.dataset.copyCatsFrom, () => renderSezioni(root, concorso));
   }));
 }
 
 // Modale: copia le categorie di una sezione sorgente in una o più sezioni destinazione.
-function openCopyCategorieModal(concorso, fromSezioneId, onSaved) {
-  const fromSez = db.state.sezioni.find(s => s.id === fromSezioneId);
+function openCopyCategorieModal(/** @type {any} */ concorso, /** @type {any} */ fromSezioneId, /** @type {any} */ onSaved) {
+  const fromSez = db.state.sezioni.find((/** @type {any} */ s) => s.id === fromSezioneId);
   if (!fromSez) return;
   const fromCats = db.categorieBySezione(fromSezioneId);
-  const otherSezioni = db.sezioniByConcorso(concorso.id).filter(s => s.id !== fromSezioneId);
+  const otherSezioni = db.sezioniByConcorso(concorso.id).filter((/** @type {any} */ s) => s.id !== fromSezioneId);
 
   if (otherSezioni.length === 0) {
     toast('Non ci sono altre sezioni in cui copiare le categorie.', 'warn');
@@ -104,13 +106,13 @@ function openCopyCategorieModal(concorso, fromSezioneId, onSaved) {
         <div class="bg-slate-50 border border-slate-200 rounded-xl p-3">
           <p class="text-xs font-semibold text-slate-600 mb-1.5">Categorie che verranno copiate (${fromCats.length}):</p>
           <ul class="text-sm text-slate-800 space-y-0.5">
-            ${fromCats.map(c => `<li>· ${escapeHtml(c.nome)}${c.descrizione ? ` <span class="text-xs text-slate-500">(${escapeHtml(c.descrizione)})</span>` : ''}</li>`).join('')}
+            ${fromCats.map((/** @type {any} */ c) => `<li>· ${escapeHtml(c.nome)}${c.descrizione ? ` <span class="text-xs text-slate-500">(${escapeHtml(c.descrizione)})</span>` : ''}</li>`).join('')}
           </ul>
         </div>
         <fieldset>
           <legend class="text-sm font-semibold text-slate-800 mb-2">Sezioni destinazione</legend>
           <div class="space-y-1.5 max-h-64 overflow-y-auto pr-1">
-            ${otherSezioni.map(s => {
+            ${otherSezioni.map((/** @type {any} */ s) => {
               const existingCats = db.categorieBySezione(s.id).length;
               return `
                 <label class="flex items-start gap-2 p-2 rounded-lg hover:bg-slate-50 cursor-pointer">
@@ -148,17 +150,17 @@ function openCopyCategorieModal(concorso, fromSezioneId, onSaved) {
         toast(msg, 'success');
         if (typeof onSaved === 'function') onSaved();
       } catch (e) {
-        toast(e.message || 'Errore copia categorie', 'error');
+        toast((/** @type {any} */ (e))?.message || 'Errore copia categorie', 'error');
         return false;
       }
     },
   });
 }
 
-function sezioneCardHtml(s) {
+function sezioneCardHtml(/** @type {any} */ s) {
   const cats = db.categorieBySezione(s.id);
   // Modello N:1 (vedi mapCandidato): un candidato ha una sola sezione_id.
-  const candCount = db.state.candidati.filter(c => c.sezione_id === s.id).length;
+  const candCount = db.state.candidati.filter((/** @type {any} */ c) => c.sezione_id === s.id).length;
   return `
     <li class="bg-white border border-slate-200 rounded-2xl p-4">
       <div class="flex items-start justify-between gap-3">
@@ -178,8 +180,8 @@ function sezioneCardHtml(s) {
       <div class="mt-3 ml-13 sm:ml-13 pl-3 border-l-2 border-slate-100">
         ${cats.length === 0 ? `<p class="text-xs text-slate-400 italic mb-2">${escapeHtml(t('admin.sezioni.no_cats'))}</p>` : `
           <ul class="space-y-1.5 mb-2">
-            ${cats.map(c => {
-              const catCount = db.state.candidati.filter(x => x.categoria_id === c.id).length;
+            ${cats.map((/** @type {any} */ c) => {
+              const catCount = db.state.candidati.filter((/** @type {any} */ x) => x.categoria_id === c.id).length;
               return `
               <li class="flex items-center justify-between gap-2 bg-slate-50 rounded-lg px-3 py-2">
                 <div class="min-w-0 flex items-center gap-2">
@@ -205,7 +207,7 @@ function sezioneCardHtml(s) {
   `;
 }
 
-function openSezioneForm(concorso, existing, onSaved) {
+function openSezioneForm(/** @type {any} */ concorso, /** @type {any} */ existing, /** @type {any} */ onSaved) {
   const isEdit = !!existing;
   const inputCls = 'mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500';
   modal({
@@ -233,16 +235,16 @@ function openSezioneForm(concorso, existing, onSaved) {
         if (onSaved) onSaved();
       } catch (e) {
         console.error(e);
-        toast(t('admin.concorso.error_prefix', { msg: e?.message || t('admin.sezione.error_fallback') }), 'error');
+        toast(t('admin.concorso.error_prefix', { msg: (/** @type {any} */ (e))?.message || t('admin.sezione.error_fallback') }), 'error');
         return false;
       }
     }
   });
 }
 
-function openCategoriaForm(sezione_id, existing, onSaved) {
+function openCategoriaForm(/** @type {any} */ sezione_id, /** @type {any} */ existing, /** @type {any} */ onSaved) {
   const isEdit = !!existing;
-  const sez = db.state.sezioni.find(s => s.id === sezione_id);
+  const sez = db.state.sezioni.find((/** @type {any} */ s) => s.id === sezione_id);
   const inputCls = 'mt-1 w-full border border-slate-300 rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-brand-500 focus:border-brand-500';
   modal({
     title: isEdit ? t('admin.categoria.edit_title', { nome: existing.nome }) : t('admin.categoria.add_title', { nome: sez?.nome || '' }),
@@ -269,7 +271,7 @@ function openCategoriaForm(sezione_id, existing, onSaved) {
         if (onSaved) onSaved();
       } catch (e) {
         console.error(e);
-        toast(t('admin.concorso.error_prefix', { msg: e?.message || t('admin.sezione.error_fallback') }), 'error');
+        toast(t('admin.concorso.error_prefix', { msg: (/** @type {any} */ (e))?.message || t('admin.sezione.error_fallback') }), 'error');
         return false;
       }
     }

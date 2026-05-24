@@ -18,9 +18,9 @@ import { renderImpostazioniConcorso } from './admin/impostazioni-concorso.js';
 
 let activeTab = 'dashboard';
 
-export function setAdminTab(tab) { activeTab = tab; }
+export function setAdminTab(/** @type {any} */ tab) { activeTab = tab; }
 
-export function renderAdmin(root) {
+export function renderAdmin(/** @type {any} */ root) {
   const concorsoId = db.state.meta.activeConcorsoId;
   // Permetti override via hash #/admin?tab=…
   const hashQ = (location.hash.split('?')[1] || '');
@@ -34,7 +34,7 @@ export function renderAdmin(root) {
   if (!concorsoId) {
     return renderConcorsoSelector(root);
   }
-  const concorso = db.state.concorsi.find(c => c.id === concorsoId);
+  const concorso = db.state.concorsi.find((/** @type {any} */ c) => c.id === concorsoId);
   if (!concorso) {
     db.setActiveConcorso(null);
     return renderConcorsoSelector(root);
@@ -148,7 +148,7 @@ export function renderAdmin(root) {
     </section>
   `;
 
-  root.querySelectorAll('[data-tab]').forEach(b => {
+  root.querySelectorAll('[data-tab]').forEach((/** @type {any} */ b) => {
     b.addEventListener('click', () => {
       activeTab = b.dataset.tab;
       renderAdmin(root);
@@ -179,7 +179,7 @@ export function renderAdmin(root) {
   else if (activeTab === 'impostazioni-concorso') renderImpostazioniConcorso(content, concorso);
 }
 
-function navItem(id, iconName, label, count) {
+function navItem(/** @type {any} */ id, /** @type {any} */ iconName, /** @type {any} */ label, /** @type {any} */ count) {
   const active = activeTab === id;
   const base = 'flex items-center gap-3 px-4 h-10 transition w-full text-left text-[13px] font-medium border-l-2';
   const cls = active
@@ -197,7 +197,7 @@ function navItem(id, iconName, label, count) {
   `;
 }
 
-function mobileTab(id, label, iconName) {
+function mobileTab(/** @type {any} */ id, /** @type {any} */ label, /** @type {any} */ iconName) {
   const active = activeTab === id;
   return `<button data-tab="${id}" class="text-sm font-medium px-3 h-10 transition whitespace-nowrap inline-flex items-center gap-2 border-b-2 ${active ? 'border-b-brand-500 text-ink-900 bg-white' : 'border-b-transparent text-ink-700 hover:bg-brand-50'}">
     <span aria-hidden="true" class="${active ? 'text-brand-600' : 'text-ink-700'}">${icon(iconName, { size: 14 })}</span>${label}

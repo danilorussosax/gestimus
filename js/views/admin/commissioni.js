@@ -7,7 +7,7 @@ import { icon } from '../../icons.js';
 import { t } from '../../i18n.js';
 import { iconaPerSezione } from './common.js';
 
-export function renderCommissioni(root, concorso) {
+export function renderCommissioni(/** @type {any} */ root, /** @type {any} */ concorso) {
   const list = db.commissioniByConcorso(concorso.id);
   const sezioni = db.sezioniByConcorso(concorso.id);
   const allCom = db.commissariByConcorso(concorso.id);
@@ -28,39 +28,39 @@ export function renderCommissioni(root, concorso) {
       </div>
     ` : `
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-3">
-        ${list.map(c => commissioneCardHtml(c)).join('')}
+        ${list.map((/** @type {any} */ c) => commissioneCardHtml(c)).join('')}
       </div>
     `}
   `;
   root.querySelector('[data-action="add-comm"]').addEventListener('click', () => openCommissioneForm(concorso, null, () => renderCommissioni(root, concorso)));
-  root.querySelectorAll('[data-edit-comm]').forEach(b => b.addEventListener('click', () => {
-    const c = db.state.commissioni.find(x => x.id === b.dataset.editComm);
+  root.querySelectorAll('[data-edit-comm]').forEach((/** @type {any} */ b) => b.addEventListener('click', () => {
+    const c = db.state.commissioni.find((/** @type {any} */ x) => x.id === b.dataset.editComm);
     if (c) openCommissioneForm(concorso, c, () => renderCommissioni(root, concorso));
   }));
-  root.querySelectorAll('[data-del-comm]').forEach(b => b.addEventListener('click', () => {
+  root.querySelectorAll('[data-del-comm]').forEach((/** @type {any} */ b) => b.addEventListener('click', () => {
     const id = b.dataset.delComm;
-    const c = db.state.commissioni.find(x => x.id === id);
+    const c = db.state.commissioni.find((/** @type {any} */ x) => x.id === id);
     confirmDialog({
       title: t('admin.commissioni.delete_title', { nome: c?.nome }),
       message: t('admin.commissioni.delete_msg'),
       danger: true,
       onConfirm: async () => {
         try { await db.deleteCommissione(id); renderCommissioni(root, concorso); }
-        catch (e) { toast(e.message, 'error'); }
+        catch (e) { toast((/** @type {any} */ (e))?.message, 'error'); }
       }
     });
   }));
 }
 
-function commissioneCardHtml(c) {
-  const members = c.commissari_ids.map(id => db.state.commissari.find(x => x.id === id)).filter(Boolean);
-  const sezs = c.sezioni_ids.map(id => db.state.sezioni.find(x => x.id === id)).filter(Boolean);
-  const directCats = c.categorie_ids.map(id => db.state.categorie.find(x => x.id === id)).filter(Boolean);
+function commissioneCardHtml(/** @type {any} */ c) {
+  const members = c.commissari_ids.map((/** @type {any} */ id) => db.state.commissari.find((/** @type {any} */ x) => x.id === id)).filter(Boolean);
+  const sezs = c.sezioni_ids.map((/** @type {any} */ id) => db.state.sezioni.find((/** @type {any} */ x) => x.id === id)).filter(Boolean);
+  const directCats = c.categorie_ids.map((/** @type {any} */ id) => db.state.categorie.find((/** @type {any} */ x) => x.id === id)).filter(Boolean);
   const effectiveCatIds = db.effectiveCategorieForCommissione(c);
-  const allCats = effectiveCatIds.map(id => db.state.categorie.find(x => x.id === id)).filter(Boolean);
-  const autoCats = allCats.filter(cat => !c.categorie_ids.includes(cat.id));
+  const allCats = effectiveCatIds.map((/** @type {any} */ id) => db.state.categorie.find((/** @type {any} */ x) => x.id === id)).filter(Boolean);
+  const autoCats = allCats.filter((/** @type {any} */ cat) => !c.categorie_ids.includes(cat.id));
   // Presidente di QUESTA commissione (non di altre)
-  const pres = c.presidente_id ? db.state.commissari.find(x => x.id === c.presidente_id) : null;
+  const pres = c.presidente_id ? db.state.commissari.find((/** @type {any} */ x) => x.id === c.presidente_id) : null;
   return `
     <div class="bg-white border border-slate-200 rounded-2xl p-4">
       <div class="flex items-start justify-between gap-3">
@@ -90,7 +90,7 @@ function commissioneCardHtml(c) {
         <div>
           <div class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-1">${escapeHtml(t('admin.commissioni.col_members', { n: members.length }))}</div>
           <div class="flex flex-wrap gap-1">
-            ${members.length === 0 ? `<span class="text-xs text-slate-400 italic">${escapeHtml(t('admin.commissioni.no_one'))}</span>` : members.map(m => {
+            ${members.length === 0 ? `<span class="text-xs text-slate-400 italic">${escapeHtml(t('admin.commissioni.no_one'))}</span>` : members.map((/** @type {any} */ m) => {
               // 🎯 visibile SOLO se questo commissario è presidente di QUESTA
               // commissione (non se lo è di un'altra). Membri presidenti
               // altrove appaiono come membri normali in questa card.
@@ -106,15 +106,15 @@ function commissioneCardHtml(c) {
         <div>
           <div class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-1">${escapeHtml(t('admin.commissioni.col_sezioni', { n: sezs.length }))}${c.include_tutte_categorie && sezs.length ? escapeHtml(t('admin.commissioni.col_sezioni_auto')) : ''}</div>
           <div class="flex flex-wrap gap-1">
-            ${sezs.length === 0 ? `<span class="text-xs text-slate-400 italic">${escapeHtml(t('admin.commissioni.no_sezioni'))}</span>` : sezs.map(s => `<span class="text-[11px] bg-brand-50 text-brand-700 px-2 py-0.5 rounded-full font-medium">${iconaPerSezione(s.nome)} ${escapeHtml(s.nome)}</span>`).join('')}
+            ${sezs.length === 0 ? `<span class="text-xs text-slate-400 italic">${escapeHtml(t('admin.commissioni.no_sezioni'))}</span>` : sezs.map((/** @type {any} */ s) => `<span class="text-[11px] bg-brand-50 text-brand-700 px-2 py-0.5 rounded-full font-medium">${iconaPerSezione(s.nome)} ${escapeHtml(s.nome)}</span>`).join('')}
           </div>
         </div>
         <div>
           <div class="text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-1">${escapeHtml(t('admin.commissioni.col_categorie', { n: allCats.length }))}</div>
           <div class="flex flex-wrap gap-1">
-            ${allCats.length === 0 ? `<span class="text-xs text-slate-400 italic">${escapeHtml(t('admin.commissioni.no_categorie'))}</span>` : allCats.map(cat => {
+            ${allCats.length === 0 ? `<span class="text-xs text-slate-400 italic">${escapeHtml(t('admin.commissioni.no_categorie'))}</span>` : allCats.map((/** @type {any} */ cat) => {
               const isAuto = autoCats.includes(cat);
-              const sez = db.state.sezioni.find(s => s.id === cat.sezione_id);
+              const sez = db.state.sezioni.find((/** @type {any} */ s) => s.id === cat.sezione_id);
               return `<span class="text-[11px] ${isAuto ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200' : 'bg-slate-100 text-slate-700'} px-2 py-0.5 rounded-full" title="${escapeHtml(sez?.nome || '')}${isAuto ? escapeHtml(t('admin.commissioni.cat_auto')) : ''}">${escapeHtml(cat.nome)}${isAuto ? ' ✨' : ''}</span>`;
             }).join('')}
           </div>
@@ -128,7 +128,7 @@ function commissioneCardHtml(c) {
 // Stato locale del tab: lista cached + filtri. Ricaricata via refresh()
 const _iscrizioniState = { items: [], filtro_stato: '', loading: false, error: null };
 
-function openCommissioneForm(concorso, existing, onSaved) {
+function openCommissioneForm(/** @type {any} */ concorso, /** @type {any} */ existing, /** @type {any} */ onSaved) {
   const isEdit = !!existing;
   const allCom = db.commissariByConcorso(concorso.id);
   const sezioni = db.sezioniByConcorso(concorso.id);
@@ -140,7 +140,7 @@ function openCommissioneForm(concorso, existing, onSaved) {
   let includeTutte = !!existing?.include_tutte_categorie;
   let selPresidente = existing?.presidente_id || '';
 
-  const renderCommList = () => allCom.map(c => `
+  const renderCommList = () => allCom.map((/** @type {any} */ c) => `
     <label class="flex items-center gap-2 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 cursor-pointer">
       <input type="checkbox" data-comm="${c.id}" ${selCommissari.has(c.id) ? 'checked' : ''} class="w-4 h-4 rounded border-slate-300 text-brand-600" />
       <div class="w-6 h-6 rounded-full bg-amber-100 text-amber-700 overflow-hidden flex items-center justify-center text-xs shrink-0">${c.foto_url && safeUrl(c.foto_url) ? `<img src="${safeUrl(c.foto_url)}" alt="" class="w-full h-full object-cover" />` : '🧑‍⚖️'}</div>
@@ -149,7 +149,7 @@ function openCommissioneForm(concorso, existing, onSaved) {
     </label>
   `).join('');
 
-  const renderSezList = () => sezioni.map(s => `
+  const renderSezList = () => sezioni.map((/** @type {any} */ s) => `
     <label class="flex items-center gap-2 bg-white hover:bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 cursor-pointer">
       <input type="checkbox" data-sez="${s.id}" ${selSezioni.has(s.id) ? 'checked' : ''} class="w-4 h-4 rounded border-slate-300 text-brand-600" />
       <span class="text-sm text-slate-800">${escapeHtml(s.nome)}</span>
@@ -159,14 +159,14 @@ function openCommissioneForm(concorso, existing, onSaved) {
 
   const renderCatList = () => {
     if (sezioni.length === 0) return `<span class="text-xs text-slate-400 italic">${escapeHtml(t('admin.commissione.no_sez_avail'))}</span>`;
-    return sezioni.map(s => {
+    return sezioni.map((/** @type {any} */ s) => {
       const cats = db.categorieBySezione(s.id);
       if (cats.length === 0) return '';
       return `
         <div class="border border-slate-200 rounded-lg p-2 bg-slate-50">
           <div class="text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1">${escapeHtml(s.nome)}</div>
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-1">
-            ${cats.map(c => `
+            ${cats.map((/** @type {any} */ c) => `
               <label class="flex items-center gap-2 bg-white hover:bg-brand-50 border border-slate-200 rounded-md px-2 py-1 cursor-pointer">
                 <input type="checkbox" data-cat="${c.id}" ${selCategorie.has(c.id) ? 'checked' : ''} class="w-3.5 h-3.5 rounded border-slate-300 text-brand-600" />
                 <span class="text-xs text-slate-800 truncate">${escapeHtml(c.nome)}</span>
@@ -211,7 +211,7 @@ function openCommissioneForm(concorso, existing, onSaved) {
               <p class="text-[11px] text-amber-800 mt-0.5 mb-2">Il presidente pilota le fasi a cui questa commissione è assegnata: avvia/conclude, gestisce il timer, conferma le valutazioni.</p>
               <select id="presidente-select" class="${inputCls} mt-0">
                 <option value="">— Nessun presidente (l'admin gestirà le fasi) —</option>
-                ${allCom.map(c => `<option value="${escapeHtml(c.id)}" ${selPresidente === c.id ? 'selected' : ''} data-com-id="${escapeHtml(c.id)}">${escapeHtml(displayName(c))}${c.specialita ? ' · ' + escapeHtml(c.specialita) : ''}</option>`).join('')}
+                ${allCom.map((/** @type {any} */ c) => `<option value="${escapeHtml(c.id)}" ${selPresidente === c.id ? 'selected' : ''} data-com-id="${escapeHtml(c.id)}">${escapeHtml(displayName(c))}${c.specialita ? ' · ' + escapeHtml(c.specialita) : ''}</option>`).join('')}
               </select>
               <p class="text-[10px] text-amber-700 mt-1 italic">Il presidente deve essere uno dei membri sopra selezionati.</p>
             </label>
@@ -249,7 +249,7 @@ function openCommissioneForm(concorso, existing, onSaved) {
     primaryLabel: isEdit ? t('admin.commissione.save_edit') : t('admin.commissione.save_create'),
     onMount: (body) => {
       const updateCount = () => {
-        body.querySelector('[data-comm-count]').textContent = String(selCommissari.size);
+        (/** @type {HTMLElement} */ (body.querySelector('[data-comm-count]'))).textContent = String(selCommissari.size);
       };
       // Quando "Includi tutte le categorie" è attivo, le categorie delle
       // sezioni scelte vengono auto-popolate e le relative checkbox bloccate
@@ -266,7 +266,7 @@ function openCommissioneForm(concorso, existing, onSaved) {
         // Calcola unione delle categorie delle sezioni selezionate
         const auto = new Set();
         for (const sezId of selSezioni) {
-          db.categorieBySezione(sezId).forEach((c) => auto.add(c.id));
+          db.categorieBySezione(sezId).forEach((/** @type {any} */ c) => auto.add(c.id));
         }
         selCategorie = auto;
         body.querySelectorAll('input[data-cat]').forEach((el) => {
@@ -319,7 +319,7 @@ function openCommissioneForm(concorso, existing, onSaved) {
       if (includeTutte) {
         const auto = new Set();
         for (const sezId of selSezioni) {
-          db.categorieBySezione(sezId).forEach((c) => auto.add(c.id));
+          db.categorieBySezione(sezId).forEach((/** @type {any} */ c) => auto.add(c.id));
         }
         finalCategorieIds = Array.from(auto);
       }
@@ -339,7 +339,7 @@ function openCommissioneForm(concorso, existing, onSaved) {
         if (onSaved) onSaved();
       } catch (e) {
         console.error(e);
-        toast(t('admin.concorso.error_prefix', { msg: e?.message || t('admin.sezione.error_fallback') }), 'error');
+        toast(t('admin.concorso.error_prefix', { msg: (/** @type {any} */ (e))?.message || t('admin.sezione.error_fallback') }), 'error');
         return false;
       }
     }

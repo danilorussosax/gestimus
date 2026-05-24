@@ -8,7 +8,7 @@ import { icon } from '../icons.js';
 import { t } from '../i18n.js';
 import { exportCalendarioPdf } from '../calendario-pdf.js';
 
-let pollTimer = null;
+let pollTimer = /** @type {any} */ (null);
 
 // R15: il poll del display-mode è module-level. renderCalendarioPubblico lo
 // azzera/riarma solo quando si naviga DI NUOVO sul calendario; navigando verso
@@ -23,8 +23,8 @@ function parseParams() {
   return { token: q.get('token') || '', display: q.get('display') === '1' };
 }
 
-const hhmm = (s) => (s ? String(s).slice(0, 5) : '');
-function fmtDay(iso) {
+const hhmm = (/** @type {any} */ s) => (s ? String(s).slice(0, 5) : '');
+function fmtDay(/** @type {any} */ iso) {
   if (!iso) return '';
   try { return new Date(iso + 'T00:00:00').toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }); }
   catch { return iso; }
@@ -33,26 +33,26 @@ function fmtDay(iso) {
 // Ora/data correnti nel fuso della piattaforma (Europe/Rome) per l'evidenziazione.
 function nowRome() {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Rome', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hour12: false }).formatToParts(new Date());
-  const get = (type) => parts.find((p) => p.type === type)?.value || '00';
+  const get = (/** @type {any} */ type) => parts.find((p) => p.type === type)?.value || '00';
   return { date: `${get('year')}-${get('month')}-${get('day')}`, minutes: Number(get('hour')) * 60 + Number(get('minute')) };
 }
 
-function slotMinutes(s) {
+function slotMinutes(/** @type {any} */ s) {
   if (!s.oraPrevista) return null;
   return Number(String(s.oraPrevista).slice(0, 2)) * 60 + Number(String(s.oraPrevista).slice(3, 5));
 }
 
 // Marca "in corso" / "prossimo" sugli slot del giorno corrente (solo display).
-function markLive(data) {
+function markLive(/** @type {any} */ data) {
   const { date, minutes } = nowRome();
   for (const g of (data.giorni || [])) {
     const isToday = g.data === date;
     const flat = [];
     for (const b of g.blocchi) for (const s of (b.slot || [])) { s._live = null; if (isToday) flat.push(s); }
     if (!isToday) continue;
-    const timed = flat.filter((s) => slotMinutes(s) != null).sort((a, b) => slotMinutes(a) - slotMinutes(b));
-    let current = null;
-    for (const s of timed) { if (slotMinutes(s) <= minutes) current = s; }
+    const timed = flat.filter((s) => slotMinutes(s) != null).sort((a, b) => /** @type {number} */ (slotMinutes(a)) - /** @type {number} */ (slotMinutes(b)));
+    let current = /** @type {any} */ (null);
+    for (const s of timed) { if (/** @type {number} */ (slotMinutes(s)) <= minutes) current = s; }
     if (current) {
       current._live = 'now';
       const idx = timed.indexOf(current);
@@ -68,7 +68,7 @@ function brandingLogo() {
   return ep?.logo_url || './logo.png';
 }
 
-function slotRow(s, display) {
+function slotRow(/** @type {any} */ s, /** @type {any} */ display) {
   const liveCls = s._live === 'now'
     ? 'bg-emerald-50 ring-1 ring-emerald-300'
     : s._live === 'next' ? 'bg-amber-50 ring-1 ring-amber-200' : '';
@@ -84,13 +84,13 @@ function slotRow(s, display) {
     </li>`;
 }
 
-function blockCard(b, data, display) {
+function blockCard(/** @type {any} */ b, /** @type {any} */ data, /** @type {any} */ display) {
   const head = [b.sezione?.nome, b.categoria?.nome, b.fase?.nome].filter(Boolean).join(' · ')
     || b.titolo || (b.tipo === 'EVENTO' ? t('cal.block.tipo.evento') : t('cal.block.tipo.esibizione'));
   const orario = [hhmm(b.oraInizio), hhmm(b.oraFine)].filter(Boolean).join('–');
   const sala = b.sala?.nome ? `<span class="inline-flex items-center gap-1 text-ink-700">${icon('calendar', { size: 13 })}${escapeHtml(b.sala.nome)}</span>` : '';
   const giuria = (data.pubblicazione?.mostraCommissione && Array.isArray(b.commissione) && b.commissione.length)
-    ? `<p class="mt-2 text-[11px] text-ink-700"><span class="font-semibold">${escapeHtml(t('cal.pub.giuria'))}:</span> ${escapeHtml(b.commissione.map((m) => [m.nome, m.cognome].filter(Boolean).join(' ')).join(', '))}</p>`
+    ? `<p class="mt-2 text-[11px] text-ink-700"><span class="font-semibold">${escapeHtml(t('cal.pub.giuria'))}:</span> ${escapeHtml(b.commissione.map((/** @type {any} */ m) => [m.nome, m.cognome].filter(Boolean).join(' ')).join(', '))}</p>`
     : '';
   return `
     <article class="bg-white rounded-2xl ring-1 ring-brand-100 shadow-soft overflow-hidden ${display ? 'min-w-[340px]' : ''}">
@@ -103,14 +103,14 @@ function blockCard(b, data, display) {
       </header>
       <div class="px-2 py-2">
         ${(b.slot && b.slot.length)
-          ? `<ul class="space-y-1">${b.slot.map((s) => slotRow(s, display)).join('')}</ul>`
+          ? `<ul class="space-y-1">${b.slot.map((/** @type {any} */ s) => slotRow(s, display)).join('')}</ul>`
           : `<p class="px-3 py-2 text-sm text-ink-500 italic">${escapeHtml(b.tipo === 'EVENTO' ? (b.titolo || t('cal.block.tipo.evento')) : t('cal.pub.empty'))}</p>`}
         ${giuria}
       </div>
     </article>`;
 }
 
-function buildPdfOpts(data) {
+function buildPdfOpts(/** @type {any} */ data) {
   return {
     titolo: data.concorso?.nome || t('cal.pdf.title'),
     sottotitolo: data.pubblicazione?.etichetta || '',
@@ -127,7 +127,7 @@ function buildPdfOpts(data) {
 
 // Ogni blocco ha un colore DIVERSO: hue ruotato di golden-angle (137.5°) per
 // indice → tinte pastello sempre distinte e ben separate, testo scuro leggibile.
-function colorForIndex(i) {
+function colorForIndex(/** @type {any} */ i) {
   const hue = Math.round((i * 137.508) % 360);
   return {
     bg: `hsl(${hue} 70% 91%)`,
@@ -137,16 +137,16 @@ function colorForIndex(i) {
     avaFg: `hsl(${hue} 45% 26%)`,
   };
 }
-function initials(name) {
+function initials(/** @type {any} */ name) {
   const p = String(name || '').trim().split(/\s+/);
   return (((p[0]?.[0]) || '') + ((p[1]?.[0]) || '')).toUpperCase() || '•';
 }
-function toMin(hhmm) {
+function toMin(/** @type {any} */ hhmm) {
   if (!hhmm) return null;
   const m = String(hhmm).match(/^(\d{1,2}):(\d{2})/);
   return m ? Number(m[1]) * 60 + Number(m[2]) : null;
 }
-function fmtHM(min) {
+function fmtHM(/** @type {any} */ min) {
   const h = Math.floor(min / 60), mm = min % 60;
   return `${String(h).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
@@ -183,12 +183,12 @@ const DISPLAY_STYLE = `
   .cal-empty { color:#9aa0aa; font-style:italic; padding:24px; text-align:center; }
 </style>`;
 
-function dispCard(b, c) {
+function dispCard(/** @type {any} */ b, /** @type {any} */ c) {
   const cat = b.categoria?.nome || b.sezione?.nome || b.fase?.nome || b.titolo || t('cal.block.tipo.evento');
   const orario = [hhmm(b.oraInizio), hhmm(b.oraFine)].filter(Boolean).join(' – ');
   const slots = Array.isArray(b.slot) ? b.slot : [];
   const names = slots.length
-    ? `<div class="cal-names">${slots.map((s) => {
+    ? `<div class="cal-names">${slots.map((/** @type {any} */ s) => {
         const live = s._live === 'now' ? ' cal-name--now' : '';
         const badge = s._live === 'now'
           ? `<span class="cal-name__badge" style="background:rgba(16,185,129,.9);color:#fff">${escapeHtml(t('cal.pub.now'))}</span>`
@@ -202,7 +202,7 @@ function dispCard(b, c) {
           </div>`;
       }).join('')}</div>`
     : `<div class="cal-card__fase">${escapeHtml(b.tipo === 'EVENTO' ? (b.titolo || t('cal.block.tipo.evento')) : t('cal.pub.empty'))}</div>`;
-  return { c, html: (gridRow, gridCol) => `
+  return { c, html: (/** @type {any} */ gridRow, /** @type {any} */ gridCol) => `
     <article class="cal-card" style="grid-row:${gridRow};grid-column:${gridCol};background:${c.bg};color:${c.fg}">
       <div class="cal-card__cat">${escapeHtml(cat)}</div>
       ${orario ? `<div class="cal-card__time" style="color:${c.sub}">${escapeHtml(orario)}</div>` : ''}
@@ -210,12 +210,12 @@ function dispCard(b, c) {
     </article>` };
 }
 
-function salaBoard(salaNome, blocchi) {
+function salaBoard(/** @type {any} */ salaNome, /** @type {any} */ blocchi) {
   // Colonne = sezioni presenti (ordinate). Righe = tick da 30 min tra min/max orario.
-  const sezNames = [...new Set(blocchi.map((b) => b.sezione?.nome || '—'))].sort((a, b) => a.localeCompare(b));
+  const sezNames = [...new Set(blocchi.map((/** @type {any} */ b) => b.sezione?.nome || '—'))].sort((a, b) => a.localeCompare(b));
   const sezIdx = new Map(sezNames.map((n, i) => [n, i]));
-  const starts = blocchi.map((b) => toMin(b.oraInizio)).filter((x) => x != null);
-  const ends = blocchi.map((b) => toMin(b.oraFine) ?? (toMin(b.oraInizio) != null ? toMin(b.oraInizio) + 60 : null)).filter((x) => x != null);
+  const starts = blocchi.map((/** @type {any} */ b) => toMin(b.oraInizio)).filter((/** @type {any} */ x) => x != null);
+  const ends = blocchi.map((/** @type {any} */ b) => toMin(b.oraFine) ?? (toMin(b.oraInizio) != null ? /** @type {number} */ (toMin(b.oraInizio)) + 60 : null)).filter((/** @type {any} */ x) => x != null);
   const minStart = starts.length ? Math.floor(Math.min(...starts) / 30) * 30 : 9 * 60;
   const maxEnd = ends.length ? Math.ceil(Math.max(...ends) / 30) * 30 : minStart + 60;
   const T = Math.max(1, (maxEnd - minStart) / 30);
@@ -236,7 +236,7 @@ function salaBoard(salaNome, blocchi) {
     }</div>`;
   }
   // Card per blocco — ogni blocco un colore diverso (indice di render).
-  blocchi.forEach((b, i) => {
+  blocchi.forEach((/** @type {any} */ b, /** @type {any} */ i) => {
     const start = toMin(b.oraInizio) ?? minStart;
     let end = toMin(b.oraFine) ?? start + 60;
     if (end <= start) end = start + 30;
@@ -255,7 +255,7 @@ function salaBoard(salaNome, blocchi) {
     </div>`;
 }
 
-function renderDisplayBoards(root, data) {
+function renderDisplayBoards(/** @type {any} */ root, /** @type {any} */ data) {
   markLive(data);
   const giorni = data.giorni || [];
   const head = `
@@ -269,7 +269,7 @@ function renderDisplayBoards(root, data) {
 
   const body = giorni.length === 0
     ? `<div class="cal-board"><div class="cal-empty">${escapeHtml(t('cal.pub.empty'))}</div></div>`
-    : giorni.map((g) => {
+    : giorni.map((/** @type {any} */ g) => {
         // Raggruppa i blocchi del giorno per sala (un tabellone ciascuna).
         const bySala = new Map();
         for (const b of g.blocchi) {
@@ -288,7 +288,7 @@ function renderDisplayBoards(root, data) {
   root.innerHTML = `${DISPLAY_STYLE}<div class="cal-disp">${head}${body}</div>`;
 }
 
-function renderContent(root, data, params) {
+function renderContent(/** @type {any} */ root, /** @type {any} */ data, /** @type {any} */ params) {
   const { display } = params;
   if (display) { renderDisplayBoards(root, data); return; }
   const giorni = data.giorni || [];
@@ -313,11 +313,11 @@ function renderContent(root, data, params) {
       ${giorni.length === 0 ? `
         <div class="bg-white border-2 border-dashed border-brand-100 rounded-2xl py-16 text-center">
           <p class="text-ink-500 italic">${escapeHtml(t('cal.pub.empty'))}</p>
-        </div>` : giorni.map((g) => `
+        </div>` : giorni.map((/** @type {any} */ g) => `
         <section class="mb-8">
           <h2 class="${display ? 'text-2xl' : 'text-lg'} font-bold text-ink-900 capitalize mb-3">${escapeHtml(fmtDay(g.data))}</h2>
           <div class="${display ? 'flex gap-4 overflow-x-auto pb-2' : 'grid gap-4 md:grid-cols-2'}">
-            ${g.blocchi.map((b) => blockCard(b, data, display)).join('')}
+            ${g.blocchi.map((/** @type {any} */ b) => blockCard(b, data, display)).join('')}
           </div>
         </section>`).join('')}
 
@@ -328,7 +328,7 @@ function renderContent(root, data, params) {
   if (pdfBtn) pdfBtn.addEventListener('click', () => exportCalendarioPdf(buildPdfOpts(data)));
 }
 
-export async function renderCalendarioPubblico(root) {
+export async function renderCalendarioPubblico(/** @type {any} */ root) {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
   const params = parseParams();
   if (!params.token) {
@@ -344,7 +344,7 @@ export async function renderCalendarioPubblico(root) {
     } catch (e) {
       if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
       root.innerHTML = `<div class="c-page max-w-2xl mx-auto"><div class="bg-white rounded-2xl ring-1 ring-rose-200 p-8 text-center"><p class="text-rose-700">${escapeHtml(t('cal.pub.not_found'))}</p></div></div>`;
-      if (e?.status && e.status !== 404) toast(e.message || 'Errore', 'error');
+      if (/** @type {any} */ (e)?.status && /** @type {any} */ (e).status !== 404) toast(/** @type {any} */ (e).message || 'Errore', 'error');
     }
   };
 

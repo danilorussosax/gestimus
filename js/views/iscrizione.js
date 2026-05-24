@@ -15,14 +15,14 @@ const DRAFT_KEY = 'iscrizione_draft_v2';
 function loadDraft() {
   try { return JSON.parse(localStorage.getItem(DRAFT_KEY) || '{}'); } catch { return {}; }
 }
-function saveDraft(d) {
+function saveDraft(/** @type {any} */ d) {
   try { localStorage.setItem(DRAFT_KEY, JSON.stringify(d)); } catch {}
 }
 function clearDraft() {
   try { localStorage.removeItem(DRAFT_KEY); } catch {}
 }
 
-function calcEta(iso) {
+function calcEta(/** @type {any} */ iso) {
   if (!iso) return null;
   // R15: età in anni compiuti per componenti di calendario, non con la divisione
   // naive per 365.25 giorni (che sbaglia di un giorno a cavallo del compleanno).
@@ -37,19 +37,19 @@ function calcEta(iso) {
   return age;
 }
 
-export async function renderIscrizione(root) {
+export async function renderIscrizione(/** @type {any} */ root) {
   // Sub-route: conferma email tramite token (link dalla mail di verifica).
   if (location.hash.startsWith('#/iscrizione/conferma')) {
     return renderConferma(root);
   }
 
-  const state = {
+  const state = /** @type {{ concorso: any, sezioni: any[], categorie: any[], draft: any, submitting: boolean }} */ ({
     concorso: null,
     sezioni: [],
     categorie: [],
     draft: loadDraft(),
     submitting: false,
-  };
+  });
 
   root.innerHTML = `
     <section class="view-fade min-h-[60vh] flex items-center justify-center c-page">
@@ -71,7 +71,7 @@ export async function renderIscrizione(root) {
   renderForm(root, state);
 }
 
-async function renderConferma(root) {
+async function renderConferma(/** @type {any} */ root) {
   const q = new URLSearchParams(location.hash.split('?')[1] || '');
   const token = q.get('t') || '';
   root.innerHTML = `<section class="view-fade min-h-[40vh] flex items-center justify-center c-page"><p class="text-slate-600">Verifica in corso…</p></section>`;
@@ -80,7 +80,7 @@ async function renderConferma(root) {
     const res = await db.verifyIscrizioneEmail(token);
     data = res?.iscrizione || res;
   } catch (e) {
-    error = e?.message || 'rete';
+    error = (/** @type {any} */ (e))?.message || 'rete';
   }
   root.innerHTML = `
     <section class="view-fade c-page max-w-xl mx-auto py-10">
@@ -99,7 +99,7 @@ async function renderConferma(root) {
     </section>`;
 }
 
-function renderClosed(root) {
+function renderClosed(/** @type {any} */ root) {
   root.innerHTML = `
     <section class="view-fade min-h-[60vh] flex items-center justify-center c-page">
       <div class="bg-white rounded-3xl shadow-soft border border-slate-200 max-w-xl w-full p-10 text-center">
@@ -114,7 +114,7 @@ function renderClosed(root) {
 // ============================================================================
 // Render UNICA pagina con tutte le sezioni
 // ============================================================================
-function renderForm(root, state) {
+function renderForm(/** @type {any} */ root, /** @type {any} */ state) {
   const { concorso, draft: d } = state;
 
   root.innerHTML = `
@@ -153,7 +153,7 @@ function renderForm(root, state) {
         ${sectionHeader('1', t('iscr.section.1.title'), t('iscr.section.1.subtitle'))}
         <div class="bg-white border border-slate-200 rounded-3xl shadow-soft p-6" data-sec="anagrafica">
           ${anagraficaFields(d)}
-          <div data-tutore-host class="${calcEta(d.data_nascita) !== null && calcEta(d.data_nascita) < 18 ? '' : 'hidden'} mt-5">
+          <div data-tutore-host class="${calcEta(d.data_nascita) !== null && /** @type {number} */ (calcEta(d.data_nascita)) < 18 ? '' : 'hidden'} mt-5">
             ${tutoreFields(d)}
           </div>
         </div>
@@ -208,7 +208,7 @@ function renderForm(root, state) {
   bindAll(root, form, state);
 }
 
-function sectionHeader(num, title, subtitle) {
+function sectionHeader(/** @type {any} */ num, /** @type {any} */ title, /** @type {any} */ subtitle) {
   return `
     <header class="flex items-center gap-3 mb-1">
       <span class="w-7 h-7 rounded-full bg-brand-100 text-brand-700 text-sm font-bold inline-flex items-center justify-center shrink-0">${num}</span>
@@ -221,7 +221,7 @@ function sectionHeader(num, title, subtitle) {
 }
 
 // ---------- Sezione 1: Anagrafica ----------
-function anagraficaFields(d) {
+function anagraficaFields(/** @type {any} */ d) {
   return `
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <label class="c-field"><span class="c-field__label">Tipo iscrizione *</span>
@@ -252,7 +252,7 @@ function anagraficaFields(d) {
   `;
 }
 
-function tutoreFields(d) {
+function tutoreFields(/** @type {any} */ d) {
   return `
     <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4">
       <p class="font-bold text-amber-900 flex items-center gap-1.5">⚠ Candidato minorenne</p>
@@ -268,7 +268,7 @@ function tutoreFields(d) {
 }
 
 // ---------- Sezione 2: Contatti ----------
-function contattiFields(d) {
+function contattiFields(/** @type {any} */ d) {
   return `
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
       <label class="c-field sm:col-span-2"><span class="c-field__label">Email *</span><input name="email" type="email" required class="c-input" value="${escapeHtml(d.email || '')}" placeholder="nome@esempio.it" /></label>
@@ -283,11 +283,11 @@ function contattiFields(d) {
 }
 
 // ---------- Sezione 3: Dati artistici ----------
-function artisticiFields(d, state) {
+function artisticiFields(/** @type {any} */ d, /** @type {any} */ state) {
   const sezioneSel = d.sezione || '';
   // Il payload pubblico mappa le categorie con `sezione_id` (vedi db.js
   // fetchConcorsoIscrizioniAperto). Filtriamo su quel campo, non `c.sezione`.
-  const categorieDellaSezione = state.categorie.filter(c => c.sezione_id === sezioneSel);
+  const categorieDellaSezione = state.categorie.filter((/** @type {any} */ c) => c.sezione_id === sezioneSel);
   const sezioneHaCategorie = sezioneSel && categorieDellaSezione.length > 0;
   return `
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -297,13 +297,13 @@ function artisticiFields(d, state) {
         <label class="c-field"><span class="c-field__label">Sezione</span>
           <select name="sezione" class="c-input">
             <option value="">— Nessuna —</option>
-            ${state.sezioni.map(s => `<option value="${escapeHtml(s.id)}" ${sezioneSel === s.id ? 'selected' : ''}>${escapeHtml(s.nome)}</option>`).join('')}
+            ${state.sezioni.map((/** @type {any} */ s) => `<option value="${escapeHtml(s.id)}" ${sezioneSel === s.id ? 'selected' : ''}>${escapeHtml(s.nome)}</option>`).join('')}
           </select>
         </label>
         <label class="c-field"><span class="c-field__label">Categoria${sezioneHaCategorie ? ' *' : ''}</span>
           <select name="categoria" class="c-input" ${categorieDellaSezione.length === 0 ? 'disabled' : ''} ${sezioneHaCategorie ? 'required' : ''}>
             <option value="">${categorieDellaSezione.length === 0 ? '— Seleziona prima una sezione —' : '— Scegli categoria —'}</option>
-            ${categorieDellaSezione.map(c => `<option value="${escapeHtml(c.id)}" ${d.categoria === c.id ? 'selected' : ''}>${escapeHtml(c.nome)}</option>`).join('')}
+            ${categorieDellaSezione.map((/** @type {any} */ c) => `<option value="${escapeHtml(c.id)}" ${d.categoria === c.id ? 'selected' : ''}>${escapeHtml(c.nome)}</option>`).join('')}
           </select>
         </label>
       ` : ''}
@@ -316,14 +316,14 @@ function artisticiFields(d, state) {
 }
 
 // ---------- Sezione 3b: Gruppo / Orchestra ----------
-function gruppoSectionTitle(tipo) {
+function gruppoSectionTitle(/** @type {any} */ tipo) {
   return tipo === 'orchestra' ? 'Composizione dell\'orchestra' : 'Composizione del gruppo';
 }
-function gruppoSectionSubtitle(tipo) {
+function gruppoSectionSubtitle(/** @type {any} */ tipo) {
   return tipo === 'orchestra' ? 'Nome dell\'orchestra e membri.' : 'Nome dell\'ensemble e membri.';
 }
 
-function gruppoFields(d) {
+function gruppoFields(/** @type {any} */ d) {
   const isOrch = d.tipo === 'orchestra';
   const labelNome = isOrch ? 'Nome dell\'orchestra' : 'Nome del gruppo / ensemble';
   const placeholderNome = isOrch ? 'es. Orchestra Giovanile di Milano' : 'es. Quartetto Brillante';
@@ -331,13 +331,13 @@ function gruppoFields(d) {
     <label class="c-field"><span class="c-field__label">${labelNome}</span><input name="gruppo_nome" class="c-input" value="${escapeHtml(d.gruppo_nome || '')}" placeholder="${placeholderNome}" /></label>
     <p class="text-xs text-slate-600 mt-3 mb-2">Membri (oltre al referente compilato sopra):</p>
     <div data-membri-list class="space-y-2">
-      ${(d.gruppo_membri || []).map((m, i) => membroRowHtml(m, i)).join('')}
+      ${(d.gruppo_membri || []).map((/** @type {any} */ m, /** @type {any} */ i) => membroRowHtml(m, i)).join('')}
     </div>
     <button type="button" data-add-membro class="mt-2 text-xs font-medium text-brand-700 hover:text-brand-900">+ Aggiungi membro</button>
   `;
 }
 
-function membroRowHtml(m, i) {
+function membroRowHtml(/** @type {any} */ m, /** @type {any} */ i) {
   return `
     <div data-membro-row class="grid grid-cols-12 gap-2">
       <input name="m_nome" class="c-input col-span-3" placeholder="Nome" value="${escapeHtml(m?.nome || '')}" />
@@ -350,11 +350,11 @@ function membroRowHtml(m, i) {
 }
 
 // ---------- Sezione 4: Programma ----------
-function programmaFields(d) {
+function programmaFields(/** @type {any} */ d) {
   const prog = Array.isArray(d.programma) && d.programma.length ? d.programma : [{ titolo: '', autore: '', durata_min: '' }];
   return `
     <div data-programma-list class="space-y-2">
-      ${prog.map((p, i) => programmaRowHtml(p, i)).join('')}
+      ${prog.map((/** @type {any} */ p, /** @type {any} */ i) => programmaRowHtml(p, i)).join('')}
     </div>
     <button type="button" data-add-brano class="mt-2 text-xs font-medium text-brand-700 hover:text-brand-900">+ Aggiungi brano</button>
     <label class="c-field mt-4"><span class="c-field__label">Note libere (opzionale)</span>
@@ -363,7 +363,7 @@ function programmaFields(d) {
   `;
 }
 
-function programmaRowHtml(p, i) {
+function programmaRowHtml(/** @type {any} */ p, /** @type {any} */ i) {
   return `
     <div data-programma-row class="grid grid-cols-12 gap-2">
       <input name="p_titolo" class="c-input col-span-5" placeholder="Titolo brano" value="${escapeHtml(p?.titolo || '')}" />
@@ -375,8 +375,8 @@ function programmaRowHtml(p, i) {
 }
 
 // ---------- Sezione 5: Allegati ----------
-function allegatiFields(d) {
-  const isMinor = calcEta(d.data_nascita) !== null && calcEta(d.data_nascita) < 18;
+function allegatiFields(/** @type {any} */ d) {
+  const isMinor = calcEta(d.data_nascita) !== null && /** @type {number} */ (calcEta(d.data_nascita)) < 18;
   return `
     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
       ${fileFieldHtml('foto', '📷 Foto candidato', 'JPG/PNG/WebP, max 2 MB. Ridimensionata automaticamente.', d.foto)}
@@ -389,7 +389,7 @@ function allegatiFields(d) {
   `;
 }
 
-function fileFieldHtml(name, label, hint, current) {
+function fileFieldHtml(/** @type {any} */ name, /** @type {any} */ label, /** @type {any} */ hint, /** @type {any} */ current) {
   return `
     <div class="c-field">
       <span class="c-field__label">${escapeHtml(label)}</span>
@@ -401,7 +401,7 @@ function fileFieldHtml(name, label, hint, current) {
 }
 
 // ---------- Sezione 6: Privacy ----------
-function consensiFields(d) {
+function consensiFields(/** @type {any} */ d) {
   return `
     <div class="space-y-3">
       <label class="flex items-start gap-3 text-sm text-ink-800">
@@ -423,13 +423,13 @@ function consensiFields(d) {
 // ============================================================================
 // Binding handlers (live save draft + sub-controls)
 // ============================================================================
-function bindAll(root, form, state) {
+function bindAll(/** @type {any} */ root, /** @type {any} */ form, /** @type {any} */ state) {
   // Save draft a ogni input/change tranne file (gestiti a parte)
-  form.addEventListener('input', (ev) => onFieldChange(ev, state, root));
-  form.addEventListener('change', (ev) => onFieldChange(ev, state, root));
+  form.addEventListener('input', (/** @type {any} */ ev) => onFieldChange(ev, state, root));
+  form.addEventListener('change', (/** @type {any} */ ev) => onFieldChange(ev, state, root));
 
   // Aggiungi/rimuovi membri
-  form.addEventListener('click', (ev) => {
+  form.addEventListener('click', (/** @type {any} */ ev) => {
     if (ev.target.closest('[data-add-membro]')) {
       state.draft.gruppo_membri = state.draft.gruppo_membri || [];
       state.draft.gruppo_membri.push({ nome: '', cognome: '', strumento: '', data_nascita: '' });
@@ -468,7 +468,7 @@ function bindAll(root, form, state) {
   });
 
   // File inputs: leggi e mantieni in memoria
-  form.querySelectorAll('input[type="file"]').forEach(inp => {
+  form.querySelectorAll('input[type="file"]').forEach((/** @type {any} */ inp) => {
     inp.addEventListener('change', async () => {
       const file = inp.files[0];
       if (!file) return;
@@ -490,19 +490,19 @@ function bindAll(root, form, state) {
         saveDraft(state.draft);
         toast(`${inp.name} caricato`, 'success');
       } catch (e) {
-        toast(`Errore lettura ${inp.name}: ${e?.message || e}`, 'error');
+        toast(`Errore lettura ${inp.name}: ${(/** @type {any} */ (e))?.message || e}`, 'error');
       }
     });
   });
 
   // Submit
-  form.addEventListener('submit', (ev) => {
+  form.addEventListener('submit', (/** @type {any} */ ev) => {
     ev.preventDefault();
     submit(root, state);
   });
 }
 
-function onFieldChange(ev, state, root) {
+function onFieldChange(/** @type {any} */ ev, /** @type {any} */ state, /** @type {any} */ root) {
   const el = ev.target;
   if (!el.name || el.type === 'file') return;
   const d = state.draft;
@@ -536,9 +536,9 @@ function onFieldChange(ev, state, root) {
     if (catSel) {
       // Le categorie del payload pubblico usano `sezione_id` (vedi db.js
       // fetchConcorsoIscrizioniAperto): filtriamo su quello.
-      const cats = state.categorie.filter(c => c.sezione_id === el.value);
+      const cats = state.categorie.filter((/** @type {any} */ c) => c.sezione_id === el.value);
       const placeholder = cats.length === 0 ? '— Seleziona prima una sezione —' : '— Scegli categoria —';
-      catSel.innerHTML = `<option value="">${placeholder}</option>` + cats.map(c => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.nome)}</option>`).join('');
+      catSel.innerHTML = `<option value="">${placeholder}</option>` + cats.map((/** @type {any} */ c) => `<option value="${escapeHtml(c.id)}">${escapeHtml(c.nome)}</option>`).join('');
       catSel.disabled = cats.length === 0;
       // Se la sezione ha categorie la categoria diventa obbligatoria.
       catSel.required = cats.length > 0;
@@ -571,7 +571,7 @@ function onFieldChange(ev, state, root) {
 // ============================================================================
 // Validazione + Submit
 // ============================================================================
-function validate(d) {
+function validate(/** @type {any} */ d) {
   const errs = [];
   if (!d.nome) errs.push('Nome');
   if (!d.cognome) errs.push('Cognome');
@@ -583,14 +583,14 @@ function validate(d) {
   if (eta !== null && eta < 18) {
     if (!d.tutore_nome || !d.tutore_cognome || !d.tutore_email) errs.push('Dati tutore (obbligatori per minorenni)');
   }
-  const validBrani = (d.programma || []).filter(p => p.titolo);
+  const validBrani = (d.programma || []).filter((/** @type {any} */ p) => p.titolo);
   if (validBrani.length === 0) errs.push('Almeno un brano nel programma');
   if (!d.consenso_privacy) errs.push('Consenso privacy');
   if (!d.consenso_regolamento) errs.push('Consenso regolamento');
   return errs;
 }
 
-async function submit(root, state) {
+async function submit(/** @type {any} */ root, /** @type {any} */ state) {
   // N75: guard anti doppio-submit all'ENTRY. Prima il flag submitting veniva
   // settato dopo la validazione → due click rapidi passavano entrambi e
   // sparavano createIscrizione due volte.
@@ -618,10 +618,10 @@ async function submit(root, state) {
     const payload = {
       concorso: state.concorso.id,
       ...d,
-      programma: (d.programma || []).filter(p => p.titolo),
-      durata_totale_min: (d.programma || []).reduce((s, p) => s + (Number(p.durata_min) || 0), 0),
+      programma: (d.programma || []).filter((/** @type {any} */ p) => p.titolo),
+      durata_totale_min: (d.programma || []).reduce((/** @type {any} */ s, /** @type {any} */ p) => s + (Number(p.durata_min) || 0), 0),
       gruppo_membri: (d.tipo === 'gruppo' || d.tipo === 'orchestra')
-        ? (d.gruppo_membri || []).filter(m => m.nome)
+        ? (d.gruppo_membri || []).filter((/** @type {any} */ m) => m.nome)
         : null,
       website,
       startedAt,
@@ -631,15 +631,15 @@ async function submit(root, state) {
     renderSuccess(root, state.concorso, id, d.email);
   } catch (e) {
     console.error('createIscrizione:', e);
-    let msg = e?.message || 'Errore di rete';
-    if (e?.data?.email?.code === 'validation_not_unique') msg = 'Hai già inviato un\'iscrizione con questa email per questo concorso.';
+    let msg = (/** @type {any} */ (e))?.message || 'Errore di rete';
+    if ((/** @type {any} */ (e))?.data?.email?.code === 'validation_not_unique') msg = 'Hai già inviato un\'iscrizione con questa email per questo concorso.';
     toast(msg, 'error');
     state.submitting = false;
     if (btn) { btn.disabled = false; btn.querySelector('span').textContent = 'Invia iscrizione'; }
   }
 }
 
-function renderSuccess(root, concorso, id, email) {
+function renderSuccess(/** @type {any} */ root, /** @type {any} */ concorso, /** @type {any} */ id, /** @type {any} */ email) {
   root.innerHTML = `
     <section class="view-fade c-page max-w-2xl mx-auto py-10 text-center">
       <div class="bg-white border border-emerald-200 rounded-3xl shadow-soft p-10">

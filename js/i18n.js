@@ -25,16 +25,17 @@ let currentLang = (() => {
   return SUPPORTED_LANGS.includes(nav) ? nav : DEFAULT_LANG;
 })();
 
-export function t(key, params = {}) {
-  const lang = dict[currentLang] || dict[DEFAULT_LANG];
-  let text = lang[key] ?? dict[DEFAULT_LANG][key] ?? key;
+export function t(/** @type {string} */ key, /** @type {Record<string, any>} */ params = {}) {
+  const d = /** @type {Record<string, Record<string, string>>} */ (dict);
+  const lang = d[currentLang] || d[DEFAULT_LANG];
+  let text = lang[key] ?? d[DEFAULT_LANG][key] ?? key;
   for (const [k, v] of Object.entries(params)) {
     text = text.replaceAll(`{${k}}`, String(v));
   }
   return text;
 }
 
-export function setLang(lang) {
+export function setLang(/** @type {string} */ lang) {
   if (!SUPPORTED_LANGS.includes(lang)) return;
   currentLang = lang;
   try { localStorage.setItem(STORAGE_KEY, lang); } catch { /* noop */ }

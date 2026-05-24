@@ -6,10 +6,10 @@
     "checkJs": true,
     "allowJs": true,
     "noEmit": true,
-    "strict": false,
+    "strict": true,
     "skipLibCheck": true,
     "lib": ["ES2022", "DOM", "DOM.Iterable"]
   },
-  "//": "checkJs su TUTTO il frontend vanilla (gate CI). Tipi via JSDoc/cast; globals CDN in js/globals.d.ts.",
+  "//": "checkJs STRICT su TUTTO il frontend vanilla (gate CI): strictNullChecks + noImplicitAny + … Tipi via JSDoc/cast; globals CDN in js/globals.d.ts.",
   "include": ["js/**/*.js", "js/globals.d.ts"]
 }

@@ -5,7 +5,7 @@ import { icon } from '../icons.js';
 import { t } from '../i18n.js';
 import { setAdminTab } from './admin.js';
 
-export function renderHome(root) {
+export function renderHome(/** @type {any} */ root) {
   const meta = db.state.meta;
   // Anti-escalation: la fonte di verità è l'account autenticato, non meta.role
   // (che è uno stato client persistito in localStorage e può essere stato
@@ -16,7 +16,7 @@ export function renderHome(root) {
     // Se meta.role è stato resettato, ripristiniamo il legame con il commissario
     // dell'account così renderCommissarioHome non fa redirect alla login.
     if (meta.role !== 'commissario') {
-      const com = db.state.commissari.find(c => c.id === pb.authStore.model?.commissario);
+      const com = db.state.commissari.find((/** @type {any} */ c) => c.id === pb.authStore.model?.commissario);
       if (com) db.setRole('commissario', com.id);
     }
     return renderCommissarioHome(root);
@@ -30,8 +30,8 @@ export function renderHome(root) {
   const fasi = db.state.fasi;
   const valutazioni = db.state.valutazioni;
 
-  const concorsiAttivi = concorsi.filter(c => c.stato === 'ATTIVO').length;
-  const fasiInCorso   = fasi.filter(f => f.stato === 'IN_CORSO').length;
+  const concorsiAttivi = concorsi.filter((/** @type {any} */ c) => c.stato === 'ATTIVO').length;
+  const fasiInCorso   = fasi.filter((/** @type {any} */ f) => f.stato === 'IN_CORSO').length;
 
   root.innerHTML = `
     <section class="view-fade">
@@ -100,8 +100,8 @@ export function renderHome(root) {
                   <span class="sr-only">${escapeHtml(t('home.role.com.label'))}</span>
                   <select id="commissario-select" class="c-select">
                     <option value="">${escapeHtml(t('home.role.com.placeholder'))}</option>
-                    ${commissari.map(c => {
-                      const concorso = db.state.concorsi.find(x => x.id === c.concorso_id);
+                    ${commissari.map((/** @type {any} */ c) => {
+                      const concorso = db.state.concorsi.find((/** @type {any} */ x) => x.id === c.concorso_id);
                       const isPres = db.isPresidenteDiQualcheCommissione(c.id);
                       const star = isPres ? '🎯 ' : '';
                       const ruolo = isPres ? ' ' + t('home.role.com.presidente_tag') : '';
@@ -137,7 +137,7 @@ export function renderHome(root) {
                 </tr>
               </thead>
               <tbody>
-                ${concorsi.map(c => {
+                ${concorsi.map((/** @type {any} */ c) => {
                   const fs = db.fasiByConcorso(c.id);
                   const cs = db.candidatiByConcorso(c.id);
                   return `
@@ -147,7 +147,7 @@ export function renderHome(root) {
                       <td class="hidden md:table-cell">${cs.length}</td>
                       <td>
                         <div class="flex flex-wrap gap-1.5">
-                          ${fs.map(f => {
+                          ${fs.map((/** @type {any} */ f) => {
                             const cls = f.stato === 'IN_CORSO' ? 'c-tag c-tag--blue'
                                       : f.stato === 'CONCLUSA' ? 'c-tag c-tag--gray c-tag--no-dot'
                                       : 'c-tag c-tag--yellow';
@@ -192,7 +192,7 @@ export function renderHome(root) {
 
   // Click su qualsiasi riga della tabella concorsi in basso → apre l'amministrazione
   // di quel concorso (setActiveConcorso + role=admin + #/admin).
-  root.querySelectorAll('[data-open-concorso]').forEach(tr => {
+  root.querySelectorAll('[data-open-concorso]').forEach((/** @type {any} */ tr) => {
     tr.addEventListener('click', () => {
       const r = pb.authStore.model?.role;
       if (r !== 'admin' && r !== 'superadmin') {
@@ -215,7 +215,7 @@ export function renderHome(root) {
     sel.addEventListener('change', () => { btn.disabled = !sel.value; });
     btn.addEventListener('click', () => {
       if (!sel.value) return;
-      const com = db.state.commissari.find(c => c.id === sel.value);
+      const com = db.state.commissari.find((/** @type {any} */ c) => c.id === sel.value);
       if (!com) return;
       // Con l'anagrafica multi-concorso (migration 1700000042): se è assegnato a
       // un solo concorso entra direttamente; altrimenti attiva il primo come
@@ -230,7 +230,7 @@ export function renderHome(root) {
 
 // ---------- KPI tile helper ----------
 
-function kpi(label, value, sub, accent = '', iconName = '') {
+function kpi(/** @type {any} */ label, /** @type {any} */ value, /** @type {any} */ sub, accent = '', iconName = '') {
   const cls = accent ? `c-stat c-stat--${accent}` : 'c-stat';
   const iconHtml = iconName ? `<span class="absolute right-4 top-4 text-muted-foreground">${icon(iconName, { size: 20 })}</span>` : '';
   return `
@@ -245,7 +245,7 @@ function kpi(label, value, sub, accent = '', iconName = '') {
 
 // ---------- Stato sistema (Postgres) ----------
 
-async function renderPbCard(host) {
+async function renderPbCard(/** @type {any} */ host) {
   if (!host) return;
   const s = db.state;
   const totalRecords = s.concorsi.length + s.commissari.length + s.candidati.length + s.fasi.length + s.candidati_fase.length + s.valutazioni.length;
@@ -262,7 +262,7 @@ async function renderPbCard(host) {
 
 // ---------- Impostazioni ente (sintetico, link a pagina dedicata) ----------
 
-function renderEnteSettingsCard(host) {
+function renderEnteSettingsCard(/** @type {any} */ host) {
   if (!host) return;
   const ente = db.getEnte();
   const configured = !!(ente && (ente.nome || ente.email_contatto || ente.logo_url));
@@ -293,9 +293,9 @@ function renderEnteSettingsCard(host) {
 
 // ---------- Commissario landing dashboard ----------
 
-function renderCommissarioHome(root) {
+function renderCommissarioHome(/** @type {any} */ root) {
   const meta = db.state.meta;
-  const currentCom = db.state.commissari.find(c => c.id === meta.currentCommissarioId);
+  const currentCom = db.state.commissari.find((/** @type {any} */ c) => c.id === meta.currentCommissarioId);
   if (!currentCom) {
     location.hash = '#/';
     return;
@@ -306,17 +306,17 @@ function renderCommissarioHome(root) {
   // (currentCom) ad ogni iterazione, ma `concorso` cambia.
   const rec = currentCom;
   const myConcorsi = (rec.concorsi_ids || [])
-    .map(id => db.state.concorsi.find(x => x.id === id))
+    .map((/** @type {any} */ id) => db.state.concorsi.find((/** @type {any} */ x) => x.id === id))
     .filter(Boolean);
-  const concorsoCardsHtml = myConcorsi.map(concorso => {
+  const concorsoCardsHtml = myConcorsi.map((/** @type {any} */ concorso) => {
     if (!concorso) return '';
     const fasi = db.fasiByConcorso(concorso.id);
-    const fasiInCorso = fasi.filter(f => f.stato === 'IN_CORSO').length;
-    const fasiConcluse = fasi.filter(f => f.stato === 'CONCLUSA').length;
+    const fasiInCorso = fasi.filter((/** @type {any} */ f) => f.stato === 'IN_CORSO').length;
+    const fasiConcluse = fasi.filter((/** @type {any} */ f) => f.stato === 'CONCLUSA').length;
     const candidati = db.candidatiByConcorso(concorso.id);
     // Presidente SCOPED al concorso corrente (non globale): in questo concorso
     // questo commissario è presidente di almeno una commissione?
-    const recIsPres = db.state.commissioni.some(cm =>
+    const recIsPres = db.state.commissioni.some((/** @type {any} */ cm) =>
       cm.concorso_id === concorso.id && cm.presidente_id === rec.id);
     const role = recIsPres ? t('com_home.role_presidente') : t('com_home.role_commissario');
     const roleIcon = recIsPres ? icon('star', { size: 14 }) : icon('music', { size: 14 });
@@ -324,13 +324,13 @@ function renderCommissarioHome(root) {
 
     // Progresso valutazioni per questo commissario nelle fasi attive
     let totalCand = 0, evaluatedCand = 0;
-    fasi.forEach(f => {
-      const cfs = db.state.candidati_fase.filter(cf => cf.fase_id === f.id);
+    fasi.forEach((/** @type {any} */ f) => {
+      const cfs = db.state.candidati_fase.filter((/** @type {any} */ cf) => cf.fase_id === f.id);
       const assigned = db.getFaseCommissariIds(f).includes(rec.id);
       if (assigned && f.stato !== 'PIANIFICATA') {
         totalCand += cfs.length;
-        evaluatedCand += cfs.filter(cf =>
-          db.state.valutazioni.some(v => v.candidato_fase_id === cf.id && v.commissario_id === rec.id)
+        evaluatedCand += cfs.filter((/** @type {any} */ cf) =>
+          db.state.valutazioni.some((/** @type {any} */ v) => v.candidato_fase_id === cf.id && v.commissario_id === rec.id)
         ).length;
       }
     });
@@ -390,8 +390,8 @@ function renderCommissarioHome(root) {
 
   const total = myConcorsi.length;
   // Quanti concorsi vedono questo commissario come presidente di almeno una commissione.
-  const presCount = myConcorsi.filter(c =>
-    db.state.commissioni.some(cm => cm.concorso_id === c.id && cm.presidente_id === rec.id)
+  const presCount = myConcorsi.filter((/** @type {any} */ c) =>
+    db.state.commissioni.some((/** @type {any} */ cm) => cm.concorso_id === c.id && cm.presidente_id === rec.id)
   ).length;
   const greeting = t('com_home.greeting', { name: displayName(currentCom) });
 
@@ -425,7 +425,7 @@ function renderCommissarioHome(root) {
     </section>
   `;
 
-  root.querySelectorAll('[data-pick-concorso]').forEach(btn => {
+  root.querySelectorAll('[data-pick-concorso]').forEach((/** @type {any} */ btn) => {
     btn.addEventListener('click', () => {
       const concorsoId = btn.dataset.pickConcorso;
       if (!concorsoId) return;

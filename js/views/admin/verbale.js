@@ -11,15 +11,15 @@ import { rankFase } from './common.js';
 
 // Helper persi durante lo split di admin.js — riportati qui per evitare ReferenceError
 // in renderRisultati (usa buildVerbaleBlock) e in exportVerbalePdf.
-function faseScopeLabel(fase) {
+function faseScopeLabel(/** @type {any} */ fase) {
   const ids = Array.isArray(fase?.sezioni_ids) ? fase.sezioni_ids : [];
   if (ids.length === 0) return '';
-  const nomi = ids.map(id => db.state.sezioni.find(s => s.id === id)?.nome).filter(Boolean);
+  const nomi = ids.map((/** @type {any} */ id) => db.state.sezioni.find((/** @type {any} */ s) => s.id === id)?.nome).filter(Boolean);
   if (nomi.length === 0) return '';
   return ' · ' + nomi.join(' + ');
 }
 
-function loadImageDataURL(src) {
+function loadImageDataURL(/** @type {any} */ src) {
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
@@ -27,7 +27,7 @@ function loadImageDataURL(src) {
       try {
         const c = document.createElement('canvas');
         c.width = img.naturalWidth; c.height = img.naturalHeight;
-        c.getContext('2d').drawImage(img, 0, 0);
+        /** @type {CanvasRenderingContext2D} */ (c.getContext('2d')).drawImage(img, 0, 0);
         resolve(c.toDataURL('image/png'));
       } catch { resolve(null); }
     };
@@ -73,7 +73,7 @@ const VERBALE_TAGS_FASE = [
   { tag: 'fase_spareggi',       descKey: 'admin.risultati.verbale.tag_fase_spareggi' },
 ];
 
-export function verbaleStorageKey(concorso, fase) {
+export function verbaleStorageKey(/** @type {any} */ concorso, /** @type {any} */ fase) {
   return fase ? `verbale_draft_${concorso.id}_${fase.id}` : `verbale_draft_${concorso.id}`;
 }
 
@@ -81,7 +81,7 @@ function defaultVerbaleTemplate() {
   return t('admin.risultati.verbale.default_template');
 }
 
-function fmtFaseDate(iso) {
+function fmtFaseDate(/** @type {any} */ iso) {
   if (!iso) return '—';
   try {
     const d = new Date(iso);
@@ -94,25 +94,25 @@ function fmtFaseDate(iso) {
 // congelati (posizione_finale, tiebreak_log, ex_aequo_group) scritti al
 // concludiFase. Per fasi non CONCLUSE o legacy senza dati congelati ritorna
 // la stringa "—".
-function buildFaseSpareggi(fase) {
+function buildFaseSpareggi(/** @type {any} */ fase) {
   const cfs = db.candidatiFaseList(fase.id);
   if (cfs.length === 0) return '—';
-  const hasFrozen = cfs.some(cf => cf.posizione_finale != null);
+  const hasFrozen = cfs.some((/** @type {any} */ cf) => cf.posizione_finale != null);
   if (!hasFrozen) return '—';
   // Filtro: solo i cf che sono stati toccati da uno spareggio (tiebreak_log
   // ha più di un'entry — la prima è sempre "pari_su_media" — oppure è ex aequo).
   const involved = cfs
-    .map(cf => {
-      const cand = db.state.candidati.find(c => c.id === cf.candidato_id);
+    .map((/** @type {any} */ cf) => {
+      const cand = db.state.candidati.find((/** @type {any} */ c) => c.id === cf.candidato_id);
       return { cf, cand };
     })
-    .filter(x => x.cand && ((Array.isArray(x.cf.tiebreak_log) && x.cf.tiebreak_log.length > 1) || x.cf.ex_aequo_group))
-    .sort((a, b) => (a.cf.posizione_finale ?? 999) - (b.cf.posizione_finale ?? 999));
+    .filter((/** @type {any} */ x) => x.cand && ((Array.isArray(x.cf.tiebreak_log) && x.cf.tiebreak_log.length > 1) || x.cf.ex_aequo_group))
+    .sort((/** @type {any} */ a, /** @type {any} */ b) => (a.cf.posizione_finale ?? 999) - (b.cf.posizione_finale ?? 999));
   if (involved.length === 0) return t('admin.risultati.verbale.spareggi_none_fase') || 'Nessuno spareggio applicato.';
-  return involved.map(({ cf, cand }) => {
+  return involved.map((/** @type {{cf:any,cand:any}} */ { cf, cand }) => {
     const motivazioni = (cf.tiebreak_log || [])
-      .filter(s => s && s.motivazione)
-      .map(s => s.motivazione)
+      .filter((/** @type {any} */ s) => s && s.motivazione)
+      .map((/** @type {any} */ s) => s.motivazione)
       .join(' → ');
     const exa = cf.ex_aequo_group ? ' [EX AEQUO]' : '';
     return `${cf.posizione_finale}° — #${String(cand.numero_candidato || '').padStart(3, '0')} ${displayName(cand)}${exa}: ${motivazioni}`;
@@ -121,20 +121,20 @@ function buildFaseSpareggi(fase) {
 
 // Testo "spareggi" a livello concorso: itera le fasi CONCLUSE e per ognuna
 // che ha avuto spareggi inserisce un blocco con scope (es. " · Pianoforte").
-function buildConcorsoSpareggi(concorso) {
+function buildConcorsoSpareggi(/** @type {any} */ concorso) {
   const fasi = db.fasiByConcorso(concorso.id);
   const blocks = [];
   for (const f of fasi) {
     const text = buildFaseSpareggi(f);
     if (!text || text === '—' || text === (t('admin.risultati.verbale.spareggi_none_fase') || 'Nessuno spareggio applicato.')) continue;
     const scope = faseScopeLabel(f);
-    blocks.push(`Fase ${f.ordine}: ${f.nome}${scope}\n${text.split('\n').map(l => '  ' + l).join('\n')}`);
+    blocks.push(`Fase ${f.ordine}: ${f.nome}${scope}\n${text.split('\n').map((/** @type {any} */ l) => '  ' + l).join('\n')}`);
   }
   if (blocks.length === 0) return t('admin.risultati.verbale.spareggi_none') || 'Nessuno spareggio applicato nel concorso.';
   return blocks.join('\n\n');
 }
 
-function buildFaseClassifica(fase, mode = 'all') {
+function buildFaseClassifica(/** @type {any} */ fase, mode = 'all') {
   const cfs = db.candidatiFaseList(fase.id);
   if (cfs.length === 0) return '—';
   const scala = getScala(fase);
@@ -155,7 +155,7 @@ function buildFaseClassifica(fase, mode = 'all') {
   }).join('\n');
 }
 
-function buildVerbaleContext(concorso, fase = null) {
+function buildVerbaleContext(/** @type {any} */ concorso, /** @type {any} */ fase = null) {
   const today = new Date().toLocaleDateString('it-IT', { day: '2-digit', month: 'long', year: 'numeric' });
   // <presidente> nel verbale generale = lista di tutti i presidenti (uno per
   // commissione) deduplicata. Se c'è un presidente unico ritorna solo il suo
@@ -175,17 +175,17 @@ function buildVerbaleContext(concorso, fase = null) {
   const candidati = db.candidatiByConcorso(concorso.id);
   const fasi = db.fasiByConcorso(concorso.id);
 
-  const commissariNoPres = commissari.filter(c => !presidenteIds.has(c.id));
-  const commissariList = commissariNoPres.map(c => `· ${displayName(c)}`).join('\n');
-  const commissariInline = commissariNoPres.map(c => displayName(c)).join(', ');
-  const fasiList = fasi.map(f => `${f.ordine}. ${f.nome}`).join('\n');
+  const commissariNoPres = commissari.filter((/** @type {any} */ c) => !presidenteIds.has(c.id));
+  const commissariList = commissariNoPres.map((/** @type {any} */ c) => `· ${displayName(c)}`).join('\n');
+  const commissariInline = commissariNoPres.map((/** @type {any} */ c) => displayName(c)).join(', ');
+  const fasiList = fasi.map((/** @type {any} */ f) => `${f.ordine}. ${f.nome}`).join('\n');
 
   // R15: la fase finale è quella con ORDINE massimo (non `ordine === fasi.length`:
   // dopo la cancellazione di una fase gli ordini hanno buchi e il confronto
   // fallirebbe — stesso bug chiuso in db.js M211). Podio costruito con rankFase
   // (stesso motore tiebreak della classifica ufficiale), non con sort su media
   // grezza, così verbale e classifica non possono divergere sugli ex aequo.
-  const finale = fasi.reduce((mx, f) => (f.ordine > (mx?.ordine ?? -Infinity) ? f : mx), null);
+  const finale = fasi.reduce((/** @type {any} */ mx, /** @type {any} */ f) => (f.ordine > (mx?.ordine ?? -Infinity) ? f : mx), null);
   let podio = '—';
   let vincitore = '—';
   if (finale && finale.stato === 'CONCLUSA') {
@@ -200,7 +200,7 @@ function buildVerbaleContext(concorso, fase = null) {
     }
   }
 
-  const risultatiBlocks = fasi.map(f => {
+  const risultatiBlocks = fasi.map((/** @type {any} */ f) => {
     const cfs = db.candidatiFaseList(f.id);
     if (cfs.length === 0) return '';
     return `${f.nome}:\n${buildFaseClassifica(f, 'all').split('\n').map(l => `  ${l}`).join('\n')}`;
@@ -233,15 +233,15 @@ function buildVerbaleContext(concorso, fase = null) {
     const faseProvidence = db.getPresidenteForFase(fase);
     if (faseProvidence) ctx.presidente = displayName(faseProvidence);
     const faseCommIds = db.getFaseCommissariIds(fase) || [];
-    const faseCommissari = faseCommIds.map(id => db.state.commissari.find(c => c.id === id)).filter(Boolean);
+    const faseCommissari = faseCommIds.map((/** @type {any} */ id) => db.state.commissari.find((/** @type {any} */ c) => c.id === id)).filter(Boolean);
     // N138: escludi il presidente della commissione di QUESTA fase per id.
     const fasePresId = faseProvidence?.id ?? null;
-    const faseCommissariNoPres = faseCommissari.filter(c => c.id !== fasePresId);
-    const faseCommissioneList = faseCommissariNoPres.map(c => `· ${displayName(c)}`).join('\n');
-    const faseCommissariInline = faseCommissariNoPres.map(c => displayName(c)).join(', ');
+    const faseCommissariNoPres = faseCommissari.filter((/** @type {any} */ c) => c.id !== fasePresId);
+    const faseCommissioneList = faseCommissariNoPres.map((/** @type {any} */ c) => `· ${displayName(c)}`).join('\n');
+    const faseCommissariInline = faseCommissariNoPres.map((/** @type {any} */ c) => displayName(c)).join(', ');
     const cfsCount = db.candidatiFaseList(fase.id).length;
     const metodoKey = getMetodoMedia(fase);
-    const metodoLabel = METODI_MEDIA[metodoKey]?.nome || metodoKey;
+    const metodoLabel = /** @type {Record<string, any>} */ (METODI_MEDIA)[metodoKey]?.nome || metodoKey;
 
     // <fase_presidente> = presidente della commissione assegnata a QUESTA fase
     // (non un presidente "di concorso" globale: il modello è per-commissione).
@@ -270,14 +270,14 @@ function buildVerbaleContext(concorso, fase = null) {
   return ctx;
 }
 
-function applyVerbaleTags(template, ctx) {
-  return String(template || '').replace(/<([a-z_]+)>/gi, (full, name) => {
+function applyVerbaleTags(/** @type {any} */ template, /** @type {any} */ ctx) {
+  return String(template || '').replace(/<([a-z_]+)>/gi, (/** @type {string} */ full, /** @type {string} */ name) => {
     const key = name.toLowerCase();
     return Object.prototype.hasOwnProperty.call(ctx, key) ? ctx[key] : full;
   });
 }
 
-function renderVerbaleTagChips(fase) {
+function renderVerbaleTagChips(/** @type {any} */ fase) {
   const groups = [];
   groups.push({
     label: t('admin.risultati.verbale.tags_general'),
@@ -299,11 +299,11 @@ function renderVerbaleTagChips(fase) {
   `).join('');
 }
 
-export function buildVerbaleBlock(concorso) {
+export function buildVerbaleBlock(/** @type {any} */ concorso) {
   const fasi = db.fasiByConcorso(concorso.id);
   // Includiamo lo scope di sezione nel nome (es. "1. Eliminatoria · Pianoforte")
   // così non si confondono fasi con stesso nome su sezioni diverse.
-  const faseOptions = fasi.map(f => {
+  const faseOptions = fasi.map((/** @type {any} */ f) => {
     const scope = faseScopeLabel(f) || ' · ' + (t('admin.risultati.fase_scope_all') || 'tutte le sezioni');
     return `<option value="${f.id}">${escapeHtml(`${f.ordine}. ${f.nome}${scope}`)}</option>`;
   }).join('');
@@ -351,7 +351,7 @@ export function buildVerbaleBlock(concorso) {
   `;
 }
 
-export function bindVerbaleBlock(root, concorso) {
+export function bindVerbaleBlock(/** @type {any} */ root, /** @type {any} */ concorso) {
   const block = root.querySelector('[data-verbale-block]');
   if (!block) return;
   const select = block.querySelector('[data-verbale-fase]');
@@ -361,7 +361,7 @@ export function bindVerbaleBlock(root, concorso) {
   const tagsContainer = block.querySelector('[data-verbale-tags]');
   const fasi = db.fasiByConcorso(concorso.id);
 
-  const getCurrentFase = () => fasi.find(f => f.id === select.value) || null;
+  const getCurrentFase = () => fasi.find((/** @type {any} */ f) => f.id === select.value) || null;
 
   const refreshPreview = () => {
     const fase = getCurrentFase();
@@ -370,7 +370,7 @@ export function bindVerbaleBlock(root, concorso) {
   };
 
   const wireTagButtons = () => {
-    tagsContainer.querySelectorAll('[data-verbale-tag]').forEach(btn => {
+    tagsContainer.querySelectorAll('[data-verbale-tag]').forEach((/** @type {any} */ btn) => {
       btn.addEventListener('click', () => {
         const tag = `<${btn.getAttribute('data-verbale-tag')}>`;
         const start = input.selectionStart ?? input.value.length;
@@ -425,7 +425,7 @@ export function bindVerbaleBlock(root, concorso) {
   });
 }
 
-async function exportVerbalePdf(concorso, fase, template) {
+async function exportVerbalePdf(/** @type {any} */ concorso, /** @type {any} */ fase, /** @type {any} */ template) {
   if (!window.jspdf || !window.jspdf.jsPDF) {
     toast(t('admin.risultati.pdf_not_loaded'), 'warn');
     return;
@@ -434,7 +434,7 @@ async function exportVerbalePdf(concorso, fase, template) {
   const text = applyVerbaleTags(template, ctx);
 
   const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const doc = /** @type {any} */ (new jsPDF({ unit: 'pt', format: 'a4' }));
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
   const margin = 56;
@@ -492,12 +492,12 @@ async function exportVerbalePdf(concorso, fase, template) {
   const faseHasCommissione = !!(fase && fase.commissione_id);
   const faseCommIds = faseHasCommissione ? (db.getFaseCommissariIds(fase) || []) : [];
   const firmatari = templateHasSignTag && faseHasCommissione
-    ? faseCommIds.map(id => db.state.commissari.find(c => c.id === id)).filter(Boolean)
+    ? faseCommIds.map((/** @type {any} */ id) => db.state.commissari.find((/** @type {any} */ c) => c.id === id)).filter(Boolean)
     : [];
   // N138: il presidente si ricava dalla commissione della fase (is_presidente
   // sul commissario è sempre false). Presidente in cima alle firme.
   const fasePresId = fase ? (db.getPresidenteForFase(fase)?.id ?? null) : null;
-  firmatari.sort((a, b) => (b.id === fasePresId ? 1 : 0) - (a.id === fasePresId ? 1 : 0));
+  firmatari.sort((/** @type {any} */ a, /** @type {any} */ b) => (b.id === fasePresId ? 1 : 0) - (a.id === fasePresId ? 1 : 0));
 
   if (firmatari.length > 0) {
     const cols = 2;
@@ -565,19 +565,19 @@ async function exportVerbalePdf(concorso, fase, template) {
   toast(t('admin.risultati.verbale.pdf_done'), 'success');
 }
 
-async function exportProgrammaPdf(concorso, fase) {
+async function exportProgrammaPdf(/** @type {any} */ concorso, /** @type {any} */ fase) {
   if (!window.jspdf || !window.jspdf.jsPDF) {
     toast(t('admin.fasi.programma_pdf_not_loaded'), 'warn');
     return;
   }
   const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ unit: 'pt', format: 'a4' });
+  const doc = /** @type {any} */ (new jsPDF({ unit: 'pt', format: 'a4' }));
   const margin = 40;
   const pageW = doc.internal.pageSize.getWidth();
   let y = margin;
 
-  const cfs = db.candidatiFaseList(fase.id).sort((a, b) => a.posizione - b.posizione);
-  const candById = Object.fromEntries(db.state.candidati.map(c => [c.id, c]));
+  const cfs = db.candidatiFaseList(fase.id).sort((/** @type {any} */ a, /** @type {any} */ b) => a.posizione - b.posizione);
+  const candById = Object.fromEntries(db.state.candidati.map((/** @type {any} */ c) => [c.id, c]));
   const tempoPerCandidato = (Number(fase.tempo_minuti) || 5);
 
   // Header
@@ -609,7 +609,7 @@ async function exportProgrammaPdf(concorso, fase) {
   // Table rows
   doc.setFontSize(9);
   const rowH = 22;
-  cfs.forEach((cf, i) => {
+  cfs.forEach((/** @type {any} */ cf, /** @type {number} */ i) => {
     if (y > doc.internal.pageSize.getHeight() - margin - 30) {
       doc.addPage();
       y = margin;
@@ -635,7 +635,7 @@ async function exportProgrammaPdf(concorso, fase) {
         doc.setFontSize(7);
         // N80: i membri gruppo sono oggetti flat ({nome,cognome,...}), non
         // {candidato:{...}}. m.candidato?.nome era sempre undefined → nomi vuoti.
-        doc.text(membri.map(m => `${m.nome || ''} ${m.cognome || ''}`.trim()).filter(Boolean).join(' | '), cols[1].x + 4, y + 8);
+        doc.text(membri.map((/** @type {any} */ m) => `${m.nome || ''} ${m.cognome || ''}`.trim()).filter(Boolean).join(' | '), cols[1].x + 4, y + 8);
         doc.setFontSize(9);
         y -= 12;
       }
@@ -649,7 +649,7 @@ async function exportProgrammaPdf(concorso, fase) {
   toast(t('admin.fasi.programma_pdf_done'), 'success');
 }
 
-function hexToRgb(hex) {
+function hexToRgb(/** @type {any} */ hex) {
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
   const b = parseInt(hex.slice(5, 7), 16);

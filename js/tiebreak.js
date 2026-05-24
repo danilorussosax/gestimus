@@ -26,7 +26,7 @@ export function defaultTiebreakStrategy() {
 
 // Risolve la strategia effettiva per una fase: override su fase, altrimenti
 // default del concorso, altrimenti la cascata standard.
-export function effectiveStrategy(fase, concorso) {
+export function effectiveStrategy(/** @type {any} */ fase, /** @type {any} */ concorso) {
   const fromFase = sanitize(fase?.tiebreak_strategy);
   if (fromFase) return fromFase;
   const fromConcorso = sanitize(concorso?.default_tiebreak_strategy);
@@ -34,11 +34,11 @@ export function effectiveStrategy(fase, concorso) {
   return defaultTiebreakStrategy();
 }
 
-function sanitize(raw) {
+function sanitize(/** @type {any} */ raw) {
   if (!Array.isArray(raw) || raw.length === 0) return null;
   // Forza l'ordine standard (i 4 step) e ignora chiavi extra; manteniamo
   // l'`enabled` indicato dall'utente.
-  const byKey = new Map(raw.map(s => [s?.key, !!s?.enabled]));
+  const byKey = new Map(raw.map((/** @type {any} */ s) => [s?.key, !!s?.enabled]));
   return STEPS.map(key => ({ key, enabled: byKey.has(key) ? byKey.get(key) : true }));
 }
 
@@ -46,7 +46,7 @@ function sanitize(raw) {
 
 // Media aggregata su un singolo criterio: per ogni commissario prende il voto
 // di quel criterio, poi applica il metodo della fase (aritmetica/olimpica/...).
-export function mediaCandidatoSuCriterio(valutazioni, fase, criterioKey) {
+export function mediaCandidatoSuCriterio(/** @type {any[]} */ valutazioni, /** @type {any} */ fase, /** @type {string} */ criterioKey) {
   const metodo = getMetodoMedia(fase);
   // N143: includere TUTTI i commissari che hanno valutato il candidato (coerente
   // con mediaCandidato in scoring.js); un criterio non votato da un commissario
@@ -65,9 +65,10 @@ export function mediaCandidatoSuCriterio(valutazioni, fase, criterioKey) {
 }
 
 // Media pesata dei voti di UN solo commissario (il presidente).
-export function votoPresidente(valutazioni, fase, presidenteId) {
+export function votoPresidente(/** @type {any[]} */ valutazioni, /** @type {any} */ fase, /** @type {any} */ presidenteId) {
   if (!presidenteId) return null;
   const criteri = getCriteri(fase);
+  /** @type {Record<string, number>} */
   const miei = {};
   for (const v of valutazioni) {
     if (v.commissario_id !== presidenteId) continue;
@@ -76,7 +77,7 @@ export function votoPresidente(valutazioni, fase, presidenteId) {
   if (Object.keys(miei).length === 0) return null;
   // Replico esattamente `pesato(voti, fase)` ma stand-alone così la funzione
   // resta isolata e testabile.
-  return criteri.reduce((s, c) => s + (miei[c.key] || 0) * (c.peso || 0), 0);
+  return criteri.reduce((/** @type {number} */ s, /** @type {any} */ c) => s + (miei[c.key] || 0) * (c.peso || 0), 0);
 }
 
 // Età (in anni decimali) di un candidato a una data di riferimento.
@@ -84,20 +85,21 @@ export function votoPresidente(valutazioni, fase, presidenteId) {
 // record candidato (cand.membri non esiste, è una proprietà mai popolata) ma
 // nella tabella candidati_gruppo letta da db.membriGruppo(). Il caller passa
 // `getMembri` (di solito `db.membriGruppo`). Se non passato, gruppi → null.
-export function etaCandidato(cand, refDate, _allCandidati = [], getMembri = null) {
+export function etaCandidato(/** @type {any} */ cand, /** @type {any} */ refDate, /** @type {any[]} */ _allCandidati = [], /** @type {?((id: any) => any)} */ getMembri = null) {
   const ref = refDate ? new Date(refDate) : new Date();
   if (!cand) return null;
   if (cand.tipo === 'gruppo' || cand.tipo === 'orchestra') {
     if (typeof getMembri !== 'function') return null;
+    /** @type {any[]} */
     let membri;
     try { membri = getMembri(cand.id) || []; } catch { membri = []; }
     if (!Array.isArray(membri) || membri.length === 0) return null;
-    const eta = membri
-      .filter(m => m && m.data_nascita)
-      .map(m => yearsBetween(m.data_nascita, ref))
-      .filter(n => n != null);
+    const eta = /** @type {number[]} */ (membri
+      .filter((/** @type {any} */ m) => m && m.data_nascita)
+      .map((/** @type {any} */ m) => yearsBetween(m.data_nascita, ref))
+      .filter((/** @type {any} */ n) => n != null));
     if (eta.length === 0) return null;
-    return eta.reduce((s, x) => s + x, 0) / eta.length;
+    return eta.reduce((/** @type {number} */ s, /** @type {number} */ x) => s + x, 0) / eta.length;
   }
   if (!cand.data_nascita) return null;
   return yearsBetween(cand.data_nascita, ref);
@@ -105,7 +107,7 @@ export function etaCandidato(cand, refDate, _allCandidati = [], getMembri = null
 
 // Età in giorni interi → anni interi. Confronto floating-point puro produce
 // parità spurie per nati con pochi giorni di differenza intorno a un'epoch.
-function yearsBetween(birth, ref) {
+function yearsBetween(/** @type {any} */ birth, /** @type {Date} */ ref) {
   const d = new Date(birth);
   if (isNaN(d.getTime())) return null;
   const days = Math.floor((ref.getTime() - d.getTime()) / 86_400_000);
@@ -121,7 +123,7 @@ function yearsBetween(birth, ref) {
 // Genera un id breve per identificare un gruppo di ex aequo. Riproducibile:
 // hash deterministico dell'insieme degli id ex aequo, così l'audit normativo
 // può riprodurre la stessa label da uno stesso input.
-function exAequoGroupId(memberIds = null) {
+function exAequoGroupId(/** @type {?(any[])} */ memberIds = null) {
   if (Array.isArray(memberIds) && memberIds.length) {
     const sorted = [...memberIds].sort().join('|');
     let h = 5381;
@@ -135,7 +137,7 @@ function exAequoGroupId(memberIds = null) {
 
 // Tolleranza per confrontare medie float (evita falsi positivi di parità).
 const EPS = 1e-9;
-function eq(a, b) { return Math.abs(a - b) <= EPS; }
+function eq(/** @type {number} */ a, /** @type {number} */ b) { return Math.abs(a - b) <= EPS; }
 
 // --- Algoritmo principale ---------------------------------------------------
 
@@ -146,9 +148,9 @@ function eq(a, b) { return Math.abs(a - b) <= EPS; }
 // Output:
 //   [{ ...row, posizione_finale, tiebreak_log, ex_aequo_group }]
 //   ordinati per posizione_finale ascendente.
-export function rankWithTieBreak(rows, fase, ctx = {}) {
+export function rankWithTieBreak(/** @type {any[]} */ rows, /** @type {any} */ fase, /** @type {any} */ ctx = {}) {
   const strategy = (ctx.strategy && ctx.strategy.length ? ctx.strategy : defaultTiebreakStrategy())
-    .filter(s => s.enabled);
+    .filter((/** @type {any} */ s) => s.enabled);
   const presidenteId = ctx.presidenteId || null;
   const refDate = ctx.refDate || fase?.data_prevista || new Date().toISOString();
   const allCandidati = ctx.allCandidati || [];
@@ -156,7 +158,7 @@ export function rankWithTieBreak(rows, fase, ctx = {}) {
 
   // Ordino in modo deterministico per partenza (media desc, poi fingerprint
   // ASCII del nome candidato per tiebreak finale stabile).
-  const sorted = rows.slice().sort((a, b) => {
+  const sorted = rows.slice().sort((/** @type {any} */ a, /** @type {any} */ b) => {
     if (!eq(a.media, b.media)) return b.media - a.media;
     const na = (a.cand?.numero_candidato ?? 0);
     const nb = (b.cand?.numero_candidato ?? 0);
@@ -201,13 +203,13 @@ export function rankWithTieBreak(rows, fase, ctx = {}) {
   return resolved;
 }
 
-function round2(n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
+function round2(/** @type {number} */ n) { return Math.round((n + Number.EPSILON) * 100) / 100; }
 
 // Applica la cascata di step al gruppo (≥2 candidati). Restituisce il gruppo
 // riordinato. Step che non differenziano vengono annotati nel log e si passa
 // al successivo. Lo step finale ex_aequo, se enabled, marca i sopravvissuti
 // con uno stesso ex_aequo_group.
-function applyCascade(group, strategy, fase, ctx) {
+function applyCascade(/** @type {any[]} */ group, /** @type {any[]} */ strategy, /** @type {any} */ fase, /** @type {any} */ ctx) {
   // Lavoriamo per "sotto-gruppi": parto da un solo gruppo (tutti pari su media),
   // a ogni step lo divido in sotto-gruppi di ulteriori parità; quelli con
   // un solo elemento sono "vinti" e tolti dalla competizione.
@@ -232,14 +234,14 @@ function applyCascade(group, strategy, fase, ctx) {
   // Gestione ex_aequo finale: per ogni bucket residuo con >1 candidato, se la
   // strategia ha ex_aequo abilitato → marca con un ex_aequo_group. Altrimenti,
   // restano pari ma senza marca esplicita (UI mostrerà comunque la parità).
-  const hasExAequo = strategy.some(s => s.key === 'ex_aequo');
+  const hasExAequo = strategy.some((/** @type {any} */ s) => s.key === 'ex_aequo');
   for (const bucket of buckets) {
     if (bucket.length <= 1) continue;
     if (hasExAequo) {
       // N37: id gruppo deterministico = hash degli id dei candidati ex aequo
       // (ordinati). Riproducibile su esecuzioni separate, requisito per audit
       // normativi dei concorsi.
-      const memberIds = bucket.map(r => r.cf?.id || r.cand?.id).filter(Boolean);
+      const memberIds = bucket.map((/** @type {any} */ r) => r.cf?.id || r.cand?.id).filter(Boolean);
       const gid = exAequoGroupId(memberIds);
       for (const r of bucket) {
         r.ex_aequo_group = gid;
@@ -269,13 +271,13 @@ function applyCascade(group, strategy, fase, ctx) {
 // Divide il bucket in sotto-bucket secondo lo step. Sotto-bucket di taglia 1
 // = "vinti" (uno per "scaglione" di punteggio). Sotto-bucket di taglia >1 =
 // ancora in parità per lo step successivo.
-function splitByStep(bucket, stepKey, fase, ctx) {
-  const scored = bucket.map(r => ({ r, score: stepScore(r, stepKey, fase, ctx) }));
-  if (scored.every(s => s.score == null)) return [bucket];
+function splitByStep(/** @type {any[]} */ bucket, /** @type {string} */ stepKey, /** @type {any} */ fase, /** @type {any} */ ctx) {
+  const scored = bucket.map((/** @type {any} */ r) => ({ r, score: stepScore(r, stepKey, fase, ctx) }));
+  if (scored.every((/** @type {any} */ s) => s.score == null)) return [bucket];
   // Score può essere number (presidente, eta) o string (scomposizione = chiave
   // composita "0000xxxxx|0000yyy|..."). Normalizzo il confronto: stringhe in
   // ordine lessicografico DESC, numeri in ordine numerico DESC. Null in coda.
-  const cmp = (a, b) => {
+  const cmp = (/** @type {any} */ a, /** @type {any} */ b) => {
     if (a == null && b == null) return 0;
     if (a == null) return 1;
     if (b == null) return -1;
@@ -286,7 +288,7 @@ function splitByStep(bucket, stepKey, fase, ctx) {
     }
     return b - a;
   };
-  const same = (a, b) => {
+  const same = (/** @type {any} */ a, /** @type {any} */ b) => {
     if (a == null && b == null) return true;
     if (a == null || b == null) return false;
     if (typeof a === 'string' || typeof b === 'string') return String(a) === String(b);
@@ -294,6 +296,7 @@ function splitByStep(bucket, stepKey, fase, ctx) {
   };
   scored.sort((a, b) => cmp(a.score, b.score));
   const subs = [];
+  /** @type {Array<{ r: any, score: any }>} */
   let cur = [];
   for (const s of scored) {
     if (cur.length === 0 || same(cur[0].score, s.score)) cur.push(s);
@@ -304,7 +307,7 @@ function splitByStep(bucket, stepKey, fase, ctx) {
 }
 
 // Score da massimizzare per ogni step. null = step non applicabile.
-function stepScore(row, stepKey, fase, ctx) {
+function stepScore(/** @type {any} */ row, /** @type {string} */ stepKey, /** @type {any} */ fase, /** @type {any} */ ctx) {
   if (stepKey === 'scomposizione') {
     // Per "scomposizione" non esiste UN solo score: la regola è iterativa sui
     // criteri in ordine di peso decrescente. Gestisco direttamente in
@@ -330,12 +333,12 @@ function stepScore(row, stepKey, fase, ctx) {
 // stringa lessicograficamente ordinabile: così splitByStep può usarlo come
 // chiave per il sub-grouping. La comparazione tra stringhe è equivalente alla
 // comparazione lessicografica degli array (numero per numero).
-function scomposizioneCompositeScore(row, fase) {
+function scomposizioneCompositeScore(/** @type {any} */ row, /** @type {any} */ fase) {
   // I criteri vivono in state._criteri (e sono restituiti da getCriteri()),
   // NON in fase.criteri (proprietà inesistente sul record mappato).
-  const criteri = (getCriteri(fase) || []).slice().sort((a, b) => (b.peso || 0) - (a.peso || 0));
+  const criteri = (getCriteri(fase) || []).slice().sort((/** @type {any} */ a, /** @type {any} */ b) => (b.peso || 0) - (a.peso || 0));
   if (criteri.length === 0) return null;
-  const parts = criteri.map(c => {
+  const parts = criteri.map((/** @type {any} */ c) => {
     // N187: i voti sono ≥ 0 (CHECK voto>=0) → v non-negativo. Clamp difensivo:
     // toFixed(6).padStart(20,'0') su un valore negativo lascerebbe il segno '-'
     // in mezzo agli zeri di padding, rompendo l'ordinamento lessicografico.
@@ -350,7 +353,7 @@ function scomposizioneCompositeScore(row, fase) {
   return parts.join('|'); // string, splitByStep gestisce sia number sia string
 }
 
-function annotateStep(subs, stepKey) {
+function annotateStep(/** @type {any[]} */ subs, /** @type {string} */ stepKey) {
   const label = stepLabel(stepKey);
   for (let i = 0; i < subs.length; i++) {
     const isFirst = i === 0;
@@ -379,7 +382,7 @@ function annotateStep(subs, stepKey) {
   }
 }
 
-function stepLabel(key) {
+function stepLabel(/** @type {string} */ key) {
   switch (key) {
     case 'scomposizione': return 'scomposizione del voto (criterio con peso maggiore)';
     case 'presidente': return 'voto del Presidente di giuria';
@@ -392,7 +395,8 @@ function stepLabel(key) {
 // Ordine "umano" dei 4 step (per UI).
 export const TIEBREAK_STEPS = STEPS.slice();
 
-export function stepInfo(key) {
+export function stepInfo(/** @type {string} */ key) {
+  /** @type {Record<string, { titolo: string, breve: string, esempio: string }>} */
   const info = {
     scomposizione: {
       titolo: 'Scomposizione del voto',
