@@ -378,9 +378,12 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
   );
 
   /**
-   * GET /public/iscrizioni/:token/verify — verifica email tramite link.
+   * POST /public/iscrizioni/:token/verify — verifica email.
+   * M194: POST (non GET) → cambia stato DB, non deve essere attivabile da una
+   * GET passiva (prefetch/scanner di posta, tag <img>). Il link email punta al
+   * frontend (#/iscrizione/verify?t=…) che esegue la POST via JS.
    */
-  app.get('/iscrizioni/:token/verify', {
+  app.post('/iscrizioni/:token/verify', {
     // H2: rate limit brute-force token (20 tentativi/15 min/IP). Token a 40 hex
     // sono già praticamente immuni, il limite ne smorza solo la pesantezza in
     // caso di scan automatico.

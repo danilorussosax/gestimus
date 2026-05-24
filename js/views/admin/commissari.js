@@ -4,7 +4,7 @@
 import { db } from '../../db.js';
 import {
   escapeHtml, safeUrl, modal, toast, confirmDialog, displayName, ageFromDate,
-  readImageResized, readFileAsDataURL, NATIONALITIES,
+  readImageResized, NATIONALITIES,
 } from '../../utils.js';
 import { t } from '../../i18n.js';
 import { openImportModal } from './import.js';
@@ -94,8 +94,19 @@ export function renderCommissari(root, concorso) {
 
   root.querySelectorAll('[data-cv]').forEach(b => b.addEventListener('click', () => {
     const c = db.state.commissari.find(x => x.id === b.dataset.cv);
-    if (c?.cv) openCv(c.cv);
+    if (c?.cv) openCvText(c.cv);
   }));
+}
+
+// Mostra il CV (testo semplice / markdown) in sola lettura. Niente parsing md:
+// rendiamo il testo grezzo con escape, preservando gli a-capo.
+function openCvText(text) {
+  modal({
+    title: t('admin.commissario.cv_title'),
+    wide: true,
+    secondaryLabel: t('common.close'),
+    contentHtml: `<div class="whitespace-pre-wrap break-words text-sm text-ink-800 leading-relaxed max-h-[60vh] overflow-y-auto font-mono">${escapeHtml(text || '')}</div>`,
+  });
 }
 
 function commissarioCardHtml(c) {
@@ -121,7 +132,7 @@ function commissarioCardHtml(c) {
         ${c.email ? `<p class="text-[11px] text-slate-500 truncate mt-0.5">✉ ${escapeHtml(c.email)}</p>` : ''}
         ${c.telefono ? `<p class="text-[11px] text-slate-500 truncate">☎ ${escapeHtml(c.telefono)}</p>` : ''}
         <div class="mt-2 flex items-center gap-1.5 flex-wrap">
-          ${c.cv ? `<button data-cv="${c.id}" class="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-full font-medium" title="${escapeHtml(c.cv.name || 'CV')}">📄 CV</button>` : ''}
+          ${c.cv ? `<button data-cv="${c.id}" class="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-full font-medium" title="${escapeHtml(t('admin.commissario.cv_view'))}">📄 CV</button>` : ''}
           ${c.bio ? `<span class="text-[10px] px-1.5 py-0.5 bg-violet-50 text-violet-700 rounded-full font-medium" title="${escapeHtml(c.bio)}">📝 bio</span>` : ''}
         </div>
       </div>
@@ -144,9 +155,9 @@ function openCommissarioForm(concorso, com, onSaved) {
     initCognome = parts.slice(1).join(' ');
   }
   let fotoData = com?.foto_url || null;
-  let cvData = com?.cv || null;
+  let cvData = com?.cv || ''; // CV come testo (plain/markdown)
   const initialFoto = com?.foto_url || null;
-  const initialCv = com?.cv || null;
+  const initialCv = com?.cv || '';
   const todayISO = new Date().toISOString().slice(0,10);
   const linkedAccount = isEdit ? db.getAccountForCommissario(com.id) : null;
 
@@ -212,15 +223,9 @@ function openCommissarioForm(concorso, com, onSaved) {
 
           <div>
             <span class="text-sm font-medium text-slate-700 block mb-2">${escapeHtml(t('admin.candidato.field_cv'))}</span>
-            <div data-cv-zone>
-              ${cvData ? cvBadge(cvData) : `
-                <button type="button" data-cv-pick class="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium text-slate-700 bg-slate-50 hover:bg-slate-100 border-2 border-dashed border-slate-300 rounded-lg transition">
-                  ${escapeHtml(t('admin.candidato.cv_load'))}
-                </button>
-              `}
-            </div>
-            <input data-cv-input type="file" accept=".pdf,.doc,.docx,application/pdf" class="hidden" />
-            <p class="text-[10px] text-slate-500 mt-1.5">${escapeHtml(t('admin.candidato.cv_help'))}</p>
+            <div data-cv-zone class="flex items-center gap-2 flex-wrap"></div>
+            <textarea data-cv-text rows="6" class="${inputCls} mt-2 hidden font-mono text-[13px]" placeholder="${escapeHtml(t('admin.commissario.cv_placeholder'))}">${escapeHtml(cvData)}</textarea>
+            <p class="text-[10px] text-slate-500 mt-1.5">${escapeHtml(t('admin.commissario.cv_help'))}</p>
           </div>
         </div>
 
@@ -314,34 +319,42 @@ function openCommissarioForm(concorso, com, onSaved) {
       });
       fotoClear.addEventListener('click', () => { fotoData = null; setFotoUI(); });
 
-      const cvInput = body.querySelector('[data-cv-input]');
-      const cvZone  = body.querySelector('[data-cv-zone]');
+      // CV come TESTO (plain/markdown). Il pulsante "Inserisci/Modifica" rivela
+      // la textarea; il valore della textarea è la sorgente di verità (cvData).
+      const cvText = body.querySelector('[data-cv-text]');
+      const cvZone = body.querySelector('[data-cv-zone]');
       const renderCvZone = () => {
-        cvZone.innerHTML = cvData ? cvBadge(cvData) : `
-          <button type="button" data-cv-pick class="w-full inline-flex items-center justify-center gap-2 px-3 py-2.5 text-sm font-medium text-slate-700 bg-slate-50 hover:bg-slate-100 border-2 border-dashed border-slate-300 rounded-lg transition">
-            ${escapeHtml(t('admin.candidato.cv_load'))}
-          </button>`;
+        const has = cvData.trim().length > 0;
+        const open = !cvText.classList.contains('hidden');
+        cvZone.innerHTML = `
+          <button type="button" data-cv-edit class="inline-flex items-center gap-1.5 px-3 py-2 text-sm font-medium text-slate-700 bg-slate-50 hover:bg-slate-100 border border-slate-200 rounded-lg transition">
+            ${escapeHtml(open ? t('admin.commissario.cv_close') : (has ? t('admin.commissario.cv_edit') : t('admin.commissario.cv_add')))}
+          </button>
+          ${has ? `
+            <button type="button" data-cv-view class="text-xs font-medium text-emerald-700 hover:text-emerald-900 px-2 py-1 rounded-lg">${escapeHtml(t('admin.commissario.cv_view'))}</button>
+            <button type="button" data-cv-clear class="text-xs font-medium text-rose-600 hover:text-rose-800 px-2 py-1 rounded-lg">${escapeHtml(t('admin.candidato.remove'))}</button>
+            <span class="text-[11px] text-slate-500">${escapeHtml(t('admin.commissario.cv_chars', { n: cvData.length }))}</span>
+          ` : ''}`;
       };
+      renderCvZone();
       cvZone.addEventListener('click', (e) => {
-        const a = e.target.closest('[data-cv-pick],[data-cv-clear]');
+        const a = e.target.closest('[data-cv-edit],[data-cv-view],[data-cv-clear]');
         if (!a) return;
-        if (a.matches('[data-cv-pick]')) cvInput.click();
-        else if (a.matches('[data-cv-clear]')) { cvData = null; renderCvZone(); }
-      });
-      cvInput.addEventListener('change', async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        if (file.size > 2 * 1024 * 1024) {
-          toast(t('admin.candidato.cv_too_big'), 'error');
-          cvInput.value = '';
-          return;
+        if (a.matches('[data-cv-edit]')) {
+          cvText.classList.toggle('hidden');
+          if (!cvText.classList.contains('hidden')) cvText.focus();
+        } else if (a.matches('[data-cv-view]')) {
+          openCvText(cvData);
+        } else if (a.matches('[data-cv-clear]')) {
+          cvData = '';
+          cvText.value = '';
+          cvText.classList.add('hidden');
         }
-        try {
-          const dataURL = await readFileAsDataURL(file);
-          cvData = { name: file.name, type: file.type || 'application/octet-stream', size: file.size, dataURL };
-          renderCvZone();
-        } catch { toast(t('admin.candidato.cv_error'), 'error'); }
-        finally { cvInput.value = ''; }
+        renderCvZone();
+      });
+      cvText.addEventListener('input', () => {
+        cvData = cvText.value;
+        renderCvZone();
       });
 
       // ---- Account credentials (create flow) ----
@@ -665,7 +678,7 @@ function renderArchivio(root, concorso, onChanged) {
     host.querySelectorAll('[data-arch-cv]').forEach(b => b.addEventListener('click', () => {
       const id = b.dataset.archCv;
       const entry = archive.find(x => x.id === id);
-      if (entry?.cv) openCv(entry.cv);
+      if (entry?.cv) openCvText(entry.cv);
     }));
   };
 
@@ -715,7 +728,7 @@ function archivioCardHtml(c, concorso, concorsoMap, presentInConcorso) {
       </div>
       ${c.bio ? `<p class="text-[11px] text-slate-600 leading-relaxed line-clamp-2">${escapeHtml(c.bio)}</p>` : ''}
       <div class="flex items-center gap-1.5 flex-wrap">
-        ${c.cv ? `<button data-arch-cv="${c.id}" class="text-[11px] px-2 py-0.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-full font-medium" title="${escapeHtml(c.cv.name || 'CV')}">📄 CV</button>` : ''}
+        ${c.cv ? `<button data-arch-cv="${c.id}" class="text-[11px] px-2 py-0.5 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 rounded-full font-medium" title="${escapeHtml(t('admin.commissario.cv_view'))}">📄 CV</button>` : ''}
         <span class="text-[10px] text-slate-500">${escapeHtml(concorsiIds.length === 1 ? t('admin.archivio.in_concorsi_one', { n: concorsiIds.length }) : t('admin.archivio.in_concorsi_other', { n: concorsiIds.length }))}</span>
         ${concorsiBadges}
       </div>

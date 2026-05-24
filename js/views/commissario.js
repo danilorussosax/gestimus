@@ -818,9 +818,12 @@ function computeTimer() {
   const startedMs = new Date(r.started_at).getTime();
   const durMs = (Number(r.duration_seconds) || 0) * 1000;
   const paused = !!r.paused_at;
+  // M219: usa l'orologio server stimato (Date.now() + offset) per il "now",
+  // così uno skew del client non sfasa il countdown.
+  const nowMs = Date.now() + (db.serverClockOffset?.() || 0);
   const elapsedMs = paused
     ? new Date(r.paused_at).getTime() - startedMs
-    : Date.now() - startedMs;
+    : nowMs - startedMs;
   const remainingMs = Math.max(0, durMs - elapsedMs);
   return { remainingMs, durationMs: durMs, paused, expired: remainingMs === 0, hasState: true };
 }

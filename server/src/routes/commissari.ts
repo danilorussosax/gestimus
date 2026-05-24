@@ -24,6 +24,8 @@ const createBody = z.object({
   dataNascita: z.preprocess(emptyToNull, z.string().date().nullable()).optional(),
   nazionalita: z.preprocess(emptyToNull, z.string().max(100).nullable()).optional(),
   bio: z.preprocess(emptyToNull, z.string().nullable()).optional(),
+  // CV testo (plain/markdown). Cap a 20k caratteri per evitare righe enormi.
+  cv: z.preprocess(emptyToNull, z.string().max(20000).nullable()).optional(),
   stato: z.enum(['ATTIVO', 'INATTIVO']).optional(),
 });
 const updateBody = createBody.partial().omit({ concorsoId: true });

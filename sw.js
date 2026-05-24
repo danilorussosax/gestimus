@@ -3,24 +3,35 @@
 // - API (qualunque cosa sotto /api/): network-only (mai cache — i dati sono live).
 // - Navigation fallback: serve index.html dalla cache se offline.
 
-const VERSION = 'gc-v12';
+const VERSION = 'gc-v13';
 const STATIC_CACHE = `static-${VERSION}`;
+// L235: precache completa dei moduli caricati eagerly da app.js + core, così la
+// prima visita OFFLINE non rompe le viste admin/superadmin (prima ne mancavano
+// metà). cache.addAll è tollerante (.catch) → un file mancante non blocca l'install.
 const PRECACHE = [
   './',
   './index.html',
   './css/styles.css',
-  './js/app.js',
-  './js/db.js',
-  './js/api.js',
-  './js/utils.js',
-  './js/scoring.js',
-  './js/palette.js',
-  './js/views/home.js',
-  './js/views/login.js',
-  './js/views/iscrizione.js',
-  './js/views/privacy.js',
-  './js/views/admin.js',
-  './js/views/commissario.js',
+  // core
+  './js/app.js', './js/db.js', './js/api.js', './js/utils.js', './js/pb.js',
+  './js/scoring.js', './js/rng.js', './js/tiebreak.js', './js/i18n.js',
+  './js/icons.js', './js/palette.js', './js/piani.js', './js/calendario-pdf.js',
+  // viste top-level
+  './js/views/home.js', './js/views/login.js', './js/views/iscrizione.js',
+  './js/views/privacy.js', './js/views/admin.js', './js/views/commissario.js',
+  './js/views/calendario-pubblico.js', './js/views/account-security.js',
+  './js/views/admin-dashboard.js', './js/views/admin-impostazioni.js',
+  './js/views/admin-users.js', './js/views/admin-stats.js',
+  './js/views/admin-manuale.js', './js/views/superadmin.js',
+  // sotto-viste admin
+  './js/views/admin/candidati.js', './js/views/admin/commissari.js',
+  './js/views/admin/commissioni.js', './js/views/admin/risultati.js',
+  './js/views/admin/verbale.js', './js/views/admin/import.js',
+  './js/views/admin/iscrizioni.js', './js/views/admin/sezioni.js',
+  './js/views/admin/fasi.js', './js/views/admin/calendario.js',
+  './js/views/admin/audit.js', './js/views/admin/impostazioni-concorso.js',
+  './js/views/admin/common.js', './js/views/admin/concorso-selector.js',
+  './js/views/admin/dashboard.js',
   './logo.png',
   './manifest.webmanifest',
 ];
@@ -63,20 +74,20 @@ self.addEventListener('fetch', (event) => {
   // cached produrrebbe stato stale per ruolo.
   if (isApi(url)) return;
 
-  // Solo same-origin per assets; CDN cross-origin (Tailwind/jspdf) cache-first
+  // CDN cross-origin (Tailwind/jspdf): stale-while-revalidate.
+  // M216: prima era cache-first puro → un asset CDN senza versione nell'URL
+  // (es. cdn.tailwindcss.com) restava stale per sempre. Ora serviamo subito la
+  // cache ma rivalidiamo in background, così l'aggiornamento entra al refresh.
   if (url.origin !== self.location.origin) {
-    // Tailwind/jspdf/etc da CDN: cache-first con fallback rete
-    event.respondWith(
-      caches.open(STATIC_CACHE).then(async (cache) => {
-        const hit = await cache.match(req);
-        if (hit) return hit;
-        try {
-          const res = await fetch(req);
-          if (res.ok) cache.put(req, res.clone());
-          return res;
-        } catch { return hit || Response.error(); }
-      })
-    );
+    event.respondWith((async () => {
+      const cache = await caches.open(STATIC_CACHE);
+      const hit = await cache.match(req);
+      const network = fetch(req)
+        .then((res) => { if (res.ok) cache.put(req, res.clone()); return res; })
+        .catch(() => null);
+      if (hit) { event.waitUntil(network); return hit; }
+      return (await network) || Response.error();
+    })());
     return;
   }
 

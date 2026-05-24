@@ -240,6 +240,8 @@ export const commissari = pgTable(
     nazionalita: text('nazionalita'),
     foto: text('foto'),
     bio: text('bio'),
+    // CV in testo semplice / markdown (incollato dall'admin). Opzionale.
+    cv: text('cv'),
     stato: text('stato').notNull().default('ATTIVO'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

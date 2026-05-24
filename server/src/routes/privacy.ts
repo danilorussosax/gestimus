@@ -92,12 +92,20 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
           emailVerificationToken: i.emailVerificationToken ? '[REDACTED]' : null,
         })))}`);
 
+        // R15 (GDPR Art.15): include anche le registrazioni di trattamento
+        // (audit_log) del tenant — diritto di accesso completo. Gira sotto RLS
+        // → solo le righe del tenant corrente. `sig` (HMAC tamper-evidence) e
+        // ip/userAgent fanno parte del record di trattamento.
+        const auditList = await tx.select().from(auditLog);
+        raw.write(`,"auditLog":${JSON.stringify(auditList)}`);
+
         await writeAudit(tx, req, 'privacy.export', {
           payload: {
             accounts: accountsList.length,
             commissari: commissariList.length,
             candidati: candidatiList.length,
             iscrizioni: iscrizioniList.length,
+            auditLog: auditList.length,
           },
         });
       });

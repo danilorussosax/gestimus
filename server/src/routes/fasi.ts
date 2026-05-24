@@ -555,7 +555,9 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
         .where(eq(fasi.id, id))
         .limit(1);
       if (rows.length === 0) return reply.notFound();
-      return rows[0];
+      // M219: timestamp server per permettere al client di correggere lo skew
+      // del proprio orologio nel countdown (evita drift visibile in cloud).
+      return { ...rows[0], serverNow: Date.now() };
     });
   });
 

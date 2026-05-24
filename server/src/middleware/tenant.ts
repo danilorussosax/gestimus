@@ -1,4 +1,5 @@
 import { eq, sql } from 'drizzle-orm';
+import { domainToASCII } from 'node:url';
 import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { dbApp, dbSuper } from '../db/client.js';
 import { tenants } from '../db/schema.js';
@@ -35,7 +36,12 @@ function extractSubdomain(hostHeader: string | undefined): string | null {
   if (host.includes(':') || host === '::1') return null;
   const parts = host.split('.');
   if (parts.length < 2) return null;
-  return parts[0] ?? null;
+  const label = parts[0];
+  if (!label) return null;
+  // M199: normalizzazione IDN/Punycode. Senza, `café` e `xn--caf-dma`
+  // resolverebbero a slug diversi (uno non troverebbe il tenant). domainToASCII
+  // converte gli IDN Unicode nella forma ASCII canonica (idempotente sugli ASCII).
+  return domainToASCII(label) || label;
 }
 
 // H7: cache LRU per la risoluzione subdomain → tenant. Ogni richiesta HTTP
@@ -45,6 +51,10 @@ function extractSubdomain(hostHeader: string | undefined): string | null {
 const TENANT_CACHE_TTL_MS = 60_000;
 const TENANT_CACHE_MAX = 256;
 const tenantCache = new Map<string, { row: TenantContext | null; expiresAt: number }>();
+// M200: single-flight. Alla scadenza del TTL, N richieste concorrenti per lo
+// stesso subdomain farebbero N query identiche su dbSuper (thundering herd).
+// Condividiamo una sola promise in volo per subdomain.
+const tenantInFlight = new Map<string, Promise<TenantContext | null>>();
 
 // N125 (falso positivo): NON è codice morto. È invocata centralmente da
 // `auditChange()` in routes/platform.ts, che gira a OGNI mutazione del tenant
@@ -70,19 +80,30 @@ async function resolveTenantBySubdomain(subdomain: string): Promise<TenantContex
     tenantCache.set(subdomain, cached);
     return cached.row;
   }
-  const found = await dbSuper.query.tenants.findFirst({
-    where: eq(tenants.slug, subdomain),
-    columns: { id: true, slug: true, nome: true, stato: true },
-  });
-  const row = found ?? null;
-  if (tenantCache.size >= TENANT_CACHE_MAX) {
-    // Eviction LRU: la prima chiave nell'ordine di iterazione è la meno
-    // recentemente usata (le hit spostano in coda, vedi sopra).
-    const firstKey = tenantCache.keys().next().value;
-    if (firstKey !== undefined) tenantCache.delete(firstKey);
-  }
-  tenantCache.set(subdomain, { row, expiresAt: now + TENANT_CACHE_TTL_MS });
-  return row;
+  // M200: se un lookup per questo subdomain è già in volo, riusalo.
+  const pending = tenantInFlight.get(subdomain);
+  if (pending) return pending;
+  const promise = (async (): Promise<TenantContext | null> => {
+    try {
+      const found = await dbSuper.query.tenants.findFirst({
+        where: eq(tenants.slug, subdomain),
+        columns: { id: true, slug: true, nome: true, stato: true },
+      });
+      const row = found ?? null;
+      if (tenantCache.size >= TENANT_CACHE_MAX) {
+        // Eviction LRU: la prima chiave nell'ordine di iterazione è la meno
+        // recentemente usata (le hit spostano in coda, vedi sopra).
+        const firstKey = tenantCache.keys().next().value;
+        if (firstKey !== undefined) tenantCache.delete(firstKey);
+      }
+      tenantCache.set(subdomain, { row, expiresAt: Date.now() + TENANT_CACHE_TTL_MS });
+      return row;
+    } finally {
+      tenantInFlight.delete(subdomain);
+    }
+  })();
+  tenantInFlight.set(subdomain, promise);
+  return promise;
 }
 
 export async function registerTenantMiddleware(app: FastifyInstance): Promise<void> {

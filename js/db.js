@@ -31,6 +31,10 @@ function criteriForFase(faseId) {
 
 const META_KEY = 'gestionale_meta_v3'; // bump key per evitare collisioni col v2 PB
 
+// M219: offset stimato dell'orologio server rispetto al client (serverNow - clientNow),
+// aggiornato dal runtime del timer. computeTimer lo usa per correggere lo skew.
+let serverClockOffsetMs = 0;
+
 const empty = () => ({
   concorsi: [],
   fasi: [],
@@ -123,6 +127,7 @@ function mapCommissario(r) {
     foto_filename: r.foto || '',
     foto_url: r.foto || null,
     bio: r.bio || '',
+    cv: r.cv || '',
     stato: r.stato || 'ATTIVO',
     is_presidente: false, // non più colonna del commissario; deriva da commissioni.presidenteCommissarioId
   };
@@ -621,6 +626,8 @@ export const db = {
   // ---------- Auth ----------
   isAuthenticated() { return pb.authStore.isValid; },
   currentAccount() { return pb.authStore.model || null; },
+  // M219: offset orologio server-client per il countdown timer.
+  serverClockOffset() { return serverClockOffsetMs; },
 
   async login(email, password) {
     const res = await api.post('/auth/login', { email, password });
@@ -977,13 +984,13 @@ export const db = {
   getAccountForCommissario(commissario_id) {
     return state.accounts.find((a) => a.commissarioId === commissario_id) || null;
   },
-  async createCommissario({ concorso_id = null, nome, cognome = '', specialita = '', email = '', telefono = '', data_nascita = null, nazionalita = '', foto = null, bio = '' }) {
+  async createCommissario({ concorso_id = null, nome, cognome = '', specialita = '', email = '', telefono = '', data_nascita = null, nazionalita = '', foto = null, bio = '', cv = '' }) {
     if (!concorso_id) throw new Error('createCommissario: concorso_id richiesto');
     const r = await api.post('/api/commissari', {
       concorsoId: concorso_id,
       nome, cognome, specialita, email: email || undefined, telefono,
       dataNascita: data_nascita || undefined,
-      nazionalita, bio,
+      nazionalita, bio, cv: cv || undefined,
     });
     const cm = mapCommissario(r);
     state.commissari.push(cm);
@@ -1006,7 +1013,7 @@ export const db = {
       nome: 'nome', cognome: 'cognome', specialita: 'specialita',
       email: 'email', telefono: 'telefono',
       data_nascita: 'dataNascita', nazionalita: 'nazionalita',
-      bio: 'bio', stato: 'stato',
+      bio: 'bio', cv: 'cv', stato: 'stato',
     };
     for (const [k, v] of Object.entries(keymap)) {
       if (patch[k] !== undefined) body[v] = patch[k];
@@ -1633,6 +1640,9 @@ export const db = {
       // Aggiorna lo state locale leggendo il runtime aggiornato (best-effort)
       try {
         const rt = await api.get(`/api/fasi/${faseId}/runtime`);
+        // M219: stima dell'offset orologio server-client (ignora RTT/2: ordine
+        // dei ms, sufficiente a togliere il drift da skew di secondi/minuti).
+        if (typeof rt.serverNow === 'number') serverClockOffsetMs = rt.serverNow - Date.now();
         const i = state.fasi.findIndex((x) => x.id === faseId);
         if (i >= 0) {
           // N36: il runtime endpoint ritorna solo i campi timer/stato in
@@ -1904,7 +1914,8 @@ export const db = {
    * Verifica email tramite token (link in email).
    */
   async verifyIscrizioneEmail(token) {
-    return api.get(`/api/public/iscrizioni/${encodeURIComponent(token)}/verify`);
+    // M194: POST (non GET) — la verifica cambia stato lato DB.
+    return api.post(`/api/public/iscrizioni/${encodeURIComponent(token)}/verify`, {});
   },
 
   // ---------- Iscrizioni admin ----------

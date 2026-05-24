@@ -192,10 +192,11 @@ jobs:
           echo "✓ $COUNT migration SQL verificate"
 
   # ---------------------------------------------------------------------------
-  # 5) i18n: verifica che tutte le chiavi t() usate siano definite in italiano
+  # 5) i18n: (a) tutte le chiavi t() usate sono definite in IT (error);
+  #          (b) parità di copertura EN/FR/ES rispetto a IT (report).
   # ---------------------------------------------------------------------------
   i18n-coverage:
-    name: i18n coverage (chiavi usate vs definite in IT)
+    name: i18n coverage (uso vs IT + parità EN/FR/ES)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -213,26 +214,50 @@ jobs:
               for m in re.finditer(r"\bt\(\s*['\"]([^'\"]+)['\"]", src):
                   used.add(m.group(1))
           i18n = open('js/i18n.js').read()
-          m = re.search(r"\bit\s*:\s*\{", i18n)
-          if not m:
-              print('::error::it: {} non trovato in js/i18n.js')
-              sys.exit(1)
-          i = m.end() - 1; depth = 0; start = i
-          while i < len(i18n):
-              if i18n[i] == '{': depth += 1
-              elif i18n[i] == '}':
-                  depth -= 1
-                  if depth == 0:
-                      block = i18n[start:i+1]
-                      break
-              i += 1
-          defined = set(km.group(1) for km in re.finditer(r"['\"]([a-zA-Z][a-zA-Z0-9._-]*)['\"]\s*:", block))
-          missing = sorted([k for k in used if k not in defined])
-          print(f'USATE: {len(used)} · DEFINITE (it): {len(defined)} · MANCANTI: {len(missing)}')
-          if missing:
-              for k in missing[:20]:
-                  print(f'::warning::chiave i18n mancante in IT: {k}')
-              # warning, non error (può essere intenzionale durante sviluppo)
+
+          def block_for(lang):
+              m = re.search(r"\b" + lang + r"\s*:\s*\{", i18n)
+              if not m:
+                  return None
+              i = m.end() - 1; depth = 0; start = i
+              while i < len(i18n):
+                  if i18n[i] == '{': depth += 1
+                  elif i18n[i] == '}':
+                      depth -= 1
+                      if depth == 0:
+                          return i18n[start:i+1]
+                  i += 1
+              return None
+
+          def keys_of(block):
+              return set(km.group(1) for km in re.finditer(r"['\"]([a-zA-Z][a-zA-Z0-9._-]*)['\"]\s*:", block))
+
+          it_block = block_for('it')
+          if it_block is None:
+              print('::error::it: {} non trovato in js/i18n.js'); sys.exit(1)
+          it_keys = keys_of(it_block)
+
+          # (a) chiavi usate ma non definite in IT → error.
+          missing_it = sorted([k for k in used if k not in it_keys])
+          print(f'USATE: {len(used)} · DEFINITE (it): {len(it_keys)} · NON-DEFINITE: {len(missing_it)}')
+          rc = 0
+          if missing_it:
+              for k in missing_it[:30]:
+                  print(f'::error::chiave i18n usata ma non definita in IT: {k}')
+              rc = 1
+
+          # (b) parità EN/FR/ES vs IT → report (warning). La copertura è ora
+          #     monitorata per tutte le lingue (non solo IT); le lacune sono
+          #     visibili in CI senza bloccare lo sviluppo incrementale.
+          for lang in ('en', 'fr', 'es'):
+              b = block_for(lang)
+              if b is None:
+                  print(f'::error::blocco lingua {lang} non trovato'); rc = 1; continue
+              miss = sorted(it_keys - keys_of(b))
+              print(f'{lang}: definite {len(keys_of(b))} · mancanti vs IT: {len(miss)}')
+              for k in miss[:30]:
+                  print(f'::warning::chiave i18n mancante in {lang}: {k}')
+          sys.exit(rc)
           PY
 
   # ---------------------------------------------------------------------------
