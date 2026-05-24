@@ -7,7 +7,7 @@ import { writeAudit } from '../services/audit.js';
 import { sendMail } from '../services/email.js';
 import { env } from '../env.js';
 import { parsePagination } from '../lib/pagination.js';
-import { todayISODate } from '../lib/date.js';
+import { todayISODate, ageYears } from '../lib/date.js';
 import { generateToken } from '../lib/token.js';
 
 const uuid = z.string().uuid();
@@ -187,10 +187,10 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
 
       // GDPR: se candidato minorenne, tutore obbligatorio (check puro, no DB).
       if (data.dataNascita) {
-        const dob = new Date(data.dataNascita);
-        const today = new Date();
-        const age = today.getFullYear() - dob.getFullYear() -
-          (today < new Date(today.getFullYear(), dob.getMonth(), dob.getDate()) ? 1 : 0);
+        // M191: età calcolata sul fuso della piattaforma (helper TZ-safe), non
+        // con `new Date()` del processo — il confronto a cavallo di mezzanotte
+        // poteva sfasare di un anno il giorno del compleanno.
+        const age = ageYears(data.dataNascita);
         // N86: {} è truthy → `!data.tutore` non bastava. Per i minori il tutore
         // deve avere almeno nome ed email (contattabilità GDPR del genitore).
         const tutoreOk =

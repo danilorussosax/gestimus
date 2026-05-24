@@ -1291,7 +1291,10 @@ export const db = {
     const rows = await api.put(`/api/criteri/fase/${faseId}`, { criteri: payload });
     state._criteri = (state._criteri || []).filter((c) => c.faseId !== faseId);
     (state._criteri = state._criteri || []).push(...(rows || []));
-    notify(); // N74: notifica esplicita (non affidarsi solo al caller)
+    // N120: nessun notify() qui. È un helper di basso livello: il render spetta
+    // al caller. createFase/updateFase (unici chiamanti) notificano già dopo aver
+    // aggiornato state.fasi — un notify interno renderizzava due volte (la prima
+    // con state.fasi ancora privo della fase appena creata).
   },
   async deleteFase(id) {
     await api.delete(`/api/fasi/${id}`);

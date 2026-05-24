@@ -1017,6 +1017,7 @@ Il Presidente
     'admin.import.err.cat_not_found': 'categoria non trovata: "{name}"',
     'admin.import.err.cat_ambiguous': 'categoria ambigua "{name}" — specifica una sezione',
     'admin.import.err.required_missing': 'campo obbligatorio mancante: {field}',
+    'admin.import.err.too_many_rows': 'Troppe righe: {count}. Massimo {max} per import — suddividi il file.',
 
     // Admin Dashboard
     'admin.dashboard.eyebrow': 'Amministrazione',
@@ -2267,6 +2268,7 @@ Il Presidente
     'admin.import.err.cat_not_found': 'category not found: "{name}"',
     'admin.import.err.cat_ambiguous': 'ambiguous category "{name}" — specify a section',
     'admin.import.err.required_missing': 'required field missing: {field}',
+    'admin.import.err.too_many_rows': 'Too many rows: {count}. Maximum {max} per import — split the file.',
 
     'admin.nav.admin_section': 'Administration',
     'admin.nav.statistiche': 'Statistics',
@@ -3302,6 +3304,7 @@ Il Presidente
     'admin.import.err.cat_not_found': 'catégorie introuvable : « {name} »',
     'admin.import.err.cat_ambiguous': 'catégorie ambiguë « {name} » — précisez une section',
     'admin.import.err.required_missing': 'champ obligatoire manquant : {field}',
+    'admin.import.err.too_many_rows': 'Trop de lignes : {count}. Maximum {max} par import — divisez le fichier.',
   },
   es: {
     'app.title': 'Gestimus',
@@ -4199,6 +4202,7 @@ Il Presidente
     'admin.import.err.cat_not_found': 'categoría no encontrada: "{name}"',
     'admin.import.err.cat_ambiguous': 'categoría ambigua "{name}" — especifica una sección',
     'admin.import.err.required_missing': 'campo obligatorio ausente: {field}',
+    'admin.import.err.too_many_rows': 'Demasiadas filas: {count}. Máximo {max} por importación — divide el archivo.',
   },
 };
 

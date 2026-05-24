@@ -6,8 +6,20 @@ import type { TxClient } from '../middleware/tenant.js';
 import { dbSuper } from '../db/client.js';
 import { env } from '../env.js';
 
+// L232: ip/userAgent arrivano da header arbitrari del client. Vengono salvati
+// in audit_log e poi resi nel viewer/log → newline o caratteri di controllo
+// potrebbero falsificare righe di log o spezzare il rendering. Normalizziamo:
+// niente CR/LF/controlli, lunghezza limitata. Difesa in profondità (il viewer
+// fa comunque escape), e la firma HMAC copre il valore già sanificato.
+function sanitizeHeader(v: string | undefined, max = 512): string | undefined {
+  if (v == null) return undefined;
+  const s = v.replace(/[\x00-\x1f\x7f]+/g, ' ').slice(0, max).trim();
+  return s.length ? s : undefined;
+}
+
 function clientIp(req: FastifyRequest): string | undefined {
-  return (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim() ?? req.ip;
+  const xff = (req.headers['x-forwarded-for'] as string | undefined)?.split(',')[0]?.trim();
+  return sanitizeHeader(xff ?? req.ip);
 }
 
 // M196 — tamper-evidence. Canonical JSON deterministico (chiavi ordinate
@@ -88,7 +100,7 @@ export async function writeAudit(
     targetId: data?.targetId ?? null,
     payload: (data?.payload as object) ?? null,
     ip: clientIp(req) ?? null,
-    userAgent: (req.headers['user-agent'] as string | undefined) ?? null,
+    userAgent: sanitizeHeader(req.headers['user-agent'] as string | undefined) ?? null,
   };
   await tx.insert(auditLog).values({ ...values, sig: computeAuditLogSig(values) });
 }
@@ -114,7 +126,7 @@ export async function writePlatformAudit(
     targetTenantId: data?.targetTenantId ?? null,
     payload: (data?.payload as object) ?? null,
     ip: clientIp(req) ?? null,
-    userAgent: (req.headers['user-agent'] as string | undefined) ?? null,
+    userAgent: sanitizeHeader(req.headers['user-agent'] as string | undefined) ?? null,
   };
   await dbSuper.insert(platformAuditLog).values({ ...values, sig: computePlatformAuditSig(values) });
 }

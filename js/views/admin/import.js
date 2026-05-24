@@ -61,6 +61,9 @@ function parseCSV(text, sep) {
   // L229: rimuovi un eventuale BOM UTF-8 iniziale, altrimenti finisce nella
   // prima intestazione e il mapping delle colonne fallisce.
   if (text && text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  // L230: i byte NUL non sono mai dati CSV legittimi (file binario o payload
+  // ostile); `trim()` non li rimuove → resterebbero dentro le celle. Eliminali.
+  if (text) text = text.replace(/\u0000/g, '');
   const rows = [];
   let row = [], cur = '', inQ = false;
   for (let i = 0; i < text.length; i++) {
@@ -364,7 +367,7 @@ export function openImportModal(concorso, kind, onSaved) {
         const MAX_IMPORT_ROWS = 500;
         const dataRows = rows.slice(1);
         if (dataRows.length > MAX_IMPORT_ROWS) {
-          summaryEl.innerHTML = `<span class="text-rose-600 font-semibold">${escapeHtml(`Troppe righe: ${dataRows.length}. Massimo ${MAX_IMPORT_ROWS} per import — suddividi il file.`)}</span>`;
+          summaryEl.innerHTML = `<span class="text-rose-600 font-semibold">${escapeHtml(t('admin.import.err.too_many_rows', { count: dataRows.length, max: MAX_IMPORT_ROWS }))}</span>`;
           previewWrap.classList.add('hidden');
           parsed = [];
           return;
