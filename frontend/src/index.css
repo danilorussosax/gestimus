@@ -54,9 +54,9 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-sm: calc(var(--radius) - 4px);
 
-  --font-sans: Inter, system-ui, -apple-system, sans-serif;
-  --font-display: Inter, system-ui, -apple-system, sans-serif;
-  --font-mono: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-sans: Roboto, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: Roboto, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: 'Roboto Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
   --animate-accordion-down: accordion-down 0.2s ease-out;
   --animate-accordion-up: accordion-up 0.2s ease-out;
@@ -100,12 +100,13 @@
 @utility font-display {
   /* Same family but bolder + tighter tracking for headings/brand */
   font-family:
-    'Inter',
+    'Roboto',
+    ui-sans-serif,
     system-ui,
     -apple-system,
     sans-serif;
   font-weight: 700;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.012em;
 }
 
 @utility safe-pt {
@@ -129,12 +130,9 @@
 
 @layer base {
   :root {
-    /* shadcn neutral palette tuned with a warm institutional indigo accent.
-     * Background scurito di pochissimo (97% L con lieve tinta slate) per
-     * ridurre il bagliore in modalità giorno e dare più separazione alle
-     * card che restano a 100% di luminanza. Le superfici secondary/muted/
-     * accent sono spostate giù di un punto in coerenza. */
-    --background: 210 24% 97%;
+    /* Palette Gestimus (release precedente): Royal Blue #4169E1 come primary,
+     * superfici slate neutre. Token shadcn HSL (allineati a css/styles.css). */
+    --background: 220 33% 98%;
     --foreground: 222 47% 11%;
 
     --card: 0 0% 100%;
@@ -143,22 +141,19 @@
     --popover: 0 0% 100%;
     --popover-foreground: 222 47% 11%;
 
-    --primary: 222 60% 28%;
+    --primary: 225 73% 57%; /* royal blue #4169E1 */
     --primary-foreground: 210 40% 98%;
 
-    --secondary: 210 35% 94.5%;
+    --secondary: 220 15% 96%;
     --secondary-foreground: 222 47% 11%;
 
-    --muted: 210 35% 94.5%;
-    /* WCAG 2 SC 1.4.3 (AA): muted-foreground deve garantire ratio ≥ 4.5:1 su
-     * background (#f6f7f9) e bg-muted. A 47% L il ratio scendeva a 4.38;
-     * a 43% L sale a ~5:1 mantenendo l'aspetto "secondario" del testo. */
-    --muted-foreground: 215 16% 43%;
+    --muted: 220 15% 96%;
+    --muted-foreground: 220 9% 40%;
 
-    --accent: 210 35% 92%;
+    --accent: 220 15% 94%;
     --accent-foreground: 222 47% 11%;
 
-    --destructive: 0 72% 51%;
+    --destructive: 0 84% 60%;
     --destructive-foreground: 210 40% 98%;
 
     --success: 142 71% 36%;
@@ -167,31 +162,32 @@
     --warning: 38 92% 50%;
     --warning-foreground: 222 47% 11%;
 
-    --border: 214 28% 88%;
-    --input: 214 28% 88%;
-    --ring: 222 60% 28%;
+    --border: 220 13% 91%;
+    --input: 220 13% 91%;
+    --ring: 225 73% 57%;
 
-    --radius: 0.7rem;
+    --radius: 0.5rem;
   }
 
   .dark {
-    --background: 222 47% 7%;
+    /* Dark Gestimus: royal blue schiarito (65% L) come primary. */
+    --background: 222 47% 6%;
     --foreground: 210 40% 98%;
 
-    --card: 222 47% 9%;
+    --card: 222 47% 8%;
     --card-foreground: 210 40% 98%;
 
-    --popover: 222 47% 9%;
+    --popover: 222 47% 6%;
     --popover-foreground: 210 40% 98%;
 
-    --primary: 210 80% 70%;
+    --primary: 225 73% 65%;
     --primary-foreground: 222 47% 11%;
 
     --secondary: 217 33% 17%;
     --secondary-foreground: 210 40% 98%;
 
     --muted: 217 33% 17%;
-    --muted-foreground: 215 20% 65%;
+    --muted-foreground: 215 16% 65%;
 
     --accent: 217 33% 17%;
     --accent-foreground: 210 40% 98%;
@@ -205,9 +201,9 @@
     --warning: 38 92% 55%;
     --warning-foreground: 222 47% 11%;
 
-    --border: 217 33% 20%;
-    --input: 217 33% 20%;
-    --ring: 210 80% 70%;
+    --border: 217 33% 17%;
+    --input: 217 33% 17%;
+    --ring: 225 73% 65%;
   }
 }
 
@@ -234,8 +230,10 @@
   }
   body {
     @apply bg-background text-foreground;
-    /* Inter stylistic set for circular '0' and improved 'a/g' */
-    font-feature-settings: 'cv11', 'ss01', 'ss03';
+    /* Gestimus: Roboto, base 14px/1.5 come nella release precedente. */
+    font-feature-settings: 'rlig' 1, 'calt' 1;
+    font-size: 14px;
+    line-height: 1.5;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
