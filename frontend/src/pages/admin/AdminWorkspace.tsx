@@ -1,5 +1,4 @@
-import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   LayoutDashboard,
@@ -193,7 +192,23 @@ function DashboardPlaceholder() {
 export default function AdminWorkspace() {
   const { t } = useTranslation();
   const { activeId, setActiveId, activeConcorso } = useActiveConcorso();
-  const [activeTab, setActiveTab] = useState<TabId>('dashboard');
+  // Tab attivo da URL (?tab=) così i deep-link (es. card della dashboard,
+  // /admin?tab=fasi) selezionano la tab giusta.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tabParam = searchParams.get('tab');
+  const activeTab: TabId = TABS.some((tb) => tb.id === tabParam)
+    ? (tabParam as TabId)
+    : 'dashboard';
+  const setActiveTab = (tb: TabId) => {
+    setSearchParams(
+      (prev) => {
+        const p = new URLSearchParams(prev);
+        p.set('tab', tb);
+        return p;
+      },
+      { replace: true },
+    );
+  };
 
   const lbl = (key: string, fallback: string) => {
     const v = t(key);

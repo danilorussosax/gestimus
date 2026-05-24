@@ -100,7 +100,8 @@ function displayName(cand: Candidato | null | undefined): string {
 }
 
 function publicCalUrl(token: string, display = false) {
-  return `${window.location.origin}${window.location.pathname}#/calendario?token=${encodeURIComponent(token)}${display ? '&display=1' : ''}`;
+  // Router path-based (React Router), non hash: /calendario?token=…[&display=1]
+  return `${window.location.origin}/calendario?token=${encodeURIComponent(token)}${display ? '&display=1' : ''}`;
 }
 
 const SALA_NONE = '__none__';

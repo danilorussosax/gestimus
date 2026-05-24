@@ -1058,7 +1058,7 @@ function FaseFormDialog({
 
           {/* ====== Sezione 6: Regole di spareggio ====== */}
           <section>
-            <SectionHeader num={6} title="Regole di rottura della parità" />
+            <SectionHeader num={6} title="Regole in caso di ex aequo" />
             <div className="space-y-3">
               {isInherited && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-xs text-amber-900 flex items-center gap-2">

@@ -180,9 +180,11 @@ function KpiCard({ icon, value, label, accent }: KpiCardProps) {
 // ---------------------------------------------------------------------------
 
 function SectionCard({ tab, count }: { tab: SidebarTab; count: number | null }) {
+  // 'impostazioni-concorso' (id vanilla) → tab 'impostazioni' del workspace.
+  const tabId = tab.id === 'impostazioni-concorso' ? 'impostazioni' : tab.id;
   return (
     <Link
-      to="/admin"
+      to={`/admin?tab=${tabId}`}
       className="text-left bg-white border border-slate-200 hover:border-brand-300 hover:shadow-md rounded-xl p-4 transition-all group block"
     >
       <div className="flex items-center justify-between mb-2">

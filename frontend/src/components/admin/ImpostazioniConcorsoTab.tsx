@@ -684,7 +684,7 @@ export function ImpostazioniConcorsoTab({ concorsoId }: { concorsoId: string }) 
         {/* ── 5. Tiebreak default ─────────────────────────────────────────── */}
         <section className="bg-white border border-slate-200 rounded-2xl p-5 space-y-3">
           <p className="text-[11px] uppercase tracking-wide font-semibold text-ink-500">
-            Regole di rottura della parità (default)
+            Regole in caso di ex aequo (default)
           </p>
           <p className="text-xs text-slate-500 leading-snug">
             Cascata di default applicata a ogni fase del concorso. Ogni fase può comunque

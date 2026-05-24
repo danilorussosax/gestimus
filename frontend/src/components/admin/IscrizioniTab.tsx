@@ -694,7 +694,7 @@ export function IscrizioniTab({ concorsoId }: { concorsoId: string }) {
         </p>
         <div className="flex items-center gap-1.5">
           <a
-            href="#/iscrizione"
+            href="/iscrizione"
             target="_blank"
             rel="noopener noreferrer"
             className="c-btn c-btn--outline c-btn--sm !gap-1 text-emerald-700 border-emerald-300 hover:bg-emerald-50"
@@ -774,7 +774,7 @@ export function IscrizioniTab({ concorsoId }: { concorsoId: string }) {
           </p>
           <p className="text-sm text-slate-500 italic mt-1">Le iscrizioni inviate dal form pubblico compariranno qui.</p>
           <a
-            href="#/iscrizione"
+            href="/iscrizione"
             target="_blank"
             rel="noopener noreferrer"
             className="c-btn c-btn--primary c-btn--sm mt-5 inline-flex items-center gap-1.5"
