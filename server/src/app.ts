@@ -63,13 +63,15 @@ export async function createApp(): Promise<FastifyInstance> {
       req.log.info({ issues: err.issues }, 'validazione input fallita');
       return reply.code(400).send({ error: 'richiesta non valida' });
     }
-    const e = err as { statusCode?: number; message?: string };
+    // I rate-limit (@fastify/rate-limit con errorResponseBuilder) arrivano qui
+    // come oggetto `{ statusCode, error }` (niente `.message`) → leggi `e.error`.
+    const e = err as { statusCode?: number; message?: string; error?: string };
     const status = e.statusCode ?? 500;
     if (status >= 500) {
       req.log.error({ err }, 'errore interno');
       return reply.code(status).send({ error: 'errore interno del server' });
     }
-    return reply.code(status).send({ error: e.message ?? 'errore' });
+    return reply.code(status).send({ error: e.error ?? e.message ?? 'errore' });
   });
 
   await app.register(sensible);

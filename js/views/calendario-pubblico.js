@@ -213,19 +213,56 @@ function dispCard(/** @type {any} */ b, /** @type {any} */ c) {
 function salaBoard(/** @type {any} */ salaNome, /** @type {any} */ blocchi) {
   // Colonne = sezioni presenti (ordinate). Righe = tick da 30 min tra min/max orario.
   const sezNames = [...new Set(blocchi.map((/** @type {any} */ b) => b.sezione?.nome || '—'))].sort((a, b) => a.localeCompare(b));
-  const sezIdx = new Map(sezNames.map((n, i) => [n, i]));
   const starts = blocchi.map((/** @type {any} */ b) => toMin(b.oraInizio)).filter((/** @type {any} */ x) => x != null);
   const ends = blocchi.map((/** @type {any} */ b) => toMin(b.oraFine) ?? (toMin(b.oraInizio) != null ? /** @type {number} */ (toMin(b.oraInizio)) + 60 : null)).filter((/** @type {any} */ x) => x != null);
   const minStart = starts.length ? Math.floor(Math.min(...starts) / 30) * 30 : 9 * 60;
   const maxEnd = ends.length ? Math.ceil(Math.max(...ends) / 30) * 30 : minStart + 60;
   const T = Math.max(1, (maxEnd - minStart) / 30);
 
-  const cols = `96px repeat(${sezNames.length}, minmax(240px, 1fr))`;
+  // Pre-calcola tick + sezione per ogni blocco (mantiene l'indice per il colore).
+  const items = blocchi.map((/** @type {any} */ b, /** @type {any} */ i) => {
+    const start = toMin(b.oraInizio) ?? minStart;
+    let end = toMin(b.oraFine) ?? start + 60;
+    if (end <= start) end = start + 30;
+    const sTick = Math.round((start - minStart) / 30);
+    const eTick = Math.max(sTick + 1, Math.ceil((end - minStart) / 30));
+    return /** @type {any} */ ({ b, i, sez: b.sezione?.nome || '—', sTick, eTick, lane: 0 });
+  });
+
+  // Assegna le "lane" (sotto-colonne) ai blocchi che si SOVRAPPONGONO nel tempo
+  // dentro la stessa sezione → niente più card una sopra l'altra: si affiancano.
+  // Greedy interval partitioning: ogni blocco va nella prima lane libera.
+  /** @type {Record<string, number>} */
+  const maxLanes = {};
+  for (const sez of sezNames) {
+    const group = items.filter((/** @type {any} */ it) => it.sez === sez).sort((/** @type {any} */ a, /** @type {any} */ b) => a.sTick - b.sTick || a.eTick - b.eTick);
+    /** @type {number[]} */
+    const laneEnds = [];
+    for (const it of group) {
+      let lane = laneEnds.findIndex((e) => e <= it.sTick);
+      if (lane === -1) { lane = laneEnds.length; laneEnds.push(it.eTick); }
+      else laneEnds[lane] = it.eTick;
+      it.lane = lane;
+    }
+    maxLanes[sez] = Math.max(1, laneEnds.length);
+  }
+
+  // Layout colonne: 96px (orario) + per ogni sezione `maxLanes` sotto-colonne.
+  /** @type {Record<string, number>} */
+  const sezColStart = {};
+  const colDefs = [];
+  let colCursor = 2; // colonna 1 = orario
+  for (const sez of sezNames) {
+    sezColStart[sez] = colCursor;
+    for (let j = 0; j < maxLanes[sez]; j++) colDefs.push('minmax(220px, 1fr)');
+    colCursor += maxLanes[sez];
+  }
+  const cols = `96px ${colDefs.join(' ')}`;
   const rows = `auto repeat(${T}, 72px)`;
 
-  // Header colonne + corner
-  let cells = `<div class="cal-corner"></div>`;
-  cells += sezNames.map((n) => `<div class="cal-colhead">${escapeHtml(n)}</div>`).join('');
+  // Header colonne (ogni sezione copre le sue lane) + corner. Posizionamento esplicito.
+  let cells = `<div class="cal-corner" style="grid-column:1;grid-row:1"></div>`;
+  cells += sezNames.map((n) => `<div class="cal-colhead" style="grid-column:${sezColStart[n]} / ${sezColStart[n] + maxLanes[n]};grid-row:1">${escapeHtml(n)}</div>`).join('');
   // Linee orizzontali + etichette orario nella colonna sinistra
   for (let k = 0; k < T; k++) {
     const min = minStart + k * 30;
@@ -235,16 +272,11 @@ function salaBoard(/** @type {any} */ salaNome, /** @type {any} */ blocchi) {
       onHour ? `<span class="cal-time__h">${fmtHM(min)}</span>` : `<span class="cal-time__30">30</span>`
     }</div>`;
   }
-  // Card per blocco — ogni blocco un colore diverso (indice di render).
-  blocchi.forEach((/** @type {any} */ b, /** @type {any} */ i) => {
-    const start = toMin(b.oraInizio) ?? minStart;
-    let end = toMin(b.oraFine) ?? start + 60;
-    if (end <= start) end = start + 30;
-    const sTick = Math.round((start - minStart) / 30);
-    const eTick = Math.max(sTick + 1, Math.ceil((end - minStart) / 30));
-    const col = (sezIdx.get(b.sezione?.nome || '—') ?? 0) + 2;
-    cells += dispCard(b, colorForIndex(i)).html(`${sTick + 2} / ${eTick + 2}`, `${col}`);
-  });
+  // Card per blocco — colore per indice di render, colonna = sezione + lane.
+  for (const it of items) {
+    const col = sezColStart[it.sez] + it.lane;
+    cells += dispCard(it.b, colorForIndex(it.i)).html(`${it.sTick + 2} / ${it.eTick + 2}`, `${col}`);
+  }
 
   return `
     <div class="cal-board">

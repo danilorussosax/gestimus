@@ -80,7 +80,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       rateLimit: {
         max: LOGIN_RL_MAX,
         timeWindow: '15 minutes',
-        errorResponseBuilder: () => ({ error: 'troppi tentativi di login, riprova tra qualche minuto' }),
+        errorResponseBuilder: () => ({ statusCode: 429, error: 'troppi tentativi di login, riprova tra qualche minuto' }),
       },
     },
   }, async (req, reply) => {
@@ -145,7 +145,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       rateLimit: {
         max: LOGIN_RL_MAX,
         timeWindow: '15 minutes',
-        errorResponseBuilder: () => ({ error: 'troppi tentativi, riprova tra qualche minuto' }),
+        errorResponseBuilder: () => ({ statusCode: 429, error: 'troppi tentativi, riprova tra qualche minuto' }),
       },
     },
   }, async (req, reply) => {

@@ -1022,4 +1022,4 @@ Frontend super-admin: card a gradiente sopra la KPI strip standard con sparkline
 - ✅ **Fase 6**: super-admin UI (gestione enti, soft-delete + cleanup, SMTP, stats, 2FA TOTP)
 - ✅ **Fase 7**: stabilizzazione — permessi per-fase granulari, schema iscrizioni esteso, candidato N:1 sezione/categoria, finalizzazione candidati_fase, doppia conferma type-to-delete, branding merge JSONB, CSV import con tipo gruppo, validazioni cross-concorso
 - ✅ **Fase 8**: metriche realtime — endpoint platform `/system` e `/runtime`, sparkline client + KPI per-tenant
-- ⏳ **Prossimi step**: invio email reale per verifica iscrizioni (SMTP tenant-aware già pronto, manca il template + sendMail al `POST /api/public/iscrizioni`).
+- ✅ **Email verifica iscrizioni**: invio reale via SMTP tenant-aware (`sendMail` best-effort post-commit su `POST /api/public/iscrizioni`, link `#/iscrizione/verify?t=…`).

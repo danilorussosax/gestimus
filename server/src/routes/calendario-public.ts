@@ -28,7 +28,7 @@ export const calendarioPublicRoutes: FastifyPluginAsync = async (app) => {
         rateLimit: {
           max: 60,
           timeWindow: '1 minute',
-          errorResponseBuilder: () => ({ error: 'troppe richieste, riprova più tardi' }),
+          errorResponseBuilder: () => ({ statusCode: 429, error: 'troppe richieste, riprova più tardi' }),
         },
       },
     },

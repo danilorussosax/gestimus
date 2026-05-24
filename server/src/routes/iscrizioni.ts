@@ -170,7 +170,7 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
     '/iscrizioni',
     {
       config: {
-        rateLimit: { max: 3, timeWindow: '1 hour', errorResponseBuilder: () => ({ error: 'troppe iscrizioni dallo stesso IP, riprova più tardi' }) },
+        rateLimit: { max: 3, timeWindow: '1 hour', errorResponseBuilder: () => ({ statusCode: 429, error: 'troppe iscrizioni dallo stesso IP, riprova più tardi' }) },
       },
     },
     async (req, reply) => {
@@ -391,7 +391,7 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
       rateLimit: {
         max: 20,
         timeWindow: '15 minutes',
-        errorResponseBuilder: () => ({ error: 'troppi tentativi, riprova più tardi' }),
+        errorResponseBuilder: () => ({ statusCode: 429, error: 'troppi tentativi, riprova più tardi' }),
       },
     },
   }, async (req, reply) => {
