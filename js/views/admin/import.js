@@ -33,11 +33,22 @@ const IMPORT_FIELD_ALIASES = {
     nazionalita:  ['nazionalita', 'nationality', 'paese'],
     bio:          ['bio', 'biografia', 'note', 'notes'],
   },
+  // Import gerarchico: ogni riga è una categoria appartenente a una sezione.
+  // La sezione si ripete su più righe; una riga con sola `sezione` (categoria
+  // vuota) crea la sezione senza categorie.
+  sezioni: {
+    sezione:     ['sezione', 'sezioni', 'section', 'sez'],
+    categoria:   ['categoria', 'categorie', 'category', 'cat'],
+    descrizione: ['descrizione', 'description', 'desc', 'note', 'notes'],
+    eta_min:     ['etamin', 'agemin', 'minage', 'etaminima', 'da', 'dafrom', 'from'],
+    eta_max:     ['etamax', 'agemax', 'maxage', 'etamassima', 'a', 'ato', 'to'],
+  },
 };
 
 const IMPORT_REQUIRED = {
   candidati:  ['nome', 'cognome', 'strumento', 'data_nascita', 'nazionalita'],
   commissari: ['nome', 'cognome', 'specialita'],
+  sezioni:    ['sezione'],
 };
 
 function normKey(s) {
@@ -117,6 +128,30 @@ function buildImportRow(kind, headerMap, rawRow, concorso) {
     nome: get('nome'),
     cognome: get('cognome'),
   };
+  if (kind === 'sezioni') {
+    // Una riga = una categoria sotto una sezione (la categoria può mancare:
+    // in quel caso la riga crea solo la sezione).
+    out.sezione = get('sezione');
+    out.categoria = get('categoria');
+    out.descrizione = get('descrizione');
+    const parseEta = (raw, field) => {
+      const v = String(raw || '').trim();
+      if (!v) return null;
+      const n = Number(v.replace(',', '.'));
+      if (!Number.isFinite(n) || n < 0 || n > 120) {
+        errors.push(t('admin.import.err.bad_eta', { value: v }));
+        return null;
+      }
+      return Math.trunc(n);
+    };
+    out.eta_min = parseEta(get('eta_min'), 'eta_min');
+    out.eta_max = parseEta(get('eta_max'), 'eta_max');
+    if (out.eta_min != null && out.eta_max != null && out.eta_min > out.eta_max) {
+      errors.push(t('admin.import.err.eta_range', { min: out.eta_min, max: out.eta_max }));
+    }
+    if (!out.sezione) errors.push(t('admin.import.err.required_missing', { field: 'sezione' }));
+    return { data: out, errors };
+  }
   if (kind === 'candidati') {
     out.strumento = get('strumento');
     out.nazionalita = get('nazionalita');
@@ -207,6 +242,17 @@ function buildHeaderMap(kind, headerCells) {
 }
 
 function importTemplateText(kind) {
+  if (kind === 'sezioni') {
+    // Header: sezione obbligatoria; categoria/descrizione/eta_min/eta_max
+    // opzionali. La sezione si ripete su più righe per raggrupparne le categorie.
+    return [
+      'sezione,categoria,descrizione,eta_min,eta_max',
+      'Archi,Junior,Fino a 14 anni,0,14',
+      'Archi,Senior,Dai 15 anni in su,15,',
+      'Fiati,Junior,,0,14',
+      'Pianoforte,,Sezione senza categorie,,',
+    ].join('\n');
+  }
   if (kind === 'candidati') {
     return [
       // Header: nome,cognome obbligatori; strumento/data/nazionalita per individuale;
@@ -227,10 +273,9 @@ function importTemplateText(kind) {
 
 export function openImportModal(concorso, kind, onSaved) {
   const isCand = kind === 'candidati';
-  const titleKind = isCand ? t('admin.import.kind.candidati') : t('admin.import.kind.commissari');
-  const fieldsHelp = isCand
-    ? t('admin.import.cols.candidati')
-    : t('admin.import.cols.commissari');
+  const isSez = kind === 'sezioni';
+  const titleKind = t(`admin.import.kind.${kind}`);
+  const fieldsHelp = t(`admin.import.cols.${kind}`);
 
   // Mutable parsed state (filled by parseAndPreview)
   let parsed = []; // [{ data, errors, raw }]
@@ -289,12 +334,12 @@ export function openImportModal(concorso, kind, onSaved) {
           <div data-mapping-fields class="grid grid-cols-2 sm:grid-cols-3 gap-2"></div>
         </div>
 
-        ${isCand ? '' : `
+        ${kind === 'commissari' ? `
           <label class="flex items-start gap-2 text-xs text-slate-700 mt-1">
             <input data-com-assign type="checkbox" checked class="mt-0.5 w-3.5 h-3.5 rounded border-slate-300 text-brand-600">
             <span>${escapeHtml(t('admin.import.com_assign', { concorso: concorso?.nome || '' }))}</span>
           </label>
-        `}
+        ` : ''}
       </div>
     `,
     primaryLabel: t('admin.import.btn_label', { kind: titleKind }),
@@ -382,12 +427,16 @@ export function openImportModal(concorso, kind, onSaved) {
         summaryEl.innerHTML = t('admin.import.summary', { sep: sepLabel, n: parsed.length, ok }) + (ko ? t('admin.import.summary_errors', { ko }) : '');
 
         // Build preview
-        const cols = isCand
-          ? ['nome', 'cognome', 'strumento', 'data_nascita', 'nazionalita', 'sezione_id', 'categoria_id']
-          : ['nome', 'cognome', 'specialita', 'email', 'telefono', 'data_nascita'];
-        const colLabels = isCand
-          ? [t('admin.import.col.nome'), t('admin.import.col.cognome'), t('admin.import.col.strumento'), t('admin.import.col.nascita'), t('admin.import.col.naz'), t('admin.import.col.sezioni'), t('admin.import.col.categorie')]
-          : [t('admin.import.col.nome'), t('admin.import.col.cognome'), t('admin.import.col.specialita'), t('admin.import.col.email'), t('admin.import.col.telefono'), t('admin.import.col.nascita')];
+        const cols = isSez
+          ? ['sezione', 'categoria', 'descrizione', 'eta']
+          : isCand
+            ? ['nome', 'cognome', 'strumento', 'data_nascita', 'nazionalita', 'sezione_id', 'categoria_id']
+            : ['nome', 'cognome', 'specialita', 'email', 'telefono', 'data_nascita'];
+        const colLabels = isSez
+          ? [t('admin.import.col.sezioni'), t('admin.import.col.categorie'), t('admin.import.col.descrizione'), t('admin.import.col.eta')]
+          : isCand
+            ? [t('admin.import.col.nome'), t('admin.import.col.cognome'), t('admin.import.col.strumento'), t('admin.import.col.nascita'), t('admin.import.col.naz'), t('admin.import.col.sezioni'), t('admin.import.col.categorie')]
+            : [t('admin.import.col.nome'), t('admin.import.col.cognome'), t('admin.import.col.specialita'), t('admin.import.col.email'), t('admin.import.col.telefono'), t('admin.import.col.nascita')];
         headRow.innerHTML = ['#', ...colLabels, t('admin.import.col_status')].map(h => `<th class="text-left font-semibold text-slate-600 px-2 py-1.5 border-b border-slate-200">${escapeHtml(h)}</th>`).join('');
 
         const sezById = Object.fromEntries(db.sezioniByConcorso(concorso.id).map(s => [s.id, s.nome]));
@@ -400,6 +449,11 @@ export function openImportModal(concorso, kind, onSaved) {
             // array plurali → la preview leggeva chiavi inesistenti e restava vuota.
             if (c === 'sezione_id') v = v ? (sezById[v] || v) : '';
             else if (c === 'categoria_id') v = v ? (catById[v] || v) : '';
+            // Import sezioni: colonna sintetica "Età" (min–max derivata).
+            else if (c === 'eta') {
+              const lo = p.data.eta_min, hi = p.data.eta_max;
+              v = (lo == null && hi == null) ? '' : `${lo ?? ''}–${hi ?? ''}`;
+            }
             else if (Array.isArray(v)) v = v.join(', ');
             return `<td class="px-2 py-1 border-b border-slate-100 text-slate-700">${escapeHtml(v ?? '')}</td>`;
           }).join('');
@@ -411,13 +465,17 @@ export function openImportModal(concorso, kind, onSaved) {
 
         // Popola mappatura colonne per override manuale
         csvHeaders = header;
-        const fieldNames = isCand
-          ? ['nome','cognome','strumento','data_nascita','nazionalita','docenti_preparatori','sezioni_ids','categorie_ids']
-          : ['nome','cognome','specialita','email','telefono','data_nascita'];
-        const fieldLabels = isCand
-          ? [t('admin.candidato.field_nome'), t('admin.candidato.field_cognome'), t('admin.candidato.field_strumento'), t('admin.candidato.field_data_nascita'), t('admin.candidato.field_nazionalita'), t('admin.candidato.field_docenti'), t('admin.candidato.section_iscrizione'), 'Categorie']
-          : [t('admin.candidato.field_nome'), t('admin.candidato.field_cognome'), t('admin.commissari.field_specialita'), t('admin.commissari.field_email'), t('admin.commissari.field_telefono'), t('admin.commissari.field_data_nascita')];
-        const requiredFields = isCand ? ['nome','cognome','strumento','data_nascita','nazionalita'] : ['nome','cognome'];
+        const fieldNames = isSez
+          ? ['sezione','categoria','descrizione','eta_min','eta_max']
+          : isCand
+            ? ['nome','cognome','strumento','data_nascita','nazionalita','docenti_preparatori','sezioni_ids','categorie_ids']
+            : ['nome','cognome','specialita','email','telefono','data_nascita'];
+        const fieldLabels = isSez
+          ? [t('admin.import.col.sezioni'), t('admin.import.col.categorie'), t('admin.import.col.descrizione'), t('admin.import.col.eta_min'), t('admin.import.col.eta_max')]
+          : isCand
+            ? [t('admin.candidato.field_nome'), t('admin.candidato.field_cognome'), t('admin.candidato.field_strumento'), t('admin.candidato.field_data_nascita'), t('admin.candidato.field_nazionalita'), t('admin.candidato.field_docenti'), t('admin.candidato.section_iscrizione'), 'Categorie']
+            : [t('admin.candidato.field_nome'), t('admin.candidato.field_cognome'), t('admin.commissari.field_specialita'), t('admin.commissari.field_email'), t('admin.commissari.field_telefono'), t('admin.commissari.field_data_nascita')];
+        const requiredFields = isSez ? ['sezione'] : isCand ? ['nome','cognome','strumento','data_nascita','nazionalita'] : ['nome','cognome'];
 
         mappingFields.innerHTML = fieldNames.map((f, i) => {
           const detected = headerMap[f] !== undefined ? csvHeaders[headerMap[f]] : '';
@@ -461,10 +519,54 @@ export function openImportModal(concorso, kind, onSaved) {
       const ptext    = body.querySelector('[data-progress-text]');
       progress.classList.remove('hidden');
 
+      // Sezioni & categorie: import gerarchico. Prima risolve/crea le sezioni
+      // (match per nome, case-insensitive → niente duplicati), poi crea le
+      // categorie sotto la sezione giusta saltando i duplicati per nome.
+      // Riusa db.createSezione / db.createCategoria.
+      if (isSez) {
+        const norm = (s) => String(s || '').trim().toLowerCase();
+        const sezByName = new Map(db.sezioniByConcorso(concorso.id).map(s => [norm(s.nome), s]));
+        const catNamesBySez = new Map(
+          db.sezioniByConcorso(concorso.id).map(s => [s.id, new Set(db.categorieBySezione(s.id).map(c => norm(c.nome)))]),
+        );
+        let okSez = 0, okCat = 0, ko = 0;
+        for (let i = 0; i < valid.length; i++) {
+          const { sezione, categoria, descrizione, eta_min, eta_max } = valid[i].data;
+          try {
+            let sez = sezByName.get(norm(sezione));
+            if (!sez) {
+              // Una riga sezione-only porta la descrizione sulla sezione; se la
+              // riga ha anche una categoria la descrizione spetta alla categoria.
+              sez = await db.createSezione({ concorso_id: concorso.id, nome: sezione.trim(), descrizione: categoria ? '' : (descrizione || '') });
+              sezByName.set(norm(sezione), sez);
+              catNamesBySez.set(sez.id, new Set());
+              okSez++;
+            }
+            if (categoria) {
+              const seen = catNamesBySez.get(sez.id);
+              if (!seen.has(norm(categoria))) {
+                await db.createCategoria({ sezione_id: sez.id, nome: categoria.trim(), descrizione: descrizione || '', eta_min, eta_max });
+                seen.add(norm(categoria));
+                okCat++;
+              }
+            }
+          } catch (e) {
+            console.error('import sezioni row failed', valid[i], e);
+            ko++;
+          }
+          bar.style.width = Math.round(((i + 1) / valid.length) * 100) + '%';
+          ptext.textContent = t('admin.import.sez_progress', { current: i + 1, total: valid.length, sez: okSez, cat: okCat });
+        }
+        if (ko === 0) toast(t('admin.import.sez_done_ok', { sez: okSez, cat: okCat }), 'success');
+        else toast(t('admin.import.done_partial', { ok: okSez + okCat, ko }), 'warn');
+        if (onSaved) onSaved();
+        return;
+      }
+
       // Commissari: importa SEMPRE in archivio (concorsi_ids=[]) e poi, se
       // l'admin lo richiede col checkbox, assegna ciascun nuovo record al
       // concorso corrente. Default checkbox = checked.
-      const assignToConcorso = !isCand
+      const assignToConcorso = kind === 'commissari'
         ? !!(body.querySelector('[data-com-assign]')?.checked)
         : false;
 

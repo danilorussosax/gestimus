@@ -828,8 +828,12 @@ export const db = {
     const sezIds = new Set(state.sezioni.filter((s) => s.concorso_id === concorso_id).map((s) => s.id));
     return state.categorie.filter((c) => sezIds.has(c.sezione_id));
   },
-  async createCategoria({ sezione_id, nome, descrizione = '' }) {
-    const r = await api.post('/api/categorie', { sezioneId: sezione_id, nome, descrizione });
+  async createCategoria({ sezione_id, nome, descrizione = '', eta_min = null, eta_max = null, ordine = null }) {
+    const payload = { sezioneId: sezione_id, nome, descrizione };
+    if (eta_min != null) payload.etaMin = eta_min;
+    if (eta_max != null) payload.etaMax = eta_max;
+    if (ordine != null) payload.ordine = ordine;
+    const r = await api.post('/api/categorie', payload);
     const c = mapCategoria(r);
     state.categorie.push(c); notify();
     return c;

@@ -7,13 +7,17 @@ import { escapeHtml, modal, confirmDialog, toast } from '../../utils.js';
 import { icon } from '../../icons.js';
 import { t } from '../../i18n.js';
 import { iconaPerSezione } from './common.js';
+import { openImportModal } from './import.js';
 
 export function renderSezioni(root, concorso) {
   const sezioni = db.sezioniByConcorso(concorso.id);
   root.innerHTML = `
     <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
       <h3 class="text-sm font-bold text-slate-800 uppercase tracking-wider">${escapeHtml(t('admin.sezioni.heading'))}</h3>
-      <button data-action="add-sez" class="text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 px-3.5 py-2 rounded-lg shadow-sm">${escapeHtml(t('admin.sezioni.add'))}</button>
+      <div class="flex items-center gap-2">
+        <button data-action="import-sez" class="text-sm font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 px-3.5 py-2 rounded-lg inline-flex items-center gap-1.5">${icon('upload', { size: 16 })}<span>${escapeHtml(t('admin.sezioni.import'))}</span></button>
+        <button data-action="add-sez" class="text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 px-3.5 py-2 rounded-lg shadow-sm">${escapeHtml(t('admin.sezioni.add'))}</button>
+      </div>
     </div>
     <p class="text-sm text-slate-600 mb-4">${t('admin.sezioni.subtitle')}</p>
     ${sezioni.length === 0 ? `
@@ -28,6 +32,7 @@ export function renderSezioni(root, concorso) {
     `}
   `;
   root.querySelector('[data-action="add-sez"]').addEventListener('click', () => openSezioneForm(concorso, null, () => renderSezioni(root, concorso)));
+  root.querySelector('[data-action="import-sez"]').addEventListener('click', () => openImportModal(concorso, 'sezioni', () => renderSezioni(root, concorso)));
   root.querySelectorAll('[data-edit-sez]').forEach(b => b.addEventListener('click', () => {
     const s = db.state.sezioni.find(x => x.id === b.dataset.editSez);
     if (s) openSezioneForm(concorso, s, () => renderSezioni(root, concorso));

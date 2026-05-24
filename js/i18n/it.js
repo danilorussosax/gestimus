@@ -795,6 +795,7 @@ export const it = {
     // Sezioni
     'admin.sezioni.heading': '🗂 Sezioni e Categorie',
     'admin.sezioni.add': '+ Aggiungi sezione',
+    'admin.sezioni.import': 'Importa CSV',
     'admin.sezioni.subtitle': 'Una <strong>sezione</strong> raggruppa gruppi di strumenti o tipologie (es: Archi, Fiati, Musica da Camera). Ogni sezione può contenere più <strong>categorie</strong> (fasce di età, sotto-tipologie come Ottoni/Legni, ecc.).',
     'admin.sezioni.empty': 'Nessuna sezione. Aggiungine una per iniziare.',
     'admin.sezioni.cats_one': '{n} categoria',
@@ -1023,6 +1024,16 @@ Il Presidente
     'admin.import.err.cat_ambiguous': 'categoria ambigua "{name}" — specifica una sezione',
     'admin.import.err.required_missing': 'campo obbligatorio mancante: {field}',
     'admin.import.err.too_many_rows': 'Troppe righe: {count}. Massimo {max} per import — suddividi il file.',
+    'admin.import.err.bad_eta': 'età non valida: "{value}" (attesi 0–120)',
+    'admin.import.err.eta_range': 'età minima ({min}) maggiore della massima ({max})',
+    'admin.import.kind.sezioni': 'sezioni e categorie',
+    'admin.import.cols.sezioni': 'Colonne riconosciute: <code>sezione</code> (obbligatoria), <code>categoria</code>, <code>descrizione</code>, <code>eta_min</code>, <code>eta_max</code>. Ripeti la stessa sezione su più righe per raggrupparne le categorie; una riga con la sola sezione la crea senza categorie.',
+    'admin.import.col.descrizione': 'Descrizione',
+    'admin.import.col.eta': 'Età',
+    'admin.import.col.eta_min': 'Età min',
+    'admin.import.col.eta_max': 'Età max',
+    'admin.import.sez_progress': '{current}/{total} · {sez} sezioni · {cat} categorie',
+    'admin.import.sez_done_ok': '{sez} sezioni e {cat} categorie importate',
 
     // Admin Dashboard
     'admin.dashboard.eyebrow': 'Amministrazione',
