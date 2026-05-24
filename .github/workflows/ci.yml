@@ -246,17 +246,19 @@ jobs:
                   print(f'::error::chiave i18n usata ma non definita in IT: {k}')
               rc = 1
 
-          # (b) parità EN/FR/ES vs IT → report (warning). La copertura è ora
-          #     monitorata per tutte le lingue (non solo IT); le lacune sono
-          #     visibili in CI senza bloccare lo sviluppo incrementale.
+          # (b) parità EN/FR/ES vs IT → error. La copertura completa è ora un
+          #     invariante (non solo IT): una chiave nuova senza tutte le
+          #     traduzioni fa fallire la CI, prevenendo la deriva.
           for lang in ('en', 'fr', 'es'):
               b = block_for(lang)
               if b is None:
                   print(f'::error::blocco lingua {lang} non trovato'); rc = 1; continue
               miss = sorted(it_keys - keys_of(b))
               print(f'{lang}: definite {len(keys_of(b))} · mancanti vs IT: {len(miss)}')
-              for k in miss[:30]:
-                  print(f'::warning::chiave i18n mancante in {lang}: {k}')
+              if miss:
+                  for k in miss[:30]:
+                      print(f'::error::chiave i18n mancante in {lang}: {k}')
+                  rc = 1
           sys.exit(rc)
           PY
 
