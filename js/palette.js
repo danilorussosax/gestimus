@@ -108,7 +108,7 @@ export function openPalette() {
   if (!db.initialized) return;
 
   const index = buildIndex();
-  const previousActive = document.activeElement;
+  const previousActive = /** @type {HTMLElement | null} */ (document.activeElement);
 
   const root = document.getElementById('modal-root');
   const id = `palette-${Date.now()}`;
@@ -135,7 +135,7 @@ export function openPalette() {
   root.appendChild(wrap);
   openEl = wrap;
 
-  const input = wrap.querySelector('[data-q]');
+  const input = /** @type {HTMLInputElement} */ (wrap.querySelector('[data-q]'));
   const listEl = wrap.querySelector('[data-list]');
   let active = 0;
   let results = [];
@@ -200,9 +200,9 @@ export function openPalette() {
   input.addEventListener('input', () => renderList(input.value));
   wrap.addEventListener('click', (e) => {
     if (e.target === wrap) close();
-    const li = e.target.closest('li[data-i]');
+    const li = /** @type {HTMLElement} */ (e.target).closest('li[data-i]');
     if (li) {
-      active = Number(li.dataset.i);
+      active = Number(/** @type {HTMLElement} */ (li).dataset.i);
       submit();
     }
   });

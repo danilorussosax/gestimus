@@ -1115,12 +1115,12 @@ function showSmtpModal(t, main) {
     },
     onPrimary: async () => {
       const body = {
-        host: document.getElementById('smtp-host').value.trim(),
-        port: Number(document.getElementById('smtp-port').value),
-        user: document.getElementById('smtp-user').value.trim(),
-        password: document.getElementById('smtp-pass').value,
-        from: document.getElementById('smtp-from').value.trim(),
-        secure: document.getElementById('smtp-secure').checked,
+        host: /** @type {HTMLInputElement} */ (document.getElementById('smtp-host')).value.trim(),
+        port: Number(/** @type {HTMLInputElement} */ (document.getElementById('smtp-port')).value),
+        user: /** @type {HTMLInputElement} */ (document.getElementById('smtp-user')).value.trim(),
+        password: /** @type {HTMLInputElement} */ (document.getElementById('smtp-pass')).value,
+        from: /** @type {HTMLInputElement} */ (document.getElementById('smtp-from')).value.trim(),
+        secure: /** @type {HTMLInputElement} */ (document.getElementById('smtp-secure')).checked,
       };
       if (!body.host || !body.user || !body.password || !body.from) {
         toast('Compila host, user, password e from', 'error');
@@ -1171,7 +1171,7 @@ function showArchiveModal(t, main) {
     `,
     primaryLabel: 'Archivia',
     onPrimary: async () => {
-      const days = Number(document.getElementById('archive-days').value);
+      const days = Number(/** @type {HTMLInputElement} */ (document.getElementById('archive-days')).value);
       try {
         await api.post(`/api/platform/tenants/${t.id}/archive`, { cleanupAfterDays: days });
         toast('Ente archiviato', 'success');
@@ -1288,7 +1288,7 @@ async function showChangePlanModal(t, main) {
       </div>
     `,
     onMount: (modalRoot) => {
-      const sel = modalRoot.querySelector('#cp-piano');
+      const sel = /** @type {HTMLSelectElement} */ (modalRoot.querySelector('#cp-piano'));
       const preview = modalRoot.querySelector('#cp-preview');
       const refreshPreview = () => {
         const p = getPianoOrDefault(sel.value);
@@ -1313,10 +1313,10 @@ async function showChangePlanModal(t, main) {
       refreshPreview();
     },
     onPrimary: async () => {
-      const piano = document.getElementById('cp-piano').value;
-      const scadenza = document.getElementById('cp-scadenza').value || null;
+      const piano = /** @type {HTMLSelectElement} */ (document.getElementById('cp-piano')).value;
+      const scadenza = /** @type {HTMLInputElement} */ (document.getElementById('cp-scadenza')).value || null;
       const parseOpt = (id) => {
-        const v = document.getElementById(id).value.trim();
+        const v = /** @type {HTMLInputElement} */ (document.getElementById(id)).value.trim();
         return v === '' ? null : Number(v);
       };
       const body = {
@@ -1372,13 +1372,13 @@ function showEditMetaModal(t, main) {
     primaryLabel: 'Salva',
     onPrimary: async () => {
       const body = {
-        nome: document.getElementById('em-nome').value.trim(),
-        piano: document.getElementById('em-piano').value,
-        pianoScadenza: document.getElementById('em-piano-scadenza').value || null,
-        dominio: document.getElementById('em-dominio').value.trim() || null,
-        cleanupAfterDays: Number(document.getElementById('em-cleanup-days').value),
-        require2faAdmin: document.getElementById('em-2fa').checked,
-        note: document.getElementById('em-note').value.trim() || null,
+        nome: /** @type {HTMLInputElement} */ (document.getElementById('em-nome')).value.trim(),
+        piano: /** @type {HTMLSelectElement} */ (document.getElementById('em-piano')).value,
+        pianoScadenza: /** @type {HTMLInputElement} */ (document.getElementById('em-piano-scadenza')).value || null,
+        dominio: /** @type {HTMLInputElement} */ (document.getElementById('em-dominio')).value.trim() || null,
+        cleanupAfterDays: Number(/** @type {HTMLInputElement} */ (document.getElementById('em-cleanup-days')).value),
+        require2faAdmin: /** @type {HTMLInputElement} */ (document.getElementById('em-2fa')).checked,
+        note: /** @type {HTMLTextAreaElement} */ (document.getElementById('em-note')).value.trim() || null,
       };
       try {
         await api.patch(`/api/platform/tenants/${t.id}`, body);
@@ -1526,15 +1526,15 @@ function showNewEnteModal(main) {
     `,
     onMount: (modalRoot) => wireNewEnteModal(modalRoot),
     onPrimary: async () => {
-      const slug = document.getElementById('ne-slug').value.trim().toLowerCase();
+      const slug = /** @type {HTMLInputElement} */ (document.getElementById('ne-slug')).value.trim().toLowerCase();
       const body = {
         slug,
-        nome: document.getElementById('ne-nome').value.trim(),
-        piano: document.querySelector('input[name="ne-piano"]:checked')?.value ?? 'trial',
-        pianoScadenza: document.getElementById('ne-piano-scadenza').value || null,
-        cleanupAfterDays: Number(document.getElementById('ne-cleanup').value),
-        adminEmail: document.getElementById('ne-admin-email').value.trim().toLowerCase(),
-        adminPassword: document.getElementById('ne-admin-pass').value,
+        nome: /** @type {HTMLInputElement} */ (document.getElementById('ne-nome')).value.trim(),
+        piano: /** @type {HTMLInputElement|null} */ (document.querySelector('input[name="ne-piano"]:checked'))?.value ?? 'trial',
+        pianoScadenza: /** @type {HTMLInputElement} */ (document.getElementById('ne-piano-scadenza')).value || null,
+        cleanupAfterDays: Number(/** @type {HTMLInputElement} */ (document.getElementById('ne-cleanup')).value),
+        adminEmail: /** @type {HTMLInputElement} */ (document.getElementById('ne-admin-email')).value.trim().toLowerCase(),
+        adminPassword: /** @type {HTMLInputElement} */ (document.getElementById('ne-admin-pass')).value,
       };
       if (!body.slug || !body.nome || !body.adminEmail || !body.adminPassword) {
         toast('Compila tutti i campi obbligatori', 'error');
@@ -1783,8 +1783,8 @@ async function renderConfigPanel(main) {
   `;
   main.querySelector('[data-action="cfg-save"]').addEventListener('click', async () => {
     const body = {
-      defaultCleanupDays: Number(document.getElementById('cfg-cleanup').value),
-      require2faSuperadmin: document.getElementById('cfg-2fa').checked,
+      defaultCleanupDays: Number(/** @type {HTMLInputElement} */ (document.getElementById('cfg-cleanup')).value),
+      require2faSuperadmin: /** @type {HTMLInputElement} */ (document.getElementById('cfg-2fa')).checked,
     };
     try {
       await api.patch('/api/platform/config', body);

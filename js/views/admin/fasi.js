@@ -718,7 +718,7 @@ function openFaseForm(concorso, fase, onSaved, defaults = null) {
       const sumEl = body.querySelector('[data-pesi-sum]');
       const recompute = () => {
         const tot = Array.from(listEl.querySelectorAll('[name="crit_peso"]'))
-          .reduce((s, inp) => s + (Number(inp.value) || 0), 0);
+          .reduce((s, /** @type {HTMLInputElement} */ inp) => s + (Number(inp.value) || 0), 0);
         sumEl.textContent = `${tot}%`;
         sumEl.className = tot === 100 ? 'font-bold text-emerald-600' : 'font-bold text-amber-600';
       };
@@ -730,26 +730,26 @@ function openFaseForm(concorso, fase, onSaved, defaults = null) {
         recompute();
       });
       listEl.addEventListener('click', (ev) => {
-        const rm = ev.target.closest('[data-remove-criterio]');
+        const rm = /** @type {HTMLElement} */ (ev.target).closest('[data-remove-criterio]');
         if (!rm) return;
         const row = rm.closest('[data-criterio-row]');
         if (row && listEl.querySelectorAll('[data-criterio-row]').length > 1) { row.remove(); recompute(); }
       });
       listEl.addEventListener('input', (ev) => {
-        if (ev.target.matches('[name="crit_peso"]')) recompute();
+        if (/** @type {HTMLElement} */ (ev.target).matches('[name="crit_peso"]')) recompute();
       });
       recompute();
 
       // -- Metodo media: radio-card selection --
       const cardsEl = body.querySelector('[data-metodo-cards]');
-      const hidden = body.querySelector('[name="metodo_media"]');
+      const hidden = /** @type {HTMLInputElement} */ (body.querySelector('[name="metodo_media"]'));
       cardsEl.addEventListener('click', (ev) => {
-        const card = ev.target.closest('[data-metodo-key]');
+        const card = /** @type {HTMLElement} */ (ev.target).closest('[data-metodo-key]');
         if (!card) return;
-        const key = card.dataset.metodoKey;
+        const key = /** @type {HTMLElement} */ (card).dataset.metodoKey;
         hidden.value = key;
         cardsEl.querySelectorAll('[data-metodo-key]').forEach(el => {
-          const isSel = el.dataset.metodoKey === key;
+          const isSel = /** @type {HTMLElement} */ (el).dataset.metodoKey === key;
           el.classList.toggle('ring-2', isSel);
           el.classList.toggle('ring-brand-500', isSel);
           el.classList.toggle('bg-brand-50/40', isSel);
@@ -760,13 +760,13 @@ function openFaseForm(concorso, fase, onSaved, defaults = null) {
 
       // -- Sezione 5: chip multi-select per le sezioni di scope --
       const sezChipsEl = body.querySelector('[data-sez-chips]');
-      const sezHidden = sezChipsEl ? body.querySelector('[name="sezioni_ids"]') : null;
+      const sezHidden = /** @type {HTMLInputElement} */ (sezChipsEl ? body.querySelector('[name="sezioni_ids"]') : null);
       if (sezChipsEl && sezHidden) {
         sezChipsEl.addEventListener('click', (ev) => {
-          const btn = ev.target.closest('[data-sez-id]');
+          const btn = /** @type {HTMLElement} */ (ev.target).closest('[data-sez-id]');
           if (!btn) return;
           const cur = new Set(sezHidden.value ? sezHidden.value.split(',').filter(Boolean) : []);
-          const id = btn.dataset.sezId;
+          const id = /** @type {HTMLElement} */ (btn).dataset.sezId;
           if (cur.has(id)) cur.delete(id); else cur.add(id);
           sezHidden.value = [...cur].join(',');
           const isSel = cur.has(id);
@@ -784,27 +784,27 @@ function openFaseForm(concorso, fase, onSaved, defaults = null) {
 
       // -- Card numeriche (scala / tempo / ammessi): chip preset cliccabili --
       body.querySelectorAll('[data-numcard-presets]').forEach(grp => {
-        const inputName = grp.dataset.numcardPresets;
-        const input = body.querySelector(`[name="${inputName}"]`);
+        const inputName = /** @type {HTMLElement} */ (grp).dataset.numcardPresets;
+        const input = /** @type {HTMLInputElement} */ (body.querySelector(`[name="${inputName}"]`));
         if (!input) return;
         grp.addEventListener('click', (ev) => {
-          const btn = ev.target.closest('[data-preset]');
+          const btn = /** @type {HTMLElement} */ (ev.target).closest('[data-preset]');
           if (!btn) return;
-          input.value = btn.dataset.preset;
+          input.value = /** @type {HTMLElement} */ (btn).dataset.preset;
           input.dispatchEvent(new Event('input', { bubbles: true }));
         });
       });
 
       // -- Modo valutazione: radio-card selection (autonoma / sincrona) --
       const modoCards = body.querySelector('[data-modo-cards]');
-      const modoHidden = body.querySelector('[name="modo_valutazione"]');
+      const modoHidden = /** @type {HTMLInputElement} */ (body.querySelector('[name="modo_valutazione"]'));
       modoCards.addEventListener('click', (ev) => {
-        const card = ev.target.closest('[data-modo-key]');
+        const card = /** @type {HTMLElement} */ (ev.target).closest('[data-modo-key]');
         if (!card) return;
-        const key = card.dataset.modoKey;
+        const key = /** @type {HTMLElement} */ (card).dataset.modoKey;
         modoHidden.value = key;
         modoCards.querySelectorAll('[data-modo-key]').forEach(el => {
-          const isSel = el.dataset.modoKey === key;
+          const isSel = /** @type {HTMLElement} */ (el).dataset.modoKey === key;
           el.classList.toggle('ring-2', isSel);
           el.classList.toggle('ring-brand-500', isSel);
           el.classList.toggle('bg-brand-50/40', isSel);
@@ -819,37 +819,37 @@ function openFaseForm(concorso, fase, onSaved, defaults = null) {
       const tbContainer = body.querySelector('[data-tiebreak-steps]');
       if (tbContainer) {
         const startTouched = Array.isArray(f.tiebreak_strategy) && f.tiebreak_strategy.length > 0;
-        if (startTouched) tbContainer.dataset.tbTouched = '1';
+        if (startTouched) /** @type {HTMLElement} */ (tbContainer).dataset.tbTouched = '1';
         tbContainer.addEventListener('change', (ev) => {
-          if (ev.target.matches('[data-tb-enabled]')) tbContainer.dataset.tbTouched = '1';
+          if (/** @type {HTMLElement} */ (ev.target).matches('[data-tb-enabled]')) /** @type {HTMLElement} */ (tbContainer).dataset.tbTouched = '1';
         });
       }
     },
     onPrimary: async (body) => {
-      const nome = body.querySelector('[name="nome"]').value.trim();
-      const scala = Number(body.querySelector('[name="scala"]').value) || 10;
-      const tempo_minuti = Number(body.querySelector('[name="tempo_minuti"]').value) || 0;
-      const ammessiRaw = body.querySelector('[name="ammessi"]').value;
+      const nome = /** @type {HTMLInputElement} */ (body.querySelector('[name="nome"]')).value.trim();
+      const scala = Number(/** @type {HTMLInputElement} */ (body.querySelector('[name="scala"]')).value) || 10;
+      const tempo_minuti = Number(/** @type {HTMLInputElement} */ (body.querySelector('[name="tempo_minuti"]')).value) || 0;
+      const ammessiRaw = /** @type {HTMLInputElement} */ (body.querySelector('[name="ammessi"]')).value;
       const ammessi = ammessiRaw === '' ? null : Number(ammessiRaw);
-      const data_prevista = body.querySelector('[name="data_prevista"]').value || null;
-      const modo_valutazione = body.querySelector('[name="modo_valutazione"]').value;
-      const metodo_media = body.querySelector('[name="metodo_media"]').value;
+      const data_prevista = /** @type {HTMLInputElement} */ (body.querySelector('[name="data_prevista"]')).value || null;
+      const modo_valutazione = /** @type {HTMLInputElement} */ (body.querySelector('[name="modo_valutazione"]')).value;
+      const metodo_media = /** @type {HTMLInputElement} */ (body.querySelector('[name="metodo_media"]')).value;
       // Sezione 5: scope sezioni + commissione assegnata.
-      const sezHiddenEl = body.querySelector('[name="sezioni_ids"]');
+      const sezHiddenEl = /** @type {HTMLInputElement} */ (body.querySelector('[name="sezioni_ids"]'));
       const sezioni_ids = sezHiddenEl && sezHiddenEl.value
         ? sezHiddenEl.value.split(',').filter(Boolean)
         : [];
-      const commissione_id = body.querySelector('[name="commissione_id"]')?.value || null;
-      const testo_esito_promosso = (body.querySelector('[name="testo_esito_promosso"]')?.value || '').trim();
-      const testo_esito_eliminato = (body.querySelector('[name="testo_esito_eliminato"]')?.value || '').trim();
+      const commissione_id = /** @type {HTMLInputElement} */ (body.querySelector('[name="commissione_id"]'))?.value || null;
+      const testo_esito_promosso = (/** @type {HTMLInputElement} */ (body.querySelector('[name="testo_esito_promosso"]'))?.value || '').trim();
+      const testo_esito_eliminato = (/** @type {HTMLInputElement} */ (body.querySelector('[name="testo_esito_eliminato"]'))?.value || '').trim();
       if (!nome) { toast(t('admin.fase.required_nome') || 'Il nome è obbligatorio', 'error'); return false; }
 
       const criteriParsed = Array.from(body.querySelectorAll('[data-criterio-row]')).map((row, i) => {
-        const label = row.querySelector('[name="crit_label"]').value.trim();
-        const keyRaw = row.querySelector('[name="crit_key"]').value.trim();
+        const label = /** @type {HTMLInputElement} */ (row.querySelector('[name="crit_label"]')).value.trim();
+        const keyRaw = /** @type {HTMLInputElement} */ (row.querySelector('[name="crit_key"]')).value.trim();
         const key = keyRaw || slugifyKey(label) || `crit_${i+1}`;
         // Input UI: percentuale 0-100 → convertita a decimale 0-1 per il DB (scoring.js usa peso*voto).
-        const pesoPct = Math.max(0, Math.min(100, Number(row.querySelector('[name="crit_peso"]').value) || 0));
+        const pesoPct = Math.max(0, Math.min(100, Number(/** @type {HTMLInputElement} */ (row.querySelector('[name="crit_peso"]')).value) || 0));
         return { key, label, peso: pesoPct / 100 };
       }).filter(c => c.label);
       if (criteriParsed.length === 0) { toast('Almeno un criterio richiesto', 'error'); return false; }
@@ -866,10 +866,10 @@ function openFaseForm(concorso, fase, onSaved, defaults = null) {
       // se l'admin ha toccato almeno una volta i checkbox (data-tb-touched).
       const tbContainer = body.querySelector('[data-tiebreak-steps]');
       let tiebreak_strategy = null;
-      if (tbContainer && tbContainer.dataset.tbTouched === '1') {
+      if (tbContainer && /** @type {HTMLElement} */ (tbContainer).dataset.tbTouched === '1') {
         tiebreak_strategy = Array.from(tbContainer.querySelectorAll('[data-tb-key]')).map(el => ({
-          key: el.dataset.tbKey,
-          enabled: el.querySelector('[data-tb-enabled]').checked,
+          key: /** @type {HTMLElement} */ (el).dataset.tbKey,
+          enabled: /** @type {HTMLInputElement} */ (el.querySelector('[data-tb-enabled]')).checked,
         }));
       }
 
@@ -1047,11 +1047,11 @@ function openFaseWizard(concorso, group, onSaved) {
     onMount: (body) => {
       // Template chooser: cliccando un template rigenera la lista.
       body.querySelector('[data-wiz-templates]').addEventListener('click', (ev) => {
-        const btn = ev.target.closest('[data-wiz-tpl]');
+        const btn = /** @type {HTMLElement} */ (ev.target).closest('[data-wiz-tpl]');
         if (!btn) return;
-        currentTpl = btn.dataset.wizTpl;
+        currentTpl = /** @type {HTMLElement} */ (btn).dataset.wizTpl;
         body.querySelectorAll('[data-wiz-tpl]').forEach(el => {
-          const sel = el.dataset.wizTpl === currentTpl;
+          const sel = /** @type {HTMLElement} */ (el).dataset.wizTpl === currentTpl;
           el.classList.toggle('ring-2', sel);
           el.classList.toggle('ring-brand-500', sel);
           el.classList.toggle('bg-brand-50/40', sel);
@@ -1069,7 +1069,7 @@ function openFaseWizard(concorso, group, onSaved) {
         list.appendChild(div.firstElementChild);
       });
       body.querySelector('[data-wiz-items]').addEventListener('click', (ev) => {
-        const rm = ev.target.closest('[data-wiz-remove]');
+        const rm = /** @type {HTMLElement} */ (ev.target).closest('[data-wiz-remove]');
         if (!rm) return;
         const list = body.querySelector('[data-wiz-items]');
         if (list.querySelectorAll('[data-wiz-row]').length > 1) rm.closest('[data-wiz-row]').remove();
@@ -1080,7 +1080,7 @@ function openFaseWizard(concorso, group, onSaved) {
       const sumEl = body.querySelector('[data-pesi-sum]');
       const recompute = () => {
         const tot = Array.from(listEl.querySelectorAll('[name="crit_peso"]'))
-          .reduce((s, inp) => s + (Number(inp.value) || 0), 0);
+          .reduce((s, /** @type {HTMLInputElement} */ inp) => s + (Number(inp.value) || 0), 0);
         sumEl.textContent = `${tot}%`;
         sumEl.className = tot === 100 ? 'font-bold text-emerald-600' : 'font-bold text-amber-600';
       };
@@ -1092,22 +1092,22 @@ function openFaseWizard(concorso, group, onSaved) {
         recompute();
       });
       listEl.addEventListener('click', (ev) => {
-        const rm = ev.target.closest('[data-remove-criterio]');
+        const rm = /** @type {HTMLElement} */ (ev.target).closest('[data-remove-criterio]');
         if (!rm) return;
         if (listEl.querySelectorAll('[data-criterio-row]').length > 1) { rm.closest('[data-criterio-row]').remove(); recompute(); }
       });
-      listEl.addEventListener('input', (ev) => { if (ev.target.matches('[name="crit_peso"]')) recompute(); });
+      listEl.addEventListener('input', (ev) => { if (/** @type {HTMLElement} */ (ev.target).matches('[name="crit_peso"]')) recompute(); });
       recompute();
 
       const modoCards = body.querySelector('[data-modo-cards]');
-      const modoHidden = body.querySelector('[name="modo_valutazione"]');
+      const modoHidden = /** @type {HTMLInputElement} */ (body.querySelector('[name="modo_valutazione"]'));
       modoCards.addEventListener('click', (ev) => {
-        const card = ev.target.closest('[data-modo-key]');
+        const card = /** @type {HTMLElement} */ (ev.target).closest('[data-modo-key]');
         if (!card) return;
-        const key = card.dataset.modoKey;
+        const key = /** @type {HTMLElement} */ (card).dataset.modoKey;
         modoHidden.value = key;
         modoCards.querySelectorAll('[data-modo-key]').forEach(el => {
-          const isSel = el.dataset.modoKey === key;
+          const isSel = /** @type {HTMLElement} */ (el).dataset.modoKey === key;
           el.classList.toggle('ring-2', isSel); el.classList.toggle('ring-brand-500', isSel);
           el.classList.toggle('bg-brand-50/40', isSel); el.classList.toggle('border-brand-300', isSel);
           el.querySelector('[data-modo-check]').textContent = isSel ? '●' : '○';
@@ -1115,14 +1115,14 @@ function openFaseWizard(concorso, group, onSaved) {
       });
 
       const metodoCards = body.querySelector('[data-metodo-cards]');
-      const metodoHidden = body.querySelector('[name="metodo_media"]');
+      const metodoHidden = /** @type {HTMLInputElement} */ (body.querySelector('[name="metodo_media"]'));
       metodoCards.addEventListener('click', (ev) => {
-        const card = ev.target.closest('[data-metodo-key]');
+        const card = /** @type {HTMLElement} */ (ev.target).closest('[data-metodo-key]');
         if (!card) return;
-        const key = card.dataset.metodoKey;
+        const key = /** @type {HTMLElement} */ (card).dataset.metodoKey;
         metodoHidden.value = key;
         metodoCards.querySelectorAll('[data-metodo-key]').forEach(el => {
-          const isSel = el.dataset.metodoKey === key;
+          const isSel = /** @type {HTMLElement} */ (el).dataset.metodoKey === key;
           el.classList.toggle('ring-2', isSel); el.classList.toggle('ring-brand-500', isSel);
           el.classList.toggle('bg-brand-50/40', isSel); el.classList.toggle('border-brand-300', isSel);
           el.querySelector('[data-metodo-check]').textContent = isSel ? '●' : '○';
@@ -1130,13 +1130,13 @@ function openFaseWizard(concorso, group, onSaved) {
       });
 
       body.querySelectorAll('[data-numcard-presets]').forEach(grp => {
-        const inputName = grp.dataset.numcardPresets;
-        const input = body.querySelector(`[name="${inputName}"]`);
+        const inputName = /** @type {HTMLElement} */ (grp).dataset.numcardPresets;
+        const input = /** @type {HTMLInputElement} */ (body.querySelector(`[name="${inputName}"]`));
         if (!input) return;
         grp.addEventListener('click', (ev) => {
-          const btn = ev.target.closest('[data-preset]');
+          const btn = /** @type {HTMLElement} */ (ev.target).closest('[data-preset]');
           if (!btn) return;
-          input.value = btn.dataset.preset;
+          input.value = /** @type {HTMLElement} */ (btn).dataset.preset;
           input.dispatchEvent(new Event('input', { bubbles: true }));
         });
       });
@@ -1145,26 +1145,26 @@ function openFaseWizard(concorso, group, onSaved) {
       // Raccogli items (nome + ammessi).
       const rows = Array.from(body.querySelectorAll('[data-wiz-row]'));
       const items = rows.map(r => ({
-        nome: r.querySelector('[data-wiz-nome]').value.trim(),
-        ammessi: r.querySelector('[data-wiz-ammessi]').value,
+        nome: /** @type {HTMLInputElement} */ (r.querySelector('[data-wiz-nome]')).value.trim(),
+        ammessi: /** @type {HTMLInputElement} */ (r.querySelector('[data-wiz-ammessi]')).value,
       })).filter(it => it.nome);
       if (items.length === 0) { toast(t('admin.fasi.wizard.err_no_items') || 'Aggiungi almeno una fase', 'error'); return false; }
       const dupes = items.map(i => i.nome.toLowerCase()).filter((n, i, a) => a.indexOf(n) !== i);
       if (dupes.length > 0) { toast((t('admin.fasi.wizard.err_dup') || 'Nomi duplicati: {names}').replace('{names}', dupes.join(', ')), 'error'); return false; }
 
       // Campi condivisi.
-      const scala = Number(body.querySelector('[name="scala"]').value) || 10;
-      const tempo_minuti = Number(body.querySelector('[name="tempo_minuti"]').value) || 0;
-      const modo_valutazione = body.querySelector('[name="modo_valutazione"]').value;
-      const metodo_media = body.querySelector('[name="metodo_media"]').value;
-      const commissione_id = body.querySelector('[name="commissione_id"]').value || null;
+      const scala = Number(/** @type {HTMLInputElement} */ (body.querySelector('[name="scala"]')).value) || 10;
+      const tempo_minuti = Number(/** @type {HTMLInputElement} */ (body.querySelector('[name="tempo_minuti"]')).value) || 0;
+      const modo_valutazione = /** @type {HTMLInputElement} */ (body.querySelector('[name="modo_valutazione"]')).value;
+      const metodo_media = /** @type {HTMLInputElement} */ (body.querySelector('[name="metodo_media"]')).value;
+      const commissione_id = /** @type {HTMLInputElement} */ (body.querySelector('[name="commissione_id"]')).value || null;
 
       // Criteri (validazione standard come in openFaseForm).
       const criteriParsed = Array.from(body.querySelectorAll('[data-criterio-row]')).map((row, i) => {
-        const label = row.querySelector('[name="crit_label"]').value.trim();
-        const keyRaw = row.querySelector('[name="crit_key"]').value.trim();
+        const label = /** @type {HTMLInputElement} */ (row.querySelector('[name="crit_label"]')).value.trim();
+        const keyRaw = /** @type {HTMLInputElement} */ (row.querySelector('[name="crit_key"]')).value.trim();
         const key = keyRaw || slugifyKey(label) || `crit_${i+1}`;
-        const pesoPct = Math.max(0, Math.min(100, Number(row.querySelector('[name="crit_peso"]').value) || 0));
+        const pesoPct = Math.max(0, Math.min(100, Number(/** @type {HTMLInputElement} */ (row.querySelector('[name="crit_peso"]')).value) || 0));
         return { key, label, peso: pesoPct / 100 };
       }).filter(c => c.label);
       if (criteriParsed.length === 0) { toast(t('admin.fase.err_no_criteri') || 'Almeno un criterio richiesto', 'error'); return false; }
@@ -1299,7 +1299,7 @@ function openSharedFieldsModal(concorso, group, onSaved) {
       const sumEl = body.querySelector('[data-pesi-sum]');
       const recompute = () => {
         const tot = Array.from(listEl.querySelectorAll('[name="crit_peso"]'))
-          .reduce((s, inp) => s + (Number(inp.value) || 0), 0);
+          .reduce((s, /** @type {HTMLInputElement} */ inp) => s + (Number(inp.value) || 0), 0);
         sumEl.textContent = `${tot}%`;
         sumEl.className = tot === 100 ? 'font-bold text-emerald-600' : 'font-bold text-amber-600';
       };
@@ -1311,36 +1311,36 @@ function openSharedFieldsModal(concorso, group, onSaved) {
         recompute();
       });
       listEl.addEventListener('click', (ev) => {
-        const rm = ev.target.closest('[data-remove-criterio]');
+        const rm = /** @type {HTMLElement} */ (ev.target).closest('[data-remove-criterio]');
         if (!rm) return;
         if (listEl.querySelectorAll('[data-criterio-row]').length > 1) { rm.closest('[data-criterio-row]').remove(); recompute(); }
       });
-      listEl.addEventListener('input', (ev) => { if (ev.target.matches('[name="crit_peso"]')) recompute(); });
+      listEl.addEventListener('input', (ev) => { if (/** @type {HTMLElement} */ (ev.target).matches('[name="crit_peso"]')) recompute(); });
       recompute();
     },
     onPrimary: async (body) => {
       // Raccogli solo i campi con la spunta attiva.
       const patch = {};
       body.querySelectorAll('[data-batch-toggle]').forEach(cb => {
-        if (!cb.checked) return;
-        const key = cb.dataset.batchToggle;
+        if (!(/** @type {HTMLInputElement} */ (cb).checked)) return;
+        const key = /** @type {HTMLElement} */ (cb).dataset.batchToggle;
         if (key === 'criteri') {
           const list = body.querySelector('[data-criteri-list]');
           const criteri = Array.from(list.querySelectorAll('[data-criterio-row]')).map((row, i) => {
-            const label = row.querySelector('[name="crit_label"]').value.trim();
-            const keyRaw = row.querySelector('[name="crit_key"]').value.trim();
+            const label = /** @type {HTMLInputElement} */ (row.querySelector('[name="crit_label"]')).value.trim();
+            const keyRaw = /** @type {HTMLInputElement} */ (row.querySelector('[name="crit_key"]')).value.trim();
             const k = keyRaw || slugifyKey(label) || `crit_${i+1}`;
-            const pesoPct = Math.max(0, Math.min(100, Number(row.querySelector('[name="crit_peso"]').value) || 0));
+            const pesoPct = Math.max(0, Math.min(100, Number(/** @type {HTMLInputElement} */ (row.querySelector('[name="crit_peso"]')).value) || 0));
             return { key: k, label, peso: pesoPct / 100 };
           }).filter(c => c.label);
           if (criteri.length === 0) { toast(t('admin.fase.err_no_criteri') || 'Almeno un criterio richiesto', 'error'); throw new Error('skip'); }
           patch.criteri = criteri;
         } else if (key === 'scala' || key === 'tempo_minuti') {
-          patch[key] = Number(body.querySelector(`[name="${key}"]`).value) || 0;
+          patch[key] = Number(/** @type {HTMLInputElement} */ (body.querySelector(`[name="${key}"]`)).value) || 0;
         } else if (key === 'commissione_id') {
-          patch.commissione_id = body.querySelector('[name="commissione_id"]').value || null;
+          patch.commissione_id = /** @type {HTMLInputElement} */ (body.querySelector('[name="commissione_id"]')).value || null;
         } else {
-          patch[key] = body.querySelector(`[name="${key}"]`).value;
+          patch[key] = /** @type {HTMLInputElement} */ (body.querySelector(`[name="${key}"]`)).value;
         }
       });
       if (Object.keys(patch).length === 0) {

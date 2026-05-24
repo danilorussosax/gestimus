@@ -908,7 +908,7 @@ function bindTimerEvents() {
   const panel = document.getElementById(FLOATING_TIMER_ID);
   if (!panel) return;
   panel.querySelectorAll('[data-timer-action]').forEach(b => b.addEventListener('click', async () => {
-    const a = b.dataset.timerAction;
+    const a = /** @type {HTMLElement} */ (b).dataset.timerAction;
     const fId = timerCtx.faseId;
     try {
       if (a === 'pause')   await db.pauseFaseTimer(fId);
@@ -955,7 +955,7 @@ async function mountFloatingTimer(fase, candidateId, isPresidente) {
   if (!el) {
     const wrapper = document.createElement('div');
     wrapper.innerHTML = floatingTimerHtml();
-    el = wrapper.firstElementChild;
+    el = /** @type {HTMLElement} */ (wrapper.firstElementChild);
     document.body.appendChild(el);
     bindTimerEvents();
   }
@@ -1028,7 +1028,7 @@ function bindPresidentePanel(root, concorso) {
       `,
       primaryLabel: t('com.pres.end_btn'),
       onPrimary: async (body) => {
-        if (!body.querySelector('[name="confirm_verbale"]').checked) {
+        if (!(/** @type {HTMLInputElement} */ (body.querySelector('[name="confirm_verbale"]')).checked)) {
           toast(t('com.pres.end_checkbox_required'), 'warn');
           return false;
         }
@@ -1084,7 +1084,7 @@ function showCountdownAlert({ cand, anonimo = false, ammesso, totale, scala, onC
   let cancelled = false;
   const numEl = overlay.querySelector('[data-cd-num]');
   const txtEl = overlay.querySelector('[data-cd-text]');
-  const barEl = overlay.querySelector('[data-cd-bar]');
+  const barEl = /** @type {HTMLElement | null} */ (overlay.querySelector('[data-cd-bar]'));
 
   const cleanup = () => {
     clearInterval(intervalId);

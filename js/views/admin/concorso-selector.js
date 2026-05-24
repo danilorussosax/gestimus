@@ -138,11 +138,11 @@ export function openCreateConcorso() {
     `,
     primaryLabel: t('common.create') || 'Crea',
     onPrimary: async (body) => {
-      const nome = body.querySelector('[name="nome"]').value.trim();
-      const anno = body.querySelector('[name="anno"]').value;
-      const data_inizio = body.querySelector('[name="data_inizio"]').value || null;
-      const anonimo = body.querySelector('[name="anonimo"]').checked;
-      const logoFile = body.querySelector('[name="logo"]').files[0] || null;
+      const nome = /** @type {HTMLInputElement} */ (body.querySelector('[name="nome"]')).value.trim();
+      const anno = /** @type {HTMLInputElement} */ (body.querySelector('[name="anno"]')).value;
+      const data_inizio = /** @type {HTMLInputElement} */ (body.querySelector('[name="data_inizio"]')).value || null;
+      const anonimo = /** @type {HTMLInputElement} */ (body.querySelector('[name="anonimo"]')).checked;
+      const logoFile = /** @type {HTMLInputElement} */ (body.querySelector('[name="logo"]')).files[0] || null;
       if (!nome) { toast(t('admin.concorso.required_nome') || 'Il nome è obbligatorio', 'error'); return false; }
       try {
         // db.createConcorso si aspetta { dataURL, name } — non la sola stringa.
@@ -224,36 +224,36 @@ export function openEditConcorso(concorso, onSaved) {
     onMount: (body) => {
       // Stesso meccanismo "touched" del form fase: se l'admin tocca un toggle
       // mandiamo l'array completo; altrimenti restiamo sul default standard.
-      const tbContainer = body.querySelector('[data-tiebreak-steps]');
+      const tbContainer = /** @type {HTMLElement|null} */ (body.querySelector('[data-tiebreak-steps]'));
       if (tbContainer) {
         const startTouched = Array.isArray(concorso.default_tiebreak_strategy) && concorso.default_tiebreak_strategy.length > 0;
         if (startTouched) tbContainer.dataset.tbTouched = '1';
         tbContainer.addEventListener('change', (ev) => {
-          if (ev.target.matches('[data-tb-enabled]')) tbContainer.dataset.tbTouched = '1';
+          if (/** @type {HTMLElement} */ (ev.target).matches('[data-tb-enabled]')) tbContainer.dataset.tbTouched = '1';
         });
       }
     },
     onPrimary: async (body) => {
-      const nome = body.querySelector('[name="nome"]').value.trim();
-      const anno = body.querySelector('[name="anno"]').value;
-      const data_inizio = body.querySelector('[name="data_inizio"]').value || null;
-      const stato = body.querySelector('[name="stato"]').value;
-      const anonimo = body.querySelector('[name="anonimo"]').checked;
-      const iscrizioni_aperte = body.querySelector('[name="iscrizioni_aperte"]').checked;
-      const iscrizioniChiusuraRaw = body.querySelector('[name="iscrizioni_chiusura"]').value;
+      const nome = /** @type {HTMLInputElement} */ (body.querySelector('[name="nome"]')).value.trim();
+      const anno = /** @type {HTMLInputElement} */ (body.querySelector('[name="anno"]')).value;
+      const data_inizio = /** @type {HTMLInputElement} */ (body.querySelector('[name="data_inizio"]')).value || null;
+      const stato = /** @type {HTMLSelectElement} */ (body.querySelector('[name="stato"]')).value;
+      const anonimo = /** @type {HTMLInputElement} */ (body.querySelector('[name="anonimo"]')).checked;
+      const iscrizioni_aperte = /** @type {HTMLInputElement} */ (body.querySelector('[name="iscrizioni_aperte"]')).checked;
+      const iscrizioniChiusuraRaw = /** @type {HTMLInputElement} */ (body.querySelector('[name="iscrizioni_chiusura"]')).value;
       // R15: la colonna iscrizioni_scadenza è DATE-only e il server valida con
       // z.string().date() (YYYY-MM-DD). Inviare un timestamp ISO completo
       // (new Date(...).toISOString()) faceva fallire l'intero PATCH del concorso.
       const iscrizioni_chiusura = iscrizioniChiusuraRaw ? iscrizioniChiusuraRaw.slice(0, 10) : '';
-      const logoFile = body.querySelector('[name="logo"]').files[0] || null;
+      const logoFile = /** @type {HTMLInputElement} */ (body.querySelector('[name="logo"]')).files[0] || null;
       if (!nome) { toast(t('admin.concorso.required_nome') || 'Il nome è obbligatorio', 'error'); return false; }
       // Tiebreak default: invia array solo se l'admin ha toccato qualcosa.
-      const tbContainer = body.querySelector('[data-tiebreak-steps]');
+      const tbContainer = /** @type {HTMLElement|null} */ (body.querySelector('[data-tiebreak-steps]'));
       let default_tiebreak_strategy = null;
       if (tbContainer && tbContainer.dataset.tbTouched === '1') {
         default_tiebreak_strategy = Array.from(tbContainer.querySelectorAll('[data-tb-key]')).map(el => ({
-          key: el.dataset.tbKey,
-          enabled: el.querySelector('[data-tb-enabled]').checked,
+          key: /** @type {HTMLElement} */ (el).dataset.tbKey,
+          enabled: /** @type {HTMLInputElement} */ (el.querySelector('[data-tb-enabled]')).checked,
         }));
       }
       try {

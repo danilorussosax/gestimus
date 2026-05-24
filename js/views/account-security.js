@@ -40,7 +40,7 @@ async function openSetup() {
       </div>`,
     primaryLabel: 'Attiva 2FA',
     onPrimary: async (body) => {
-      const code = body.querySelector('[name="code"]').value.trim();
+      const code = /** @type {HTMLInputElement} */ (body.querySelector('[name="code"]')).value.trim();
       const err = body.querySelector('#sec-err');
       try {
         const res = await db.totpEnable(code);
@@ -86,7 +86,7 @@ function openDisable() {
       </div>`,
     primaryLabel: 'Disattiva 2FA',
     onPrimary: async (body) => {
-      const pwd = body.querySelector('[name="password"]').value;
+      const pwd = /** @type {HTMLInputElement} */ (body.querySelector('[name="password"]')).value;
       const err = body.querySelector('#sec-err');
       try {
         await db.totpDisable(pwd);

@@ -3,7 +3,7 @@
 // righe del file monolitico.
 
 import { db } from '../../db.js';
-import { escapeHtml, modal, confirmDialog, toast } from '../../utils.js';
+import { escapeHtml, modal, confirmDialog, toast, formFields } from '../../utils.js';
 import { icon } from '../../icons.js';
 import { t } from '../../i18n.js';
 import { iconaPerSezione } from './common.js';
@@ -132,18 +132,18 @@ function openCopyCategorieModal(concorso, fromSezioneId, onSaved) {
     `,
     primaryLabel: 'Copia categorie',
     onPrimary: async (body) => {
-      const destIds = Array.from(body.querySelectorAll('[name="dest"]:checked')).map(el => el.value);
+      const destIds = Array.from(body.querySelectorAll('[name="dest"]:checked')).map(el => /** @type {HTMLInputElement} */ (el).value);
       if (destIds.length === 0) {
         toast('Seleziona almeno una sezione destinazione.', 'error');
         return false;
       }
-      const skipDup = body.querySelector('[name="skipDup"]').checked;
+      const skipDup = /** @type {HTMLInputElement} */ (body.querySelector('[name="skipDup"]')).checked;
       try {
-        const r = await db.copyCategorieToSezioni({
+        const r = /** @type {{created:number,skipped:number}} */ (/** @type {any} */ (await db.copyCategorieToSezioni({
           from_sezione_id: fromSezioneId,
           to_sezioni_ids: destIds,
           skipDuplicates: skipDup,
-        });
+        })));
         const msg = `${r.created} categori${r.created === 1 ? 'a copiata' : 'e copiate'}` + (r.skipped > 0 ? `, ${r.skipped} saltat${r.skipped === 1 ? 'a' : 'e'} (duplicate)` : '');
         toast(msg, 'success');
         if (typeof onSaved === 'function') onSaved();
@@ -224,7 +224,7 @@ function openSezioneForm(concorso, existing, onSaved) {
     `,
     primaryLabel: isEdit ? t('admin.sezione.save_edit') : t('admin.sezione.save_create'),
     onPrimary: async (body) => {
-      const data = Object.fromEntries(new FormData(body.querySelector('#frm')));
+      const data = formFields(body.querySelector('#frm'));
       if (!data.nome) return false;
       try {
         if (isEdit) await db.updateSezione(existing.id, { nome: data.nome.trim(), descrizione: (data.descrizione||'').trim() });
@@ -260,7 +260,7 @@ function openCategoriaForm(sezione_id, existing, onSaved) {
     `,
     primaryLabel: isEdit ? t('admin.categoria.save_edit') : t('admin.categoria.save_create'),
     onPrimary: async (body) => {
-      const data = Object.fromEntries(new FormData(body.querySelector('#frm')));
+      const data = formFields(body.querySelector('#frm'));
       if (!data.nome) return false;
       try {
         if (isEdit) await db.updateCategoria(existing.id, { nome: data.nome.trim(), descrizione: (data.descrizione||'').trim() });

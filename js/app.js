@@ -169,7 +169,7 @@ function updateHeader() {
   const sub = $('#header-subtitle');
   const badge = $('#role-badge');
   const logoutBtn = $('#logout-btn');
-  const headerLogo = $('#header-logo');
+  const headerLogo = /** @type {HTMLImageElement} */ ($('#header-logo'));
   const seedBtn = $('#seed-btn');
   // Funzionalità riservata al superadmin: caricamento dati di esempio.
   // Gli admin di tenant non devono poter wipe-and-reseed il loro DB dal footer.
@@ -279,7 +279,7 @@ function setupLanguageSwitcher() {
     `).join('');
     menu.querySelectorAll('[data-lang]').forEach(b => {
       b.addEventListener('click', () => {
-        setLang(b.dataset.lang);
+        setLang(/** @type {HTMLElement} */ (b).dataset.lang);
         menu.classList.add('hidden');
         btn.setAttribute('aria-expanded', 'false');
       });
@@ -292,7 +292,8 @@ function setupLanguageSwitcher() {
     else { renderMenu(); menu.classList.remove('hidden'); btn.setAttribute('aria-expanded', 'true'); }
   });
   document.addEventListener('click', (e) => {
-    if (!btn.contains(e.target) && !menu.contains(e.target)) {
+    const tgt = /** @type {Node} */ (e.target);
+    if (!btn.contains(tgt) && !menu.contains(tgt)) {
       menu.classList.add('hidden');
       btn.setAttribute('aria-expanded', 'false');
     }
@@ -423,7 +424,7 @@ $('#logout-btn').addEventListener('click', async () => {
 
 $('#seed-btn').addEventListener('click', async () => {
   if (!confirm(t('seed.confirm'))) return;
-  const btn = $('#seed-btn');
+  const btn = /** @type {HTMLButtonElement} */ ($('#seed-btn'));
   btn.disabled = true;
   const old = btn.textContent;
   btn.textContent = t('seed.running');

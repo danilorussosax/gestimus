@@ -27,6 +27,11 @@ const RETRY_BASE_MS = 400;
 // rischia doppie scritture.
 const IDEMPOTENT = new Set(['GET', 'HEAD', 'PUT', 'DELETE']);
 
+/**
+ * @param {string} method
+ * @param {string} path
+ * @param {{ body?: any, query?: Record<string, any>, multipart?: FormData }} [opts]
+ */
 async function request(method, path, { body, query, multipart } = {}) {
   let url = path.startsWith('/') ? path : `${API_BASE}/${path}`;
   if (query) {
@@ -39,6 +44,7 @@ async function request(method, path, { body, query, multipart } = {}) {
     if (s) url += (url.includes('?') ? '&' : '?') + s;
   }
 
+  /** @type {RequestInit} */
   const init = { method, credentials: 'include' };
   if (multipart) {
     init.body = multipart;

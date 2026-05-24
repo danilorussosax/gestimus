@@ -284,11 +284,11 @@ function openDeleteConfirmModal(concorso, nCand, nFasi, nCom) {
     primaryLabel: 'Elimina definitivamente',
     secondaryLabel: 'Annulla',
     onMount: (body) => {
-      const input = body.querySelector('[data-delete-confirm-input]');
+      const input = /** @type {HTMLInputElement} */ (body.querySelector('[data-delete-confirm-input]'));
       // Il bottone primary del modal helper sta fuori dal body; recuperiamo
       // tutto il modal e cerchiamo lì il primary.
       const modalRoot = body.closest('[data-modal]') || body.parentElement;
-      const primaryBtn = modalRoot?.querySelector('.c-btn--primary') || document.querySelector('#modal-root .c-btn--primary');
+      const primaryBtn = /** @type {HTMLButtonElement | null} */ (modalRoot?.querySelector('.c-btn--primary') || document.querySelector('#modal-root .c-btn--primary'));
       const sync = () => {
         const match = input.value.trim() === concorso.nome.trim();
         if (primaryBtn) {
@@ -305,7 +305,7 @@ function openDeleteConfirmModal(concorso, nCand, nFasi, nCom) {
       sync();
     },
     onPrimary: async (body) => {
-      const input = body.querySelector('[data-delete-confirm-input]');
+      const input = /** @type {HTMLInputElement} */ (body.querySelector('[data-delete-confirm-input]'));
       if (input.value.trim() !== concorso.nome.trim()) {
         toast('Il nome inserito non corrisponde. Operazione annullata.', 'error');
         return false;

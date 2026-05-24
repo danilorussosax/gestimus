@@ -4,7 +4,7 @@
 import { db } from '../../db.js';
 import {
   escapeHtml, safeUrl, modal, toast, confirmDialog, displayName, fmtDate, fmtBytes,
-  ageFromDate, readImageResized, NATIONALITIES,
+  ageFromDate, readImageResized, NATIONALITIES, formFields,
 } from '../../utils.js';
 import { t } from '../../i18n.js';
 import { iconaPerSezione } from './common.js';
@@ -170,18 +170,18 @@ export function openMembriGruppoModal(concorso, gruppo, onSaved) {
     onMount: (body) => {
       body.querySelectorAll('[data-remove-member]').forEach(b => {
         b.addEventListener('click', async () => {
-          await db.removeMembroGruppo(gruppo.id, b.dataset.removeMember);
+          await db.removeMembroGruppo(gruppo.id, /** @type {HTMLElement} */ (b).dataset.removeMember);
           openMembriGruppoModal(concorso, gruppo, onSaved);
         });
       });
       body.querySelectorAll('[data-add-member]').forEach(b => {
         b.addEventListener('click', async () => {
-          await db.addMembroGruppo(gruppo.id, b.dataset.addMember);
+          await db.addMembroGruppo(gruppo.id, /** @type {HTMLElement} */ (b).dataset.addMember);
           openMembriGruppoModal(concorso, gruppo, onSaved);
         });
       });
       body.querySelector('[data-search-candidate]')?.addEventListener('input', (e) => {
-        const q = e.target.value.toLowerCase().trim();
+        const q = /** @type {HTMLInputElement} */ (e.target).value.toLowerCase().trim();
         const rows = body.querySelectorAll('[data-candidate-row]');
         rows.forEach(row => {
           const text = row.textContent.toLowerCase();
@@ -603,10 +603,10 @@ function openCandidatoForm(concorso, candidato, onSaved) {
     `,
     primaryLabel: isEdit ? t('admin.candidato.save_edit') : t('admin.candidato.save_create'),
     onMount: (body) => {
-      const fotoInput = body.querySelector('[data-foto-input]');
-      const fotoPick  = body.querySelector('[data-foto-pick]');
-      const fotoClear = body.querySelector('[data-foto-clear]');
-      const fotoPrev  = body.querySelector('[data-foto-preview]');
+      const fotoInput = /** @type {HTMLInputElement} */ (body.querySelector('[data-foto-input]'));
+      const fotoPick  = /** @type {HTMLElement} */ (body.querySelector('[data-foto-pick]'));
+      const fotoClear = /** @type {HTMLElement} */ (body.querySelector('[data-foto-clear]'));
+      const fotoPrev  = /** @type {HTMLElement} */ (body.querySelector('[data-foto-preview]'));
 
       const setFotoUI = () => {
         fotoPrev.innerHTML = fotoPreviewHtml(fotoData);
@@ -616,7 +616,7 @@ function openCandidatoForm(concorso, candidato, onSaved) {
 
       fotoPick.addEventListener('click', () => fotoInput.click());
       fotoInput.addEventListener('change', async (e) => {
-        const file = e.target.files[0];
+        const file = /** @type {HTMLInputElement} */ (e.target).files[0];
         if (!file) return;
         try {
           fotoData = await readImageResized(file, 480, 0.85);
@@ -634,14 +634,14 @@ function openCandidatoForm(concorso, candidato, onSaved) {
       // data di nascita unitari — i membri sono gestiti nella sezione
       // dedicata). Senza questa logica, form.reportValidity() bloccherebbe il
       // submit di un gruppo con il messaggio HTML5 standard.
-      const tipoSel = body.querySelector('select[name="tipo"]');
-      const cognomeInput = body.querySelector('input[name="cognome"]');
-      const dataInput = body.querySelector('input[name="data_nascita"]');
-      const nazInput = body.querySelector('input[name="nazionalita"]');
-      const gruppoNomeHost = body.querySelector('[data-gruppo-nome-host]');
-      const gruppoNomeLabel = body.querySelector('[data-gruppo-nome-label]');
-      const gruppoNomeInput = body.querySelector('[data-gruppo-nome-input]');
-      const membriSectionLabel = body.querySelector('[data-membri-section-label]');
+      const tipoSel = /** @type {HTMLSelectElement} */ (body.querySelector('select[name="tipo"]'));
+      const cognomeInput = /** @type {HTMLInputElement} */ (body.querySelector('input[name="cognome"]'));
+      const dataInput = /** @type {HTMLInputElement} */ (body.querySelector('input[name="data_nascita"]'));
+      const nazInput = /** @type {HTMLInputElement} */ (body.querySelector('input[name="nazionalita"]'));
+      const gruppoNomeHost = /** @type {HTMLElement} */ (body.querySelector('[data-gruppo-nome-host]'));
+      const gruppoNomeLabel = /** @type {HTMLElement} */ (body.querySelector('[data-gruppo-nome-label]'));
+      const gruppoNomeInput = /** @type {HTMLInputElement} */ (body.querySelector('[data-gruppo-nome-input]'));
+      const membriSectionLabel = /** @type {HTMLElement} */ (body.querySelector('[data-membri-section-label]'));
       const syncRequiredByTipo = () => {
         const tipoVal = tipoSel.value;
         const isGroupLike = tipoVal === 'gruppo' || tipoVal === 'orchestra';
@@ -678,24 +678,24 @@ function openCandidatoForm(concorso, candidato, onSaved) {
       };
       renderMembriList();
       membriList.addEventListener('input', (ev) => {
-        const row = ev.target.closest('[data-admin-membro-row]');
+        const row = /** @type {HTMLElement} */ (ev.target).closest('[data-admin-membro-row]');
         if (!row) return;
-        const idx = Number(row.dataset.idx);
-        const field = ev.target.dataset.field;
+        const idx = Number(/** @type {HTMLElement} */ (row).dataset.idx);
+        const field = /** @type {HTMLElement} */ (ev.target).dataset.field;
         if (!field || Number.isNaN(idx) || !membriState[idx]) return;
-        membriState[idx][field] = ev.target.value;
+        membriState[idx][field] = /** @type {HTMLInputElement} */ (ev.target).value;
       });
       membriList.addEventListener('click', (ev) => {
-        const btn = ev.target.closest('[data-admin-remove-membro]');
+        const btn = /** @type {HTMLElement} */ (ev.target).closest('[data-admin-remove-membro]');
         if (!btn) return;
         const row = btn.closest('[data-admin-membro-row]');
-        const idx = Number(row?.dataset.idx);
+        const idx = Number(/** @type {HTMLElement} */ (row)?.dataset.idx);
         if (Number.isNaN(idx)) return;
         membriState.splice(idx, 1);
         renderMembriList();
       });
       addMembroBtn?.addEventListener('click', () => {
-        membriState.push({ nome: '', cognome: '', strumento: '', data_nascita: '' });
+        membriState.push(/** @type {any} */ ({ nome: '', cognome: '', strumento: '', data_nascita: '' }));
         renderMembriList();
       });
 
@@ -704,11 +704,11 @@ function openCandidatoForm(concorso, candidato, onSaved) {
       // sezione attiva. Cambio di sezione → nascondi le categorie delle altre.
       const sezRadios = body.querySelectorAll('input[name="sezione_id"]');
       const syncCatsVisibility = () => {
-        const selected = Array.from(sezRadios).find(r => r.checked);
-        const selectedId = selected ? selected.value : '';
+        const selected = Array.from(sezRadios).find(r => /** @type {HTMLInputElement} */ (r).checked);
+        const selectedId = selected ? /** @type {HTMLInputElement} */ (selected).value : '';
         body.querySelectorAll('[data-cats-for]').forEach(box => {
-          const show = box.dataset.catsFor === selectedId;
-          box.hidden = !show;
+          const show = /** @type {HTMLElement} */ (box).dataset.catsFor === selectedId;
+          /** @type {HTMLElement} */ (box).hidden = !show;
         });
       };
       sezRadios.forEach(r => r.addEventListener('change', syncCatsVisibility));
@@ -720,10 +720,10 @@ function openCandidatoForm(concorso, candidato, onSaved) {
       // il sezId e forziamo il radio sezione corrispondente.
       body.querySelectorAll('input[name^="categoria_id_"]').forEach(catRadio => {
         catRadio.addEventListener('change', () => {
-          if (!catRadio.checked) return;
-          const sezId = catRadio.name.slice('categoria_id_'.length);
+          if (!(/** @type {HTMLInputElement} */ (catRadio).checked)) return;
+          const sezId = (/** @type {HTMLInputElement} */ (catRadio).name).slice('categoria_id_'.length);
           if (!sezId) return;
-          const sezRadio = body.querySelector(`input[name="sezione_id"][value="${sezId}"]`);
+          const sezRadio = /** @type {HTMLInputElement} */ (body.querySelector(`input[name="sezione_id"][value="${sezId}"]`));
           if (sezRadio && !sezRadio.checked) {
             sezRadio.checked = true;
             syncCatsVisibility();
@@ -732,17 +732,17 @@ function openCandidatoForm(concorso, candidato, onSaved) {
       });
     },
     onPrimary: async (body) => {
-      const form = body.querySelector('#frm');
+      const form = /** @type {HTMLFormElement} */ (body.querySelector('#frm'));
       if (!form.reportValidity()) return false;
-      const data = Object.fromEntries(new FormData(form));
+      const data = formFields(form);
       const docenti = (data.docenti || '').split('\n').map(s => s.trim()).filter(Boolean);
       // Lettura sezione + categoria: il group `categoria_id_<sezId>` è valido
       // solo per la sezione corrente; le altre vengono ignorate.
-      const sezSelected = body.querySelector('input[name="sezione_id"]:checked');
+      const sezSelected = /** @type {HTMLInputElement} */ (body.querySelector('input[name="sezione_id"]:checked'));
       const sezione_id = sezSelected ? sezSelected.value : '';
       let categoria_id = '';
       if (sezione_id) {
-        const catSelected = body.querySelector(`input[name="categoria_id_${sezione_id}"]:checked`);
+        const catSelected = /** @type {HTMLInputElement} */ (body.querySelector(`input[name="categoria_id_${sezione_id}"]:checked`));
         categoria_id = catSelected ? catSelected.value : '';
         // Se la sezione ha categorie ma l'utente non ne ha scelta una, blocca
         // (la categoria è obbligatoria quando esiste un'opzione).
@@ -793,7 +793,7 @@ function openCandidatoForm(concorso, candidato, onSaved) {
       try {
         let candidatoId;
         if (isEdit) {
-          const patch = { ...baseFields };
+          const patch = /** @type {Record<string, any>} */ ({ ...baseFields });
           if (fotoData !== initialFoto) patch.foto = fotoData;
           await db.updateCandidato(candidato.id, patch);
           candidatoId = candidato.id;

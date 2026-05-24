@@ -344,15 +344,15 @@ export function openImportModal(concorso, kind, onSaved) {
     `,
     primaryLabel: t('admin.import.btn_label', { kind: titleKind }),
     onMount: (body) => {
-      const fileInput   = body.querySelector('[data-import-file]');
-      const textArea    = body.querySelector('[data-import-text]');
+      const fileInput   = /** @type {HTMLInputElement} */ (body.querySelector('[data-import-file]'));
+      const textArea    = /** @type {HTMLTextAreaElement} */ (body.querySelector('[data-import-text]'));
       const statusEl    = body.querySelector('[data-import-status]');
       const summaryEl   = body.querySelector('[data-import-summary]');
       const previewWrap = body.querySelector('[data-import-preview]');
       const headRow     = body.querySelector('[data-preview-head]');
       const bodyRows    = body.querySelector('[data-preview-body]');
-      const tplBtn      = body.querySelector('[data-import-template]');
-      const parseBtn    = body.querySelector('[data-import-parse]');
+      const tplBtn      = /** @type {HTMLElement} */ (body.querySelector('[data-import-template]'));
+      const parseBtn    = /** @type {HTMLButtonElement} */ (body.querySelector('[data-import-parse]'));
       const mappingWrap = body.querySelector('[data-mapping]');
       const mappingFields = body.querySelector('[data-mapping-fields]');
 
@@ -367,7 +367,7 @@ export function openImportModal(concorso, kind, onSaved) {
       });
 
       fileInput.addEventListener('change', async (e) => {
-        const file = e.target.files[0];
+        const file = /** @type {HTMLInputElement} */ (e.target).files[0];
         if (!file) return;
         try {
           const txt = await file.text();
@@ -496,11 +496,12 @@ export function openImportModal(concorso, kind, onSaved) {
       // Ricostruisci mapping dal form (override manuale)
       const userMap = {};
       body.querySelectorAll('[data-map]').forEach(sel => {
-        if (sel.value !== '') userMap[sel.dataset.map] = Number(sel.value);
+        const s = /** @type {HTMLSelectElement} */ (sel);
+        if (s.value !== '') userMap[s.dataset.map] = Number(s.value);
       });
       if (Object.keys(userMap).length > 0 && csvHeaders.length > 0) {
-        const sep = detectCsvSeparator((body.querySelector('[data-import-text]').value || '').trim());
-        const allRows = parseCSV((body.querySelector('[data-import-text]').value || '').trim(), sep);
+        const sep = detectCsvSeparator((/** @type {HTMLTextAreaElement} */ (body.querySelector('[data-import-text]')).value || '').trim());
+        const allRows = parseCSV((/** @type {HTMLTextAreaElement} */ (body.querySelector('[data-import-text]')).value || '').trim(), sep);
         if (allRows.length > 1) {
           parsed = allRows.slice(1).map((r, i) => ({
             ...buildImportRow(kind, userMap, r, concorso),
@@ -515,7 +516,7 @@ export function openImportModal(concorso, kind, onSaved) {
         return false;
       }
       const progress = body.querySelector('[data-import-progress]');
-      const bar      = body.querySelector('[data-progress-bar]');
+      const bar      = /** @type {HTMLElement} */ (body.querySelector('[data-progress-bar]'));
       const ptext    = body.querySelector('[data-progress-text]');
       progress.classList.remove('hidden');
 
@@ -567,7 +568,7 @@ export function openImportModal(concorso, kind, onSaved) {
       // l'admin lo richiede col checkbox, assegna ciascun nuovo record al
       // concorso corrente. Default checkbox = checked.
       const assignToConcorso = kind === 'commissari'
-        ? !!(body.querySelector('[data-com-assign]')?.checked)
+        ? !!(/** @type {HTMLInputElement|null} */ (body.querySelector('[data-com-assign]'))?.checked)
         : false;
 
       let ok = 0, ko = 0;

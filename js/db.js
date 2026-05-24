@@ -1556,7 +1556,7 @@ export const db = {
     // conclude della fase (vedi concludiFase + /fasi/:id/conclude).
     notify();
     if (errors.length > 0) {
-      const err = new Error(`saveValutazione: ${errors.length} salvataggi falliti`);
+      const err = /** @type {Error & { partial?: any }} */ (new Error(`saveValutazione: ${errors.length} salvataggi falliti`));
       err.partial = { saved, errors };
       throw err;
     }

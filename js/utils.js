@@ -2,8 +2,35 @@
 import { t } from './i18n.js';
 import { icon } from './icons.js';
 
-export const $ = (sel, root = document) => root.querySelector(sel);
-export const $$ = (sel, root = document) => Array.from(root.querySelectorAll(sel));
+/**
+ * querySelector tipizzato: l'elemento di ritorno è castabile al tipo atteso dal
+ * chiamante (es. `$('#x', root)` → HTMLInputElement) senza ripetere il cast.
+ * @template {Element} [T=HTMLElement]
+ * @param {string} sel
+ * @param {ParentNode} [root]
+ * @returns {T | null}
+ */
+export const $ = (sel, root = document) => /** @type {any} */ (root.querySelector(sel));
+/**
+ * querySelectorAll tipizzato → array.
+ * @template {Element} [T=HTMLElement]
+ * @param {string} sel
+ * @param {ParentNode} [root]
+ * @returns {T[]}
+ */
+export const $$ = (sel, root = document) => /** @type {any} */ (Array.from(root.querySelectorAll(sel)));
+
+/**
+ * Estrae i campi di un form come record di stringhe (i valori FormData sono
+ * `string | File`: qui li trattiamo come stringhe, l'uso reale nei form è testo).
+ * @param {Element | HTMLFormElement | null} form
+ * @returns {Record<string, string>}
+ */
+export function formFields(form) {
+  return /** @type {Record<string, string>} */ (
+    Object.fromEntries(new FormData(/** @type {HTMLFormElement} */ (form)))
+  );
+}
 
 export function escapeHtml(s) {
   if (s == null) return '';
@@ -77,14 +104,29 @@ export function toast(message, kind = 'info', timeoutMs = 3200) {
 
 const FOCUSABLE_SEL = 'a[href], button:not([disabled]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-export function modal({ title, contentHtml, onMount, primaryLabel, onPrimary, secondaryLabel, wide = false, width = null }) {
+/**
+ * @typedef {Object} ModalOptions
+ * @property {any} [title]
+ * @property {any} [contentHtml]
+ * @property {(body: HTMLElement) => void} [onMount]
+ * @property {any} [primaryLabel]
+ * @property {(body: HTMLElement) => any} [onPrimary]
+ * @property {any} [secondaryLabel]
+ * @property {boolean} [wide]
+ * @property {any} [width]
+ */
+/** @param {ModalOptions} opts */
+export function modal(opts) {
+  const { title, contentHtml, onMount, primaryLabel: _primaryLabel, onPrimary, secondaryLabel: _secondaryLabel, wide = false, width = null } = opts;
+  let primaryLabel = _primaryLabel;
+  let secondaryLabel = _secondaryLabel;
   primaryLabel = primaryLabel ?? t('modal.save');
   secondaryLabel = secondaryLabel ?? t('modal.cancel');
   const root = $('#modal-root');
   const id = `m${Date.now()}`;
   const titleId = `${id}-title`;
   const widthCls = width || (wide ? 'max-w-2xl' : 'max-w-md');
-  const previousActive = document.activeElement;
+  const previousActive = /** @type {HTMLElement | null} */ (document.activeElement);
 
   // Soft pastel modal: white rounded sheet, lavender header eyebrow, pill footer buttons
   root.innerHTML = `
@@ -124,7 +166,7 @@ export function modal({ title, contentHtml, onMount, primaryLabel, onPrimary, se
       return;
     }
     if (ev.key === 'Tab') {
-      const focusables = el.querySelectorAll(FOCUSABLE_SEL);
+      const focusables = /** @type {HTMLElement[]} */ (Array.from(el.querySelectorAll(FOCUSABLE_SEL)));
       if (focusables.length === 0) return;
       const first = focusables[0];
       const last = focusables[focusables.length - 1];
@@ -141,13 +183,14 @@ export function modal({ title, contentHtml, onMount, primaryLabel, onPrimary, se
 
   el.addEventListener('click', async (e) => {
     if (e.target === el) close();
-    const a = e.target.closest('[data-action]');
+    const a = /** @type {HTMLElement} */ (e.target).closest('[data-action]');
     if (!a) return;
-    if (a.dataset.action === 'close') close();
-    if (a.dataset.action === 'primary' && onPrimary) {
-      const body = el.querySelector('[data-region="body"]');
-      const btn = a;
-      const labelEl = btn.firstElementChild?.tagName === 'SPAN' ? btn.firstElementChild : btn;
+    const aEl = /** @type {HTMLElement} */ (a);
+    if (aEl.dataset.action === 'close') close();
+    if (aEl.dataset.action === 'primary' && onPrimary) {
+      const body = /** @type {HTMLElement} */ (el.querySelector('[data-region="body"]'));
+      const btn = /** @type {HTMLButtonElement} */ (aEl);
+      const labelEl = /** @type {HTMLElement} */ (btn.firstElementChild?.tagName === 'SPAN' ? btn.firstElementChild : btn);
       const oldText = labelEl.textContent;
       btn.disabled = true;
       labelEl.textContent = 'Salvataggio…';
@@ -157,21 +200,21 @@ export function modal({ title, contentHtml, onMount, primaryLabel, onPrimary, se
         else { btn.disabled = false; labelEl.textContent = oldText; }
       } catch (err) {
         console.error(err);
-        toast(err?.message || 'Errore', 'error');
+        toast(/** @type {any} */ (err)?.message || 'Errore', 'error');
         btn.disabled = false;
         labelEl.textContent = oldText;
       }
     }
   });
 
-  const body = el.querySelector('[data-region="body"]');
+  const body = /** @type {HTMLElement} */ (el.querySelector('[data-region="body"]'));
   if (onMount) onMount(body);
 
   // Initial focus: first focusable inside body, else primary button, else close.
   requestAnimationFrame(() => {
     const firstField = body.querySelector(FOCUSABLE_SEL);
     const primary    = el.querySelector('[data-action="primary"]');
-    (firstField || primary || el.querySelector('[data-action="close"]'))?.focus();
+    /** @type {HTMLElement | null} */ (firstField || primary || el.querySelector('[data-action="close"]'))?.focus();
   });
 
   return { close };

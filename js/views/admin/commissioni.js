@@ -2,7 +2,7 @@
 // Estratto da js/views/admin.js (refactoring).
 
 import { db } from '../../db.js';
-import { escapeHtml, modal, toast, confirmDialog, displayName, safeUrl } from '../../utils.js';
+import { escapeHtml, modal, toast, confirmDialog, displayName, safeUrl, formFields } from '../../utils.js';
 import { icon } from '../../icons.js';
 import { t } from '../../i18n.js';
 import { iconaPerSezione } from './common.js';
@@ -249,7 +249,7 @@ function openCommissioneForm(concorso, existing, onSaved) {
     primaryLabel: isEdit ? t('admin.commissione.save_edit') : t('admin.commissione.save_create'),
     onMount: (body) => {
       const updateCount = () => {
-        body.querySelector('[data-comm-count]').textContent = selCommissari.size;
+        body.querySelector('[data-comm-count]').textContent = String(selCommissari.size);
       };
       // Quando "Includi tutte le categorie" è attivo, le categorie delle
       // sezioni scelte vengono auto-popolate e le relative checkbox bloccate
@@ -260,7 +260,7 @@ function openCommissioneForm(concorso, existing, onSaved) {
         if (!includeTutte) {
           // Riabilita le checkbox: lo stato delle categorie è quello che
           // l'admin ha scelto manualmente (selCategorie).
-          body.querySelectorAll('input[data-cat]').forEach((cb) => { cb.disabled = false; });
+          body.querySelectorAll('input[data-cat]').forEach((cb) => { /** @type {HTMLInputElement} */ (cb).disabled = false; });
           return;
         }
         // Calcola unione delle categorie delle sezioni selezionate
@@ -269,19 +269,20 @@ function openCommissioneForm(concorso, existing, onSaved) {
           db.categorieBySezione(sezId).forEach((c) => auto.add(c.id));
         }
         selCategorie = auto;
-        body.querySelectorAll('input[data-cat]').forEach((cb) => {
+        body.querySelectorAll('input[data-cat]').forEach((el) => {
+          const cb = /** @type {HTMLInputElement} */ (el);
           cb.checked = auto.has(cb.dataset.cat);
           cb.disabled = true;
         });
       };
 
       body.addEventListener('change', (e) => {
-        const t = e.target;
+        const t = /** @type {HTMLInputElement} */ (e.target);
         if (t.dataset.comm) {
           if (t.checked) selCommissari.add(t.dataset.comm); else selCommissari.delete(t.dataset.comm);
           if (!t.checked && t.dataset.comm === selPresidente) {
             selPresidente = '';
-            const sel = body.querySelector('#presidente-select');
+            const sel = /** @type {HTMLSelectElement|null} */ (body.querySelector('#presidente-select'));
             if (sel) sel.value = '';
           }
           updateCount();
@@ -306,7 +307,7 @@ function openCommissioneForm(concorso, existing, onSaved) {
       if (includeTutte) syncCategorieAuto();
     },
     onPrimary: async (body) => {
-      const data = Object.fromEntries(new FormData(body.querySelector('#frm')));
+      const data = formFields(body.querySelector('#frm'));
       if (!data.nome) return false;
       // Verifica che il presidente sia tra i membri selezionati. Se non lo è
       // (l'admin ha cambiato i membri dopo aver scelto il presidente), lo azzero.

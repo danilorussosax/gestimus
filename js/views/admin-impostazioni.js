@@ -1,7 +1,7 @@
 import { db } from '../db.js';
 import { t } from '../i18n.js';
 import { icon } from '../icons.js';
-import { escapeHtml, toast, readImageResized } from '../utils.js';
+import { escapeHtml, toast, readImageResized, formFields } from '../utils.js';
 
 export function renderImpostazioni(root) {
   const ente = db.getEnte();
@@ -148,16 +148,16 @@ export function renderImpostazioni(root) {
 
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const formData = new FormData(e.target);
+    const formData = formFields(e.target);
     const patch = {
-      nome: formData.get('nome').trim(),
-      descrizione: formData.get('descrizione').trim(),
-      email_contatto: formData.get('email_contatto').trim(),
-      telefono: formData.get('telefono').trim(),
-      sito_web: formData.get('sito_web').trim(),
-      indirizzo: formData.get('indirizzo').trim(),
-      colore_primario: formData.get('colore_primario'),
-      colore_secondario: formData.get('colore_secondario'),
+      nome: formData.nome.trim(),
+      descrizione: formData.descrizione.trim(),
+      email_contatto: formData.email_contatto.trim(),
+      telefono: formData.telefono.trim(),
+      sito_web: formData.sito_web.trim(),
+      indirizzo: formData.indirizzo.trim(),
+      colore_primario: formData.colore_primario,
+      colore_secondario: formData.colore_secondario,
     };
     if (logoDataURL) {
       patch.logo = logoDataURL;

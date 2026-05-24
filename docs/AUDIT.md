@@ -18,9 +18,9 @@ Questo documento descrive lo **stato attuale** della robustezza del codice. Le a
 | Affidabilità runtime | 🟢 Alto | `/readyz` con ping DB, pool error listener, handler globali, shutdown idempotente con timeout, hub realtime auto-recuperante |
 | Performance/scalabilità | 🟢 Alto | Paginazione su tutti i list endpoint, export GDPR e backup tenant in streaming, cache tenant, indici FK |
 | Test coverage | 🟢 Alto | Suite server in CI su Postgres 18 (rls/auth incl. 2FA/crud incl. calendario/realtime/concorrenza/route) + unit sul core algoritmico |
-| Manutenibilità | 🟢 Alto | Type-check `checkJs` sul core logico (gate CI), separazione route/service/middleware, i18n splittato per lingua |
+| Manutenibilità | 🟢 Alto | Type-check `checkJs` su **tutto** il frontend (gate CI), separazione route/service/middleware, i18n splittato per lingua |
 
-**Giudizio**: base solida e ben difesa su tutti gli assi. Il debito residuo è puramente **evolutivo** (split dei restanti file frontend grandi, type-check esteso a tutto il frontend, lazy-load client), non correttezza né sicurezza, e non blocca l'uso attuale.
+**Giudizio**: base solida e ben difesa su tutti gli assi. Il debito residuo è puramente **evolutivo** (split dei restanti file frontend grandi, lazy-load client), non correttezza né sicurezza, e non blocca l'uso attuale.
 
 ---
 
@@ -94,18 +94,18 @@ Punti critici coperti, provati da test (`tests/crud/concurrency.test.ts`):
 
 - **Unit** (root, `node --test`): 47 test su `scoring.js`/`rng.js`/`tiebreak.js` (media, tiebreak, RNG sorteggio).
 - **Server** (`node --test` + tsx): **154 test / 16 suite** (153 pass, 1 skip preesistente) — `rls/isolation`, `auth/{login,totp}`, `realtime/notify`, `crud/{smoke,triggers,privacy,storage,smtp,crypto-smtp,platform,cleanup,concurrency,calendario,routes}`. Coprono RLS, trigger, crypto, concorrenza, 2FA TOTP, calendario/scheduling, route critiche (transizioni fase, permessi, GDPR, ammissione, DELETE concorso, restore backup).
-- **E2E** (Playwright): 2 spec (smoke, multitenant).
-- **CI**: job `Server tests (Postgres 18)` a ogni push, lint TS/JS, lint bash+shellcheck, validate SQL migrations, i18n coverage, type-check frontend core, audit dimensioni file. Verde su `main`.
+- **E2E** (Playwright): 7 spec / 21 test — smoke, multitenant, calendario, **auth, admin-crud, display, iscrizione** (login/logout/sessione, isolamento tenant, CRUD sezione + import CSV, tabellone display, form pubblico anti-bot, calendario read-only).
+- **CI**: job `Server tests (Postgres 18)` a ogni push, lint TS/JS, lint bash+shellcheck, validate SQL migrations, i18n coverage, **type-check di tutto il frontend (`checkJs`)**, audit dimensioni file. Verde su `main`.
 
 ---
 
 ## 8. Manutenibilità
 
 - ✅ Codice commentato (il *perché*), separazione route/service/middleware netta, TypeScript strict + Drizzle tipizzato.
-- ✅ `// @ts-check` + job CI `tsc --checkJs` sui moduli di logica pura (scoring/rng/tiebreak).
+- ✅ Type-check `tsc --checkJs` su **tutto** `js/` (gate CI): tipi via JSDoc + cast DOM, globals CDN in `js/globals.d.ts`. Era limitato al core algoritmico.
 - ✅ `i18n.js` splittato per lingua (`js/i18n/{it,en,fr,es}.js`, loader da 50 LOC) — l'ex-monolite da ~5.200 LOC non c'è più.
 - ⚠️ File frontend grandi residui (`db.js` ~2.100, `views/superadmin.js` ~1.800, `views/admin/fasi.js` ~1.600 LOC) candidati a split.
-- ⚠️ Frontend non interamente type-checked (solo il core algoritmico); il resto è coperto da `node --check` + i18n coverage.
+- ✅ Frontend interamente type-checked (`checkJs` su tutto `js/`), oltre a `node --check` + i18n coverage.
 
 ---
 
@@ -115,7 +115,6 @@ Punti critici coperti, provati da test (`tests/crud/concurrency.test.ts`):
 |:---:|---|---|
 | Bassa | Lazy-load client per-vista | `db.loadAll` carica tutto in memoria; ok ai volumi attesi, da rivedere per tenant molto grandi (richiede test browser). **Refactor evolutivo, alto rischio.** |
 | Bassa | Split file frontend > 1500 LOC | Manutenibilità: restano `db.js`, `superadmin.js`, `fasi.js` (`i18n.js` già splittato per lingua). **Refactor evolutivo.** |
-| Bassa | Type-check esteso a tutto il frontend | Bug a runtime; oggi solo il core algoritmico è type-checked. **Migrazione evolutiva, ampia.** |
 | Bassa | TODO allegati iscrizione (`iscrizioni.js`) | Funzionalità incompleta. Quando cablata: erase GDPR deve cancellare righe+file, export includerli. |
 
 > **Round R15 follow-up (2026-05-24)** — chiuse le voci §9 concrete: CV commissario
@@ -132,7 +131,7 @@ Punti critici coperti, provati da test (`tests/crud/concurrency.test.ts`):
 
 Il codice è **robusto su tutti gli assi**: difesa a strati matura su sicurezza/integrità (RLS forzata, trigger di coerenza, CHECK, transazioni con lock, ownership cross-entità, limiti piano, audit firmato), affidabilità runtime (health-check, handler globali, shutdown ordinato, hub auto-recuperante), concorrenza provata da test, scala (paginazione + streaming export/backup) e disaster recovery (backup cifrati + restore). Suite verde in CI su Postgres reale, 0 alert Dependabot.
 
-Le voci aperte (§9) sono puramente **debito evolutivo** (lazy-load client, split file, type-check esteso) — non correttezza né sicurezza bloccante per l'uso attuale.
+Le voci aperte (§9) sono puramente **debito evolutivo** (lazy-load client, split file) — non correttezza né sicurezza bloccante per l'uso attuale.
 
 ---
 
@@ -190,3 +189,19 @@ Lavoro post-R15: refactor di manutenibilità, una feature e allineamento della d
 - README (IT/EN), `server/README.md`, `manuale-admin.md`, `MIGRATION_POSTGRES.md` allineati: **PostgreSQL 16 → 18** ovunque (lo schema usa `uuidv7()` nativo, disponibile solo da PG18) — corretto anche `DEPLOY-IONOS.md`, che installava `postgresql-16` (avrebbe rotto il `db:push`): ora repo PGDG + `postgresql-18`. Documentati calendario/scheduling, 2FA, audit tamper-evident; conteggi (route 23, migrazioni 17, tabelle 28, test) e struttura aggiornati.
 
 **Verifica:** i18n parità IT/EN/FR/ES (0 chiavi mancanti, 0 chiavi `t()` non definite) · `node --check` su tutti i file toccati · smoke API live di `POST /api/sezioni` + `/api/categorie` (con `etaMin/etaMax`) → 201, dati di test ripuliti. ⚠️ Import sezioni/categorie non ancora provato in browser.
+
+---
+
+## 14. Cronologia — Round R17 (2026-05-24)
+
+Innalzamento del frontend al livello del backend su type-safety e copertura E2E.
+
+**Type-check di tutto il frontend:**
+- `checkJs` esteso da 3 file (core) a **tutto `js/`** (~23k LOC, 46 file): da 312 errori a **0**, gate in CI (`tsconfig.frontend.json` → `js/**/*.js`).
+- Tipi via JSDoc/cast (nessun `@ts-ignore`): helper `formFields()` per i form, `$`/`$$` generici, typedef `ModalOptions`, ambient `js/globals.d.ts` per i global CDN (`jspdf`, `marked`, `webkitAudioContext`), cast DOM (`HTMLInputElement`/`HTMLElement`…) sui `querySelector`. Tipizzando `body` nei callback di `modal()` sono emersi i veri accessi DOM (dove vivono i bug UI), ora controllati.
+
+**E2E Playwright — da 3 a 7 spec (21 test):**
+- Nuove: `auth` (sessione/logout/pagine pubbliche/no-errori-JS), `admin-crud` (crea sezione via UI + apre import CSV), `display` (tabellone: chrome nascosta + render), `iscrizione` (form pubblico anti-bot: honeypot off-screen + min-time, validazione client).
+- Determinismo: il rate-limit login (10/15min per-IP) esauriva il budget durante la suite → ora **gated su `NODE_ENV==='production'`** (invariato in prod, di fatto disattivato in dev/test). Suite ripetibile.
+
+**Verifica:** `tsc -p tsconfig.frontend.json` → 0 errori · `node --check` su tutti i `js/` · unit 47/47 · **E2E 21/21 verdi** (server live dietro PgBouncer :6433) · lint server pulito.

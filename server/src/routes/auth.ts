@@ -7,6 +7,12 @@ import { verifyPassword } from '../services/password.js';
 import { createSession, invalidateSession } from '../services/session.js';
 import { clearSessionCookie, requireAuth, setSessionCookie } from '../middleware/auth.js';
 import { writeAudit, writePlatformAudit } from '../services/audit.js';
+import { env } from '../env.js';
+
+// Rate-limit brute-force credenziali: 10/15min in produzione. Fuori produzione
+// (dev/test/E2E) il limite è di fatto disattivato → suite deterministica senza
+// che login ripetuti esauriscano il budget per-IP.
+const LOGIN_RL_MAX = env.NODE_ENV === 'production' ? 10 : 100_000;
 import {
   createMfaChallenge,
   generateRecoveryCodes,
@@ -69,10 +75,10 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
    * Risolve l'account nel tenant corrente (o globalmente se subdomain = platform).
    */
   app.post('/login', {
-    // H2: rate limit brute-force credenziali. 10 tentativi/15 min/IP.
+    // H2: rate limit brute-force credenziali. 10 tentativi/15 min/IP (in prod).
     config: {
       rateLimit: {
-        max: 10,
+        max: LOGIN_RL_MAX,
         timeWindow: '15 minutes',
         errorResponseBuilder: () => ({ error: 'troppi tentativi di login, riprova tra qualche minuto' }),
       },
@@ -137,7 +143,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   app.post('/login/verify-totp', {
     config: {
       rateLimit: {
-        max: 10,
+        max: LOGIN_RL_MAX,
         timeWindow: '15 minutes',
         errorResponseBuilder: () => ({ error: 'troppi tentativi, riprova tra qualche minuto' }),
       },

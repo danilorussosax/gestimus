@@ -1,5 +1,5 @@
 import { db } from '../db.js';
-import { escapeHtml, toast } from '../utils.js';
+import { escapeHtml, toast, formFields } from '../utils.js';
 import { icon } from '../icons.js';
 import { t } from '../i18n.js';
 
@@ -171,9 +171,9 @@ export function renderLogin(root, onSuccess) {
         <span>${escapeHtml(t('login.2fa.submit'))}</span>
       </button>`;
     card.insertBefore(step, form);
-    const codeInput = step.querySelector('[name="code"]');
+    const codeInput = /** @type {HTMLInputElement} */ (step.querySelector('[name="code"]'));
     const totpErr = step.querySelector('#totp-error');
-    const totpBtn = step.querySelector('#totp-btn');
+    const totpBtn = /** @type {HTMLButtonElement} */ (step.querySelector('#totp-btn'));
     codeInput.focus();
     step.addEventListener('submit', async (ev) => {
       ev.preventDefault();
@@ -196,7 +196,7 @@ export function renderLogin(root, onSuccess) {
   form.addEventListener('submit', async (e) => {
     e.preventDefault();
     errEl.classList.add('hidden');
-    const data = Object.fromEntries(new FormData(form));
+    const data = formFields(form);
     btn.disabled = true;
     btnLabel.textContent = t('login.form.submitting');
     try {

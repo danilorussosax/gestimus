@@ -4,7 +4,7 @@
 import { db } from '../../db.js';
 import {
   escapeHtml, safeUrl, modal, toast, confirmDialog, displayName, ageFromDate,
-  readImageResized, NATIONALITIES,
+  readImageResized, NATIONALITIES, formFields,
 } from '../../utils.js';
 import { t } from '../../i18n.js';
 import { openImportModal } from './import.js';
@@ -293,7 +293,7 @@ function openCommissarioForm(concorso, com, onSaved) {
     `,
     primaryLabel: isEdit ? t('admin.commissario.save_edit') : t('admin.commissario.save_create'),
     onMount: (body) => {
-      const fotoInput = body.querySelector('[data-foto-input]');
+      const fotoInput = /** @type {HTMLInputElement} */ (body.querySelector('[data-foto-input]'));
       const fotoPick  = body.querySelector('[data-foto-pick]');
       const fotoClear = body.querySelector('[data-foto-clear]');
       const fotoPrev  = body.querySelector('[data-foto-preview]');
@@ -309,7 +309,7 @@ function openCommissarioForm(concorso, com, onSaved) {
 
       fotoPick.addEventListener('click', () => fotoInput.click());
       fotoInput.addEventListener('change', async (e) => {
-        const file = e.target.files[0];
+        const file = /** @type {HTMLInputElement} */ (e.target).files[0];
         if (!file) return;
         try {
           fotoData = await readImageResized(file, 480, 0.85);
@@ -321,7 +321,7 @@ function openCommissarioForm(concorso, com, onSaved) {
 
       // CV come TESTO (plain/markdown). Il pulsante "Inserisci/Modifica" rivela
       // la textarea; il valore della textarea è la sorgente di verità (cvData).
-      const cvText = body.querySelector('[data-cv-text]');
+      const cvText = /** @type {HTMLTextAreaElement} */ (body.querySelector('[data-cv-text]'));
       const cvZone = body.querySelector('[data-cv-zone]');
       const renderCvZone = () => {
         const has = cvData.trim().length > 0;
@@ -338,7 +338,7 @@ function openCommissarioForm(concorso, com, onSaved) {
       };
       renderCvZone();
       cvZone.addEventListener('click', (e) => {
-        const a = e.target.closest('[data-cv-edit],[data-cv-view],[data-cv-clear]');
+        const a = /** @type {HTMLElement} */ (e.target).closest('[data-cv-edit],[data-cv-view],[data-cv-clear]');
         if (!a) return;
         if (a.matches('[data-cv-edit]')) {
           cvText.classList.toggle('hidden');
@@ -358,18 +358,18 @@ function openCommissarioForm(concorso, com, onSaved) {
       });
 
       // ---- Account credentials (create flow) ----
-      const accToggle = body.querySelector('#acc-create-toggle');
+      const accToggle = /** @type {HTMLInputElement} */ (body.querySelector('#acc-create-toggle'));
       const accFields = body.querySelector('#acc-create-fields');
       const genBtn    = body.querySelector('#acc-genpwd');
       if (accToggle && accFields) {
         accToggle.addEventListener('change', () => {
           accFields.classList.toggle('hidden', !accToggle.checked);
-          if (accToggle.checked) body.querySelector('#acc-password')?.focus();
+          if (accToggle.checked) /** @type {HTMLElement|null} */ (body.querySelector('#acc-password'))?.focus();
         });
       }
       if (genBtn) {
         genBtn.addEventListener('click', () => {
-          const pwdInput = body.querySelector('#acc-password');
+          const pwdInput = /** @type {HTMLInputElement|null} */ (body.querySelector('#acc-password'));
           if (pwdInput) pwdInput.value = generatePassword(12);
         });
       }
@@ -377,7 +377,7 @@ function openCommissarioForm(concorso, com, onSaved) {
       // ---- Account credentials (existing-account actions) ----
       body.querySelectorAll('[data-acc-action]').forEach(b => b.addEventListener('click', async () => {
         if (!linkedAccount) return;
-        const action = b.dataset.accAction;
+        const action = /** @type {HTMLElement} */ (b).dataset.accAction;
         if (action === 'reset') {
           const newPwd = generatePassword(12);
           try {
@@ -407,9 +407,9 @@ function openCommissarioForm(concorso, com, onSaved) {
       }));
     },
     onPrimary: async (body) => {
-      const form = body.querySelector('#frm');
+      const form = /** @type {HTMLFormElement} */ (body.querySelector('#frm'));
       if (!form.reportValidity()) return false;
-      const data = Object.fromEntries(new FormData(form));
+      const data = formFields(form);
       // is_presidente NON è più gestito qui: il ruolo presidente è attributo
       // della commissione (vedi openCommissioneForm). Lasciamo il campo DB
       // a false per nuovi record per non confondere logica legacy.
@@ -428,12 +428,12 @@ function openCommissarioForm(concorso, com, onSaved) {
         return false;
       }
       // Account creation flow (when toggle is checked AND no account exists yet)
-      const accToggle = body.querySelector('#acc-create-toggle');
+      const accToggle = /** @type {HTMLInputElement} */ (body.querySelector('#acc-create-toggle'));
       const wantsAccount = accToggle && accToggle.checked && !linkedAccount;
       let accEmail = '', accPassword = '';
       if (wantsAccount) {
-        accEmail = (body.querySelector('#acc-email')?.value || '').trim();
-        accPassword = body.querySelector('#acc-password')?.value || '';
+        accEmail = (/** @type {HTMLInputElement|null} */ (body.querySelector('#acc-email'))?.value || '').trim();
+        accPassword = /** @type {HTMLInputElement|null} */ (body.querySelector('#acc-password'))?.value || '';
         if (!accEmail || accPassword.length < 6) {
           toast(t('admin.commissario.acc_invalid'), 'error');
           return false;
@@ -443,7 +443,7 @@ function openCommissarioForm(concorso, com, onSaved) {
       try {
         let savedCommissario;
         if (isEdit) {
-          const patch = { ...baseFields };
+          const patch = /** @type {Record<string, any>} */ ({ ...baseFields });
           if (fotoData !== initialFoto) patch.foto = fotoData;
           if (cvData !== initialCv) patch.cv = cvData;
           savedCommissario = await db.updateCommissario(com.id, patch);
@@ -460,7 +460,7 @@ function openCommissarioForm(concorso, com, onSaved) {
         // Create linked account if requested
         if (wantsAccount && savedCommissario) {
           try {
-            await db.createAccount({
+            await db.createAccount(/** @type {any} */ ({
               email: accEmail,
               password: accPassword,
               nome: baseFields.nome,
@@ -468,7 +468,7 @@ function openCommissarioForm(concorso, com, onSaved) {
               role: 'commissario',
               commissario_id: savedCommissario.id,
               attivo: true,
-            });
+            }));
             // Show credentials modal one-time
             showCredentialsModal({
               email: accEmail,
@@ -539,7 +539,7 @@ function showCredentialsModal({ email, password, title = t('admin.commissario.cr
     secondaryLabel: t('common.close'),
     onMount: (body) => {
       body.querySelectorAll('[data-copy]').forEach(b => b.addEventListener('click', async () => {
-        const what = b.dataset.copy === 'email' ? email : password;
+        const what = /** @type {HTMLElement} */ (b).dataset.copy === 'email' ? email : password;
         try {
           await navigator.clipboard.writeText(what);
           const orig = b.textContent;

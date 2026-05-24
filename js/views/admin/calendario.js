@@ -281,7 +281,7 @@ function openBlockForm(concorso, ev, prefillDay, onDone) {
     contentHtml: content,
     wide: true,
     onMount: (body) => {
-      const tipoSel = body.querySelector('[data-f="tipo"]');
+      const tipoSel = /** @type {HTMLSelectElement} */ (body.querySelector('[data-f="tipo"]'));
       const toggle = () => {
         const isEvent = tipoSel.value === 'EVENTO';
         body.querySelector('[data-only="EVENTO"]').classList.toggle('hidden', !isEvent);
@@ -289,7 +289,7 @@ function openBlockForm(concorso, ev, prefillDay, onDone) {
       };
       tipoSel.addEventListener('change', toggle);
       // categorie dipendono dalla sezione scelta
-      const sezSel = body.querySelector('[data-f="sezione_id"]');
+      const sezSel = /** @type {HTMLSelectElement} */ (body.querySelector('[data-f="sezione_id"]'));
       const catSel = body.querySelector('[data-f="categoria_id"]');
       sezSel.addEventListener('change', () => {
         const cats = catOptions(sezSel.value);
@@ -297,7 +297,7 @@ function openBlockForm(concorso, ev, prefillDay, onDone) {
       });
     },
     onPrimary: async (body) => {
-      const val = (f) => body.querySelector(`[data-f="${f}"]`).value || '';
+      const val = (f) => /** @type {HTMLInputElement|HTMLSelectElement} */ (body.querySelector(`[data-f="${f}"]`)).value || '';
       const tipo = val('tipo');
       const payload = {
         concorso_id: concorso.id,
@@ -341,8 +341,8 @@ function openSalaForm(concorso, sala, onDone) {
         <label class="block"><span class="c-label">${escapeHtml(t('cal.sale.indirizzo'))}</span><input data-f="indirizzo" class="c-input" value="${escapeHtml(cur.indirizzo || '')}"></label>
       </div>`,
     onPrimary: async (body) => {
-      const nome = body.querySelector('[data-f="nome"]').value.trim();
-      const indirizzo = body.querySelector('[data-f="indirizzo"]').value.trim();
+      const nome = /** @type {HTMLInputElement} */ (body.querySelector('[data-f="nome"]')).value.trim();
+      const indirizzo = /** @type {HTMLInputElement} */ (body.querySelector('[data-f="indirizzo"]')).value.trim();
       if (!nome) { toast(t('cal.sale.nome'), 'warn'); return false; }
       try {
         if (sala) await db.updateSala(sala.id, { nome, indirizzo });
@@ -435,7 +435,7 @@ function openLinkForm(concorso, onDone) {
     title: t('cal.links.add'),
     contentHtml: content,
     onMount: (body) => {
-      const scopo = body.querySelector('[data-f="scopo"]');
+      const scopo = /** @type {HTMLSelectElement} */ (body.querySelector('[data-f="scopo"]'));
       const sync = () => {
         body.querySelector('[data-when="SEZIONE"]').classList.toggle('hidden', scopo.value !== 'SEZIONE');
         body.querySelector('[data-when="GIORNO"]').classList.toggle('hidden', scopo.value !== 'GIORNO');
@@ -443,7 +443,7 @@ function openLinkForm(concorso, onDone) {
       scopo.addEventListener('change', sync); sync();
     },
     onPrimary: async (body) => {
-      const v = (f) => body.querySelector(`[data-f="${f}"]`);
+      const v = (f) => /** @type {HTMLInputElement & HTMLSelectElement} */ (body.querySelector(`[data-f="${f}"]`));
       const scopo = v('scopo').value;
       const payload = {
         concorso_id: concorso.id,

@@ -37,10 +37,10 @@ jobs:
           exit $FAIL
 
   # ---------------------------------------------------------------------------
-  # 1b) Type-check JS core (checkJs sui moduli di logica pura unit-testati)
+  # 1b) Type-check JS: checkJs su TUTTO il frontend vanilla (gate, non solo core)
   # ---------------------------------------------------------------------------
   typecheck-frontend:
-    name: Typecheck frontend core (checkJs)
+    name: Typecheck frontend (checkJs, tutto js/)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -49,7 +49,7 @@ jobs:
           node-version: '22'
       - name: Install typescript
         run: npm install --no-save typescript@5
-      - name: tsc --checkJs su scoring/rng/tiebreak
+      - name: tsc --checkJs su tutto js/
         run: npx tsc -p tsconfig.frontend.json
 
   # ---------------------------------------------------------------------------
