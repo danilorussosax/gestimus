@@ -207,6 +207,9 @@ export const concorsi = pgTable(
     anonimo: boolean('anonimo').notNull().default(false),
     iscrizioniAperte: boolean('iscrizioni_aperte').notNull().default(false),
     iscrizioniScadenza: date('iscrizioni_scadenza'),
+    // Cascata tiebreak di DEFAULT del concorso (ereditata dalle fasi senza
+    // override): array [{key,enabled}]. Vedi fasi.tiebreakStrategy per l'override.
+    defaultTiebreakStrategy: jsonb('default_tiebreak_strategy'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
   },

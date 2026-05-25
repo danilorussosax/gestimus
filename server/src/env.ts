@@ -38,6 +38,11 @@ const schema = z.object({
   GESTIMUS_SECRET_KEY: z.string().min(32),
   UPLOADS_DIR: z.string().default('./uploads'),
   UPLOADS_MAX_FILE_SIZE_MB: z.coerce.number().int().positive().default(5),
+  // Quale frontend servire da Fastify (stesso origin):
+  //   'vanilla' (default, sicuro) → vecchio frontend statico dalla root
+  //   'react'                     → SPA buildata in frontend/dist (cutover)
+  // Flag di cutover graduale: si flippa a 'react' senza toccare il codice.
+  FRONTEND: z.enum(['vanilla', 'react']).default('vanilla'),
   // Cleanup automatico tenant archiviati + backup pre-hard-delete (Fase 6 traccia B)
   ARCHIVE_DIR: z.string().default('./archive'),
   BACKUP_RETENTION_DAYS: z.coerce.number().int().min(0).max(3650).default(90),
