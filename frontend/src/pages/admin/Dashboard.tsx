@@ -194,13 +194,15 @@ const SECTION_ICON_COLORS: Record<string, string> = {
   'impostazioni-concorso': 'bg-cyan-50 text-cyan-700',
 };
 
-function SectionCard({ tab, count }: { tab: SidebarTab; count: number | null }) {
+function SectionCard({ tab, count, concorsoId }: { tab: SidebarTab; count: number | null; concorsoId: string }) {
   // 'impostazioni-concorso' (id vanilla) → tab 'impostazioni' del workspace.
   const tabId = tab.id === 'impostazioni-concorso' ? 'impostazioni' : tab.id;
   const iconColor = SECTION_ICON_COLORS[tab.id] ?? 'bg-brand-50 text-brand-700';
   return (
     <Link
-      to={`/admin?tab=${tabId}`}
+      // IMPORTANTE: preservare ?c=<concorsoId>, altrimenti AdminWorkspace
+      // (source of truth = ?c=) torna alla lista concorsi invece della tab.
+      to={`/admin?c=${concorsoId}&tab=${tabId}`}
       className="text-left bg-white border border-slate-200 hover:border-brand-300 hover:shadow-md rounded-xl p-4 transition-all group block"
     >
       <div className="flex items-center justify-between mb-2">
@@ -545,6 +547,7 @@ function DashboardContent({ activeId }: { activeId: string }) {
               key={tab.id}
               tab={tab}
               count={tab.countKey !== null ? (counts[tab.countKey] ?? null) : null}
+              concorsoId={activeId}
             />
           ))}
         </div>
