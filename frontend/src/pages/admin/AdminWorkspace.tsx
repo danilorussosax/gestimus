@@ -35,6 +35,8 @@ import CommissariTab from '@/components/admin/CommissariTab';
 import CommissioniTab from '@/components/admin/CommissioniTab';
 import SezioniTab from '@/components/admin/SezioniTab';
 import AdminDashboard from '@/pages/admin/Dashboard';
+import AdminUtenti from '@/pages/admin/Utenti';
+import AdminManuale from '@/pages/admin/Manuale';
 import { ImpostazioniConcorsoTab } from '@/components/admin/ImpostazioniConcorsoTab';
 
 import { useCandidati } from '@/api/candidati';
@@ -58,7 +60,13 @@ type TabId =
   | 'candidati'
   | 'risultati'
   | 'audit'
-  | 'impostazioni';
+  | 'impostazioni'
+  | 'utenti'
+  | 'manuale';
+
+// Tab del gruppo "Amministrazione" (tenant-level): non in TABS (sezione
+// Concorso), ma validi come ?tab= così rendono DENTRO il workspace (sidebar).
+const ADMIN_TAB_IDS = ['utenti', 'manuale'] as const;
 
 interface TabDef {
   id: TabId;
@@ -215,9 +223,11 @@ export default function AdminWorkspace() {
     if (concorsoId) setActiveId(concorsoId);
   }, [concorsoId, setActiveId]);
 
-  const activeTab: TabId = TABS.some((tb) => tb.id === tabParam)
-    ? (tabParam as TabId)
-    : 'dashboard';
+  const activeTab: TabId =
+    TABS.some((tb) => tb.id === tabParam) ||
+    (ADMIN_TAB_IDS as readonly string[]).includes(tabParam ?? '')
+      ? (tabParam as TabId)
+      : 'dashboard';
 
   const setActiveTab = (tb: TabId) => {
     setSearchParams(
@@ -346,24 +356,29 @@ function WorkspaceInner({
               {lbl('admin.nav.admin_section', 'Amministrazione')}
             </p>
             <nav className="flex flex-col">
-              <Link
-                to="/admin/utenti"
-                className="flex items-center gap-3 px-4 h-10 transition w-full text-left text-[13px] font-medium border-l-2 border-l-transparent text-ink-700 hover:bg-brand-50 hover:text-ink-900"
-              >
-                <span className="leading-none text-ink-700" aria-hidden="true">
-                  <User size={16} />
-                </span>
-                <span className="flex-1">{lbl('admin.nav.utenti', 'Utenti')}</span>
-              </Link>
-              <Link
-                to="/admin/manuale"
-                className="flex items-center gap-3 px-4 h-10 transition w-full text-left text-[13px] font-medium border-l-2 border-l-transparent text-ink-700 hover:bg-brand-50 hover:text-ink-900"
-              >
-                <span className="leading-none text-ink-700" aria-hidden="true">
-                  <BookOpen size={16} />
-                </span>
-                <span className="flex-1">{lbl('admin.nav.manuale', 'Manuale')}</span>
-              </Link>
+              {([
+                { id: 'utenti' as const, Icon: User, label: lbl('admin.nav.utenti', 'Utenti') },
+                { id: 'manuale' as const, Icon: BookOpen, label: lbl('admin.nav.manuale', 'Manuale') },
+              ]).map(({ id, Icon, label }) => {
+                const active = activeTab === id;
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => setActiveTab(id)}
+                    className={`flex items-center gap-3 px-4 h-10 transition w-full text-left text-[13px] font-medium border-l-2 ${
+                      active
+                        ? 'bg-[#edf5ff] border-l-brand-500 text-ink-900'
+                        : 'border-l-transparent text-ink-700 hover:bg-brand-50 hover:text-ink-900'
+                    }`}
+                  >
+                    <span className={`leading-none ${active ? 'text-brand-600' : 'text-ink-700'}`} aria-hidden="true">
+                      <Icon size={16} />
+                    </span>
+                    <span className="flex-1">{label}</span>
+                  </button>
+                );
+              })}
             </nav>
 
             {/* Active concorso card */}
@@ -487,6 +502,8 @@ function WorkspaceInner({
             {activeTab === 'risultati'   && <RisultatiTab   concorsoId={concorsoId} />}
             {activeTab === 'audit'       && <AuditTab       concorsoId={concorsoId} />}
             {activeTab === 'impostazioni' && <ImpostazioniConcorsoTab concorsoId={concorsoId} />}
+            {activeTab === 'utenti'      && <AdminUtenti />}
+            {activeTab === 'manuale'     && <AdminManuale />}
           </div>
 
         </div>
