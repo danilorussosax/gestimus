@@ -36,9 +36,11 @@ import {
   getScala,
   fmtVoto,
   computeAggregate,
+  criteriFromRecords,
 } from '@/lib/scoring';
 import { fetchValutazioniByFase } from '@/api/valutazioni';
 import { rankWithTieBreak, effectiveStrategy } from '@/lib/tiebreak';
+import { listCriteri } from '@/api/criteri';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -158,6 +160,16 @@ function FaseStats({ fase, candidati, concorso }: FaseStatsProps) {
   const cfQuery = useCandidatiFase(fase.id);
   const cfIds = useMemo(() => (cfQuery.data ?? []).map((c) => c.id), [cfQuery.data]);
   const valQuery = useValutazioniForCfs(cfIds.length > 0 ? cfIds : undefined);
+  const criteriQ = useQuery({
+    queryKey: ['criteri', fase.id],
+    queryFn: () => listCriteri(fase.id),
+    enabled: !!fase.id,
+    staleTime: 60_000,
+  });
+  const faseWithCriteri = useMemo(
+    () => ({ ...fase, criteri: criteriFromRecords(criteriQ.data) }),
+    [fase, criteriQ.data],
+  );
   const scala = getScala(fase);
 
   const data = useMemo((): CandidatoWithMedia[] => {
@@ -172,9 +184,9 @@ function FaseStats({ fase, candidati, concorso }: FaseStatsProps) {
           criterio: v.criterio,
           voto: v.voto,
         }));
-      return { cf, cand, media: mediaCandidato(vs, fase) };
+      return { cf, cand, media: mediaCandidato(vs, faseWithCriteri) };
     });
-  }, [cfQuery.data, valQuery.data, candidati, fase]);
+  }, [cfQuery.data, valQuery.data, candidati, faseWithCriteri]);
 
   const medias = useMemo(() => data.map((d) => d.media).filter((m) => m > 0), [data]);
 
@@ -191,8 +203,8 @@ function FaseStats({ fase, candidati, concorso }: FaseStatsProps) {
   const ranked = useMemo(() => {
     if (data.length === 0) return [];
     const rows = data.map((d) => ({ ...d, valutazioni: [] }));
-    return rankWithTieBreak(rows, fase, { strategy: effectiveStrategy(fase, concorso ?? null) });
-  }, [data, fase, concorso]);
+    return rankWithTieBreak(rows, faseWithCriteri, { strategy: effectiveStrategy(faseWithCriteri, concorso ?? null) });
+  }, [data, faseWithCriteri, concorso]);
 
   const top3 = ranked.slice(0, 3);
   const bottom3 = [...ranked].reverse().slice(0, 3).reverse();

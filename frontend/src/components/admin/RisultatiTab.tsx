@@ -18,6 +18,8 @@ import { mediaCandidato, getScala, fmtVoto } from '@/lib/scoring';
 import { rankWithTieBreak, effectiveStrategy, type RankedRow } from '@/lib/tiebreak';
 import { fetchValutazioniByFase } from '@/api/valutazioni';
 import { getConcorso } from '@/api/concorsi';
+import { listCriteri } from '@/api/criteri';
+import { criteriFromRecords } from '@/lib/scoring';
 import { commissariApi } from '@/api/commissari';
 import { commissioniApi } from '@/api/commissioni';
 import { sezioniApi } from '@/api/sezioni';
@@ -146,6 +148,12 @@ function FaseLeaderboard({ fase, candidati, showEsito, anon, concorso }: FaseLea
     [cfQuery.data],
   );
   const valQuery = useValutazioniForFase(cfIds.length > 0 ? cfIds : undefined);
+  const criteriQ = useQuery({
+    queryKey: ['criteri', fase.id],
+    queryFn: () => listCriteri(fase.id),
+    enabled: !!fase.id,
+    staleTime: 60_000,
+  });
 
   const scala = getScala(fase);
 
@@ -153,6 +161,7 @@ function FaseLeaderboard({ fase, candidati, showEsito, anon, concorso }: FaseLea
     const cfs = cfQuery.data ?? [];
     const vals = (valQuery.data ?? []) as (Valutazione & { commissario_id: string; criterio: string; voto: number })[];
     if (cfs.length === 0) return [];
+    const faseWithCriteri = { ...fase, criteri: criteriFromRecords(criteriQ.data) };
     const rows = cfs.map((cf) => {
       const cand = candidati.find((c) => c.id === cf.candidatoId);
       const vsRaw = vals.filter((v) => v.candidatoFaseId === cf.id);
@@ -161,12 +170,12 @@ function FaseLeaderboard({ fase, candidati, showEsito, anon, concorso }: FaseLea
         criterio: v.criterio,
         voto: v.voto,
       }));
-      return { cf, cand, media: mediaCandidato(vs, fase), valutazioni: vs };
+      return { cf, cand, media: mediaCandidato(vs, faseWithCriteri), valutazioni: vs };
     });
-    return rankWithTieBreak(rows, fase, {
-      strategy: effectiveStrategy(fase, concorso),
+    return rankWithTieBreak(rows, faseWithCriteri, {
+      strategy: effectiveStrategy(faseWithCriteri, concorso),
     });
-  }, [cfQuery.data, valQuery.data, candidati, fase, concorso]);
+  }, [cfQuery.data, valQuery.data, candidati, fase, concorso, criteriQ.data]);
 
   if (cfQuery.isLoading || valQuery.isLoading) {
     return (
@@ -406,6 +415,8 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
       const cfs = await http.get<CandidatoFase[]>('candidati-fase', { faseId: fase.id, limit: 500 });
       if (cfs.length === 0) continue;
       const vals = await fetchValutazioniByFase(cfs.map((c) => c.id));
+      const criteriRecords = await listCriteri(fase.id);
+      const faseWithCriteri = { ...fase, criteri: criteriFromRecords(criteriRecords) };
       const rows = cfs.map((cf) => {
         const cand = candidati.find((c) => c.id === cf.candidatoId);
         const vs = vals
@@ -415,9 +426,9 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
             criterio: v.criterio,
             voto: v.voto,
           }));
-        return { cf, cand, media: mediaCandidato(vs, fase), valutazioni: vs };
+        return { cf, cand, media: mediaCandidato(vs, faseWithCriteri), valutazioni: vs };
       });
-      const ranked = rankWithTieBreak(rows, fase, { strategy: effectiveStrategy(fase, concorso) });
+      const ranked = rankWithTieBreak(rows, faseWithCriteri, { strategy: effectiveStrategy(faseWithCriteri, concorso) });
       ranked.forEach((r, i) => {
         const cand = r.cand as Candidato | undefined;
         const cf = r.cf as CandidatoFase;
@@ -479,6 +490,8 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
       const cfs = await http.get<CandidatoFase[]>('candidati-fase', { faseId: fase.id, limit: 500 });
       if (cfs.length === 0) continue;
       const vals = await fetchValutazioniByFase(cfs.map((c) => c.id));
+      const criteriRecords = await listCriteri(fase.id);
+      const faseWithCriteri = { ...fase, criteri: criteriFromRecords(criteriRecords) };
       const rows = cfs.map((cf) => {
         const cand = candidati.find((c) => c.id === cf.candidatoId);
         const vs = vals
@@ -488,9 +501,9 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
             criterio: v.criterio,
             voto: v.voto,
           }));
-        return { cf, cand, media: mediaCandidato(vs, fase), valutazioni: vs };
+        return { cf, cand, media: mediaCandidato(vs, faseWithCriteri), valutazioni: vs };
       });
-      rankedMap.set(fase.id, rankWithTieBreak(rows, fase, { strategy: effectiveStrategy(fase, concorso) }));
+      rankedMap.set(fase.id, rankWithTieBreak(rows, faseWithCriteri, { strategy: effectiveStrategy(faseWithCriteri, concorso) }));
     }
     await exportProtocolloPdf({
       concorso: {

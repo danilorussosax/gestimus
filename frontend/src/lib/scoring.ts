@@ -94,9 +94,37 @@ function votoCriterio(voti: Record<string, unknown> | null | undefined, key: str
   return Number.isFinite(n) ? n : 0;
 }
 
+// Costruisce i criteri runtime dai record DB (entità criteri; peso 0-100).
+// Da ATTACCARE alla fase (`fase.criteri`) prima di chiamare getCriteri/pesato/
+// mediaCandidato, così lo scoring usa i criteri CONFIGURATI (con i loro pesi)
+// e non i 4 criteri di default. La chiave deriva dal nome (slug) e coincide con
+// la `criterio` salvata nelle valutazioni.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function criteriFromRecords(records: readonly any[] | null | undefined): CriterioRuntime[] {
+  if (!Array.isArray(records)) return [];
+  return records.map((c, i) => ({
+    key: c?.key || slugifyKey(c?.nome ?? c?.label) || `crit_${i + 1}`,
+    label: c?.nome ?? c?.label ?? `Criterio ${i + 1}`,
+    peso: Number(c?.peso) || 0,
+  }));
+}
+
 // Total weighted score for a single commissario across the fase's criteri.
+// Normalizzato per la somma dei pesi → media PESATA sulla scala dei voti,
+// indipendente dalla scala dei pesi (frazioni 0-1 o percentuali 0-100).
+// Retro-compatibile: se i pesi sommano a 1 il risultato è identico a prima.
 function pesatoVoti(criteri: CriterioRuntime[], voti: Record<string, unknown> | null | undefined): number {
-  return criteri.reduce((s, c) => s + votoCriterio(voti, c.key) * (c.peso || 0), 0);
+  let num = 0;
+  let den = 0;
+  for (const c of criteri) {
+    const w = c.peso || 0;
+    num += votoCriterio(voti, c.key) * w;
+    den += w;
+  }
+  if (den > 0) return num / den;
+  // Nessun peso valido → media aritmetica semplice dei criteri.
+  if (criteri.length === 0) return 0;
+  return criteri.reduce((s, c) => s + votoCriterio(voti, c.key), 0) / criteri.length;
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -278,7 +306,8 @@ export function getModoValutazione(fase: any): 'autonoma' | 'sincrona' {
 export function fmtVoto(v: unknown, scala: unknown): string {
   const n = Number(v);
   const x = Number.isFinite(n) ? n : 0;
-  const decimals = (Number(scala) || 10) <= 10 ? 1 : (Number.isInteger(x) ? 0 : 1);
+  // Base ≤ 10 (es. /10): DUE decimali. Base > 10 (es. /100): intero o 1 dec.
+  const decimals = (Number(scala) || 10) <= 10 ? 2 : (Number.isInteger(x) ? 0 : 1);
   return x.toFixed(decimals);
 }
 

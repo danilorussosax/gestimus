@@ -51,6 +51,8 @@ import {
   resetFaseTimer,
 } from '@/api/fase-runtime';
 import { useFaseRuntime } from '@/hooks/useFaseRuntime';
+import { listCriteri } from '@/api/criteri';
+import { criteriFromRecords } from '@/lib/scoring';
 
 // ── Scoring helpers (created by Risultati agent, imported at integration) ────
 // We use dynamic-import-style soft refs so TypeScript won't fail before the
@@ -1482,6 +1484,20 @@ export default function Commissario() {
     enabled: !!concorsoId,
   });
 
+  // ── Criteri configurati della fase attiva ──────────────────────────────────
+  // GET /api/fasi non porta i `criteri`, quindi scoring.getCriteri(fase) ripiega
+  // sui 4 criteri di default. Recuperiamo i criteri CONFIGURATI della fase IN_CORSO
+  // e li attacchiamo alla fase (faseWithCriteri) prima di ogni chiamata di scoring.
+  // L'hook va chiamato INCONDIZIONATAMENTE (prima degli early return) per rispettare
+  // le regole degli hook React; risolviamo l'id della fase attiva dal dato grezzo.
+  const faseId = fasi?.find((f) => f.stato === 'IN_CORSO')?.id ?? null;
+  const criteriQ = useQuery({
+    queryKey: ['criteri', faseId],
+    queryFn: () => listCriteri(faseId!),
+    enabled: !!faseId,
+    staleTime: 60_000,
+  });
+
   // ── Derived loading / error ────────────────────────────────────────────────
 
   const isLoading =
@@ -1584,6 +1600,12 @@ export default function Commissario() {
   // ── Active fase — resolve commissario membership ───────────────────────────
 
   const fase = faseAttiva;
+  // Fase arricchita con i criteri CONFIGURATI (dal record `criteri` della fase).
+  // Da usare ovunque si chiamino gli helper di scoring: getCriteri/pesato/getScala
+  // e per il render della scheda voto, così i commissari votano i criteri giusti
+  // con i pesi configurati. Le chiavi (slug del nome) coincidono con la `criterio`
+  // scritta nelle valutazioni — coerenti fra lettura (render) e scrittura (POST).
+  const faseWithCriteri: Fase = { ...fase, criteri: criteriFromRecords(criteriQ.data) };
   const faseCommissione = commissioniList.find((c) => c.id === fase.commissioneId);
   const assignedIds: string[] = getCommissariIds(faseCommissione);
   const isAssigned = assignedIds.includes(commissarioId);
@@ -1637,7 +1659,7 @@ export default function Commissario() {
 
   const activeCommIds = assignedIds;
 
-  const faseCriteriKeys = scoring.getCriteri(fase).map((c) => c.key);
+  const faseCriteriKeys = scoring.getCriteri(faseWithCriteri).map((c) => c.key);
   const myVotedCfIds = new Set(
     valsAll.filter((v) => v.commissarioId === commissarioId).map((v) => v.candidatoFaseId),
   );
@@ -1860,7 +1882,7 @@ export default function Commissario() {
       <ScoringSheet
         key={`${fase.id}-${currentCf.id}`}
         concorso={concorso}
-        fase={fase}
+        fase={faseWithCriteri}
         commissario={commissario!}
         cf={currentCf}
         candidato={candidato}
