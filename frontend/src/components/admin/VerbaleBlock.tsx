@@ -39,6 +39,7 @@ const VERBALE_TAGS_GENERAL: VerbaleTagDef[] = [
   { tag: 'commissione',    desc: 'Lista commissari (elenco puntato)' },
   { tag: 'commissari',     desc: 'Commissari (inline, separati da virgola)' },
   { tag: 'num_commissari', desc: 'Numero commissari' },
+  { tag: 'firma_commissione', desc: 'Nomi commissari + riga per la firma di ciascuno' },
   { tag: 'num_candidati',  desc: 'Numero candidati iscritti' },
   { tag: 'fasi',           desc: 'Elenco fasi' },
   { tag: 'vincitore',      desc: 'Vincitore (1° classificato fase finale)' },
@@ -216,6 +217,22 @@ function buildVerbaleContext(
   const commissioneList = commissariNoPresIds.map((c) => `· ${displayNameComm(c)}`).join('\n');
   const commissariInline = commissariNoPresIds.map(displayNameComm).join(', ');
 
+  // <firma_commissione>: ogni membro della commissione (presidente per primo)
+  // col nome e, sotto, una riga su cui apporre la firma.
+  const SIGN_LINE = '______________________________';
+  const firmaCommissione = [...allCommissari]
+    .sort(
+      (a, b) =>
+        (allPresidentiIds.has(b.id) ? 1 : 0) - (allPresidentiIds.has(a.id) ? 1 : 0),
+    )
+    .map((c) => {
+      const label = allPresidentiIds.has(c.id)
+        ? `${displayNameComm(c)} (Presidente)`
+        : displayNameComm(c);
+      return `${label}\n${SIGN_LINE}\n`;
+    })
+    .join('\n');
+
   const fasiList = fasi.map((f) => `${f.ordine}. ${f.nome}`).join('\n');
 
   // Podio: final fase = highest ordine.
@@ -304,6 +321,7 @@ function buildVerbaleContext(
     commissione: commissioneList || '—',
     commissari: commissariInline || '—',
     num_commissari: String(allCommissari.length),
+    firma_commissione: firmaCommissione || '—',
     num_candidati: String(candidati.length),
     fasi: fasiList || '—',
     vincitore,
