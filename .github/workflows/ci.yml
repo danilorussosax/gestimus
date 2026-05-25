@@ -185,11 +185,14 @@ jobs:
           echo "✓ $COUNT migration SQL verificate"
 
   # ---------------------------------------------------------------------------
-  # 5) i18n: (a) tutte le chiavi t() usate sono definite in IT (error);
-  #          (b) parità di copertura EN/FR/ES rispetto a IT (report).
+  # 5) i18n: parità di copertura EN/FR/ES rispetto a IT sui locale React.
+  #    (Le traduzioni sono in frontend/src/i18n/locales/<lang>.json, flat keys.)
+  #    NB: niente più scansione "uso vs IT": il frontend React usa il pattern
+  #    t(key, { defaultValue }) per alcune stringhe, quindi non tutte le chiavi
+  #    usate sono definite nei JSON. La parità tra lingue resta l'invariante.
   # ---------------------------------------------------------------------------
   i18n-coverage:
-    name: i18n coverage (uso vs IT + parità EN/FR/ES)
+    name: i18n coverage (parità EN/FR/ES vs IT)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -197,52 +200,33 @@ jobs:
         with:
           python-version: '3.11'
 
-      - name: Verifica chiavi i18n
+      - name: Verifica parità chiavi i18n (React)
         run: |
           python3 <<'PY'
-          import re, glob, sys, os
-          used = set()
-          for f in glob.glob('js/**/*.js', recursive=True):
-              src = open(f).read()
-              for m in re.finditer(r"\bt\(\s*['\"]([^'\"]+)['\"]", src):
-                  used.add(m.group(1))
-
-          # Le traduzioni sono splittate per lingua in js/i18n/<lang>.js
-          # (export const <lang> = { ... }). Il file contiene solo coppie chiave:valore.
-          def block_for(lang):
-              p = f'js/i18n/{lang}.js'
-              return open(p).read() if os.path.exists(p) else None
-
-          def keys_of(block):
-              return set(km.group(1) for km in re.finditer(r"['\"]([a-zA-Z][a-zA-Z0-9._-]*)['\"]\s*:", block))
-
-          it_block = block_for('it')
-          if it_block is None:
-              print('::error::js/i18n/it.js non trovato'); sys.exit(1)
-          it_keys = keys_of(it_block)
-
-          # (a) chiavi usate ma non definite in IT → error.
-          missing_it = sorted([k for k in used if k not in it_keys])
-          print(f'USATE: {len(used)} · DEFINITE (it): {len(it_keys)} · NON-DEFINITE: {len(missing_it)}')
+          import json, sys, os
+          base = 'frontend/src/i18n/locales'
+          def keys_of(lang):
+              p = f'{base}/{lang}.json'
+              if not os.path.exists(p):
+                  return None
+              with open(p, encoding='utf-8') as fh:
+                  return set(json.load(fh).keys())
+          it_keys = keys_of('it')
+          if it_keys is None:
+              print(f'::error::{base}/it.json non trovato'); sys.exit(1)
           rc = 0
-          if missing_it:
-              for k in missing_it[:30]:
-                  print(f'::error::chiave i18n usata ma non definita in IT: {k}')
-              rc = 1
-
-          # (b) parità EN/FR/ES vs IT → error. La copertura completa è ora un
-          #     invariante (non solo IT): una chiave nuova senza tutte le
-          #     traduzioni fa fallire la CI, prevenendo la deriva.
           for lang in ('en', 'fr', 'es'):
-              b = block_for(lang)
-              if b is None:
-                  print(f'::error::blocco lingua {lang} non trovato'); rc = 1; continue
-              miss = sorted(it_keys - keys_of(b))
-              print(f'{lang}: definite {len(keys_of(b))} · mancanti vs IT: {len(miss)}')
+              k = keys_of(lang)
+              if k is None:
+                  print(f'::error::{base}/{lang}.json non trovato'); rc = 1; continue
+              miss = sorted(it_keys - k)
+              extra = sorted(k - it_keys)
+              print(f'{lang}: {len(k)} chiavi · mancanti vs IT: {len(miss)} · extra: {len(extra)}')
+              for x in miss[:30]:
+                  print(f'::error::chiave i18n mancante in {lang}: {x}')
               if miss:
-                  for k in miss[:30]:
-                      print(f'::error::chiave i18n mancante in {lang}: {k}')
                   rc = 1
+          print(f'IT: {len(it_keys)} chiavi')
           sys.exit(rc)
           PY
 
