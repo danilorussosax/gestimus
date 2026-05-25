@@ -8,6 +8,11 @@ import { Flag, Scale, Trophy, ArrowRight } from 'lucide-react';
 
 import { useAuth } from '@/contexts/AuthContext';
 import { httpErrorMessage } from '@/lib/api';
+import type { User } from '@/types';
+
+/** Destinazione post-login in base al ruolo: il superadmin (subdomain platform)
+ *  va alla sua console, non alla home admin. Coerente con PublicOnlyRoute. */
+const homeForRole = (role: User['role']) => (role === 'superadmin' ? '/superadmin' : '/');
 
 // ─── Schema login ─────────────────────────────────────────────────────────────
 
@@ -28,7 +33,7 @@ type TotpFields = z.infer<typeof totpSchema>;
 
 interface TotpStepProps {
   challenge: string;
-  onSuccess: () => void;
+  onSuccess: (user: User) => void;
 }
 
 function TotpStep({ challenge, onSuccess }: TotpStepProps) {
@@ -45,8 +50,8 @@ function TotpStep({ challenge, onSuccess }: TotpStepProps) {
   const onSubmit = async (data: TotpFields) => {
     setError(null);
     try {
-      await completeMfaLogin(challenge, data.code.trim());
-      onSuccess();
+      const user = await completeMfaLogin(challenge, data.code.trim());
+      onSuccess(user);
     } catch (err) {
       const msg = httpErrorMessage(err);
       setError(msg || t('login.2fa.error'));
@@ -130,7 +135,7 @@ export default function Login() {
         setMfaChallenge(res.challenge);
         return;
       }
-      navigate('/', { replace: true });
+      navigate(homeForRole(res.user.role), { replace: true });
     } catch (err) {
       const raw = httpErrorMessage(err);
       const invalid = /failed to authenticate|invalid credentials/i.test(raw);
@@ -138,8 +143,8 @@ export default function Login() {
     }
   };
 
-  const handleMfaSuccess = () => {
-    navigate('/', { replace: true });
+  const handleMfaSuccess = (user: User) => {
+    navigate(homeForRole(user.role), { replace: true });
   };
 
   return (
