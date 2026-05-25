@@ -62,3 +62,6 @@ logo-hold.png
 # ---- Documenti binari grossi (mantieni solo se servono in repo) ----
 # Schema_*.docx è documentazione → INCLUDILO se serve come reference
 # screen.png, sfondo.png → asset frontend, INCLUDILI
+
+# Dev reverse proxy (nginx) runtime
+.devproxy/

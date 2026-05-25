@@ -53,6 +53,11 @@ const schema = z.object({
   PLATFORM_SMTP_USER: z.string().optional(),
   PLATFORM_SMTP_PASSWORD: z.string().optional(),
   PLATFORM_SMTP_FROM: z.string().optional(),
+  // Error tracking backend (Sentry). Se SENTRY_DSN è assente l'integrazione è
+  // un no-op: dev/test e deploy senza Sentry restano invariati.
+  SENTRY_DSN: z.string().url().optional(),
+  SENTRY_TRACES_SAMPLE_RATE: z.coerce.number().min(0).max(1).default(0),
+  SENTRY_ENVIRONMENT: z.string().optional(),
 });
 
 const parsed = schema.safeParse(process.env);

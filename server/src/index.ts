@@ -1,4 +1,5 @@
 import cron from 'node-cron';
+import { initSentry, captureError } from './observability/sentry.js';
 import { createApp } from './app.js';
 import { env } from './env.js';
 import { shutdownPools } from './db/client.js';
@@ -6,6 +7,12 @@ import { stopRealtimeHub } from './realtime/hub.js';
 import { runTenantCleanup, cleanupStaleBozze } from './services/cleanup.js';
 import { cleanupExpiredSessions } from './services/session.js';
 import { startSystemMetricsSampler } from './services/system-metrics.js';
+
+// Error tracking: init prima di tutto (no-op se SENTRY_DSN assente).
+if (initSentry()) {
+  // eslint-disable-next-line no-console
+  console.log('Sentry: error tracking attivo');
+}
 
 const app = await createApp();
 
@@ -111,9 +118,11 @@ process.on('SIGTERM', () => void shutdown('SIGTERM'));
 // su uncaughtException avviamo uno shutdown ordinato (lo stato è dubbio).
 process.on('unhandledRejection', (reason) => {
   app.log.error({ reason }, 'unhandledRejection');
+  captureError(reason, { kind: 'unhandledRejection' });
 });
 process.on('uncaughtException', (err) => {
   app.log.fatal({ err }, 'uncaughtException — shutdown');
+  captureError(err, { kind: 'uncaughtException' });
   void shutdown('uncaughtException');
 });
 
