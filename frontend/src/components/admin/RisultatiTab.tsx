@@ -12,7 +12,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { Eye, EyeOff, FileText, Download } from 'lucide-react';
 import { http } from '@/lib/api';
-import type { Candidato, CandidatoFase, Valutazione } from '@/types';
+import type { Candidato, CandidatoFase, Valutazione, Concorso } from '@/types';
 import type { FaseRecord } from '@/api/fasi';
 import { mediaCandidato, getScala, fmtVoto } from '@/lib/scoring';
 import { rankWithTieBreak, effectiveStrategy, type RankedRow } from '@/lib/tiebreak';
@@ -134,9 +134,11 @@ interface FaseLeaderboardProps {
   candidati: Candidato[];
   showEsito: boolean;
   anon: boolean;
+  /** Concorso (per la cascata tiebreak ereditata quando la fase non ha override). */
+  concorso: Concorso | null;
 }
 
-function FaseLeaderboard({ fase, candidati, showEsito, anon }: FaseLeaderboardProps) {
+function FaseLeaderboard({ fase, candidati, showEsito, anon, concorso }: FaseLeaderboardProps) {
   const { t } = useTranslation();
   const cfQuery = useCandidatiFase(fase.id);
   const cfIds = useMemo(
@@ -162,9 +164,9 @@ function FaseLeaderboard({ fase, candidati, showEsito, anon }: FaseLeaderboardPr
       return { cf, cand, media: mediaCandidato(vs, fase), valutazioni: vs };
     });
     return rankWithTieBreak(rows, fase, {
-      strategy: effectiveStrategy(fase, null),
+      strategy: effectiveStrategy(fase, concorso),
     });
-  }, [cfQuery.data, valQuery.data, candidati, fase]);
+  }, [cfQuery.data, valQuery.data, candidati, fase, concorso]);
 
   if (cfQuery.isLoading || valQuery.isLoading) {
     return (
@@ -397,6 +399,7 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
   const handleExportCsv = async () => {
     const fasi = fasiQuery.data ?? [];
     const candidati = candidatiQuery.data ?? [];
+    const concorso = concorsoQuery.data ?? null;
     // Vanilla header: Fase,Posizione,Numero,Nome,Cognome,Strumento,Nazionalita,Eta,Media,Esito
     const lines = ['Fase,Posizione,Numero,Nome,Cognome,Strumento,Nazionalita,Eta,Media,Esito'];
     for (const fase of fasi) {
@@ -414,7 +417,7 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
           }));
         return { cf, cand, media: mediaCandidato(vs, fase), valutazioni: vs };
       });
-      const ranked = rankWithTieBreak(rows, fase, { strategy: effectiveStrategy(fase, null) });
+      const ranked = rankWithTieBreak(rows, fase, { strategy: effectiveStrategy(fase, concorso) });
       ranked.forEach((r, i) => {
         const cand = r.cand as Candidato | undefined;
         const cf = r.cf as CandidatoFase;
@@ -487,7 +490,7 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
           }));
         return { cf, cand, media: mediaCandidato(vs, fase), valutazioni: vs };
       });
-      rankedMap.set(fase.id, rankWithTieBreak(rows, fase, { strategy: effectiveStrategy(fase, null) }));
+      rankedMap.set(fase.id, rankWithTieBreak(rows, fase, { strategy: effectiveStrategy(fase, concorso) }));
     }
     await exportProtocolloPdf({
       concorso: {
@@ -585,6 +588,7 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
               candidati={candidati}
               showEsito={showEsito}
               anon={anon}
+              concorso={concorso}
             />
           </div>
         );

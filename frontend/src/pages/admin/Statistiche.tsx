@@ -150,9 +150,11 @@ function useValutazioniForCfs(cfIds: string[] | undefined) {
 interface FaseStatsProps {
   fase: FaseRecord;
   candidati: Candidato[];
+  /** Concorso selezionato: serve la cascata tiebreak ereditata (default concorso). */
+  concorso?: ConcorsoRaw | null;
 }
 
-function FaseStats({ fase, candidati }: FaseStatsProps) {
+function FaseStats({ fase, candidati, concorso }: FaseStatsProps) {
   const cfQuery = useCandidatiFase(fase.id);
   const cfIds = useMemo(() => (cfQuery.data ?? []).map((c) => c.id), [cfQuery.data]);
   const valQuery = useValutazioniForCfs(cfIds.length > 0 ? cfIds : undefined);
@@ -189,8 +191,8 @@ function FaseStats({ fase, candidati }: FaseStatsProps) {
   const ranked = useMemo(() => {
     if (data.length === 0) return [];
     const rows = data.map((d) => ({ ...d, valutazioni: [] }));
-    return rankWithTieBreak(rows, fase, { strategy: effectiveStrategy(fase, null) });
-  }, [data, fase]);
+    return rankWithTieBreak(rows, fase, { strategy: effectiveStrategy(fase, concorso ?? null) });
+  }, [data, fase, concorso]);
 
   const top3 = ranked.slice(0, 3);
   const bottom3 = [...ranked].reverse().slice(0, 3).reverse();
@@ -499,7 +501,7 @@ export default function AdminStatistiche() {
           </CardHeader>
           <CardContent>
             {activeFase ? (
-              <FaseStats fase={activeFase} candidati={candidati} />
+              <FaseStats fase={activeFase} candidati={candidati} concorso={currentConcorso} />
             ) : (
               <Skeleton className="h-40 w-full" />
             )}
