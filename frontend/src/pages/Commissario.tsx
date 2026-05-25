@@ -1456,6 +1456,14 @@ export default function Commissario() {
     enabled: !!concorsoId,
   });
 
+  // Lista commissari del concorso → per mostrare nome/foto (non l'id troncato)
+  // nello stato d'attesa in modalità sincrona.
+  const { data: commissariList } = useQuery({
+    queryKey: ['commissari', concorsoId],
+    queryFn: () => http.get<Commissario[]>('commissari', { concorsoId: concorsoId!, limit: 1000 }),
+    enabled: !!concorsoId,
+  });
+
   const { data: candidatiFaseList, isLoading: loadingCfs } = useQuery({
     queryKey: ['candidati-fase', concorsoId],
     queryFn: async () => {
@@ -1602,6 +1610,8 @@ export default function Commissario() {
   // ── Active fase — resolve commissario membership ───────────────────────────
 
   const fase = faseAttiva;
+  // Lookup commissari per id (nome/foto/stato) per lo stato d'attesa sincrono.
+  const commById = new Map((commissariList ?? []).map((c) => [c.id, c]));
   // Fase arricchita con i criteri CONFIGURATI (dal record `criteri` della fase).
   // Da usare ovunque si chiamino gli helper di scoring: getCriteri/pesato/getScala
   // e per il render della scheda voto, così i commissari votano i criteri giusti
@@ -1659,7 +1669,9 @@ export default function Commissario() {
     .filter((cf) => cf.faseId === fase.id)
     .sort((a, b) => (a.posizione ?? 0) - (b.posizione ?? 0));
 
-  const activeCommIds = assignedIds;
+  // Solo commissari ATTIVI concorrono al conteggio "tutti hanno votato" in
+  // sincrona: un commissario INATTIVO non deve bloccare l'avanzamento.
+  const activeCommIds = assignedIds.filter((cid) => commById.get(cid)?.stato !== 'INATTIVO');
 
   const faseCriteriKeys = scoring.getCriteri(faseWithCriteri).map((c) => c.key);
   const myVotedCfIds = new Set(
@@ -1697,7 +1709,8 @@ export default function Commissario() {
     const wCand = candidatiList.find((c) => c.id === waitingFor.candidatoId);
     const commInFase = commissioniList
       .filter((c) => c.id === fase.commissioneId)
-      .flatMap((c) => getCommissariIds(c));
+      .flatMap((c) => getCommissariIds(c))
+      .filter((cid) => commById.get(cid)?.stato !== 'INATTIVO');
     const votedSet = new Set(
       valsAll.filter((v) => v.candidatoFaseId === waitingFor.id).map((v) => v.commissarioId),
     );
@@ -1774,6 +1787,8 @@ export default function Commissario() {
               {commInFase.map((cid) => {
                 const v = votedSet.has(cid);
                 const isMe = cid === commissarioId;
+                const comm = commById.get(cid);
+                const nome = displayName(comm) || cid.substring(0, 8);
                 return (
                   <div
                     key={cid}
@@ -1784,10 +1799,14 @@ export default function Commissario() {
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <div className="w-7 h-7 rounded-full bg-slate-100 overflow-hidden flex items-center justify-center text-sm shrink-0">
-                        🧑‍⚖️
+                        {comm?.foto ? (
+                          <img src={comm.foto} alt="" className="w-full h-full object-cover" />
+                        ) : (
+                          '🧑‍⚖️'
+                        )}
                       </div>
                       <span className={cn('text-sm truncate', isMe ? 'font-semibold text-slate-900' : 'text-slate-700')}>
-                        {isMe ? t('com.you_suffix', { defaultValue: '(tu)' }) : cid.substring(0, 8)}
+                        {nome}{isMe ? ` ${t('com.you_suffix', { defaultValue: '(tu)' })}` : ''}
                       </span>
                     </div>
                     <span
