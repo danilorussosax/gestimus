@@ -7,50 +7,9 @@ on:
     branches: [main]
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # 1) Sintassi JavaScript: tutti i .js dell'app (frontend vanilla)
-  # ---------------------------------------------------------------------------
-  lint-js:
-    name: Lint JavaScript (syntax)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-
-      - name: Check syntax di tutti i file JS
-        run: |
-          set -e
-          FAIL=0
-          # Esclude node_modules, pocketbase/ (binari legacy), test-results, server/ (TypeScript)
-          while IFS= read -r f; do
-            if ! node --check "$f"; then
-              echo "::error file=$f::Syntax error"
-              FAIL=1
-            fi
-          done < <(find . -type f -name "*.js" \
-            -not -path "./node_modules/*" \
-            -not -path "./pocketbase/*" \
-            -not -path "./server/node_modules/*" \
-            -not -path "./test-results/*")
-          exit $FAIL
-
-  # ---------------------------------------------------------------------------
-  # 1b) Type-check JS: checkJs su TUTTO il frontend vanilla (gate, non solo core)
-  # ---------------------------------------------------------------------------
-  typecheck-frontend:
-    name: Typecheck frontend (checkJs STRICT, tutto js/)
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-      - name: Install typescript
-        run: npm install --no-save typescript@5
-      - name: tsc --checkJs strict su tutto js/
-        run: npx tsc -p tsconfig.frontend.json
+  # NB: il frontend vanilla è stato deprecato e rimosso. I job che ne
+  # verificavano la sintassi JS e il checkJs (lint-js, typecheck-frontend) sono
+  # stati eliminati: il gate frontend è ora il solo job `frontend-react`.
 
   # ---------------------------------------------------------------------------
   # 2) Sintassi script bash (scripts/ + deploy/)
