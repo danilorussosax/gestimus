@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 import { publicApi, type ConcorsoDetailPublic } from '@/api/public';
 import { httpErrorMessage } from '@/lib/api';
 import { resizeImageToFile } from '@/lib/image';
+import { NATIONALITIES } from '@/lib/nationalities';
 import { GdprBadge } from './Privacy';
 
 // Limite dimensione allegato lato client (il server applica comunque il proprio).
@@ -55,15 +56,6 @@ function saveDraft(d: Partial<FormValues>) {
 function clearDraft() {
   try { localStorage.removeItem(DRAFT_KEY); } catch { /* noop */ }
 }
-
-// ─── Nazionalità datalist ─────────────────────────────────────────────────────
-
-const NATIONALITIES = [
-  'Italiana', 'Americana', 'Britannica', 'Francese', 'Tedesca', 'Spagnola',
-  'Portoghese', 'Olandese', 'Belga', 'Svizzera', 'Austriaca', 'Polacca',
-  'Russa', 'Cinese', 'Giapponese', 'Coreana', 'Indiana', 'Brasiliana',
-  'Argentina', 'Australiana', 'Canadese',
-];
 
 // ─── Zod schema ───────────────────────────────────────────────────────────────
 

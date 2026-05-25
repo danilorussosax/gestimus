@@ -20,6 +20,7 @@ import type { SezioneRecord } from '@/api/sezioni';
 import type { Candidato, CandidatoFase } from '@/types';
 import { fmtVoto, getScala, getMetodoMedia, getModoValutazione, METODI_MEDIA } from '@/lib/scoring';
 import { faseFullLabel } from '@/lib/fase-label';
+import i18n from '@/i18n';
 import type { RankedRow } from '@/lib/tiebreak';
 // jsPDF caricato on-demand dentro exportVerbalePdf (fuori dal bundle iniziale).
 import { toast } from 'sonner';
@@ -66,7 +67,8 @@ const VERBALE_TAGS_FASE: VerbaleTagDef[] = [
   { tag: 'fase_spareggi',       desc: 'Spareggi nella fase' },
 ];
 
-const DEFAULT_VERBALE_TEMPLATE = `VERBALE DELLA COMMISSIONE GIUDICATRICE
+// Fallback usato solo se la chiave i18n non è caricata (vedi defaultVerbaleTemplate).
+const DEFAULT_VERBALE_TEMPLATE_FALLBACK = `VERBALE DELLA COMMISSIONE GIUDICATRICE
 
 Concorso: <concorso> (<anno>)
 Data: <data>
@@ -109,6 +111,14 @@ Spareggi nel concorso:
 
 Il presente verbale è redatto e sottoscritto dalla commissione.
 `;
+
+// Template di default localizzato (it/en/fr/es). Ripiega sul fallback se la
+// chiave i18n non è ancora caricata.
+function defaultVerbaleTemplate(): string {
+  const key = 'admin.risultati.verbale.default_template';
+  const v = i18n.t(key);
+  return v && v !== key ? v : DEFAULT_VERBALE_TEMPLATE_FALLBACK;
+}
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -227,7 +237,7 @@ function buildVerbaleContext(
     )
     .map((c) => {
       const label = allPresidentiIds.has(c.id)
-        ? `${displayNameComm(c)} (Presidente)`
+        ? `${displayNameComm(c)} (${i18n.t('admin.risultati.verbale.role_presidente')})`
         : displayNameComm(c);
       return `${label}\n${SIGN_LINE}\n`;
     })
@@ -474,9 +484,9 @@ export function VerbaleBlock({
   const [template, setTemplate] = useState<string>(() => {
     try {
       const key = verbaleStorageKey(concorso.id, fasi[0]?.id ?? null);
-      return localStorage.getItem(key) ?? DEFAULT_VERBALE_TEMPLATE;
+      return localStorage.getItem(key) ?? defaultVerbaleTemplate();
     } catch {
-      return DEFAULT_VERBALE_TEMPLATE;
+      return defaultVerbaleTemplate();
     }
   });
 
@@ -484,9 +494,9 @@ export function VerbaleBlock({
   useEffect(() => {
     try {
       const key = verbaleStorageKey(concorso.id, selectedFaseId || null);
-      setTemplate(localStorage.getItem(key) ?? DEFAULT_VERBALE_TEMPLATE);
+      setTemplate(localStorage.getItem(key) ?? defaultVerbaleTemplate());
     } catch {
-      setTemplate(DEFAULT_VERBALE_TEMPLATE);
+      setTemplate(defaultVerbaleTemplate());
     }
   }, [concorso.id, selectedFaseId]);
 
@@ -560,7 +570,7 @@ export function VerbaleBlock({
     } catch {
       /* ignore */
     }
-    setTemplate(DEFAULT_VERBALE_TEMPLATE);
+    setTemplate(defaultVerbaleTemplate());
   };
 
   // Export PDF.
@@ -783,7 +793,7 @@ async function exportVerbalePdf(
   doc.setFontSize(16);
   doc.setTextColor(46, 38, 61);
   doc.text(
-    `Verbale — Fase ${fase.ordine}: ${fase.nome}`,
+    `${i18n.t('admin.risultati.verbale.pdf_title')} — ${i18n.t('admin.risultati.verbale.pdf_fase_suffix', { ordine: fase.ordine, nome: fase.nome })}`,
     margin + 52,
     margin + 10,
   );
@@ -848,7 +858,7 @@ async function exportVerbalePdf(
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(11);
     doc.setTextColor(46, 38, 61);
-    doc.text('Firme dei commissari', margin, yCursor);
+    doc.text(i18n.t('admin.risultati.verbale.signatures_heading'), margin, yCursor);
     yCursor += headingH;
 
     let i = 0;
@@ -865,7 +875,7 @@ async function exportVerbalePdf(
         doc.setDrawColor(165, 163, 174);
         doc.line(x, lineY, x + colW - 12, lineY);
 
-        const role = comm.id === fasePresId ? ' (Presidente)' : '';
+        const role = comm.id === fasePresId ? ` (${i18n.t('admin.risultati.verbale.role_presidente')})` : '';
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(10);
         doc.setTextColor(46, 38, 61);
@@ -901,7 +911,7 @@ async function exportVerbalePdf(
   const safeName = concorso.nome.replace(/[^\w-]+/g, '_');
   const safeFase = `_F${fase.ordine}_${(fase.nome || '').replace(/[^\w-]+/g, '_')}`;
   doc.save(`Verbale_${safeName}${safeFase}_${concorso.anno ?? 'nd'}.pdf`);
-  toast.success('Verbale PDF generato con successo.');
+  toast.success(i18n.t('admin.risultati.verbale.pdf_done'));
 }
 
 export default VerbaleBlock;
