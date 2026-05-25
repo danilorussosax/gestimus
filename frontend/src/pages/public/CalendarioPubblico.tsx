@@ -13,8 +13,11 @@
 import { useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { Download, Calendar } from 'lucide-react';
 import { publicApi, type CalBlocco, type CalGiorno, type CalendarioPubblicResponse } from '@/api/public';
+import i18n from '@/i18n';
+import { exportCalendarioPdf } from '@/lib/calendario-pdf';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -154,11 +157,42 @@ body.display-mode { background:#f4f5f7; }
 .cal-empty { color:#9aa0aa; font-style:italic; padding:24px; text-align:center; }
 `;
 
-// ─── PDF export (mirrors vanilla buildPdfOpts + a simple window.print fallback) ─
+// ─── PDF export (PDF A4 strutturato via jsPDF, come il vanilla) ────────────────
 
-function handlePdfExport(data: CalendarioPubblicResponse) {
-  window.print();
-  void data; // used by caller for potential richer export
+async function handlePdfExport(
+  data: CalendarioPubblicResponse,
+  logoFallback: string | null,
+): Promise<void> {
+  const giorni = data.giorni.map((g) => ({
+    data: g.data,
+    blocchi: g.blocchi.map((b) => ({
+      oraInizio: b.oraInizio ?? null,
+      oraFine: b.oraFine ?? null,
+      tipo: b.tipo,
+      titolo: b.titolo ?? null,
+      sala: b.sala ? { nome: b.sala.nome } : null,
+      sezione: b.sezione ? { nome: b.sezione.nome } : null,
+      categoria: b.categoria ? { nome: b.categoria.nome } : null,
+      fase: b.fase ? { nome: b.fase.nome } : null,
+      commissione: Array.isArray(b.commissione)
+        ? b.commissione.map((m) => ({
+            nome: m.nome ?? '',
+            cognome: m.cognome ?? '',
+            specialita: (m as { specialita?: string }).specialita ?? '',
+          }))
+        : [],
+      slot: Array.isArray(b.slot)
+        ? b.slot.map((s) => ({ oraPrevista: s.oraPrevista ?? null, etichetta: s.etichetta ?? '' }))
+        : [],
+    })),
+  }));
+  await exportCalendarioPdf({
+    titolo: data.concorso.nome || i18n.t('cal.title'),
+    sottotitolo: data.pubblicazione?.etichetta ?? undefined,
+    logoUrl: data.concorso.logo || logoFallback,
+    mostraCommissione: data.pubblicazione?.mostraCommissione ?? false,
+    giorni,
+  });
 }
 
 // ─── Block card (standard view) ───────────────────────────────────────────────
@@ -172,6 +206,7 @@ function BlockCard({
   mostraCommissione: boolean;
   display: boolean;
 }) {
+  const { t } = useTranslation();
   const head =
     [b.sezione?.nome, b.categoria?.nome, b.fase?.nome].filter(Boolean).join(' · ') ||
     b.titolo ||
@@ -227,12 +262,12 @@ function BlockCard({
                   </span>
                   {live === 'now' && (
                     <span className="text-[10px] font-bold uppercase text-emerald-700">
-                      In corso
+                      {t('cal.pub.now')}
                     </span>
                   )}
                   {live === 'next' && (
                     <span className="text-[10px] font-bold uppercase text-amber-700">
-                      Prossimo
+                      {t('cal.pub.next')}
                     </span>
                   )}
                 </li>
@@ -241,14 +276,14 @@ function BlockCard({
           </ul>
         ) : (
           <p className="px-3 py-2 text-sm text-ink-500 italic">
-            {b.tipo === 'EVENTO' ? (b.titolo ?? 'Evento') : 'Nessun candidato pianificato.'}
+            {b.tipo === 'EVENTO' ? (b.titolo ?? 'Evento') : t('cal.pub.empty')}
           </p>
         )}
         {mostraCommissione &&
           Array.isArray(b.commissione) &&
           b.commissione.length > 0 && (
             <p className="mt-2 text-[11px] text-ink-700 px-3">
-              <span className="font-semibold">Giuria:</span>{' '}
+              <span className="font-semibold">{t('cal.pub.giuria')}:</span>{' '}
               {b.commissione
                 .map((m) => [m.nome, m.cognome].filter(Boolean).join(' '))
                 .join(', ')}
@@ -347,9 +382,9 @@ function buildSalaBoardHtml(salaNome: string, blocchi: CalBlocco[]): string {
         const live = s._live;
         const badge =
           live === 'now'
-            ? `<span class="cal-name__badge" style="background:rgba(16,185,129,.9);color:#fff">In corso</span>`
+            ? `<span class="cal-name__badge" style="background:rgba(16,185,129,.9);color:#fff">${esc(i18n.t('cal.pub.now'))}</span>`
             : live === 'next'
-            ? `<span class="cal-name__badge" style="background:rgba(245,158,11,.9);color:#fff">Prossimo</span>`
+            ? `<span class="cal-name__badge" style="background:rgba(245,158,11,.9);color:#fff">${esc(i18n.t('cal.pub.next'))}</span>`
             : '';
         return `<div class="cal-name${live === 'now' ? ' cal-name--now' : ''}">
           <span class="cal-ava" style="background:${c.ava};color:${c.avaFg}">${esc(initials(s.etichetta))}</span>
@@ -361,7 +396,7 @@ function buildSalaBoardHtml(salaNome: string, blocchi: CalBlocco[]): string {
       .join('');
     const namesHtml = slots
       ? `<div class="cal-names">${slots}</div>`
-      : `<div class="cal-card__fase">${esc(it.b.tipo === 'EVENTO' ? (it.b.titolo ?? 'Evento') : 'Nessun candidato pianificato.')}</div>`;
+      : `<div class="cal-card__fase">${esc(it.b.tipo === 'EVENTO' ? (it.b.titolo ?? 'Evento') : i18n.t('cal.pub.empty'))}</div>`;
     cells += `<article class="cal-card" style="grid-row:${it.sTick + 2} / ${it.eTick + 2};grid-column:${col};background:${c.bg};color:${c.fg}">
       <div class="cal-card__cat">${esc(cat)}</div>
       ${orario ? `<div class="cal-card__time" style="color:${c.sub}">${esc(orario)}</div>` : ''}
@@ -382,7 +417,7 @@ function DisplayBoard({ data }: { data: CalendarioPubblicResponse }) {
 
   const bodyHtml =
     giorni.length === 0
-      ? `<div class="cal-board"><div class="cal-empty">Nessun evento pianificato.</div></div>`
+      ? `<div class="cal-board"><div class="cal-empty">${esc(i18n.t('cal.pub.empty'))}</div></div>`
       : giorni
           .map((g: CalGiorno) => {
             const bySala = new Map<string, CalBlocco[]>();
@@ -424,11 +459,16 @@ function DisplayBoard({ data }: { data: CalendarioPubblicResponse }) {
 function ContentView({
   data,
   display,
+  logoFallback,
 }: {
   data: CalendarioPubblicResponse;
   display: boolean;
+  logoFallback: string | null;
 }) {
+  const { t } = useTranslation();
   const mostraCommissione = data.pubblicazione?.mostraCommissione ?? false;
+  const logoSrc = data.concorso.logo || logoFallback;
+  const titolo = data.concorso.nome || t('cal.title');
 
   if (display) return <DisplayBoard data={data} />;
 
@@ -438,9 +478,9 @@ function ContentView({
     <div className="c-page max-w-5xl mx-auto view-fade">
       <header className="flex items-center justify-between gap-4 mb-6 flex-wrap">
         <div className="flex items-center gap-3 min-w-0">
-          {data.concorso.logo && (
+          {logoSrc && (
             <img
-              src={data.concorso.logo}
+              src={logoSrc}
               alt=""
               className="h-12 w-12 object-contain rounded-xl bg-white ring-1 ring-brand-100"
               onError={(e) => ((e.currentTarget).style.display = 'none')}
@@ -448,7 +488,7 @@ function ContentView({
           )}
           <div className="min-w-0">
             <h1 className="text-2xl font-bold text-ink-900 truncate">
-              {data.concorso.nome}
+              {titolo}
             </h1>
             {data.pubblicazione?.etichetta && (
               <p className="text-sm text-ink-700">{data.pubblicazione.etichetta}</p>
@@ -460,17 +500,17 @@ function ContentView({
           <button
             type="button"
             className="c-btn c-btn--outline c-btn--sm"
-            onClick={() => handlePdfExport(data)}
+            onClick={() => void handlePdfExport(data, logoFallback)}
           >
             <Download size={15} />
-            <span>Esporta PDF</span>
+            <span>{t('common.export_pdf', { defaultValue: 'Esporta PDF' })}</span>
           </button>
         </div>
       </header>
 
       {data.giorni.length === 0 ? (
         <div className="bg-white border-2 border-dashed border-brand-100 rounded-2xl py-16 text-center">
-          <p className="text-ink-500 italic">Nessun evento pianificato.</p>
+          <p className="text-ink-500 italic">{t('cal.pub.empty')}</p>
         </div>
       ) : (
         data.giorni.map((g: CalGiorno) => (
@@ -493,7 +533,7 @@ function ContentView({
       )}
 
       <footer className="mt-10 text-center text-[11px] text-ink-500">
-        Gestimus — Gestione concorsi musicali
+        {t('app.footer.runtime')}
       </footer>
     </div>
   );
@@ -502,6 +542,7 @@ function ContentView({
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
 export default function CalendarioPubblico() {
+  const { t } = useTranslation();
   const [searchParams] = useSearchParams();
   const token = searchParams.get('token') ?? '';
   const display = searchParams.get('display') === '1';
@@ -514,6 +555,15 @@ export default function CalendarioPubblico() {
     staleTime: 30_000,
     retry: 1,
   });
+
+  // Logo di fallback dell'ente quando il concorso non ne ha uno proprio.
+  const brandingQ = useQuery({
+    queryKey: ['ente-branding-public'],
+    queryFn: () => publicApi.getEnteBranding(),
+    staleTime: 5 * 60_000,
+    retry: 1,
+  });
+  const logoFallback = brandingQ.data?.brandingPublic?.logoUrl ?? null;
 
   // Kiosk: add body class to hide chrome
   useEffect(() => {
@@ -528,7 +578,7 @@ export default function CalendarioPubblico() {
     return (
       <div className="c-page max-w-2xl mx-auto">
         <div className="bg-white rounded-2xl ring-1 ring-rose-200 p-8 text-center">
-          <p className="text-rose-700">Calendario non disponibile o link non valido.</p>
+          <p className="text-rose-700">{t('cal.pub.unavailable', { defaultValue: 'Calendario non disponibile o link non valido.' })}</p>
         </div>
       </div>
     );
@@ -537,7 +587,7 @@ export default function CalendarioPubblico() {
   if (calQ.isLoading) {
     return (
       <div className="c-page text-center py-20">
-        <p className="text-ink-700">Caricamento calendario…</p>
+        <p className="text-ink-700">{t('cal.pub.loading', { defaultValue: 'Caricamento calendario…' })}</p>
       </div>
     );
   }
@@ -546,11 +596,11 @@ export default function CalendarioPubblico() {
     return (
       <div className="c-page max-w-2xl mx-auto">
         <div className="bg-white rounded-2xl ring-1 ring-rose-200 p-8 text-center">
-          <p className="text-rose-700">Calendario non disponibile o link non valido.</p>
+          <p className="text-rose-700">{t('cal.pub.unavailable', { defaultValue: 'Calendario non disponibile o link non valido.' })}</p>
         </div>
       </div>
     );
   }
 
-  return <ContentView data={calQ.data} display={display} />;
+  return <ContentView data={calQ.data} display={display} logoFallback={logoFallback} />;
 }
