@@ -35,6 +35,7 @@ import { fetchValutazioniByFase } from '@/api/valutazioni';
 import type { Fase, Candidato, Commissario, Sezione, Commissione, Evento, CandidatoFase } from '@/types';
 import { ConcorsoSelector } from '@/components/admin/ConcorsoSelector';
 import { presidentiFor, type CommissioneLike } from '@/lib/presidenti';
+import { faseFullLabel } from '@/lib/fase-label';
 
 // ---------------------------------------------------------------------------
 // SIDEBAR_TABS — single source of truth (mirrors vanilla dashboard.js order)
@@ -179,16 +180,31 @@ function KpiCard({ icon, value, label, accent }: KpiCardProps) {
 // Links to '/admin' (React Router Link, matches vanilla setAdminTab behaviour)
 // ---------------------------------------------------------------------------
 
+// Colore icona per sezione (classi Tailwind letterali → generate dallo scanner).
+const SECTION_ICON_COLORS: Record<string, string> = {
+  sezioni: 'bg-brand-50 text-brand-700',
+  commissari: 'bg-amber-50 text-amber-700',
+  commissioni: 'bg-violet-50 text-violet-700',
+  fasi: 'bg-emerald-50 text-emerald-700',
+  calendario: 'bg-sky-50 text-sky-700',
+  iscrizioni: 'bg-rose-50 text-rose-700',
+  candidati: 'bg-indigo-50 text-indigo-700',
+  risultati: 'bg-yellow-50 text-yellow-700',
+  audit: 'bg-slate-100 text-slate-700',
+  'impostazioni-concorso': 'bg-cyan-50 text-cyan-700',
+};
+
 function SectionCard({ tab, count }: { tab: SidebarTab; count: number | null }) {
   // 'impostazioni-concorso' (id vanilla) → tab 'impostazioni' del workspace.
   const tabId = tab.id === 'impostazioni-concorso' ? 'impostazioni' : tab.id;
+  const iconColor = SECTION_ICON_COLORS[tab.id] ?? 'bg-brand-50 text-brand-700';
   return (
     <Link
       to={`/admin?tab=${tabId}`}
       className="text-left bg-white border border-slate-200 hover:border-brand-300 hover:shadow-md rounded-xl p-4 transition-all group block"
     >
       <div className="flex items-center justify-between mb-2">
-        <span className="w-9 h-9 rounded-lg bg-brand-50 text-brand-700 inline-flex items-center justify-center group-hover:bg-brand-100 transition-colors">
+        <span className={`w-9 h-9 rounded-lg ${iconColor} inline-flex items-center justify-center transition-colors`}>
           {tab.icon}
         </span>
         {count != null && (
@@ -262,7 +278,7 @@ interface FaseStat {
   ammessi: number;
 }
 
-function FasiSummaryTable({ fasi, activeId }: { fasi: Fase[]; activeId: string }) {
+function FasiSummaryTable({ fasi, activeId, sezioni }: { fasi: Fase[]; activeId: string; sezioni: Sezione[] }) {
   // Step 1: candidati-fase per ogni fase
   const cfQueries = useQueries({
     queries: fasi.map((f) => ({
@@ -294,7 +310,8 @@ function FasiSummaryTable({ fasi, activeId }: { fasi: Fase[]; activeId: string }
     const valCount = valQueries[i]?.data?.length ?? 0;
     const ammessi = cfs.filter((cf) => cf.ammessoProssimaFase).length;
     return {
-      nome: f.nome,
+      // Etichetta completa "fase madre · figlia" per distinguere figlie omonime.
+      nome: faseFullLabel(f, sezioni),
       ordine: f.ordine,
       totale: cfs.length,
       valutazioni: valCount,
@@ -565,7 +582,7 @@ function DashboardContent({ activeId }: { activeId: string }) {
             />
             {/* Riepilogo per fase — 5 colonne: Fase/Candidati/Valutazioni/Ammessi/% */}
             {fasiSorted.length > 0 && (
-              <FasiSummaryTable fasi={fasiSorted} activeId={activeId} />
+              <FasiSummaryTable fasi={fasiSorted} activeId={activeId} sezioni={sezioni} />
             )}
           </div>
         </section>
