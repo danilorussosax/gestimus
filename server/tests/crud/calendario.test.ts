@@ -139,6 +139,35 @@ describe('Calendario / scheduling', () => {
     assert.equal(slots[1]!.oraPrevista, '14:15:00');
   });
 
+  // ---------- pre-start: candidati assegnati compaiono senza avvio fase ----------
+  test('blocco creato con fase PIANIFICATA → candidati assegnati popolati senza start né candidati-fase', async () => {
+    // Sezione/categoria dedicate + 2 candidati assegnati SOLO a sezione/categoria
+    // (nessun POST /candidati-fase, nessun /fasi/:id/start).
+    const sez = (await app.inject({ method: 'POST', url: '/api/sezioni', headers: H1(),
+      payload: { concorsoId, nome: 'Cal Fiati', ordine: 2 } })).json();
+    const cat = (await app.inject({ method: 'POST', url: '/api/categorie', headers: H1(),
+      payload: { sezioneId: sez.id, nome: 'Cal Junior' } })).json();
+    for (const n of [21, 22]) {
+      await app.inject({ method: 'POST', url: '/api/candidati', headers: H1(),
+        payload: { concorsoId, numeroCandidato: n, nome: `Pre${n}`, cognome: `Cog${n}`, strumento: 'Flauto', sezioneId: sez.id, categoriaId: cat.id } });
+    }
+    const fase = (await app.inject({ method: 'POST', url: '/api/fasi', headers: H1(),
+      payload: { concorsoId, ordine: 2, nome: 'Cal Semifinale', scala: 100 } })).json();
+    assert.equal(fase.stato, 'PIANIFICATA', 'fase non avviata');
+
+    // Creazione blocco: gli slot devono già esistere (recompute alla create).
+    const c = await app.inject({ method: 'POST', url: '/api/calendario/eventi', headers: H1(),
+      payload: { concorsoId, faseId: fase.id, sezioneId: sez.id, categoriaId: cat.id, tipo: 'ESIBIZIONE',
+        data: '2026-06-02', oraInizio: '10:00', durataCandidatoMinuti: 20 } });
+    assert.equal(c.statusCode, 201);
+    const r = await app.inject({ method: 'POST', url: `/api/calendario/eventi/${c.json().id}/genera-slot`, headers: H1(), payload: {} });
+    const slots = r.json() as Array<{ oraPrevista: string; numeroCandidato: number }>;
+    assert.equal(slots.length, 2, 'i 2 candidati assegnati compaiono prima dell\'avvio fase');
+    assert.deepEqual(slots.map((s) => s.numeroCandidato), [21, 22]);
+    assert.equal(slots[0]!.oraPrevista, '10:00:00');
+    assert.equal(slots[1]!.oraPrevista, '10:20:00');
+  });
+
   // ---------- pubblicazioni + route pubblica ----------
   let tokenNomi: string;
   let tokenAnon: string;

@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync, FastifyReply } from 'fastify';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   calendarioPubblicazioni,
@@ -9,6 +9,7 @@ import {
   concorsi,
   eventiCalendario,
   fasi,
+  fasiSezioni,
   sale,
   sezioni,
 } from '../db/schema.js';
@@ -39,6 +40,46 @@ function minutesToTime(total: number): string {
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:00`;
 }
 
+/**
+ * Garantisce che esistano righe candidati_fase per la fase del blocco, così i
+ * candidati assegnati (sezione/categoria) compaiano nel calendario anche PRIMA
+ * dell'avvio fase. Idempotente: popola solo se la fase non ha ancora righe.
+ * Mirror di fasi.ts POST /:id/start (auto-popola): se la fase ha sezioni
+ * associate prende i candidati del concorso filtrati per quelle sezioni,
+ * altrimenti tutti i candidati del concorso della fase.
+ */
+async function ensureCandidatiFasePopulati(tx: TxClient, tenantId: string, faseId: string): Promise<void> {
+  const existing = await tx
+    .select({ id: candidatiFase.id })
+    .from(candidatiFase)
+    .where(eq(candidatiFase.faseId, faseId))
+    .limit(1);
+  if (existing.length > 0) return;
+  const [fase] = await tx.select({ concorsoId: fasi.concorsoId }).from(fasi).where(eq(fasi.id, faseId)).limit(1);
+  if (!fase) return;
+  // N109: blocca le associazioni sezione della fase per la durata della tx così
+  // un PATCH concorrente delle sezioni non fa popolare candidati incoerenti.
+  await tx.select({ faseId: fasiSezioni.faseId }).from(fasiSezioni).where(eq(fasiSezioni.faseId, faseId)).for('update');
+  const sezRows = await tx.select({ sezioneId: fasiSezioni.sezioneId }).from(fasiSezioni).where(eq(fasiSezioni.faseId, faseId));
+  const sezIds = sezRows.map((r) => r.sezioneId);
+  const candRows = sezIds.length > 0
+    ? await tx
+        .select({ id: candidati.id })
+        .from(candidati)
+        .where(and(eq(candidati.concorsoId, fase.concorsoId), inArray(candidati.sezioneId, sezIds)))
+    : await tx
+        .select({ id: candidati.id })
+        .from(candidati)
+        .where(eq(candidati.concorsoId, fase.concorsoId));
+  if (candRows.length === 0) return;
+  // L'INSERT è idempotente (uniq su (fase_id, candidato_id) + ON CONFLICT DO
+  // NOTHING) rispetto a chiamate concorrenti che trovino entrambe existing vuoto.
+  await tx
+    .insert(candidatiFase)
+    .values(candRows.map((c, i) => ({ tenantId, faseId, candidatoId: c.id, posizione: i + 1 })))
+    .onConflictDoNothing({ target: [candidatiFase.faseId, candidatiFase.candidatoId] });
+}
+
 /** Restituisce i candidati_fase del blocco, nell'ordine di esibizione. */
 async function matchedSlots(tx: TxClient, evento: typeof eventiCalendario.$inferSelect) {
   if (!evento.faseId) return [];
@@ -53,7 +94,7 @@ async function matchedSlots(tx: TxClient, evento: typeof eventiCalendario.$infer
     .orderBy(asc(candidatiFase.posizione), asc(candidati.numeroCandidato));
 }
 
-async function recomputeSlots(tx: TxClient, eventoId: string): Promise<void> {
+async function recomputeSlots(tx: TxClient, tenantId: string, eventoId: string): Promise<void> {
   const [evento] = await tx.select().from(eventiCalendario).where(eq(eventiCalendario.id, eventoId)).limit(1);
   if (!evento) return;
   // Sgancia eventuali slot precedenti del blocco (es. dopo cambio sezione/categoria).
@@ -62,6 +103,9 @@ async function recomputeSlots(tx: TxClient, eventoId: string): Promise<void> {
     .set({ eventoId: null, oraPrevista: null, updatedAt: new Date() })
     .where(eq(candidatiFase.eventoId, eventoId));
   if (evento.tipo !== 'ESIBIZIONE' || !evento.faseId) return;
+  // Popola candidati_fase se la fase è ancora vuota: i candidati assegnati
+  // devono comparire nel blocco anche prima dell'avvio fase.
+  await ensureCandidatiFasePopulati(tx, tenantId, evento.faseId);
   const slots = await matchedSlots(tx, evento);
   const startMin = evento.oraInizio ? parseTimeToMinutes(evento.oraInizio) : null;
   const durata = evento.durataCandidatoMinuti ?? 0;
@@ -219,6 +263,9 @@ export const calendarioRoutes: FastifyPluginAsync = async (app) => {
         .insert(eventiCalendario)
         .values({ tenantId: req.tenant!.id, ...parsed.data })
         .returning();
+      // Popola subito gli slot: i candidati assegnati alla sezione/categoria del
+      // blocco compaiono nel calendario alla creazione, senza attendere l'avvio fase.
+      await recomputeSlots(tx, req.tenant!.id, created!.id);
       await writeAudit(tx, req, 'evento.create', { targetType: 'evento', targetId: created!.id, payload: { data: created!.data, tipo: created!.tipo } });
       return reply.code(201).send(created);
     });
@@ -238,7 +285,7 @@ export const calendarioRoutes: FastifyPluginAsync = async (app) => {
       if (!updated) return reply.notFound();
       // Lo spostamento (data/sala/ora/durata/sezione/categoria) cambia gli orari:
       // ricalcola gli slot di conseguenza.
-      await recomputeSlots(tx, id);
+      await recomputeSlots(tx, req.tenant!.id, id);
       await writeAudit(tx, req, 'evento.update', { targetType: 'evento', targetId: id, payload: parsed.data });
       return updated;
     });
@@ -260,7 +307,7 @@ export const calendarioRoutes: FastifyPluginAsync = async (app) => {
     return req.dbTx(async (tx) => {
       const [evento] = await tx.select().from(eventiCalendario).where(eq(eventiCalendario.id, id)).limit(1);
       if (!evento) return reply.notFound();
-      await recomputeSlots(tx, id);
+      await recomputeSlots(tx, req.tenant!.id, id);
       await writeAudit(tx, req, 'evento.genera_slot', { targetType: 'evento', targetId: id });
       // Ritorna gli slot aggiornati (cf + numero candidato + orario).
       return tx
@@ -293,7 +340,7 @@ export const calendarioRoutes: FastifyPluginAsync = async (app) => {
           .set({ posizione: i + 1, updatedAt: new Date() })
           .where(eq(candidatiFase.id, given[i]!));
       }
-      await recomputeSlots(tx, id);
+      await recomputeSlots(tx, req.tenant!.id, id);
       await writeAudit(tx, req, 'evento.riordina_slot', { targetType: 'evento', targetId: id, payload: { n: given.length } });
       return tx
         .select({ id: candidatiFase.id, candidatoId: candidatiFase.candidatoId, posizione: candidatiFase.posizione, oraPrevista: candidatiFase.oraPrevista, numeroCandidato: candidati.numeroCandidato })
