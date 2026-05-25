@@ -103,6 +103,40 @@ jobs:
         run: npm run lint
 
   # ---------------------------------------------------------------------------
+  # 3a-bis) Frontend React (frontend/): typecheck strict + lint + unit + build.
+  # ---------------------------------------------------------------------------
+  frontend-react:
+    name: Frontend React (typecheck + lint + test + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install deps
+        working-directory: frontend
+        run: npm ci
+
+      - name: Typecheck (tsc -b strict)
+        working-directory: frontend
+        run: npx tsc -b
+
+      - name: Lint (eslint — 0 errori)
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Unit test (vitest)
+        working-directory: frontend
+        run: npm run test
+
+      - name: Build (vite + PWA)
+        working-directory: frontend
+        run: npm run build
+
+  # ---------------------------------------------------------------------------
   # 3b) Test server (integrazione): Postgres 18 reale → bootstrap + setup +
   #     seed + suite completa (rls/auth/crud/realtime). uuidv7() richiede PG18.
   # ---------------------------------------------------------------------------
