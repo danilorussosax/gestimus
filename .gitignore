@@ -17,15 +17,6 @@ Desktop.ini
 node_modules/
 package-lock.json.bak
 
-# ---- PocketBase: binario + dati runtime (DB, attachments) + doc del binario ----
-# NON committare il binario (40+ MB) né i dati dei tenant locali.
-pocketbase/pocketbase
-pocketbase/pb_data
-pocketbase/pb_data_*
-pocketbase/_archive/
-pocketbase/CHANGELOG.md
-pocketbase/LICENSE.md
-
 # ---- Backup / archivi locali ----
 backups/
 *.bak
