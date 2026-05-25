@@ -10,8 +10,9 @@
  *   exportCalendarioPdf(opts) → Promise<void>  (avvia il download)
  */
 
-import { jsPDF } from 'jspdf';
-import { autoTable } from 'jspdf-autotable';
+// jspdf + jspdf-autotable sono caricati on-demand (dynamic import dentro
+// exportCalendarioPdf): pesano ~377KB gz con html2canvas/canvg e non devono
+// entrare nel bundle iniziale.
 import { toast } from 'sonner';
 import i18n from '@/i18n';
 
@@ -104,6 +105,10 @@ const hhmm = (s: string | null | undefined) => (s ? String(s).slice(0, 5) : '');
 // ─── Export principale ──────────────────────────────────────────────────────
 
 export async function exportCalendarioPdf(opts: CalendarioPdfOpts): Promise<void> {
+  const [{ jsPDF }, { autoTable }] = await Promise.all([
+    import('jspdf'),
+    import('jspdf-autotable'),
+  ]);
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
 
   const margin = 40;

@@ -21,7 +21,7 @@ import type { Candidato, CandidatoFase } from '@/types';
 import { fmtVoto, getScala, getMetodoMedia, getModoValutazione, METODI_MEDIA } from '@/lib/scoring';
 import { faseFullLabel } from '@/lib/fase-label';
 import type { RankedRow } from '@/lib/tiebreak';
-import { jsPDF } from 'jspdf';
+// jsPDF caricato on-demand dentro exportVerbalePdf (fuori dal bundle iniziale).
 import { toast } from 'sonner';
 
 // ─── Verbale tag definitions ─────────────────────────────────────────────────
@@ -764,6 +764,7 @@ async function exportVerbalePdf(
   );
   const text = applyVerbaleTags(template, ctx);
 
+  const { jsPDF } = await import('jspdf');
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
