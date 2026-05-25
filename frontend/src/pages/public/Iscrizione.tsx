@@ -22,7 +22,11 @@ import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { publicApi, type ConcorsoDetailPublic } from '@/api/public';
 import { httpErrorMessage } from '@/lib/api';
+import { resizeImageToFile } from '@/lib/image';
 import { GdprBadge } from './Privacy';
+
+// Limite dimensione allegato lato client (il server applica comunque il proprio).
+const MAX_ALLEGATO_BYTES = 2 * 1024 * 1024;
 
 // ─── Calcolo età ──────────────────────────────────────────────────────────────
 
@@ -319,24 +323,40 @@ export default function Iscrizione() {
       };
       const res = await publicApi.createIscrizione(payload);
 
-      // Upload allegati (best-effort)
+      // Upload allegati (best-effort). La foto viene ridimensionata (max 800px)
+      // prima dell'invio; i file oltre 2 MB vengono scartati con avviso.
+      const failedUploads: string[] = [];
       if (res.uploadToken) {
         for (const [field, tipoAllegato] of Object.entries(ALLEGATO_TIPI)) {
           const inp = fileRefs[field]?.current;
-          const file = inp?.files?.[0];
+          let file = inp?.files?.[0];
           if (!file) continue;
+          if (tipoAllegato === 'foto') file = await resizeImageToFile(file, 800, 0.85);
+          if (file.size > MAX_ALLEGATO_BYTES) {
+            failedUploads.push(field);
+            continue;
+          }
           try {
             await publicApi.uploadAllegato(res.uploadToken, tipoAllegato, file);
           } catch (err) {
             console.warn('Upload allegato fallito:', field, err);
+            failedUploads.push(field);
           }
         }
       }
-      return res;
+      return { ...res, failedUploads };
     },
     onSuccess: (res) => {
       clearDraft();
       const vals = form.getValues();
+      if (res.failedUploads.length > 0) {
+        toast.warning(
+          t('iscr.upload.partial_fail', {
+            defaultValue:
+              'Iscrizione inviata, ma alcuni allegati non sono stati caricati (formato o dimensione, max 2 MB). Potrai ricaricarli contattando la segreteria.',
+          }),
+        );
+      }
       setSuccess({ id: res.iscrizioneId, email: vals.email, nome: vals.nome });
     },
     onError: (err) => {
@@ -440,7 +460,36 @@ export default function Iscrizione() {
       </div>
 
       <form
-        onSubmit={handleSubmit((vals) => submitMut.mutate(vals))}
+        onSubmit={handleSubmit(
+          (vals) => {
+            // Tutore obbligatorio per i minorenni (lo schema lo tiene opzionale
+            // perché dipende dall'età, calcolata a runtime).
+            if (
+              isMinore &&
+              (!vals.tutore_nome?.trim() || !vals.tutore_cognome?.trim() || !vals.tutore_email?.trim())
+            ) {
+              toast.error(
+                t('iscr.tutore.required', {
+                  defaultValue:
+                    'Per un candidato minorenne nome, cognome ed email del tutore sono obbligatori.',
+                }),
+              );
+              return;
+            }
+            submitMut.mutate(vals);
+          },
+          (errs) => {
+            // Scroll al primo campo invalido + avviso cumulativo.
+            const first = Object.keys(errs)[0];
+            if (first) {
+              const el = document.querySelector(`[name="${first}"]`);
+              if (el) (el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+            toast.error(
+              t('iscr.errors.check_fields', { defaultValue: 'Controlla i campi evidenziati.' }),
+            );
+          },
+        )}
         className="space-y-6"
         autoComplete="off"
         noValidate
