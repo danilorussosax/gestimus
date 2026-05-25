@@ -19,8 +19,9 @@ import { rankWithTieBreak, effectiveStrategy, type RankedRow } from '@/lib/tiebr
 import { fetchValutazioniByFase } from '@/api/valutazioni';
 import { getConcorso } from '@/api/concorsi';
 import { listCriteri } from '@/api/criteri';
-import { normalizeCandidato } from '@/api/candidati';
+import { normalizeCandidato, candidatiApi } from '@/api/candidati';
 import { criteriFromRecords } from '@/lib/scoring';
+import { getPresidenteForFase } from '@/lib/presidenti';
 import { commissariApi } from '@/api/commissari';
 import { commissioniApi } from '@/api/commissioni';
 import { sezioniApi } from '@/api/sezioni';
@@ -142,9 +143,13 @@ interface FaseLeaderboardProps {
   anon: boolean;
   /** Concorso (per la cascata tiebreak ereditata quando la fase non ha override). */
   concorso: Concorso | null;
+  /** Per gli step spareggio "voto del Presidente" ed "età" dei gruppi. */
+  commissioni: CommissioneRecord[];
+  commissari: CommissarioRecord[];
+  membriMap: MembriMap;
 }
 
-function FaseLeaderboard({ fase, candidati, showEsito, anon, concorso }: FaseLeaderboardProps) {
+function FaseLeaderboard({ fase, candidati, showEsito, anon, concorso, commissioni, commissari, membriMap }: FaseLeaderboardProps) {
   const { t } = useTranslation();
   const cfQuery = useCandidatiFase(fase.id);
   const cfIds = useMemo(
@@ -176,10 +181,12 @@ function FaseLeaderboard({ fase, candidati, showEsito, anon, concorso }: FaseLea
       }));
       return { cf, cand, media: mediaCandidato(vs, faseWithCriteri), valutazioni: vs };
     });
-    return rankWithTieBreak(rows, faseWithCriteri, {
-      strategy: effectiveStrategy(faseWithCriteri, concorso),
-    });
-  }, [cfQuery.data, valQuery.data, candidati, fase, concorso, criteriQ.data]);
+    return rankWithTieBreak(
+      rows,
+      faseWithCriteri,
+      makeRankCtx(faseWithCriteri, concorso, commissioni, commissari, candidati, membriMap),
+    );
+  }, [cfQuery.data, valQuery.data, candidati, fase, concorso, criteriQ.data, commissioni, commissari, membriMap]);
 
   if (cfQuery.isLoading || valQuery.isLoading) {
     return (
@@ -376,9 +383,81 @@ interface RisultatiTabProps {
   concorsoId: string;
 }
 
-// Mappa vuota stabile (ref costante) passata a VerbaleBlock come stub: la
-// classifica live è gestita dai FaseLeaderboard, il PDF la ricalcola on-demand.
+// Mappa vuota stabile (ref costante): fallback finché la mappa reale è in caricamento.
 const EMPTY_RANKED_MAP = new Map<string, RankedRow[]>();
+
+type MembriMap = Map<string, unknown[]>;
+
+// Ref stabile per il fallback (evita di ricreare la mappa a ogni render).
+const EMPTY_MEMBRI_MAP: MembriMap = new Map();
+
+/** Carica i membri di tutti i candidati-gruppo (per lo step spareggio "età"). */
+async function fetchMembriMap(candidati: Candidato[]): Promise<MembriMap> {
+  const groupIds = candidati
+    .filter((c) => (c as { isGruppo?: boolean }).isGruppo)
+    .map((c) => c.id);
+  const entries = await Promise.all(
+    groupIds.map(async (id) => [id, await candidatiApi.membri(id).catch(() => [])] as const),
+  );
+  return new Map(entries);
+}
+
+/**
+ * Contesto completo per rankWithTieBreak: strategy ereditata + presidente +
+ * tutti i candidati (età individuale) + membri (età gruppi). Senza questi, gli
+ * step spareggio "voto del Presidente" ed "età" sarebbero inerti.
+ */
+function makeRankCtx(
+  fase: FaseRecord,
+  concorso: Concorso | null,
+  commissioni: CommissioneRecord[],
+  commissari: CommissarioRecord[],
+  candidati: Candidato[],
+  membriMap: MembriMap,
+) {
+  const presidente = getPresidenteForFase(
+    fase as Parameters<typeof getPresidenteForFase>[0],
+    commissioni as Parameters<typeof getPresidenteForFase>[1],
+    commissari as Parameters<typeof getPresidenteForFase>[2],
+  );
+  return {
+    strategy: effectiveStrategy(fase, concorso),
+    presidenteId: presidente?.id ?? null,
+    allCandidati: candidati,
+    getMembri: (id: string) => membriMap.get(id) ?? [],
+  };
+}
+
+/** Costruisce la classifica per ogni fase (usata da PDF e dal blocco Verbale). */
+async function buildRankedByFase(
+  fasi: FaseRecord[],
+  candidati: Candidato[],
+  concorso: Concorso | null,
+  commissioni: CommissioneRecord[],
+  commissari: CommissarioRecord[],
+): Promise<Map<string, RankedRow[]>> {
+  const membriMap = await fetchMembriMap(candidati);
+  const map = new Map<string, RankedRow[]>();
+  for (const fase of fasi) {
+    const cfs = await http.get<CandidatoFase[]>('candidati-fase', { faseId: fase.id, limit: 500 });
+    if (cfs.length === 0) continue;
+    const vals = await fetchValutazioniByFase(cfs.map((c) => c.id));
+    const criteriRecords = await listCriteri(fase.id);
+    const faseWithCriteri = { ...fase, criteri: criteriFromRecords(criteriRecords) };
+    const rows = cfs.map((cf) => {
+      const cand = candidati.find((c) => c.id === cf.candidatoId);
+      const vs = vals
+        .filter((v) => v.candidatoFaseId === cf.id)
+        .map((v) => ({ commissario_id: v.commissarioId, criterio: v.criterio, voto: v.voto }));
+      return { cf, cand, media: mediaCandidato(vs, faseWithCriteri), valutazioni: vs };
+    });
+    map.set(
+      fase.id,
+      rankWithTieBreak(rows, faseWithCriteri, makeRankCtx(fase, concorso, commissioni, commissari, candidati, membriMap)),
+    );
+  }
+  return map;
+}
 
 export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
   const { t } = useTranslation();
@@ -391,6 +470,33 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
   const commissariQuery = useCommissariData(concorsoId);
   const commissioniQuery = useCommissioniData(concorsoId);
   const sezioniQuery = useSezioniData(concorsoId);
+
+  // Membri dei candidati-gruppo (per lo step spareggio "età"), condivisi dai
+  // FaseLeaderboard live.
+  const membriMapQuery = useQuery({
+    queryKey: ['membri-map', concorsoId],
+    queryFn: () => fetchMembriMap(candidatiQuery.data ?? []),
+    enabled: !!candidatiQuery.data,
+    staleTime: 60_000,
+  });
+  const membriMap = membriMapQuery.data ?? (EMPTY_MEMBRI_MAP as MembriMap);
+
+  // Classifica per-fase completa (con presidente + età) per il blocco Verbale:
+  // i tag <podio>/<vincitore>/<risultati>/<spareggi> dipendono da questa mappa.
+  const rankedMapQuery = useQuery({
+    queryKey: ['ranked-by-fase', concorsoId, (fasiQuery.data ?? []).map((f) => f.id).join(',')],
+    queryFn: () =>
+      buildRankedByFase(
+        fasiQuery.data ?? [],
+        candidatiQuery.data ?? [],
+        concorsoQuery.data ?? null,
+        commissioniQuery.data ?? [],
+        commissariQuery.data ?? [],
+      ),
+    enabled:
+      !!fasiQuery.data && !!candidatiQuery.data && !!commissioniQuery.data && !!commissariQuery.data,
+    staleTime: 30_000,
+  });
 
   // groupSize: how many fasi share same sezioniIds signature (vanilla computeGroupSizes)
   const groupSize = useMemo(() => {
@@ -415,24 +521,16 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
     const concorso = concorsoQuery.data ?? null;
     // Vanilla header: Fase,Posizione,Numero,Nome,Cognome,Strumento,Nazionalita,Eta,Media,Esito
     const lines = ['Fase,Posizione,Numero,Nome,Cognome,Strumento,Nazionalita,Eta,Media,Esito'];
+    const rankedMap = await buildRankedByFase(
+      fasi,
+      candidati,
+      concorso,
+      commissioniQuery.data ?? [],
+      commissariQuery.data ?? [],
+    );
     for (const fase of fasi) {
-      const cfs = await http.get<CandidatoFase[]>('candidati-fase', { faseId: fase.id, limit: 500 });
-      if (cfs.length === 0) continue;
-      const vals = await fetchValutazioniByFase(cfs.map((c) => c.id));
-      const criteriRecords = await listCriteri(fase.id);
-      const faseWithCriteri = { ...fase, criteri: criteriFromRecords(criteriRecords) };
-      const rows = cfs.map((cf) => {
-        const cand = candidati.find((c) => c.id === cf.candidatoId);
-        const vs = vals
-          .filter((v) => v.candidatoFaseId === cf.id)
-          .map((v) => ({
-            commissario_id: v.commissarioId,
-            criterio: v.criterio,
-            voto: v.voto,
-          }));
-        return { cf, cand, media: mediaCandidato(vs, faseWithCriteri), valutazioni: vs };
-      });
-      const ranked = rankWithTieBreak(rows, faseWithCriteri, { strategy: effectiveStrategy(faseWithCriteri, concorso) });
+      const ranked = rankedMap.get(fase.id);
+      if (!ranked || ranked.length === 0) continue;
       ranked.forEach((r, i) => {
         const cand = r.cand as Candidato | undefined;
         const cf = r.cf as CandidatoFase;
@@ -471,7 +569,7 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
     }
     // BOM UTF-8 per Excel + nome file sanificato (vanilla logic)
     const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
-    const safeName = ((fasiQuery.data?.[0]?.concorsoId ?? '') || 'risultati')
+    const safeName = ((concorsoQuery.data?.nome ?? '') || 'risultati')
       // eslint-disable-next-line no-control-regex -- sanitizzazione nome file CSV
       .replace(/[\\/\x00-\x1f]+/g, '_')
       .replaceAll(' ', '_') || 'risultati';
@@ -483,32 +581,19 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
     URL.revokeObjectURL(url);
   };
 
-  // Protocollo PDF: fetch all cf + vals on demand and rank
+  // Protocollo PDF: fetch all cf + vals on demand and rank (stesso motore del Verbale)
   const handleExportPdf = async () => {
     const concorso = concorsoQuery.data;
     if (!concorso) return;
     const fasi = fasiQuery.data ?? [];
     const candidati = candidatiQuery.data ?? [];
-    const rankedMap = new Map<string, RankedRow[]>();
-    for (const fase of fasi) {
-      const cfs = await http.get<CandidatoFase[]>('candidati-fase', { faseId: fase.id, limit: 500 });
-      if (cfs.length === 0) continue;
-      const vals = await fetchValutazioniByFase(cfs.map((c) => c.id));
-      const criteriRecords = await listCriteri(fase.id);
-      const faseWithCriteri = { ...fase, criteri: criteriFromRecords(criteriRecords) };
-      const rows = cfs.map((cf) => {
-        const cand = candidati.find((c) => c.id === cf.candidatoId);
-        const vs = vals
-          .filter((v) => v.candidatoFaseId === cf.id)
-          .map((v) => ({
-            commissario_id: v.commissarioId,
-            criterio: v.criterio,
-            voto: v.voto,
-          }));
-        return { cf, cand, media: mediaCandidato(vs, faseWithCriteri), valutazioni: vs };
-      });
-      rankedMap.set(fase.id, rankWithTieBreak(rows, faseWithCriteri, { strategy: effectiveStrategy(faseWithCriteri, concorso) }));
-    }
+    const rankedMap = await buildRankedByFase(
+      fasi,
+      candidati,
+      concorso,
+      commissioniQuery.data ?? [],
+      commissariQuery.data ?? [],
+    );
     await exportProtocolloPdf({
       concorso: {
         id: concorso.id,
@@ -549,8 +634,6 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
   const sezioni: SezioneRecord[] = sezioniQuery.data ?? [];
   const concorso = concorsoQuery.data ?? null;
 
-  // EMPTY_RANKED_MAP stub for VerbaleBlock (module-level constant = no conditional hook)
-  const rankedByFaseStub = EMPTY_RANKED_MAP;
 
   return (
     <div className="space-y-6">
@@ -606,6 +689,9 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
               showEsito={showEsito}
               anon={anon}
               concorso={concorso}
+              commissioni={commissioni}
+              commissari={commissari}
+              membriMap={membriMap}
             />
           </div>
         );
@@ -623,7 +709,7 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
           }}
           fasi={fasi}
           candidati={candidati}
-          rankedByFase={rankedByFaseStub}
+          rankedByFase={rankedMapQuery.data ?? EMPTY_RANKED_MAP}
           commissioni={commissioni}
           commissari={commissari}
           sezioni={sezioni}
