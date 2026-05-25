@@ -672,7 +672,7 @@ function FaseFormDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl">
+      <DialogContent className="sm:max-w-4xl sm:p-8">
         <DialogHeader>
           <DialogTitle>{isEdit ? `Modifica fase: ${existing?.nome}` : 'Nuova fase'}</DialogTitle>
           <DialogDescription className="sr-only">
@@ -680,11 +680,11 @@ function FaseFormDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={onSubmit} className="space-y-6 overflow-y-auto max-h-[76dvh] pr-1">
+        <form onSubmit={onSubmit} className="space-y-7 overflow-y-auto max-h-[76dvh] pr-2">
           {/* ====== Sezione 1: Generale ====== */}
-          <section>
+          <section className="rounded-xl border border-slate-100 bg-slate-50/40 px-5 py-4">
             <SectionHeader num={1} title="Informazioni generali" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <label className="c-field">
                 <span className="c-field__label">Nome</span>
                 <input
@@ -710,11 +710,11 @@ function FaseFormDialog({
           </section>
 
           {/* ====== Sezione 2: Esecuzione ====== */}
-          <section>
+          <section className="rounded-xl border border-slate-100 bg-slate-50/40 px-5 py-4">
             <SectionHeader num={2} title="Modalità di esecuzione" />
 
             {/* Tre card numeriche: scala / tempo / posti */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
               <NumericCard
                 icon="🎯"
                 title="Scala di voto"
@@ -780,7 +780,7 @@ function FaseFormDialog({
             </div>
 
             {/* Testi custom esito */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
               <label className="c-field">
                 <span className="c-field__label">Testo esito "ammesso"</span>
                 <input
@@ -810,8 +810,8 @@ function FaseFormDialog({
             </div>
 
             {/* Modalità di valutazione: due radio-card */}
-            <p className="c-field__label mb-2 mt-3">Modalità di valutazione</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <p className="c-field__label mb-2 mt-4">Modalità di valutazione</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {(['autonoma', 'sincrona'] as const).map((key) => {
                 const m = MODI_VALUTAZIONE[key];
                 const selected = values.modoValutazione === key;
@@ -854,7 +854,7 @@ function FaseFormDialog({
           </section>
 
           {/* ====== Sezione 3: Metodo di calcolo media ====== */}
-          <section>
+          <section className="rounded-xl border border-slate-100 bg-slate-50/40 px-5 py-4">
             <SectionHeader
               num={3}
               title="Metodo di calcolo della media"
@@ -874,7 +874,7 @@ function FaseFormDialog({
                 <p className="text-emerald-800 text-xs mt-0.5">{suggerito.motivo}</p>
               </div>
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               {Object.entries(METODI_MEDIA).map(([key, m]) => {
                 const isSel = key === values.metodoMedia;
                 const isSug = key === suggerito.metodo;
@@ -923,7 +923,7 @@ function FaseFormDialog({
           </section>
 
           {/* ====== Sezione 4: Criteri ====== */}
-          <section>
+          <section className="rounded-xl border border-slate-100 bg-slate-50/40 px-5 py-4">
             <SectionHeader
               num={4}
               title="Criteri di valutazione"
@@ -941,7 +941,7 @@ function FaseFormDialog({
             </p>
             <div className="space-y-2">
               {values.criteri.map((c, i) => (
-                <div key={i} className="grid grid-cols-12 gap-2 items-end">
+                <div key={i} className="grid grid-cols-12 gap-3 items-end">
                   <label className="col-span-5 c-field">
                     {i === 0 && <span className="c-field__label">Etichetta</span>}
                     <input
@@ -1000,9 +1000,9 @@ function FaseFormDialog({
           </section>
 
           {/* ====== Sezione 5: Restrizione e assegnazione ====== */}
-          <section>
+          <section className="rounded-xl border border-slate-100 bg-slate-50/40 px-5 py-4">
             <SectionHeader num={5} title="Restrizione e assegnazione" />
-            <div className="space-y-4">
+            <div className="space-y-5">
               {/* Sezioni di scope */}
               <div>
                 <p className="c-field__label mb-2">Limita ai candidati delle sezioni</p>
@@ -1072,7 +1072,7 @@ function FaseFormDialog({
           </section>
 
           {/* ====== Sezione 6: Regole di spareggio ====== */}
-          <section>
+          <section className="rounded-xl border border-slate-100 bg-slate-50/40 px-5 py-4">
             <SectionHeader num={6} title="Regole in caso di ex aequo" />
             <div className="space-y-3">
               {isInherited && (
@@ -1857,7 +1857,7 @@ function FaseWizardDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl">
+      <DialogContent className="sm:max-w-4xl sm:p-8">
         <DialogHeader>
           <DialogTitle>Configura fasi per {groupLabel}</DialogTitle>
           <DialogDescription className="sr-only">
@@ -1865,7 +1865,7 @@ function FaseWizardDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={onSubmit} className="space-y-6 overflow-y-auto max-h-[76dvh] pr-1">
+        <form onSubmit={onSubmit} className="space-y-7 overflow-y-auto max-h-[76dvh] pr-2">
           <div className="bg-brand-50/60 border border-brand-100 rounded-xl px-4 py-3 text-sm text-slate-700">
             <p>
               Stai configurando le fasi per: {groupLabel}.{' '}
@@ -1876,9 +1876,9 @@ function FaseWizardDialog({
           </div>
 
           {/* Step 1: template */}
-          <section>
+          <section className="rounded-xl border border-slate-100 bg-slate-50/40 px-5 py-4">
             <SectionHeader num={1} title="Quante fasi?" />
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               {Object.entries(WIZ_TEMPLATES).map(([k, def]) => {
                 const sel = k === tpl;
                 return (
@@ -1907,7 +1907,7 @@ function FaseWizardDialog({
           </section>
 
           {/* Step 2: lista fasi */}
-          <section>
+          <section className="rounded-xl border border-slate-100 bg-slate-50/40 px-5 py-4">
             <SectionHeader
               num={2}
               title="Nome e posti per ogni fase"
@@ -1958,9 +1958,9 @@ function FaseWizardDialog({
           </section>
 
           {/* Step 3: configurazione comune */}
-          <section>
+          <section className="rounded-xl border border-slate-100 bg-slate-50/40 px-5 py-4">
             <SectionHeader num={3} title="Configurazione comune (vale per tutte le sotto-fasi)" />
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
               <NumericCard
                 icon="🎯"
                 title="Scala di voto"
@@ -2021,8 +2021,8 @@ function FaseWizardDialog({
               </div>
             </div>
 
-            <p className="c-field__label mb-2">Modalità di valutazione</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
+            <p className="c-field__label mb-2 mt-1">Modalità di valutazione</p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
               {(['autonoma', 'sincrona'] as const).map((key) => {
                 const m = MODI_VALUTAZIONE[key];
                 const selected = modoValutazione === key;
@@ -2052,7 +2052,7 @@ function FaseWizardDialog({
             </div>
 
             <p className="c-field__label mb-2">Metodo di calcolo media</p>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-3">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
               {Object.entries(METODI_MEDIA).map(([key, m]) => {
                 const isSel = key === metodoMedia;
                 const isSug = key === suggerito.metodo;
@@ -2099,7 +2099,7 @@ function FaseWizardDialog({
             </p>
             <div className="space-y-2">
               {criteri.map((c, i) => (
-                <div key={i} className="grid grid-cols-12 gap-2 items-end">
+                <div key={i} className="grid grid-cols-12 gap-3 items-end">
                   <label className="col-span-7 c-field">
                     {i === 0 && <span className="c-field__label">Etichetta</span>}
                     <input
@@ -2310,7 +2310,7 @@ function SharedFieldsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-3xl">
+      <DialogContent className="sm:max-w-4xl sm:p-8">
         <DialogHeader>
           <DialogTitle>Configurazione condivisa</DialogTitle>
           <DialogDescription className="sr-only">
@@ -2318,7 +2318,7 @@ function SharedFieldsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <form onSubmit={onSubmit} className="space-y-4 overflow-y-auto max-h-[76dvh] pr-1">
+        <form onSubmit={onSubmit} className="space-y-4 overflow-y-auto max-h-[76dvh] pr-2">
           <div className="bg-brand-50/60 border border-brand-100 rounded-xl px-4 py-3 text-sm text-slate-700">
             <p>
               Modifica i campi che vuoi applicare a tutte le {fasi.length} sotto-fasi di questo gruppo. I campi senza

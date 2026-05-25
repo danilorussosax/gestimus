@@ -19,6 +19,7 @@ import type { CommissioneRecord } from '@/api/commissioni';
 import type { SezioneRecord } from '@/api/sezioni';
 import type { Candidato, CandidatoFase } from '@/types';
 import { fmtVoto, getScala, getMetodoMedia, getModoValutazione, METODI_MEDIA } from '@/lib/scoring';
+import { faseFullLabel } from '@/lib/fase-label';
 import type { RankedRow } from '@/lib/tiebreak';
 import { jsPDF } from 'jspdf';
 import { toast } from 'sonner';
@@ -437,7 +438,7 @@ export function VerbaleBlock({
   rankedByFase,
   commissioni,
   commissari,
-  sezioni: _sezioni,
+  sezioni,
 }: VerbaleBlockProps) {
   const { t } = useTranslation();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -620,8 +621,7 @@ export function VerbaleBlock({
             >
               {fasi.map((f) => (
                 <option key={f.id} value={f.id}>
-                  {f.ordine}. {f.nome}
-                  {f.sezioniIds.length === 0 ? ' · tutte le sezioni' : ''}
+                  {f.ordine}. {faseFullLabel(f, sezioni)}
                 </option>
               ))}
             </select>

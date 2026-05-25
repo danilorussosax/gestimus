@@ -1713,13 +1713,13 @@ export function CandidatiTab({ concorsoId }: { concorsoId: string }) {
       {/* ---- Filtri ---- */}
       <div className="flex flex-wrap gap-2 mb-2">
         <div className="relative flex-1 min-w-48">
-          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none" />
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 pointer-events-none text-ink-500" />
           <input
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Cerca per nome, strumento…"
-            className="c-input pl-8 h-9 text-sm"
+            className="c-input pl-10 h-9 text-sm"
           />
           {search && (
             <button

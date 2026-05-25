@@ -56,6 +56,7 @@ import {
   DialogClose,
 } from '@/components/ui/dialog';
 import { cn } from '@/lib/utils';
+import { faseFullLabel } from '@/lib/fase-label';
 import { http, httpErrorMessage } from '@/lib/api';
 import { calendarioApi } from '@/api/calendario';
 import { getConcorso } from '@/api/concorsi';
@@ -438,7 +439,7 @@ function BlockDialog({
                   <option value="">{t('cal.block.nessuna_fase')}</option>
                   {fasi.map((f) => (
                     <option key={f.id} value={f.id}>
-                      {f.ordine}. {f.nome}
+                      {f.ordine}. {faseFullLabel(f, sezioni)}
                     </option>
                   ))}
                 </select>
@@ -609,7 +610,17 @@ function LinkDialog({ open, concorsoId, sezioni, onClose }: LinkDialogProps) {
             <select
               className="c-select"
               value={scopo}
-              onChange={(e) => setValue('scopo', e.target.value as 'CONCORSO' | 'SEZIONE' | 'GIORNO')}
+              onChange={(e) => {
+                const next = e.target.value as 'CONCORSO' | 'SEZIONE' | 'GIORNO';
+                setValue('scopo', next);
+                // Allo switch su SEZIONE pre-seleziona la prima sezione nello state
+                // del form: il <select> ne mostra una già a video ma senza un
+                // evento change il valore resta `undefined` → il create fallirebbe
+                // (server: "scopo SEZIONE richiede sezioneId").
+                if (next === 'SEZIONE' && !watch('sezioneId') && sezioni[0]) {
+                  setValue('sezioneId', sezioni[0].id);
+                }
+              }}
             >
               <option value="CONCORSO">{t('cal.links.scopo.concorso')}</option>
               <option value="SEZIONE">{t('cal.links.scopo.sezione')}</option>
@@ -625,6 +636,7 @@ function LinkDialog({ open, concorsoId, sezioni, onClose }: LinkDialogProps) {
                 value={watch('sezioneId') ?? ''}
                 onChange={(e) => setValue('sezioneId', e.target.value)}
               >
+                <option value="" disabled>—</option>
                 {sezioni.map((s) => (
                   <option key={s.id} value={s.id}>{s.nome}</option>
                 ))}
