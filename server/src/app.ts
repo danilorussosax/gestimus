@@ -100,7 +100,27 @@ export async function createApp(): Promise<FastifyInstance> {
   // Gli allegati delle iscrizioni (documenti d'identità, autorizzazioni minori)
   // sono SENSIBILI → mai serviti come statici. Si scaricano solo via endpoint
   // autenticato admin (GET /api/iscrizioni/allegati/:id/download).
-  const BLOCKED_STATIC = [/^\/server\//, /^\/node_modules\//, /^\/\.git\//, /^\/package(-lock)?\.json$/i, /\.env/i, /^\/tsconfig/i, /^\/uploads\/[^/]+\/iscrizione\//i];
+  // In modalità react lo static root è frontend/dist (i path sotto projectRoot
+  // non sono serviti). In vanilla il root è projectRoot → senza questa lista
+  // /docs, /deploy, /backups, /archive, /.github, /tests sarebbero scaricabili
+  // (runbook infra, schema DB, backup cifrati, workflow CI). Difesa in
+  // profondità valida in entrambe le modalità (l'hook è globale).
+  // NB: /docs/manuale-admin.md è il manuale admin servito di proposito → escluso.
+  const BLOCKED_STATIC = [
+    /^\/server\//,
+    /^\/node_modules\//,
+    /^\/\.git\//,
+    /^\/package(-lock)?\.json$/i,
+    /\.env/i,
+    /^\/tsconfig/i,
+    /^\/uploads\/[^/]+\/iscrizione\//i,
+    /^\/docs\/(?!manuale-admin\.md$)/i,
+    /^\/deploy\//i,
+    /^\/backups?\//i,
+    /^\/archive\//i,
+    /^\/\.github\//i,
+    /^\/tests\//i,
+  ];
   app.addHook('onRequest', async (req, reply) => {
     const path = req.url.split('?')[0]!;
     if (BLOCKED_STATIC.some((re) => re.test(path))) {
