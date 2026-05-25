@@ -1,62 +1,133 @@
 #!/usr/bin/env zsh
 # =============================================================================
-# dev-proxy.sh — reverse proxy nginx locale su porta 80 per Gestimus.
+# dev-proxy.sh — ambiente dev "production-like" su macOS: tutti i sottodomini
+# *.gestimus.local risolti a 127.0.0.1 (dnsmasq wildcard) + reverse proxy nginx
+# su porta 80 che preserva l'header Host.
 #
-# Problema: il backend risolve il tenant dal sottodominio (es. ente1.gestimus.local).
-# In dev gira tutto su porte alte (Vite :5173, Fastify :4000) e aprire l'app su
-# `localhost` rompe la risoluzione tenant (400). Questo proxy mette davanti un
-# nginx su :80 che instrada `*.gestimus.local` PRESERVANDO l'header Host:
+# Perché: il backend risolve il tenant dal sottodominio. Aprendo l'app su
+# `localhost` la risoluzione tenant fallisce (400). Con questo setup apri
+# direttamente:  http://ente1.gestimus.local/   (porta 80, URL pulita)
 #
-#   browser → http://ente1.gestimus.local/  (porta 80, URL pulita)
-#        ├── /api /auth /uploads /healthz /readyz  → Fastify 127.0.0.1:4000
-#        └── tutto il resto                        → Vite   127.0.0.1:5173 (SPA + HMR)
+#   browser → nginx :80  (server_name *.gestimus.local)
+#        ├── /api /auth /uploads /healthz /readyz  → Fastify  127.0.0.1:4000
+#        └── tutto il resto                        → Vite     127.0.0.1:5173
+#
+# QUALSIASI sottodominio (tenant nuovi, platform, ...) funziona senza toccare
+# /etc/hosts: dnsmasq risolve l'intero wildcard `*.gestimus.local`.
 #
 # Comandi:
-#   ./scripts/dev-proxy.sh start     genera la conf, assicura /etc/hosts, avvia nginx :80
-#   ./scripts/dev-proxy.sh stop      ferma il proxy
-#   ./scripts/dev-proxy.sh reload    rigenera la conf e ricarica
-#   ./scripts/dev-proxy.sh status    stato + check raggiungibilità
-#   ./scripts/dev-proxy.sh hosts     aggiunge solo le voci /etc/hosts mancanti
+#   ./scripts/dev-proxy.sh up        setup completo: install → dnsmasq → nginx :80
+#   ./scripts/dev-proxy.sh down      ferma nginx (dnsmasq resta come servizio)
+#   ./scripts/dev-proxy.sh reload    rigenera la conf nginx e ricarica
+#   ./scripts/dev-proxy.sh dns       (ri)configura solo dnsmasq + resolver
+#   ./scripts/dev-proxy.sh status    diagnostica: install, DNS, proxy, backend
 #
-# Avviare PRIMA i due dev server: (cd server && npm run dev) e (cd frontend && npm run dev).
-# Richiede nginx (brew install nginx) e sudo (porta 80 + /etc/hosts).
+# Avvia PRIMA i dev server: (cd server && npm run dev) e (cd frontend && npm run dev).
+# Usa sudo per: /etc/resolver, dnsmasq su :53, nginx su :80 (te lo chiede una volta).
 # =============================================================================
 set -euo pipefail
 
 # --- Config (override via env) ----------------------------------------------
+BASE_DOMAIN="${BASE_DOMAIN:-gestimus.local}"
 BACKEND_ADDR="${BACKEND_ADDR:-127.0.0.1:4000}"
 FRONTEND_ADDR="${FRONTEND_ADDR:-127.0.0.1:5173}"
 LISTEN_PORT="${LISTEN_PORT:-80}"
-BASE_DOMAIN="${BASE_DOMAIN:-gestimus.local}"
-# Sottodomini tenant da mappare in /etc/hosts (lo split server_name usa wildcard).
-SUBDOMAINS=(ente1 ente2 ente-archiviato platform)
+AUTO_INSTALL="${AUTO_INSTALL:-1}"   # 1 = brew install automatico se mancano
 
 SCRIPT_DIR="${0:A:h}"
 REPO_ROOT="${SCRIPT_DIR:h}"
-PREFIX="${REPO_ROOT}/.devproxy"           # pid, log, temp, conf generata (gitignored)
+PREFIX="${REPO_ROOT}/.devproxy"     # pid/log/temp/conf nginx (gitignored)
 CONF="${PREFIX}/nginx.conf"
 PIDFILE="${PREFIX}/nginx.pid"
 
-# --- Helpers -----------------------------------------------------------------
+# --- Output ------------------------------------------------------------------
 err() { print -P "%F{red}✗%f $*" >&2; }
 ok()  { print -P "%F{green}✓%f $*"; }
 inf() { print -P "%F{cyan}·%f $*"; }
 
-find_nginx() {
-  if command -v nginx >/dev/null 2>&1; then command -v nginx; return; fi
-  if command -v brew >/dev/null 2>&1; then
-    local p; p="$(brew --prefix 2>/dev/null)/bin/nginx"
-    [[ -x "$p" ]] && { print "$p"; return; }
-  fi
-  return 1
+# --- brew / pacchetti --------------------------------------------------------
+BREW=""
+require_brew() {
+  if command -v brew >/dev/null 2>&1; then BREW="$(command -v brew)"; return; fi
+  err "Homebrew non trovato. Installa da https://brew.sh poi rilancia."
+  exit 1
 }
 
-server_names() {
-  # "ente1.gestimus.local ente2.gestimus.local ... gestimus.local *.gestimus.local"
-  local names=()
-  for s in "${SUBDOMAINS[@]}"; do names+=("${s}.${BASE_DOMAIN}"); done
-  names+=("${BASE_DOMAIN}" "*.${BASE_DOMAIN}")
-  print -- "${names[*]}"
+# brew_prefix_bin <formula> <bin> → path eseguibile o vuoto
+brew_bin() { local p="$("${BREW}" --prefix 2>/dev/null)/bin/$1"; [[ -x "$p" ]] && print "$p"; }
+
+ensure_pkg() {
+  local formula="$1"
+  if "${BREW}" list --formula "${formula}" >/dev/null 2>&1; then ok "${formula} già installato"; return; fi
+  if [[ "${AUTO_INSTALL}" == "1" ]]; then
+    inf "installo ${formula} (brew install ${formula})…"
+    "${BREW}" install "${formula}"
+    ok "${formula} installato"
+  else
+    err "${formula} mancante. Installa con: brew install ${formula} (o AUTO_INSTALL=1)"
+    exit 1
+  fi
+}
+
+# --- dnsmasq + resolver ------------------------------------------------------
+setup_dns() {
+  require_brew
+  ensure_pkg dnsmasq
+  local conf="$("${BREW}" --prefix)/etc/dnsmasq.conf"
+  local line="address=/${BASE_DOMAIN}/127.0.0.1"
+  mkdir -p "$(dirname "$conf")"
+  touch "$conf"
+  if grep -qF -- "$line" "$conf"; then
+    ok "dnsmasq: regola wildcard già presente"
+  else
+    print -- "$line" >> "$conf"
+    ok "dnsmasq: aggiunta regola ${line}"
+  fi
+
+  # Resolver di sistema: le query *.BASE_DOMAIN vanno a dnsmasq su 127.0.0.1.
+  local resolver="/etc/resolver/${BASE_DOMAIN}"
+  local want="nameserver 127.0.0.1"
+  if [[ -f "$resolver" ]] && grep -qF -- "$want" "$resolver"; then
+    ok "/etc/resolver/${BASE_DOMAIN} già configurato"
+  else
+    inf "scrivo ${resolver} (sudo)"
+    sudo mkdir -p /etc/resolver
+    print -- "$want" | sudo tee "$resolver" >/dev/null
+    ok "resolver creato"
+  fi
+
+  # dnsmasq gira su :53 → servizio root.
+  inf "avvio/riavvio dnsmasq (sudo brew services)"
+  sudo "${BREW}" services restart dnsmasq >/dev/null 2>&1 || sudo "${BREW}" services start dnsmasq >/dev/null 2>&1 || true
+  # Flush cache risolutore macOS.
+  sudo dscacheutil -flushcache 2>/dev/null || true
+  sudo killall -HUP mDNSResponder 2>/dev/null || true
+
+  verify_dns
+}
+
+verify_dns() {
+  local probe="probe-$$.${BASE_DOMAIN}"
+  # Interroga dnsmasq direttamente (non dipende dalla cache di sistema).
+  local r=""
+  if command -v dig >/dev/null 2>&1; then
+    r="$(dig +short "@127.0.0.1" "$probe" 2>/dev/null | head -1)"
+  fi
+  if [[ "$r" == "127.0.0.1" ]]; then
+    ok "dnsmasq risolve *.${BASE_DOMAIN} → 127.0.0.1 (testato: ${probe})"
+  else
+    err "dnsmasq non risolve ${probe} (dig @127.0.0.1 → '${r:-vuoto}'). Controlla: sudo brew services list"
+    return 1
+  fi
+}
+
+# --- nginx -------------------------------------------------------------------
+NGINX=""
+require_nginx() {
+  require_brew
+  ensure_pkg nginx
+  NGINX="$(brew_bin nginx || true)"
+  [[ -n "${NGINX}" ]] || { err "nginx non trovato dopo l'install"; exit 1; }
 }
 
 gen_conf() {
@@ -78,7 +149,8 @@ http {
 
   server {
     listen ${LISTEN_PORT};
-    server_name $(server_names);
+    # Wildcard: qualsiasi sottodominio del tenant (dnsmasq li risolve tutti).
+    server_name ${BASE_DOMAIN} *.${BASE_DOMAIN};
 
     # Backend Fastify: API, sessione, upload, health. Host preservato →
     # risoluzione tenant dal sottodominio. SSE/realtime: no buffering, timeout lungo.
@@ -94,8 +166,8 @@ http {
       proxy_read_timeout 1h;
     }
 
-    # Vite dev server: SPA + asset. L'HMR websocket si collega comunque a :5173
-    # diretto (Vite inietta la sua porta); funziona finché 5173 è raggiungibile.
+    # Vite dev server: SPA + asset. L'HMR websocket si collega a :5173 diretto
+    # (Vite inietta la sua porta); funziona finché 5173 è raggiungibile.
     location / {
       proxy_pass http://${FRONTEND_ADDR};
       proxy_set_header Host \$host;
@@ -108,69 +180,67 @@ http {
 EOF
 }
 
-ensure_hosts() {
-  local missing=()
-  for s in "${SUBDOMAINS[@]}"; do
-    local fqdn="${s}.${BASE_DOMAIN}"
-    grep -qE "^[^#]*\b${fqdn}\b" /etc/hosts || missing+=("$fqdn")
-  done
-  if (( ${#missing[@]} == 0 )); then ok "/etc/hosts già a posto"; return; fi
-  inf "aggiungo a /etc/hosts (sudo): ${missing[*]}"
-  for fqdn in "${missing[@]}"; do
-    print "127.0.0.1 ${fqdn}" | sudo tee -a /etc/hosts >/dev/null
-  done
-  ok "/etc/hosts aggiornato"
-}
+nginx_running() { [[ -f "${PIDFILE}" ]] && kill -0 "$(cat "${PIDFILE}" 2>/dev/null)" 2>/dev/null; }
 
-NGINX="$(find_nginx || true)"
-require_nginx() {
-  [[ -n "${NGINX}" ]] || { err "nginx non trovato. Installa con: brew install nginx"; exit 1; }
-}
-
-cmd_start() {
+start_nginx() {
   require_nginx
-  ensure_hosts
   mkdir -p "${PREFIX}"
   gen_conf
-  inf "test conf nginx"
+  inf "verifica conf nginx"
   sudo "${NGINX}" -p "${PREFIX}/" -c "${CONF}" -t
-  if [[ -f "${PIDFILE}" ]] && kill -0 "$(cat "${PIDFILE}")" 2>/dev/null; then
-    inf "già attivo → reload"; sudo "${NGINX}" -p "${PREFIX}/" -c "${CONF}" -s reload
+  if nginx_running; then
+    inf "nginx già attivo → reload"
+    sudo "${NGINX}" -p "${PREFIX}/" -c "${CONF}" -s reload
   else
     sudo "${NGINX}" -p "${PREFIX}/" -c "${CONF}"
   fi
-  ok "proxy attivo su :${LISTEN_PORT} → apri http://${SUBDOMAINS[1]}.${BASE_DOMAIN}/"
+  ok "nginx in ascolto su :${LISTEN_PORT}"
+}
+
+# --- comandi -----------------------------------------------------------------
+cmd_up() {
+  setup_dns
+  start_nginx
+  print
+  ok "Pronto. Apri: %F{green}http://ente1.${BASE_DOMAIN}/%f  (qualsiasi <tenant>.${BASE_DOMAIN} funziona)"
+  inf "Ricorda i dev server: (cd server && npm run dev) · (cd frontend && npm run dev)"
   cmd_status
 }
 
-cmd_stop() {
+cmd_down() {
   require_nginx
-  if [[ -f "${PIDFILE}" ]] && kill -0 "$(cat "${PIDFILE}")" 2>/dev/null; then
-    sudo "${NGINX}" -p "${PREFIX}/" -c "${CONF}" -s stop && ok "proxy fermato"
+  if nginx_running; then
+    sudo "${NGINX}" -p "${PREFIX}/" -c "${CONF}" -s stop && ok "nginx fermato"
   else
-    inf "proxy non in esecuzione"
+    inf "nginx non in esecuzione"
   fi
+  inf "dnsmasq resta attivo come servizio (./dev-proxy.sh status per verificare; 'sudo brew services stop dnsmasq' per fermarlo)"
 }
 
-cmd_reload() { require_nginx; gen_conf; sudo "${NGINX}" -p "${PREFIX}/" -c "${CONF}" -t && sudo "${NGINX}" -p "${PREFIX}/" -c "${CONF}" -s reload && ok "ricaricato"; }
+cmd_reload() {
+  require_nginx; gen_conf
+  sudo "${NGINX}" -p "${PREFIX}/" -c "${CONF}" -t
+  sudo "${NGINX}" -p "${PREFIX}/" -c "${CONF}" -s reload && ok "nginx ricaricato"
+}
 
 cmd_status() {
-  if [[ -f "${PIDFILE}" ]] && kill -0 "$(cat "${PIDFILE}")" 2>/dev/null; then
-    ok "nginx attivo (pid $(cat "${PIDFILE}"))"
-  else
-    inf "nginx non attivo"
-  fi
-  local url="http://${SUBDOMAINS[1]}.${BASE_DOMAIN}/healthz"
+  print -P "%F{cyan}── stato dev-proxy ──%f"
+  command -v brew >/dev/null 2>&1 && ok "brew presente" || err "brew assente"
+  [[ -n "$(brew_bin nginx 2>/dev/null || true)" ]] 2>/dev/null && ok "nginx installato" || inf "nginx non installato"
+  nginx_running && ok "nginx attivo (pid $(cat "${PIDFILE}"))" || inf "nginx non attivo"
+  [[ -f "/etc/resolver/${BASE_DOMAIN}" ]] && ok "resolver /etc/resolver/${BASE_DOMAIN} presente" || inf "resolver assente"
+  verify_dns || true
+  local url="http://ente1.${BASE_DOMAIN}/healthz"
   local code; code="$(curl -s -o /dev/null -w '%{http_code}' "$url" 2>/dev/null || print 000)"
-  [[ "$code" == "200" ]] && ok "backend raggiungibile via proxy ($url → $code)" \
-                         || inf "backend non raggiungibile ($url → $code) — i dev server sono avviati?"
+  [[ "$code" == "200" ]] && ok "backend via proxy OK (${url} → ${code})" \
+                         || inf "backend non raggiungibile (${url} → ${code}) — dev server avviati?"
 }
 
-case "${1:-start}" in
-  start)  cmd_start ;;
-  stop)   cmd_stop ;;
+case "${1:-up}" in
+  up)     cmd_up ;;
+  down)   cmd_down ;;
   reload) cmd_reload ;;
+  dns)    setup_dns ;;
   status) cmd_status ;;
-  hosts)  ensure_hosts ;;
-  *) err "uso: $0 {start|stop|reload|status|hosts}"; exit 1 ;;
+  *) err "uso: $0 {up|down|reload|dns|status}"; exit 1 ;;
 esac
