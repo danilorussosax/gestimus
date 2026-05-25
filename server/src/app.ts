@@ -127,21 +127,17 @@ export async function createApp(): Promise<FastifyInstance> {
       return reply.code(404).send({ error: 'not found' });
     }
   });
-  // Frontend: 'react' → SPA buildata (frontend/dist) con fallback SPA per le
-  // rotte client (BrowserRouter); 'vanilla' (default) → vecchio statico da root.
+  // Frontend: la SPA React buildata (frontend/dist), servita con fallback SPA
+  // per le rotte client (BrowserRouter). Il vecchio frontend vanilla è stato
+  // deprecato e rimosso: niente più flag né serving da projectRoot.
   const reactDist = resolve(projectRoot, 'frontend/dist');
-  const serveReact = env.FRONTEND === 'react' && existsSync(resolve(reactDist, 'index.html'));
+  const hasReactDist = existsSync(resolve(reactDist, 'index.html'));
 
-  // Security headers (helmet). CSP adattata al frontend servito:
-  //   - react: script solo 'self' (asset hashati, theme-init esterno);
-  //   - vanilla: serve i CDN (Tailwind play → usa eval; jsPDF/marked) + lo
-  //     <script> inline di tailwind.config → 'unsafe-inline'/'unsafe-eval'.
-  // Google Fonts (style+font) per entrambi; img data:/blob: per le preview foto;
-  // connect a Sentry ingest. Permissions-Policy aggiunta a mano (non in helmet 13).
+  // Security headers (helmet). CSP: solo asset hashati locali ('self') — niente
+  // CDN né 'unsafe-inline'/'unsafe-eval' (servivano solo al vecchio vanilla).
+  // Google Fonts (style+font); img data:/blob: per le preview foto; connect a
+  // Sentry ingest. Permissions-Policy aggiunta a mano (non in helmet 13).
   const isProd = env.NODE_ENV === 'production';
-  const scriptSrc = serveReact
-    ? ["'self'"]
-    : ["'self'", "'unsafe-inline'", "'unsafe-eval'", 'https://cdn.tailwindcss.com', 'https://cdn.jsdelivr.net'];
   await app.register(helmet, {
     contentSecurityPolicy: {
       // useDefaults:false → SOLO le direttive sotto (i default di helmet
@@ -152,7 +148,7 @@ export async function createApp(): Promise<FastifyInstance> {
         baseUri: ["'self'"],
         objectSrc: ["'none'"],
         frameAncestors: ["'self'"],
-        scriptSrc,
+        scriptSrc: ["'self'"],
         styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
         fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
         imgSrc: ["'self'", 'data:', 'blob:'],
@@ -174,7 +170,7 @@ export async function createApp(): Promise<FastifyInstance> {
     reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
   });
 
-  if (serveReact) {
+  if (hasReactDist) {
     const indexHtml = readFileSync(resolve(reactDist, 'index.html'), 'utf8');
     await app.register(fastifyStatic, { root: reactDist, prefix: '/', decorateReply: false });
     // SPA fallback: ogni GET che non è API/asset → index.html (deep-link, reload).
@@ -188,7 +184,8 @@ export async function createApp(): Promise<FastifyInstance> {
     });
     app.log.info('frontend: React SPA da frontend/dist');
   } else {
-    await app.register(fastifyStatic, { root: projectRoot, prefix: '/', decorateReply: false });
+    // dist mancante: builda con `cd frontend && npm run build`. Le API restano up.
+    app.log.warn('frontend/dist assente — SPA non servita. Esegui `npm run build` in frontend/.');
   }
   await app.register(fastifyStatic, {
     root: resolve(env.UPLOADS_DIR),
