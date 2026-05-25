@@ -16,7 +16,7 @@
     "db:setup": "npm run db:push && npm run db:policies",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx scripts/seed-dev.ts",
-    "db:reset": "tsx scripts/reset-dev.ts",
+    "db:reset": "SEED_RESET=1 tsx scripts/seed-dev.ts",
     "test": "node --test --test-force-exit --import tsx tests/rls/*.test.ts tests/auth/*.test.ts tests/crud/*.test.ts tests/realtime/*.test.ts",
     "test:realtime": "node --test --test-force-exit --import tsx tests/realtime/*.test.ts",
     "test:triggers": "node --test --test-force-exit --import tsx tests/crud/triggers.test.ts",

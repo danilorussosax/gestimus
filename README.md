@@ -8,6 +8,7 @@
 
 [![CI](https://github.com/danilorussosax/gestimus/actions/workflows/ci.yml/badge.svg)](https://github.com/danilorussosax/gestimus/actions/workflows/ci.yml)
 ![Node](https://img.shields.io/badge/Node-22%20LTS-339933)
+![React](https://img.shields.io/badge/React-19-61dafb)
 ![Fastify](https://img.shields.io/badge/Fastify-5-202020)
 ![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-336791)
 ![Drizzle](https://img.shields.io/badge/Drizzle%20ORM-strict%20TS-c5f74f)
@@ -35,103 +36,105 @@ L'architettura è **multitenant nativa**: un singolo backend ospita N enti indip
 
 ### 🛠 Admin ente
 - **Fasi** con 5 metodi di calcolo media (aritmetica, olimpica, winsorizzata, mediana, deviazione standard) + suggerimento automatico in base al numero di commissari
-- **Sezioni e categorie** del concorso (es. Archi → Senior/Junior) + **copia categorie tra sezioni** (un click per replicare la struttura)
-- **Candidati** individuali o gruppi (con membri multipli), modello N:1 candidato → sezione + categoria; **auto-derive sezione** dalla categoria scelta
-- **Import CSV** candidati con template che include `tipo` (individuale/gruppo), `gruppo_nome`, `sezione`, `categoria`
-- **Commissari** con designazione presidente
-- **Commissioni** che raggruppano commissari + sezioni + categorie; toggle "Includi tutte le categorie" auto-espande al salvataggio
-- **Presidente per-commissione**: ogni commissione ha il proprio presidente; non esiste più "il presidente del concorso" come ruolo unitario
-- **Permessi fase granulari**: avvio/conclusione/sorteggio/timer di una fase eseguibili sia da admin sia dal presidente della commissione assegnata (`assertCanManageFase` server-side)
-- **Restrizione fasi**: una fase può essere limitata a una o più sezioni specifiche (tracce parallele) o aperta a tutte; al `start` il backend pre-popola `candidati_fase` filtrati per quelle sezioni (idempotente)
+- **Sezioni e categorie** del concorso (es. Archi → Senior/Junior) + **copia categorie tra sezioni**
+- **Candidati** individuali o gruppi, modello N:1 candidato → sezione + categoria; **auto-derive sezione** dalla categoria scelta
+- **Import CSV** candidati con template (`tipo`, `gruppo_nome`, `sezione`, `categoria`)
+- **Commissari** con designazione presidente per commissione
+- **Commissioni** che raggruppano commissari + sezioni + categorie
+- **Permessi fase granulari**: avvio/conclusione/sorteggio/timer eseguibili sia da admin sia dal presidente della commissione assegnata
+- **Restrizione fasi**: una fase può essere limitata a sezioni specifiche (tracce parallele)
 - **Sorteggio ordine** candidati con seed riproducibile (mulberry32)
-- **Risultati**: classifica live, export CSV (RFC 4180 + BOM UTF-8, anti-formula-injection) e PDF protocollo. Firma del presidente della **fase finale** (non del concorso).
-- **Verbale** con template + tag dinamici (`<concorso>`, `<presidente>`, `<fase_presidente>`, `<fase_classifica>`, ecc.) — le firme nel PDF si stampano solo se il template referenzia esplicitamente tag commissione/commissari E la fase ha commissione assegnata
-- **Calendario / scheduling**: board drag-and-drop a due livelli (eventi × sale) per pianificare candidati e fasi su slot temporali; export PDF del calendario; pagina pubblica dedicata (`calendario-pubblico`) consultabile senza login
-- **Tab Impostazioni concorso** inline (niente più modale "Modifica"): anagrafica, logo, iscrizioni pubbliche, tiebreak default + zona pericolosa con **conferma "type-to-delete"** GitHub-style
-- **Branding ente**: logo + colori + dati di contatto memorizzati in `brandingPublic`/`enteSettings` JSONB; PATCH server merge-style (non overwrite)
-- **Audit log** append-only di tutte le operazioni
+- **Risultati**: classifica live, export CSV e PDF protocollo
+- **Verbale** con template + tag dinamici; **Calendario** drag-and-drop + pagina pubblica
+- **Branding ente**: logo + colori + dati di contatto in JSONB
+- **Audit log** append-only tamper-evident (HMAC per riga)
 
 ### 🎼 Commissario
-- Valutazione **autonoma** (ogni commissario al proprio ritmo) o **sincrona** (tutti sullo stesso candidato, pilotata dal presidente)
+- Valutazione **autonoma** o **sincrona** (pilotata dal presidente)
 - **Timer fase** condiviso in realtime via Postgres `LISTEN/NOTIFY` + SSE
-- Voto per criterio con peso configurabile (somma = 100%) — supporta voti decimali con `numeric(5,2)` (mezzi punti su scale ≤ 10)
-- Pittogrammi e slider per voti rapidi
-- Storico ultime valutazioni in vista
-- **Controllo sessione** presidente: KPI strip a gradient (fasi presiedute / candidati / valutati / % completamento), preflight check per avvio fase (commissione, criteri, candidati eleggibili), progress bar separate per "candidati con voto completo" e "commissari che hanno finito"
+- Voto per criterio con peso configurabile (somma = 100%), voti decimali (`numeric(5,2)`)
 
 ### 📝 Iscrizione pubblica
-- Form auto-service **mono-pagina** accessibile senza login
-- Sottodominio dedicato per ogni ente
-- Anagrafica estesa (nome, cognome, sesso, codice fiscale, luogo nascita, nazionalità), residenza (indirizzo, città, CAP, provincia, paese), dati artistici (strumento, anni di studio, scuola di provenienza, docenti, programma)
-- Selezione **sezione + categoria** con cascata: categorie filtrate per sezione, validazione cross-concorso lato server, auto-derive della sezione se l'utente sceglie solo la categoria
-- Modalità **gruppo** con composizione membri dinamica + `gruppo_nome`
-- Sezione tutore obbligatoria se candidato minorenne (validato server-side, soglia GDPR Art. 8: 16 anni)
+- Form auto-service mono-pagina senza login
 - **Save & resume** automatico via localStorage
-- Verifica email tramite link (token rigenerato server-side)
-- Workflow di approvazione dall'admin → genera record candidato attivo (no più stato pending)
-- Anti-spam server-side: honeypot, min-time-on-page, rate-limit per IP (3/h, 10/giorno)
+- Verifica email + workflow di approvazione admin
+- Anti-spam: honeypot, min-time-on-page, rate-limit per IP
 
 ### 🔒 Hardening
-- **Isolamento tenant via Row-Level Security**: ogni query gira con `app.tenant_id` settato dal middleware, policy RLS rifiuta cross-tenant reads/writes lato database
-- **SMTP password** cifrate at-rest (AES-GCM, chiave da env `GESTIMUS_SECRET_KEY`)
-- **`audit_log`** append-only (no delete, neppure da admin del tenant) + **`platform_audit_log`** separato per le azioni super-admin
-- **`valutazioni`** con unique index `(candidato_fase, commissario, criterio)` + clamp voto + freeze su fase CONCLUSA, garantito da trigger DB
-- **`iscrizioni`** con validazione server-side dei consensi GDPR + stato concorso + scadenza
+- **Isolamento tenant via Row-Level Security** a livello database
+- **SMTP password** cifrate at-rest (AES-GCM)
 - **Auth**: session cookie `HttpOnly` `SameSite=Strict`, password Argon2id, no JWT in localStorage
-- **2FA TOTP** opzionale self-service (enroll con QR + codici di recupero) dalla vista *Sicurezza account*; il super-admin può richiederla per gli account del tenant
-- **`audit_log` tamper-evident**: HMAC per riga (catena per-tenant) per rilevare manomissioni; lo scrub GDPR redige le PII storiche e ri-firma le righe
-- **`accounts`** con regola di creazione chiusa (no privilege escalation pubblica) + check anti self-promote del campo `role`
-- **Form pubblico** con honeypot + rate-limit applicativo (oltre al rate-limit nginx in `deploy/nginx-snippet-rl.conf`)
+- **2FA TOTP** opzionale self-service (QR + codici di recupero)
 - **GDPR export/erase** endpoint per-tenant con audit trail
 
 ### 🌐 Internazionalizzazione
-Italiano (master), Inglese, Francese, Spagnolo. Le chiavi non tradotte ricadono automaticamente sull'italiano. Il nome **Gestimus** resta uguale in tutte le lingue, il sottotitolo è localizzato.
+Italiano (master), Inglese, Francese, Spagnolo. Chiavi piatte (`keySeparator: false`), fallback automatico sull'italiano.
+
+---
 
 ## Architettura
 
 ```
-                       ┌─────────────────────────┐
-                       │   nginx (porta 443/80)  │  ← Let's Encrypt wildcard
-                       │   *.gestimus.it          │     (DNS-01 IONOS)
-                       └──┬──────────────────────┘
-                          │
-                          ▼
-                ┌────────────────────────┐
-                │  Gestimus server       │  Node 22 + Fastify 5
-                │  (singolo processo)    │  TypeScript strict
-                │   :4000                │  Drizzle ORM
-                └─────┬──────────────────┘
-                      │   resolve subdomain → tenant_id
-                      │   set app.tenant_id (per session)
-                      ▼
-                ┌────────────────────────┐
-                │  PostgreSQL 18         │  RLS policy per tabella
-                │  database "gestimus"   │  isolamento per tenant_id
-                │   :5432                │  LISTEN/NOTIFY → SSE
-                └────────────────────────┘
+  Browser (React 19 + Vite)          nginx (porta 443/80)
+  ente1.gestimus.local:5173  ──────► *.gestimus.it   ← Let's Encrypt wildcard
+        │  proxy /api /auth                │
+        ▼                                  ▼
+  ┌─────────────────────────────────────────────────┐
+  │  Gestimus server  :4000                         │
+  │  Node 22 + Fastify 5 + TypeScript strict        │
+  │  Drizzle ORM  ·  cookie-session HttpOnly        │
+  └────────────────────┬────────────────────────────┘
+                       │  resolve subdomain → tenant_id
+                       ▼
+             ┌──────────────────────┐
+             │  PostgreSQL 18       │  RLS per tabella
+             │  database "gestimus" │  isolamento tenant_id
+             │  :5432               │  LISTEN/NOTIFY → SSE
+             └──────────────────────┘
 ```
 
-Un **singolo processo Node/Fastify** + un **singolo database Postgres**. La separazione tra enti è garantita da **Row-Level Security**: ogni connessione setta `app.tenant_id` in base al sottodominio risolto dal middleware e le policy RLS filtrano automaticamente ogni `SELECT/INSERT/UPDATE/DELETE`. Le operazioni amministrative (crea ente, sospendi, archivia, configura SMTP) sono azioni di UI super-admin, non script shell.
+Un **singolo processo Node/Fastify** + un **singolo database Postgres**. La separazione tra enti è garantita da **Row-Level Security**. In dev il frontend React (Vite :5173) proxya `/api`, `/auth`, `/uploads` verso il backend :4000 preservando l'`Host` per la risoluzione del tenant.
+
+---
 
 ## Stack
 
-- **Frontend**: HTML + JavaScript vanilla (no framework), Tailwind CSS, service worker per PWA
-- **Backend**: Node.js 22 LTS + Fastify 5 + TypeScript strict
-- **ORM**: Drizzle + drizzle-kit migrations
-- **Database**: PostgreSQL 18 con multitenancy logica via Row-Level Security (`uuidv7()` nativo per le PK time-ordered)
-- **Auth**: session cookie HttpOnly + Argon2id (`@node-rs/argon2`)
-- **Realtime**: Postgres `LISTEN/NOTIFY` + SSE plugin Fastify
-- **Storage**: filesystem locale strutturato per tenant
-- **Email**: Nodemailer + cifratura credenziali AES-GCM
-- **Reverse proxy**: nginx (preferito) o Caddy (fallback)
-- **TLS**: Let's Encrypt wildcard via certbot DNS-01
-- **DNS**: IONOS (plugin certbot dedicato)
-- **CI**: GitHub Actions (lint TS + bash + i18n coverage)
-- **Dipendenze aggiornate**: Dependabot settimanale
+### Frontend (React)
+
+| | |
+|---|---|
+| **Framework** | React 19 + TypeScript strict |
+| **Build tool** | Vite 8 |
+| **Styling** | Tailwind CSS 4 + `legacy.css` (token HSL shadcn/ui, palette brand/ink) |
+| **Componenti** | Radix UI + `src/components/ui/` (shadcn-style) |
+| **Dati server** | TanStack Query v5 (staleTime 30s, retry 1) |
+| **Routing** | React Router v7 (lazy pages, ProtectedRoute/RequireAdmin guards) |
+| **Form** | react-hook-form v7 + Zod 4 (`@hookform/resolvers`) |
+| **i18n** | i18next + react-i18next, chiavi piatte, 4 lingue (it/en/fr/es) |
+| **Errori** | Sentry (`@sentry/react`, sourcemap upload opzionale in CI) |
+| **PWA** | vite-plugin-pwa + Workbox (SW `generateSW`, NetworkOnly su `/api/*`) |
+| **Test** | Vitest (jsdom) + Playwright (E2E Chromium) |
+| **Auth** | Cookie-session HttpOnly (nessun token in localStorage) |
+
+> Il vecchio frontend vanilla (`js/`, `css/`, `index.html` nella root) è **superseded** dal frontend React in `frontend/`. Il codice vanilla è conservato ma non più sviluppato attivamente.
+
+### Backend
+
+| | |
+|---|---|
+| **Runtime** | Node.js 22 LTS + Fastify 5 + TypeScript strict |
+| **ORM** | Drizzle + drizzle-kit migrations |
+| **Database** | PostgreSQL 18 (multitenancy logica via RLS, `uuidv7()` nativo per PK) |
+| **Auth** | Session cookie HttpOnly + Argon2id (`@node-rs/argon2`) |
+| **Realtime** | Postgres `LISTEN/NOTIFY` + SSE plugin Fastify |
+| **Storage** | Filesystem locale strutturato per tenant |
+| **Email** | Nodemailer + cifratura credenziali AES-GCM |
+
+---
 
 ## Quick start in locale
 
-Richiede macOS o Linux, **Node 22 LTS**, **PostgreSQL 18** (le PK usano `uuidv7()` nativo, disponibile solo da PG18).
+Richiede macOS o Linux, **Node 22 LTS**, **PostgreSQL 18**.
 
 ```bash
 git clone https://github.com/danilorussosax/gestimus.git
@@ -151,11 +154,17 @@ cp .env.example .env
 npm run db:bootstrap        # crea ruoli gestimus_app / gestimus_super
 npm run db:setup            # push schema Drizzle + applica policy RLS
 npm run db:seed             # dati demo (1 super-admin + 2 enti + concorso campione)
-
-npm run dev                 # backend + frontend statici su :4000
+npm run dev                 # backend Fastify su :4000
 ```
 
-Aggiungi i sottodomini a `/etc/hosts` (solo dev):
+```bash
+# 3. Frontend React (terminale separato)
+cd frontend
+npm install
+npm run dev                 # Vite su :5173, proxy → :4000
+```
+
+Aggiungi i sottodomini a `/etc/hosts`:
 
 ```
 127.0.0.1  platform.gestimus.local
@@ -164,70 +173,81 @@ Aggiungi i sottodomini a `/etc/hosts` (solo dev):
 ```
 
 Dopo l'avvio:
-- `http://ente1.gestimus.local:4000/` → app cliente
-- `http://platform.gestimus.local:4000/` → super-admin
-- Credenziali demo seedate da `npm run db:seed` (vedi log di output)
+- `http://ente1.gestimus.local:5173/` → app React (admin/commissario)
+- `http://platform.gestimus.local:5173/` → super-admin
+- `http://ente1.gestimus.local:4000/` → backend diretto (senza Vite proxy)
+- Credenziali demo: vedi output di `npm run db:seed`
 
-Per resettare il DB di sviluppo: `npm run db:reset`.
+Per resettare il DB di sviluppo: `cd server && npm run db:reset`.
 
-## Deploy in produzione
+---
 
-Schema, ruoli DB, RLS, soft-delete tenant, backup pre-archiviazione e flusso super-admin sono descritti in [`docs/MIGRATION_POSTGRES.md`](docs/MIGRATION_POSTGRES.md) (sez. 4-5, 15, 17).
+## Build per la produzione
 
-La piattaforma è progettata per girare su una **VPS Linux** dietro nginx + Let's Encrypt wildcard. I componenti minimi:
+```bash
+# Frontend: type-check + bundle
+cd frontend && npm run build      # tsc -b && vite build → frontend/dist/
 
-1. **VPS Ubuntu 24.04** con PostgreSQL 18 + Node 22 LTS
-2. **DNS wildcard** per il dominio (`*.gestimus.it` + root)
-3. **nginx** reverse-proxy `*.gestimus.it → 127.0.0.1:4000` (un solo upstream, non più un processo per ente)
-4. **systemd unit** per il processo Gestimus + variabili `DATABASE_URL_*`, `SESSION_COOKIE_SECRET`, `GESTIMUS_SECRET_KEY`
-5. **Certificato wildcard** Let's Encrypt via certbot DNS-01 (plugin IONOS o equivalente)
-6. **Backup automatico** del database + retention archivi pre-hard-delete (sez. 17 del piano)
+# Backend
+cd server && npm run build        # tsc → server/dist/
+```
 
-I template nginx/systemd e gli script di provisioning per il nuovo stack sono in fase di stesura.
+Il server Fastify serve i file statici da `frontend/dist/` in produzione (configurato via `@fastify/static`).
+
+---
 
 ## Struttura del progetto
 
 ```
 gestimus/
-├── js/                          # frontend vanilla
-│   ├── app.js                   # router + bootstrap
-│   ├── db.js                    # data layer (client REST verso il backend)
-│   ├── api.js                   # client HTTP tipizzato
-│   ├── i18n.js                  # loader i18n (fallback chain + langchange event)
-│   ├── i18n/                    # dizionari splittati per lingua: it.js · en.js · fr.js · es.js
-│   ├── scoring.js               # algoritmi calcolo media + suggerimenti
-│   ├── tiebreak.js              # logiche spareggio
-│   ├── calendario-pdf.js        # export PDF del calendario scheduling
-│   ├── icons.js                 # set icone Carbon SVG
-│   └── views/                   # view per ruolo
-│       ├── home.js · login.js · iscrizione.js · commissario.js · superadmin.js
-│       ├── account-security.js  # 2FA TOTP self-service · calendario-pubblico.js · privacy.js
-│       └── admin/               # dashboard · fasi · candidati · commissari · commissioni · risultati · verbale · calendario · audit · …
-├── server/                      # backend Fastify + Drizzle
+├── frontend/                    # Frontend React (stack attuale)
+│   ├── src/
+│   │   ├── api/                 # moduli fetch per entità (auth, concorsi, fasi, …)
+│   │   ├── components/
+│   │   │   ├── ui/              # primitivi shadcn-style (Button, Dialog, Select, …)
+│   │   │   ├── admin/           # tab admin (FasiTab, CandidatiTab, RisultatiTab, …)
+│   │   │   └── layout/          # AppLayout (shell autenticata)
+│   │   ├── contexts/            # AuthContext · ThemeContext
+│   │   ├── hooks/               # useFaseRuntime · useOnline · useDirtyDialogClose · …
+│   │   ├── i18n/                # init i18next + locales/it|en|fr|es.json
+│   │   ├── lib/                 # api.ts (http client) · scoring · tiebreak · rng · sentry · pwa
+│   │   ├── pages/               # Home · Login · Commissario · Superadmin · admin/ · public/
+│   │   ├── types/               # contratto API (User, Concorso, Fase, …)
+│   │   ├── index.css            # Tailwind 4 + token custom (palette brand/ink)
+│   │   ├── legacy.css           # token HSL shadcn/ui portati dal vanilla
+│   │   └── main.tsx             # entry point (BrowserRouter + QueryClient + AuthProvider)
+│   ├── tests/e2e/               # Playwright smoke spec
+│   ├── vite.config.ts           # Vite + PWA + Sentry + proxy dev
+│   ├── playwright.config.ts     # E2E config (base: ente1.gestimus.local:5173)
+│   └── package.json
+├── server/                      # Backend Fastify + Drizzle
 │   ├── src/
 │   │   ├── db/                  # schema Drizzle + policy RLS (policies.sql)
 │   │   ├── routes/              # endpoint REST per entità di dominio
-│   │   ├── services/            # auth (Argon2id) · session · storage · email · crypto SMTP
+│   │   ├── services/            # auth · session · storage · email · crypto SMTP
 │   │   ├── middleware/          # tenant resolver (subdomain → tenant_id) + auth guard
 │   │   └── realtime/            # hub SSE + bridge LISTEN/NOTIFY
-│   ├── scripts/                 # bootstrap-db · apply-policies · seed-dev · reset-dev · migrations/
-│   ├── tests/                   # rls/ · auth/ · crud/ · realtime/ (~112 test)
-│   ├── drizzle.config.ts
+│   ├── scripts/                 # bootstrap-db · apply-policies · seed-dev · reset-dev
+│   ├── tests/                   # rls/ · auth/ · crud/ · realtime/ (~154 test)
 │   └── package.json
 ├── tests/
-│   ├── unit/                    # node --test (scoring.js, rng.js)
-│   └── e2e/                     # playwright (smoke client + super-admin)
-├── deploy/                      # template config nginx/systemd
-├── docs/                        # documentazione (architettura, deploy, manuali, screenshot)
+│   ├── unit/                    # node --test (scoring, tiebreak, rng) — no DB
+│   └── e2e/                     # Playwright legacy (smoke client + super-admin)
+├── js/                          # [SUPERSEDED] Frontend vanilla (conservato, non sviluppato)
+├── css/                         # [SUPERSEDED] Stili vanilla
+├── deploy/                      # Template config nginx/systemd
+├── docs/                        # Documentazione (architettura, deploy, manuali)
 └── .github/                     # CI + Dependabot + issue/PR templates
 ```
 
+---
+
 ## Script npm
 
-Backend (in `server/`):
+### Backend (`server/`)
 
 ```bash
-npm run dev              # tsx watch + serve frontend statici
+npm run dev              # tsx watch su :4000
 npm run build            # compila TypeScript
 npm run start            # esegui build di produzione
 npm run db:bootstrap     # crea ruoli gestimus_app / gestimus_super
@@ -236,36 +256,53 @@ npm run db:seed          # dati demo
 npm run db:reset         # drop + rebuild + seed (solo dev)
 npm run db:studio        # Drizzle Studio (UI ispezione tabelle)
 npm run test             # tutti i suite (rls + auth + crud + realtime)
-npm run test:rls         # solo isolation cross-tenant
+npm run test:rls         # solo isolamento cross-tenant
 npm run lint             # tsc --noEmit
 ```
 
-Root:
+### Frontend (`frontend/`)
+
+```bash
+npm run dev              # Vite dev server :5173 (con HMR)
+npm run build            # tsc -b && vite build → dist/
+npm run typecheck        # tsc -b --noEmit (type check senza emit)
+npm run lint             # ESLint strict-type-checked
+npm run lint:fix         # ESLint + autofix
+npm run test             # Vitest (unit/componenti, jsdom)
+npm run test:coverage    # Vitest + copertura v8
+npm run e2e              # Playwright E2E (richiede backend :4000 + dev server :5173)
+```
+
+### Root
 
 ```bash
 npm run test:unit        # tests/unit (scoring + rng) — no DB
-npm run test:e2e         # playwright (richiede server in esecuzione)
+npm run test:e2e         # Playwright legacy (richiede server avviato)
 ```
+
+---
 
 ## Documentazione
 
 | File | Contenuto |
 |------|-----------|
-| [`docs/MIGRATION_POSTGRES.md`](docs/MIGRATION_POSTGRES.md) | **Architettura tecnica completa** — schema DB, policy RLS, struttura moduli backend, soft-delete tenant con cleanup configurabile, 2FA TOTP, milestone roadmap |
-| [`docs/AUDIT.md`](docs/AUDIT.md) | **Stato sicurezza/hardening** — fotografia corrente + cronologia dei round di audit (voci aperte/chiuse, tamper-evidence, GDPR) |
-| [`docs/TEST.md`](docs/TEST.md) | **Test & verifica** — piramide (unit/server/E2E/type-check/load), comandi, prerequisiti, risultati di riferimento del load test, gate CI |
-| [`docs/LISTINO.md`](docs/LISTINO.md) | **Listino piani commerciali** — documento per i clienti finali |
-| [`docs/DEPLOY-IONOS.md`](docs/DEPLOY-IONOS.md) | **Guida deploy IONOS** per il nuovo stack Fastify + Postgres (systemd single unit, certbot DNS-01, backup PG, PgBouncer) |
-| [`docs/HA-POSTGRES.md`](docs/HA-POSTGRES.md) | **Alta disponibilità** — replica streaming + failover automatico (Patroni/HAProxy), routing connessioni, PITR, runbook operativo |
-| [`docs/manuale-admin.md`](docs/manuale-admin.md) | **Manuale operativo per l'admin di ente** — consultabile in-app da *Admin → Manuale* (TOC sticky, stampa A4 / esportazione PDF). Le immagini referenziate vivono in `docs/screenshots/`. |
+| [`docs/FRONTEND.md`](docs/FRONTEND.md) | **Guida frontend React** — stack, layout src/, convenzioni, come aggiungere una pagina, build/lint/test |
+| [`docs/MIGRATION_POSTGRES.md`](docs/MIGRATION_POSTGRES.md) | **Architettura tecnica completa** — schema DB, policy RLS, struttura moduli backend, soft-delete tenant, 2FA TOTP, milestone roadmap |
+| [`docs/AUDIT.md`](docs/AUDIT.md) | **Stato sicurezza/hardening** — fotografia corrente + cronologia dei round di audit |
+| [`docs/TEST.md`](docs/TEST.md) | **Test & verifica** — piramide (unit/server/E2E frontend+legacy/type-check/load), comandi, prerequisiti, risultati load test, gate CI |
+| [`docs/LISTINO.md`](docs/LISTINO.md) | **Listino piani commerciali** |
+| [`docs/DEPLOY-IONOS.md`](docs/DEPLOY-IONOS.md) | **Guida deploy IONOS** — systemd single unit, certbot DNS-01, backup PG, PgBouncer |
+| [`docs/HA-POSTGRES.md`](docs/HA-POSTGRES.md) | **Alta disponibilità** — replica streaming + failover automatico, PITR, runbook |
+| [`docs/manuale-admin.md`](docs/manuale-admin.md) | **Manuale operativo admin di ente** — consultabile in-app da *Admin → Manuale* |
 | [`server/README.md`](server/README.md) | **Backend reference** — schema Drizzle, endpoint REST, middleware, migrations, runtime metrics |
-| [`server/scripts/migrations/`](server/scripts/migrations/) | Migrazioni SQL incrementali applicabili con `psql -f` o tramite `db:push` di drizzle-kit |
+
+---
 
 ## Contributi
 
-Vedi [.github/pull_request_template.md](.github/pull_request_template.md) per il flusso PR e [.github/ISSUE_TEMPLATE](.github/ISSUE_TEMPLATE) per i template di issue.
+Vedi [.github/pull_request_template.md](.github/pull_request_template.md) per il flusso PR.
 
-I commit seguono una convention minima:
+Convention commit:
 - `feat:` nuova funzionalità
 - `fix:` bug fix
 - `chore:` infra/ops

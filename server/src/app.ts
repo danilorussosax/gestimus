@@ -7,6 +7,7 @@ import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { readFileSync, existsSync } from 'node:fs';
 import { env } from './env.js';
 import { pingDb } from './db/client.js';
 import { registerTenantMiddleware } from './middleware/tenant.js';
@@ -105,11 +106,26 @@ export async function createApp(): Promise<FastifyInstance> {
       return reply.code(404).send({ error: 'not found' });
     }
   });
-  await app.register(fastifyStatic, {
-    root: projectRoot,
-    prefix: '/',
-    decorateReply: false,
-  });
+  // Frontend: 'react' → SPA buildata (frontend/dist) con fallback SPA per le
+  // rotte client (BrowserRouter); 'vanilla' (default) → vecchio statico da root.
+  const reactDist = resolve(projectRoot, 'frontend/dist');
+  const serveReact = env.FRONTEND === 'react' && existsSync(resolve(reactDist, 'index.html'));
+  if (serveReact) {
+    const indexHtml = readFileSync(resolve(reactDist, 'index.html'), 'utf8');
+    await app.register(fastifyStatic, { root: reactDist, prefix: '/', decorateReply: false });
+    // SPA fallback: ogni GET che non è API/asset → index.html (deep-link, reload).
+    app.setNotFoundHandler((req, reply) => {
+      const p = req.url.split('?')[0]!;
+      const isApi = /^\/(api|auth|uploads|realtime|healthz|readyz)(\/|$)/.test(p);
+      if (req.method === 'GET' && !isApi) {
+        return reply.code(200).type('text/html').send(indexHtml);
+      }
+      return reply.code(404).send({ error: 'not found' });
+    });
+    app.log.info('frontend: React SPA da frontend/dist');
+  } else {
+    await app.register(fastifyStatic, { root: projectRoot, prefix: '/', decorateReply: false });
+  }
   await app.register(fastifyStatic, {
     root: resolve(env.UPLOADS_DIR),
     prefix: '/uploads/',

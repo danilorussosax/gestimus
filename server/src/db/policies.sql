@@ -19,6 +19,10 @@ ALTER TABLE fasi ADD COLUMN IF NOT EXISTS timer_started_for_cf_id uuid;
 ALTER TABLE candidati_fase ADD COLUMN IF NOT EXISTS evento_id uuid;
 ALTER TABLE candidati_fase ADD COLUMN IF NOT EXISTS ora_prevista time;
 
+-- concorsi.default_tiebreak_strategy: cascata tiebreak di default del concorso
+-- (ereditata dalle fasi senza override). Array jsonb [{key,enabled}].
+ALTER TABLE concorsi ADD COLUMN IF NOT EXISTS default_tiebreak_strategy jsonb;
+
 -- fasi.tiebreak_strategy: era stata creata come TEXT, ma il frontend invia
 -- un array di oggetti {key, enabled}. Convertiamo a jsonb se serve.
 DO $$

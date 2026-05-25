@@ -17,6 +17,12 @@ const createBody = z.object({
   anonimo: z.boolean().optional(),
   iscrizioniAperte: z.boolean().optional(),
   iscrizioniScadenza: z.string().date().optional(),
+  // Cascata tiebreak di default del concorso (array [{key,enabled}]) — nullable
+  // per poterla azzerare. jsonb passthrough.
+  defaultTiebreakStrategy: z
+    .array(z.object({ key: z.string(), enabled: z.boolean() }))
+    .nullable()
+    .optional(),
 });
 const updateBody = createBody.partial();
 

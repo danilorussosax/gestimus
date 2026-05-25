@@ -1,0 +1,689 @@
+/* shadcn/ui design system — ported to vanilla CSS for the Gestionale.
+   Tokens are defined as HSL CSS variables (the official shadcn shape) so the
+   Tailwind config in index.html can resolve "border", "primary", "card", etc.
+   Royal Blue (rgb 65,105,225 → hsl(225 73% 57%)) is the primary; Roboto stays
+   as the type family. */
+
+/* =====================================================================
+   Tokens — :root (light) and .dark (auto-disabled, scaffolding only)
+   ===================================================================== */
+
+:root {
+  --background: 220 33% 98%;
+  --foreground: 222 47% 11%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 11%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 11%;
+
+  --primary: 225 73% 57%;            /* royal blue #4169E1 */
+  --primary-foreground: 210 40% 98%;
+
+  --secondary: 220 15% 96%;
+  --secondary-foreground: 222 47% 11%;
+
+  --muted: 220 15% 96%;
+  --muted-foreground: 220 9% 40%;
+
+  --accent: 220 15% 94%;
+  --accent-foreground: 222 47% 11%;
+
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 210 40% 98%;
+
+  --border: 220 13% 91%;
+  --input:  220 13% 91%;
+  --ring:   225 73% 57%;
+
+  --radius: 0.5rem;
+}
+
+.dark {
+  --background: 222 47% 6%;
+  --foreground: 210 40% 98%;
+  --card: 222 47% 8%;
+  --card-foreground: 210 40% 98%;
+  --popover: 222 47% 6%;
+  --popover-foreground: 210 40% 98%;
+  --primary: 225 73% 65%;
+  --primary-foreground: 222 47% 11%;
+  --secondary: 217 33% 17%;
+  --secondary-foreground: 210 40% 98%;
+  --muted: 217 33% 17%;
+  --muted-foreground: 215 16% 65%;
+  --accent: 217 33% 17%;
+  --accent-foreground: 210 40% 98%;
+  --destructive: 0 62% 45%;
+  --destructive-foreground: 210 40% 98%;
+  --border: 217 33% 17%;
+  --input: 217 33% 17%;
+  --ring: 225 73% 65%;
+}
+
+/* =====================================================================
+   Base
+   ===================================================================== */
+
+html {
+  scroll-behavior: smooth;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  font-family: 'Roboto', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  font-feature-settings: 'rlig' 1, 'calt' 1;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  min-height: 100vh;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+::selection { background: hsl(var(--primary) / 0.20); color: hsl(var(--primary)); }
+
+h1, h2, h3, h4, h5, h6 {
+  color: hsl(var(--foreground));
+  letter-spacing: -0.012em;
+  font-weight: 600;
+}
+h1 { font-weight: 700; line-height: 1.2; }
+h2 { font-weight: 600; line-height: 1.25; }
+h3, h4 { font-weight: 600; line-height: 1.3; }
+
+input[type=number]::-webkit-inner-spin-button,
+input[type=number]::-webkit-outer-spin-button { opacity: 0.4; }
+
+/* =====================================================================
+   Focus rings — shadcn ring-2 ring-offset-2
+   ===================================================================== */
+
+:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+  border-radius: 0.375rem;
+}
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 1px;
+}
+
+.skip-link {
+  position: absolute;
+  left: -9999px; top: 0;
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+  padding: 0.5rem 1rem;
+  font-weight: 500;
+  font-size: 0.875rem;
+  border-radius: var(--radius);
+  z-index: 100;
+}
+.skip-link:focus { left: 0.5rem; top: 0.5rem; outline: 2px solid hsl(var(--background)); }
+
+/* =====================================================================
+   Tailwind utility overrides — keep raggi/ombre coherent w/ shadcn radius
+   (existing views ship rounded-{lg,xl,2xl} etc — map them onto --radius)
+   ===================================================================== */
+
+.rounded     { border-radius: calc(var(--radius) - 2px) !important; }
+.rounded-sm  { border-radius: calc(var(--radius) - 4px) !important; }
+.rounded-md  { border-radius: calc(var(--radius) - 2px) !important; }
+.rounded-lg  { border-radius: var(--radius) !important; }
+.rounded-xl  { border-radius: calc(var(--radius) + 2px) !important; }
+.rounded-2xl { border-radius: calc(var(--radius) + 4px) !important; }
+.rounded-3xl { border-radius: calc(var(--radius) + 8px) !important; }
+.rounded-full { border-radius: 9999px !important; }
+
+.shadow-sm   { box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05) !important; }
+.shadow      { box-shadow: 0 1px 3px 0 rgb(0 0 0 / 0.10), 0 1px 2px -1px rgb(0 0 0 / 0.10) !important; }
+.shadow-md   { box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.10), 0 2px 4px -2px rgb(0 0 0 / 0.10) !important; }
+.shadow-lg   { box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.10), 0 4px 6px -4px rgb(0 0 0 / 0.10) !important; }
+.shadow-xl   { box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.10), 0 8px 10px -6px rgb(0 0 0 / 0.10) !important; }
+.shadow-2xl  { box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.25) !important; }
+.shadow-soft { box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05) !important; }
+.shadow-pop  { box-shadow: 0 10px 30px -15px rgb(0 0 0 / 0.20), 0 4px 10px -6px rgb(0 0 0 / 0.10) !important; }
+.shadow-glow { box-shadow: 0 0 0 2px hsl(var(--ring) / 0.65) !important; }
+.shadow-ring { box-shadow: 0 0 0 2px hsl(var(--ring)) !important; }
+
+/* Translate legacy Tailwind palette tokens used in views to shadcn neutrals.
+   We do this to avoid touching every "text-slate-*" class in 5k+ lines of
+   view code while still ending up with shadcn-coherent contrast. */
+.text-slate-900 { color: hsl(var(--foreground)) !important; }
+.text-slate-800 { color: hsl(var(--foreground)) !important; }
+.text-slate-700 { color: hsl(var(--foreground) / 0.85) !important; }
+.text-slate-600 { color: hsl(var(--muted-foreground)) !important; }
+.text-slate-500 { color: hsl(var(--muted-foreground)) !important; }
+.text-slate-400 { color: hsl(var(--muted-foreground) / 0.75) !important; }
+.text-slate-300 { color: hsl(var(--border)) !important; }
+
+.bg-slate-50  { background: hsl(var(--muted)) !important; }
+.bg-slate-100 { background: hsl(var(--muted)) !important; }
+.bg-slate-200 { background: hsl(var(--secondary)) !important; }
+.border-slate-100,
+.border-slate-200,
+.border-slate-300 { border-color: hsl(var(--border)) !important; }
+
+/* =====================================================================
+   Drag handles (kept from previous design)
+   ===================================================================== */
+
+.drag-handle { cursor: grab; }
+.drag-handle:active { cursor: grabbing; }
+.dragging { opacity: 0.5; }
+.drag-over { outline: 2px dashed hsl(var(--ring)); outline-offset: -3px; border-radius: var(--radius); }
+
+/* =====================================================================
+   Vote slider — shadcn slider aesthetic
+   ===================================================================== */
+
+.vote-range {
+  appearance: none;
+  background: hsl(var(--secondary));
+  height: 4px;
+  border-radius: 9999px;
+  transition: background-color 120ms;
+}
+.vote-range::-webkit-slider-thumb {
+  appearance: none;
+  width: 20px; height: 20px;
+  background: hsl(var(--background));
+  border: 2px solid hsl(var(--primary));
+  border-radius: 9999px;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.10);
+  cursor: pointer;
+  transition: transform 120ms cubic-bezier(0.2, 0, 0.38, 0.9);
+}
+.vote-range::-webkit-slider-thumb:hover { transform: scale(1.1); }
+.vote-range::-webkit-slider-thumb:active { transform: scale(0.95); }
+.vote-range::-moz-range-thumb {
+  width: 20px; height: 20px;
+  background: hsl(var(--background));
+  border: 2px solid hsl(var(--primary));
+  border-radius: 9999px;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.10);
+  cursor: pointer;
+}
+
+/* =====================================================================
+   Sidebar nav active state
+   ===================================================================== */
+
+.sidebar-nav-active {
+  background: hsl(var(--primary)) !important;
+  color: hsl(var(--primary-foreground)) !important;
+  border-radius: var(--radius) !important;
+  font-weight: 600 !important;
+}
+.sidebar-nav-active::after { content: '' !important; margin-left: 0 !important; }
+
+/* =====================================================================
+   Motion (kept)
+   ===================================================================== */
+
+.view-fade { animation: cFade 200ms cubic-bezier(0.2, 0, 0.38, 0.9) both; }
+@keyframes cFade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+
+.modal-pop { animation: cModal 180ms cubic-bezier(0.2, 0, 0.38, 0.9) both; }
+@keyframes cModal { from { opacity: 0; transform: translateY(6px) scale(0.98); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* =====================================================================
+   Scrollbar
+   ===================================================================== */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--border)) transparent;
+}
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: hsl(var(--border));
+  border: 2px solid transparent;
+  background-clip: content-box;
+  border-radius: 9999px;
+}
+*::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.5); background-clip: content-box; }
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { scrollbar-width: none; }
+
+/* =====================================================================
+   Forms / autofill
+   ===================================================================== */
+
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-text-fill-color: hsl(var(--foreground));
+  transition: background-color 5000s ease-in-out 0s;
+  caret-color: hsl(var(--primary));
+}
+
+@supports (padding: max(0px)) {
+  body {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+}
+
+/* =====================================================================
+   Login: musical-instruments backdrop on left panel — preserved
+   ===================================================================== */
+
+.login-hero {
+  position: relative;
+  background: linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(225 73% 30%) 100%);
+  isolation: isolate;
+  overflow: hidden;
+}
+.login-hero::before {
+  content: '';
+  position: absolute;
+  inset: -24px;
+  background: url('/sfondo.png') center/cover no-repeat;
+  opacity: 0.55;
+  filter: blur(8px) saturate(1.1);
+  mix-blend-mode: screen;
+  -webkit-mask-image: linear-gradient(135deg, transparent 0%, rgba(0,0,0,0.35) 35%, #000 70%);
+          mask-image: linear-gradient(135deg, transparent 0%, rgba(0,0,0,0.35) 35%, #000 70%);
+  z-index: 0;
+  pointer-events: none;
+}
+.login-hero::after {
+  content: '';
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(120% 90% at 30% 20%, transparent 0%, rgba(15, 25, 65, 0.55) 80%),
+    linear-gradient(180deg, transparent 60%, rgba(0, 0, 0, 0.35) 100%);
+  z-index: 0;
+  pointer-events: none;
+}
+.login-hero > * { position: relative; z-index: 1; }
+
+/* =====================================================================
+   COMPONENT PRIMITIVES — restyled in the shadcn idiom
+   ===================================================================== */
+
+/* Page container */
+.c-page {
+  width: 100%;
+  padding: 1.5rem 1rem;
+}
+@media (min-width: 768px) { .c-page { padding: 2rem 1.5rem; } }
+
+/* Page hero — shadcn "Card" feel for the page header */
+.c-page-header {
+  background: hsl(var(--card));
+  color: hsl(var(--card-foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: calc(var(--radius) + 2px);
+  padding: 1.5rem 1.5rem 1.75rem;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+}
+@media (min-width: 768px) { .c-page-header { padding: 2rem 2.25rem 2.5rem; } }
+.c-page-header__eyebrow {
+  font-family: 'Roboto Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+  margin-bottom: 0.5rem;
+  font-weight: 500;
+}
+.c-page-header__title {
+  font-size: clamp(1.5rem, 1.2rem + 1.2vw, 2.25rem);
+  font-weight: 700;
+  letter-spacing: -0.022em;
+  line-height: 1.15;
+  color: hsl(var(--foreground));
+  margin: 0;
+}
+.c-page-header__sub {
+  margin-top: 0.5rem;
+  font-size: 0.95rem;
+  color: hsl(var(--muted-foreground));
+  max-width: 56rem;
+  line-height: 1.5;
+}
+
+/* Card / Tile — shadcn Card */
+.c-tile {
+  background: hsl(var(--card));
+  color: hsl(var(--card-foreground));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  padding: 1.25rem;
+  position: relative;
+  transition: box-shadow 150ms cubic-bezier(0.2, 0, 0.38, 0.9), border-color 150ms;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+}
+.c-tile--clickable { cursor: pointer; text-align: left; width: 100%; }
+.c-tile--clickable:hover {
+  border-color: hsl(var(--primary));
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.10), 0 2px 4px -2px rgb(0 0 0 / 0.10);
+}
+.c-tile--padded { padding: 1.5rem; }
+.c-tile__eyebrow {
+  font-family: 'Roboto Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+  font-weight: 500;
+}
+.c-tile__title {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: hsl(var(--foreground));
+  margin-top: 0.35rem;
+  letter-spacing: -0.012em;
+}
+
+/* Stat tile */
+.c-stat {
+  background: hsl(var(--card));
+  border: 1px solid hsl(var(--border));
+  border-radius: var(--radius);
+  padding: 1.25rem 1.5rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  transition: border-color 150ms, box-shadow 150ms;
+  position: relative;
+  min-height: 8rem;
+  box-shadow: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  overflow: hidden;
+}
+.c-stat::before {
+  content: '';
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 3px;
+  background: var(--c-stat-rule, hsl(var(--primary)));
+}
+.c-stat:hover {
+  border-color: hsl(var(--primary));
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.10);
+}
+.c-stat__label {
+  font-family: 'Roboto Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: hsl(var(--muted-foreground));
+  font-weight: 500;
+}
+.c-stat__value {
+  font-size: 2rem;
+  font-weight: 700;
+  color: hsl(var(--foreground));
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  font-feature-settings: 'tnum';
+}
+.c-stat__sub {
+  font-size: 0.8125rem;
+  color: hsl(var(--muted-foreground));
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  margin-top: auto;
+  font-weight: 500;
+}
+.c-stat--teal  { --c-stat-rule: hsl(195 75% 45%); }
+.c-stat--amber { --c-stat-rule: hsl(38 92% 50%); }
+.c-stat--gray  { --c-stat-rule: hsl(var(--muted-foreground)); }
+.c-stat--rose  { --c-stat-rule: hsl(var(--destructive)); }
+
+/* =====================================================================
+   Buttons — shadcn variants (primary/secondary/outline/ghost/destructive)
+   ===================================================================== */
+
+.c-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  height: 2.5rem;
+  padding: 0 1rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  border: 1px solid transparent;
+  border-radius: calc(var(--radius) - 2px);
+  cursor: pointer;
+  transition: background-color 150ms cubic-bezier(0.2, 0, 0.38, 0.9), color 150ms, border-color 150ms;
+  text-decoration: none;
+  white-space: nowrap;
+  user-select: none;
+  outline: none;
+}
+.c-btn:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+.c-btn:disabled { opacity: 0.5; pointer-events: none; }
+.c-btn--lg { height: 2.75rem; padding: 0 2rem; font-size: 0.9375rem; border-radius: var(--radius); }
+.c-btn--xl { height: 3rem; padding: 0 2rem; font-size: 1rem; border-radius: var(--radius); }
+.c-btn--sm { height: 2.25rem; padding: 0 0.75rem; font-size: 0.8125rem; }
+
+.c-btn--primary {
+  background: hsl(var(--primary));
+  color: hsl(var(--primary-foreground));
+}
+.c-btn--primary:hover { background: hsl(var(--primary) / 0.90); }
+.c-btn--primary:active { background: hsl(var(--primary) / 0.85); }
+
+.c-btn--secondary {
+  background: hsl(var(--secondary));
+  color: hsl(var(--secondary-foreground));
+}
+.c-btn--secondary:hover { background: hsl(var(--secondary) / 0.80); }
+
+.c-btn--tertiary,
+.c-btn--outline {
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  border-color: hsl(var(--input));
+}
+.c-btn--tertiary:hover,
+.c-btn--outline:hover {
+  background: hsl(var(--accent));
+  color: hsl(var(--accent-foreground));
+}
+
+.c-btn--ghost {
+  background: transparent;
+  color: hsl(var(--foreground));
+}
+.c-btn--ghost:hover { background: hsl(var(--accent)); color: hsl(var(--accent-foreground)); }
+
+.c-btn--danger,
+.c-btn--destructive {
+  background: hsl(var(--destructive));
+  color: hsl(var(--destructive-foreground));
+}
+.c-btn--danger:hover,
+.c-btn--destructive:hover { background: hsl(var(--destructive) / 0.90); }
+
+.c-btn__icon { font-size: 1rem; line-height: 1; }
+
+/* =====================================================================
+   Tags — shadcn Badge
+   ===================================================================== */
+
+.c-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+  height: 1.375rem;
+  padding: 0 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+  border-radius: calc(var(--radius) - 2px);
+  border: 1px solid transparent;
+  white-space: nowrap;
+  letter-spacing: 0.005em;
+  text-transform: uppercase;
+}
+.c-tag::before {
+  content: '';
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.7;
+}
+.c-tag--no-dot::before { display: none; }
+.c-tag--blue   { background: hsl(225 90% 96%); color: hsl(225 73% 35%); border-color: hsl(225 50% 88%); }
+.c-tag--cyan   { background: hsl(195 90% 96%); color: hsl(195 75% 30%); }
+.c-tag--green  { background: hsl(143 60% 95%); color: hsl(143 60% 26%); border-color: hsl(143 40% 85%); }
+.c-tag--red    { background: hsl(0 90% 96%);   color: hsl(0 70% 40%);  border-color: hsl(0 70% 90%); }
+.c-tag--magenta{ background: hsl(330 90% 96%); color: hsl(330 70% 35%); }
+.c-tag--purple { background: hsl(265 90% 96%); color: hsl(265 60% 40%); }
+.c-tag--yellow { background: hsl(40 92% 95%);  color: hsl(35 80% 30%); border-color: hsl(40 70% 85%); }
+.c-tag--gray   { background: hsl(var(--secondary)); color: hsl(var(--secondary-foreground)); border-color: hsl(var(--border)); }
+.c-tag--cool   { background: hsl(var(--secondary)); color: hsl(var(--secondary-foreground)); }
+.c-tag--outline{ background: transparent; border-color: hsl(var(--border)); color: hsl(var(--foreground)); }
+
+/* =====================================================================
+   Forms — shadcn Input/Textarea/Select
+   ===================================================================== */
+
+.c-field { display: flex; flex-direction: column; gap: 0.4rem; }
+.c-field__label {
+  font-size: 0.875rem;
+  color: hsl(var(--foreground));
+  font-weight: 500;
+  letter-spacing: 0;
+}
+.c-field__hint { font-size: 0.8125rem; color: hsl(var(--muted-foreground)); font-weight: 400; }
+
+.c-label {
+  display: block;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: hsl(var(--foreground));
+  margin-bottom: 0.25rem;
+}
+.c-input,
+.c-select,
+.c-textarea {
+  display: flex;
+  width: 100%;
+  height: 2.5rem;
+  background: hsl(var(--background));
+  border: 1px solid hsl(var(--input));
+  padding: 0 0.75rem;
+  font-size: 0.875rem;
+  color: hsl(var(--foreground));
+  font-family: inherit;
+  font-weight: 400;
+  border-radius: calc(var(--radius) - 2px);
+  outline: none;
+  transition: border-color 150ms, box-shadow 150ms;
+}
+.c-textarea { height: auto; min-height: 5rem; padding: 0.625rem 0.75rem; resize: vertical; line-height: 1.5; }
+.c-input:hover,
+.c-select:hover,
+.c-textarea:hover { /* shadcn keeps borders identical on hover */ }
+.c-input:focus,
+.c-select:focus,
+.c-textarea:focus,
+.c-input:focus-visible,
+.c-select:focus-visible,
+.c-textarea:focus-visible {
+  border-color: hsl(var(--ring));
+  box-shadow: 0 0 0 2px hsl(var(--ring));
+  outline: none;
+}
+.c-input::placeholder,
+.c-textarea::placeholder { color: hsl(var(--muted-foreground)); font-weight: 400; }
+
+/* =====================================================================
+   Link
+   ===================================================================== */
+
+.c-link {
+  color: hsl(var(--primary));
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 150ms;
+}
+.c-link:hover { color: hsl(var(--primary) / 0.85); text-decoration: underline; text-underline-offset: 4px; }
+
+/* =====================================================================
+   Table — shadcn Table
+   ===================================================================== */
+
+.c-table {
+  width: 100%;
+  border-collapse: collapse;
+  background: hsl(var(--card));
+  font-size: 0.875rem;
+}
+.c-table th,
+.c-table td {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid hsl(var(--border));
+  color: hsl(var(--foreground));
+  vertical-align: middle;
+}
+.c-table th {
+  background: transparent;
+  color: hsl(var(--muted-foreground));
+  font-weight: 500;
+  font-size: 0.8125rem;
+  height: 2.5rem;
+}
+.c-table tr:last-child td { border-bottom: 0; }
+.c-table tbody tr:hover { background: hsl(var(--muted) / 0.5); }
+
+/* Divider */
+.c-rule {
+  height: 1px;
+  background: hsl(var(--border));
+  border: 0;
+  margin: 1.5rem 0;
+}
+
+/* =====================================================================
+   Native form elements pick up the primary color (checkbox/radio)
+   ===================================================================== */
+
+input[type="checkbox"], input[type="radio"] { accent-color: hsl(var(--primary)); }
+input[type="range"]:not(.vote-range) { accent-color: hsl(var(--primary)); }
+
+/* shadcn doesn't ship custom colors per-Tailwind utility — these utility
+   classes still appear in the views. Map them onto the new tokens to keep
+   "bg-brand-*", "text-brand-*", etc. coherent with the system. */
+.bg-brand-50  { background-color: hsl(var(--accent)) !important; }
+.bg-brand-100 { background-color: hsl(var(--accent)) !important; }
+.text-brand-600,
+.text-brand-700,
+.text-brand-800 { color: hsl(var(--primary)) !important; }
+.bg-brand-500,
+.bg-brand-600,
+.bg-brand-700 { background-color: hsl(var(--primary)) !important; color: hsl(var(--primary-foreground)) !important; }
+button.bg-brand-500:hover,
+button.bg-brand-600:hover,
+button.bg-brand-700:hover { background-color: hsl(var(--primary) / 0.90) !important; }
+.border-brand-100,
+.border-brand-200 { border-color: hsl(var(--border)) !important; }
+.ring-brand-100,
+.ring-brand-200 { --tw-ring-color: hsl(var(--border)) !important; }
