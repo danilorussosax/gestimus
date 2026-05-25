@@ -9,7 +9,7 @@
  * Stampa: window.print() con CSS @media print inline.
  */
 
-import { useState } from 'react';
+import { useState, useRef, useEffect, type RefObject } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import ReactMarkdown from 'react-markdown';
@@ -79,13 +79,13 @@ function buildToc(containerEl: HTMLElement): TocItem[] {
 
 interface MdContentProps {
   markdown: string;
-  onMounted: (el: HTMLDivElement) => void;
+  containerRef: RefObject<HTMLDivElement | null>;
 }
 
-function MdContent({ markdown, onMounted }: MdContentProps) {
+function MdContent({ markdown, containerRef }: MdContentProps) {
   return (
     <div
-      ref={(el) => { if (el) onMounted(el); }}
+      ref={containerRef}
       id="manuale-print-area"
       className="prose prose-slate dark:prose-invert max-w-none bg-card rounded-xl border border-border p-8 shadow-sm"
     >
@@ -146,6 +146,7 @@ export default function AdminManuale() {
   const { t } = useTranslation();
   const [tocItems, setTocItems] = useState<TocItem[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
+  const articleRef = useRef<HTMLDivElement | null>(null);
 
   const {
     data: markdown,
@@ -160,13 +161,13 @@ export default function AdminManuale() {
     retry: 1,
   });
 
-  function onArticleMounted(el: HTMLDivElement) {
-    // Build TOC
-    const items = buildToc(el);
-    setTocItems(items);
-
-    // IntersectionObserver for active link
-    if (!('IntersectionObserver' in window) || items.length === 0) return;
+  // Costruisce la TOC + l'IntersectionObserver DOPO il render del markdown
+  // (effetto, non ref-callback: evita setState durante il render → loop infinito).
+  useEffect(() => {
+    const el = articleRef.current;
+    if (!markdown || !el) return;
+    setTocItems(buildToc(el));
+    if (!('IntersectionObserver' in window)) return;
     const io = new IntersectionObserver(
       (entries) => {
         for (const en of entries) {
@@ -179,8 +180,8 @@ export default function AdminManuale() {
       { rootMargin: '-20% 0px -70% 0px', threshold: 0 },
     );
     el.querySelectorAll<HTMLHeadingElement>('h2, h3').forEach((h) => io.observe(h));
-    // No cleanup needed here as the component lifetime handles it
-  }
+    return () => { io.disconnect(); };
+  }, [markdown]);
 
   return (
     <>
@@ -262,7 +263,7 @@ export default function AdminManuale() {
             <TocSidebar items={tocItems} active={activeId} />
 
             {/* Article */}
-            <MdContent markdown={markdown} onMounted={onArticleMounted} />
+            <MdContent markdown={markdown} containerRef={articleRef} />
           </div>
         )}
       </section>
