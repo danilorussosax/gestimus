@@ -52,8 +52,10 @@ import {
 } from '@/api/fase-runtime';
 import { useFaseRuntime } from '@/hooks/useFaseRuntime';
 import { listCriteri } from '@/api/criteri';
+import type { FaseRecord } from '@/api/fasi';
 import { normalizeCandidato } from '@/api/candidati';
 import { criteriFromRecords } from '@/lib/scoring';
+import { resolveAdmittedIds } from '@/lib/admitted';
 
 // ── Scoring helpers (created by Risultati agent, imported at integration) ────
 // We use dynamic-import-style soft refs so TypeScript won't fail before the
@@ -466,7 +468,13 @@ function PresidentePanel({
     }
     setSaving(true);
     try {
-      await concludiFase(faseId);
+      // N144: calcola gli ammessi top-N (con risoluzione pareggi) e inviali al
+      // server, altrimenti nessun candidato verrebbe promosso alla fase dopo.
+      const faseRec = fasi.find((f) => f.id === faseId);
+      const admitted = faseRec
+        ? await resolveAdmittedIds(faseRec as unknown as FaseRecord, concorso)
+        : null;
+      await concludiFase(faseId, admitted ?? undefined);
       toast.success(t('com.pres.phase_ended'));
       setConfirmEndFaseId(null);
       setEndChecked(false);

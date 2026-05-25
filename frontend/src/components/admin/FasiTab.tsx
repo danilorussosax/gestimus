@@ -26,6 +26,7 @@ import {
 
 import { cn } from '@/lib/utils';
 import { httpErrorMessage } from '@/lib/api';
+import { resolveAdmittedIds } from '@/lib/admitted';
 import {
   Dialog,
   DialogContent,
@@ -2639,7 +2640,10 @@ export function FasiTab({ concorsoId }: { concorsoId: string }) {
       confirmLabel: 'Concludi',
       onConfirm: async () => {
         try {
-          await concludiFase(fase.id);
+          // N144: calcola e invia gli ammessi top-N (con risoluzione pareggi);
+          // senza, nessun candidato verrebbe promosso alla fase successiva.
+          const admitted = await resolveAdmittedIds(fase);
+          await concludiFase(fase.id, admitted ?? undefined);
           toast.success('Fase conclusa');
           await invalidate();
         } catch (e) {

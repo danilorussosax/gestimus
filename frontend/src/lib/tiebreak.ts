@@ -227,6 +227,24 @@ export function rankWithTieBreak(
   return resolved;
 }
 
+/**
+ * N144: i candidatiFase ammessi alla fase successiva = i top `ammessi` della
+ * classifica con risoluzione pareggi. Gli ex aequo al taglio sono INCLUSI
+ * (posizione_finale <= ammessi). Ritorna `null` se non c'è una soglia top-N
+ * valida (`ammessi` mancante/≤0) → il server mantiene l'ammissione esistente.
+ * Porting fedele di js/views/admin/common.js:computeAdmittedIds.
+ */
+export function computeAdmittedIds(
+  ranked: RankedRow[],
+  ammessi: number | null | undefined,
+): string[] | null {
+  const n = Number(ammessi);
+  if (!Number.isFinite(n) || n <= 0) return null;
+  return ranked
+    .filter((r) => (r.posizione_finale ?? Infinity) <= n)
+    .map((r) => (r.cf as { id: string }).id);
+}
+
 function round2(n: number): number { return Math.round((n + Number.EPSILON) * 100) / 100; }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
