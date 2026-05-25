@@ -107,8 +107,15 @@ export default defineConfig({
     chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
+        // SOLO il core React (grande + condiviso da tutte le rotte) va in un
+        // chunk nominato, per cache-stabilità. Tutto il resto è lasciato
+        // all'auto-split di rollup, che rispetta i confini dei dynamic import:
+        // librerie usate solo on-demand (jspdf+html2canvas+canvg, recharts,
+        // react-markdown) finiscono in chunk LAZY e NON nel bundle iniziale.
+        // NB: NON reintrodurre un catch-all `return 'vendor'`: i chunk vendor
+        // nominati vengono issati come dipendenze statiche dell'entry da
+        // rolldown → forzerebbe eager anche le librerie lazy (regressione nota).
         manualChunks(id) {
-          if (!id.includes('node_modules')) return undefined;
           if (
             /[\\/]node_modules[\\/](react|react-dom|react-router|react-router-dom|scheduler|react-is|use-sync-external-store)[\\/]/.test(
               id,
@@ -117,25 +124,7 @@ export default defineConfig({
           ) {
             return 'vendor-react';
           }
-          if (id.includes('@radix-ui')) return 'vendor-radix';
-          if (id.includes('@tanstack/react-query')) return 'vendor-query';
-          if (id.includes('recharts') || id.includes('d3-')) return 'vendor-recharts';
-          if (id.includes('i18next') || id.includes('react-i18next')) return 'vendor-i18n';
-          if (
-            id.includes('react-hook-form') ||
-            id.includes('@hookform/resolvers') ||
-            /[\\/]node_modules[\\/]zod[\\/]/.test(id)
-          ) {
-            return 'vendor-form';
-          }
-          if (id.includes('react-markdown') || id.includes('remark') || id.includes('rehype')) {
-            return 'vendor-markdown';
-          }
-          if (id.includes('jspdf')) return 'vendor-pdf';
-          if (id.includes('framer-motion')) return 'vendor-motion';
-          if (id.includes('lucide-react')) return 'vendor-icons';
-          if (id.includes('dayjs')) return 'vendor-dayjs';
-          return 'vendor';
+          return undefined;
         },
       },
     },

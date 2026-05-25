@@ -12,8 +12,8 @@
  *   exportProtocolloPdf(opts) → Promise<void>  (triggers browser download)
  */
 
-import { jsPDF } from 'jspdf';
-import { autoTable } from 'jspdf-autotable';
+// jspdf + jspdf-autotable caricati on-demand (dynamic import dentro
+// exportProtocolloPdf) per tenerli fuori dal bundle iniziale.
 import type { FaseRecord } from '@/api/fasi';
 import type { Candidato, CandidatoFase } from '@/types';
 import type { CommissarioRecord } from '@/api/commissari';
@@ -147,6 +147,10 @@ export async function exportProtocolloPdf(opts: ProtocolloPdfOpts): Promise<void
   const { concorso, fasi, candidati, rankedByFase, sezioni, commissioni, commissari } =
     opts;
 
+  const [{ jsPDF }, { autoTable }] = await Promise.all([
+    import('jspdf'),
+    import('jspdf-autotable'),
+  ]);
   const doc = new jsPDF({ unit: 'pt', format: 'a4' });
   const pageW = doc.internal.pageSize.getWidth();
   const margin = 40;
