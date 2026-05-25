@@ -16,11 +16,18 @@ declare module 'fastify' {
   }
 }
 
+// SameSite=Strict in produzione (pannello admin con dati sensibili, nessun
+// flusso cross-site legittimo: frontend e API stessa origin). In dev resta
+// 'lax' per non rompere il proxy Vite :5173→:4000 e gli E2E. Il valore deve
+// essere identico tra set (SESSION_COOKIE_OPTIONS) e clear (clearSessionCookie),
+// altrimenti alcuni browser non rimuovono il cookie.
+const SESSION_SAME_SITE: 'strict' | 'lax' = env.NODE_ENV === 'production' ? 'strict' : 'lax';
+
 export const SESSION_COOKIE_OPTIONS = {
   path: '/',
   httpOnly: true,
   secure: env.NODE_ENV === 'production',
-  sameSite: 'lax' as const,
+  sameSite: SESSION_SAME_SITE,
   // N136 (non firmato di proposito): il cookie NON codifica fiducia — contiene
   // solo un token casuale opaco validato lato server (validateSessionToken).
   // Una manomissione produce un token inesistente → 401, non una sessione
@@ -96,7 +103,7 @@ export function clearSessionCookie(reply: FastifyReply): void {
     path: '/',
     httpOnly: true,
     secure: env.NODE_ENV === 'production',
-    sameSite: 'lax',
+    sameSite: SESSION_SAME_SITE,
   });
 }
 
