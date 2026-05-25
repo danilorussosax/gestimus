@@ -1719,7 +1719,10 @@ export function CandidatiTab({ concorsoId }: { concorsoId: string }) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Cerca per nome, strumento…"
-            className="c-input pl-10 h-9 text-sm"
+            className="c-input h-9 text-sm"
+            // .c-input (legacy.css, non-layered) ha `padding` proprio che batte
+            // l'utility pl-*: forziamo il padding-left inline per non sovrapporre l'icona.
+            style={{ paddingLeft: '2.5rem' }}
           />
           {search && (
             <button

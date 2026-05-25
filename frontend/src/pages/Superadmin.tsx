@@ -814,7 +814,8 @@ export default function Superadmin() {
               id="sa-search"
               type="search"
               placeholder="Cerca per nome o slug…"
-              className="c-input c-input--sm pl-9 w-full"
+              className="c-input c-input--sm w-full"
+              style={{ paddingLeft: '2.25rem' }}
               value={filter.search}
               onChange={(e) => setFilter((f) => ({ ...f, search: e.target.value }))}
             />
