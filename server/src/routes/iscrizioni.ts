@@ -57,7 +57,20 @@ const iscrizioneCreateBody = z.object({
   strumento: z.string().max(255).optional(),
   anniStudio: z.number().int().min(0).max(99).optional(),
   scuolaProvenienza: z.string().max(255).optional(),
-  programma: z.unknown().optional(),
+  // Programma musicale: input pubblico anonimo → schema delimitato (era
+  // z.unknown(): accettava JSON arbitrario, vettore di abuso storage/DoS).
+  // Rispecchia il contratto del form (programmaRow) ma lenient: z.object
+  // scarta i campi extra, coerce sulla durata. Bound: 200 brani.
+  programma: z
+    .array(
+      z.object({
+        titolo: z.string().max(500),
+        autore: z.string().max(300).optional(),
+        durata_min: z.coerce.number().min(0).max(600).optional(),
+      }),
+    )
+    .max(200)
+    .optional(),
   docentiPreparatori: z.array(z.string()).optional(),
   sezioneId: uuid.optional(),
   categoriaId: uuid.optional(),

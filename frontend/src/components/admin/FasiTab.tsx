@@ -2799,7 +2799,11 @@ export function FasiTab({ concorsoId }: { concorsoId: string }) {
         </summary>
         <div className="px-4 pb-4 pt-1 text-[13px] text-slate-700 leading-relaxed">
           {/* Intro + 10 tip di guida — testo identico al vanilla (fasiGuidanceHtml).
-              I body contengono HTML (<strong>/<em>/<code>) deliberato → dangerouslySetInnerHTML. */}
+              SICUREZZA: i body contengono HTML (<strong>/<em>/<code>) deliberato →
+              dangerouslySetInnerHTML. Il contenuto è una COSTANTE hardcoded
+              (GUIDE_TIPS, sotto) e la stringa letterale qui: NON proviene mai dal
+              backend né da input utente. Se in futuro diventasse dinamico,
+              sostituire con rendering markdown/JSX o sanitizzare con DOMPurify. */}
           <p
             className="mb-3"
             dangerouslySetInnerHTML={{

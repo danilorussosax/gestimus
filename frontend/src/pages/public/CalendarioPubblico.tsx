@@ -20,6 +20,22 @@ import { publicApi, type CalBlocco, type CalGiorno, type CalendarioPubblicRespon
 
 const hhmm = (s: string | null | undefined) => (s ? String(s).slice(0, 5) : '');
 
+/**
+ * Escape HTML per le interpolazioni nei template-string renderizzati via
+ * dangerouslySetInnerHTML (DisplayBoard). I valori — nomi concorso/sala/
+ * sezione/categoria, etichette candidati, URL logo — arrivano dal backend e
+ * sono mostrati su una pagina PUBBLICA senza auth: senza escape un nome tipo
+ * `<img src=x onerror=...>` sarebbe XSS stored. Copre testo e attributi "...".
+ */
+function esc(v: unknown): string {
+  return String(v ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
 function fmtDay(iso: string): string {
   if (!iso) return '';
   try {
@@ -302,7 +318,7 @@ function buildSalaBoardHtml(salaNome: string, blocchi: CalBlocco[]): string {
   cells += sezNames
     .map(
       (n) =>
-        `<div class="cal-colhead" style="grid-column:${sezColStart[n]} / ${sezColStart[n] + maxLanes[n]};grid-row:1">${n}</div>`,
+        `<div class="cal-colhead" style="grid-column:${sezColStart[n]} / ${sezColStart[n] + maxLanes[n]};grid-row:1">${esc(n)}</div>`,
     )
     .join('');
   for (let k = 0; k < T; k++) {
@@ -336,25 +352,25 @@ function buildSalaBoardHtml(salaNome: string, blocchi: CalBlocco[]): string {
             ? `<span class="cal-name__badge" style="background:rgba(245,158,11,.9);color:#fff">Prossimo</span>`
             : '';
         return `<div class="cal-name${live === 'now' ? ' cal-name--now' : ''}">
-          <span class="cal-ava" style="background:${c.ava};color:${c.avaFg}">${initials(s.etichetta)}</span>
-          <span class="cal-name__t">${hhmm(s.oraPrevista) || ''}</span>
-          <span class="cal-name__n">${s.etichetta ?? ''}</span>
+          <span class="cal-ava" style="background:${c.ava};color:${c.avaFg}">${esc(initials(s.etichetta))}</span>
+          <span class="cal-name__t">${esc(hhmm(s.oraPrevista) || '')}</span>
+          <span class="cal-name__n">${esc(s.etichetta ?? '')}</span>
           ${badge}
         </div>`;
       })
       .join('');
     const namesHtml = slots
       ? `<div class="cal-names">${slots}</div>`
-      : `<div class="cal-card__fase">${it.b.tipo === 'EVENTO' ? (it.b.titolo ?? 'Evento') : 'Nessun candidato pianificato.'}</div>`;
+      : `<div class="cal-card__fase">${esc(it.b.tipo === 'EVENTO' ? (it.b.titolo ?? 'Evento') : 'Nessun candidato pianificato.')}</div>`;
     cells += `<article class="cal-card" style="grid-row:${it.sTick + 2} / ${it.eTick + 2};grid-column:${col};background:${c.bg};color:${c.fg}">
-      <div class="cal-card__cat">${cat}</div>
-      ${orario ? `<div class="cal-card__time" style="color:${c.sub}">${orario}</div>` : ''}
+      <div class="cal-card__cat">${esc(cat)}</div>
+      ${orario ? `<div class="cal-card__time" style="color:${c.sub}">${esc(orario)}</div>` : ''}
       ${namesHtml}
     </article>`;
   }
 
   return `<div class="cal-board">
-    <div class="cal-board__sala">${salaNome}</div>
+    <div class="cal-board__sala">${esc(salaNome)}</div>
     <div class="cal-grid" style="grid-template-columns:${cols};grid-template-rows:${rows}">${cells}</div>
   </div>`;
 }
@@ -378,17 +394,17 @@ function DisplayBoard({ data }: { data: CalendarioPubblicResponse }) {
             }
             const sale = [...bySala.keys()].sort((a, b) => a.localeCompare(b));
             return `<section>
-              <div class="cal-day__date">${fmtDay(g.data)}</div>
+              <div class="cal-day__date">${esc(fmtDay(g.data))}</div>
               ${sale.map((s) => buildSalaBoardHtml(s, bySala.get(s)!)).join('')}
             </section>`;
           })
           .join('');
 
   const headHtml = `<div class="cal-disp__head">
-    ${data.concorso.logo ? `<img src="${data.concorso.logo}" alt="" class="cal-disp__logo" onerror="this.style.display='none'" />` : ''}
+    ${data.concorso.logo ? `<img src="${esc(data.concorso.logo)}" alt="" class="cal-disp__logo" onerror="this.style.display='none'" />` : ''}
     <div>
-      <div class="cal-disp__title">${data.concorso.nome ?? ''}</div>
-      ${data.pubblicazione?.etichetta ? `<div class="cal-disp__sub">${data.pubblicazione.etichetta}</div>` : ''}
+      <div class="cal-disp__title">${esc(data.concorso.nome ?? '')}</div>
+      ${data.pubblicazione?.etichetta ? `<div class="cal-disp__sub">${esc(data.pubblicazione.etichetta)}</div>` : ''}
     </div>
   </div>`;
 
