@@ -9,7 +9,9 @@
 // =============================================================================
 
 import { useState, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
+import { getConcorso } from '@/api/concorsi';
 import {
   ChevronRight, Download, ExternalLink,
 } from 'lucide-react';
@@ -566,6 +568,14 @@ export function IscrizioniTab({ concorsoId }: { concorsoId: string }) {
     refetch,
   } = useIscrizioni(concorsoId);
 
+  // Nome concorso per il filename CSV.
+  const { data: concorso } = useQuery({
+    queryKey: ['concorsi', concorsoId],
+    queryFn: () => getConcorso(concorsoId),
+    enabled: !!concorsoId,
+    staleTime: 60_000,
+  });
+
   const [filterStato, setFilterStato] = useState<StatoDbAll>('');
   const [detail, setDetail] = useState<IscrizioneFull | null>(null);
   const [rejectDialog, setRejectDialog] = useState<IscrizioneFull | null>(null);
@@ -648,7 +658,11 @@ export function IscrizioniTab({ concorsoId }: { concorsoId: string }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = 'iscrizioni.csv';
+    const safeName = ((concorso?.nome ?? '') || 'iscrizioni')
+      // eslint-disable-next-line no-control-regex -- sanitizzazione nome file CSV
+      .replace(/[\\/\x00-\x1f]+/g, '_')
+      .replaceAll(' ', '_') || 'iscrizioni';
+    a.download = `${safeName}_iscrizioni.csv`;
     a.click();
     URL.revokeObjectURL(url);
     toast.success(`${filtered.length} iscrizioni esportate`);

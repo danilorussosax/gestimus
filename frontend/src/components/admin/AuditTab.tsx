@@ -122,11 +122,13 @@ export function AuditTab({ concorsoId }: AuditTabProps) {
     staleTime: 30_000,
   });
 
-  // Filtro scope client-side: cerca concorsoId nel payload serializzato.
-  // Replica: scope === 'concorso' ? concorso.id : null in vanilla.
+  // Filtro scope client-side: include l'evento se il suo targetId è il concorso
+  // OPPURE se il concorsoId compare nel payload serializzato (vanilla:
+  // targetId === concorso.id || payload.concorsoId === concorso.id).
   const scopedEntries = useMemo(() => {
     if (scope === 'all') return entries;
     return entries.filter((e) => {
+      if (e.targetId === concorsoId) return true;
       if (!e.payload) return false;
       const s = typeof e.payload === 'string' ? e.payload : JSON.stringify(e.payload);
       return s.includes(concorsoId);

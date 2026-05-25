@@ -15,6 +15,7 @@
 // jspdf + jspdf-autotable caricati on-demand (dynamic import dentro
 // exportProtocolloPdf) per tenerli fuori dal bundle iniziale.
 import type { FaseRecord } from '@/api/fasi';
+import i18n from '@/i18n';
 import type { Candidato, CandidatoFase } from '@/types';
 import type { CommissarioRecord } from '@/api/commissari';
 import type { CommissioneRecord } from '@/api/commissioni';
@@ -184,7 +185,7 @@ export async function exportProtocolloPdf(opts: ProtocolloPdfOpts): Promise<void
   if (concorso.anonimo) {
     doc.setFontSize(9);
     doc.setTextColor(115, 103, 240); // brand-500
-    doc.text('Concorso anonimo — i nomi dei candidati non compaiono nel verbale ufficiale.', margin + 52, margin + 40);
+    doc.text(i18n.t('admin.risultati.pdf_anonimo'), margin + 52, margin + 40);
   }
 
   doc.setDrawColor(231, 229, 235);
@@ -203,8 +204,8 @@ export async function exportProtocolloPdf(opts: ProtocolloPdfOpts): Promise<void
     const nomeFaseConScope = `${fase.nome}${faseScopeLabel(fase, sezioni)}`;
     const showEsito = (groupSize.get(fase.id) ?? 1) > 1;
 
-    const PROMOSSO_LABEL = (fase.testoEsitoPromosso ?? 'PROMOSSO').toUpperCase();
-    const ELIMINATO_LABEL = (fase.testoEsitoEliminato ?? 'ELIMINATO').toUpperCase();
+    const PROMOSSO_LABEL = (fase.testoEsitoPromosso ?? i18n.t('admin.risultati.pdf_promosso')).toUpperCase();
+    const ELIMINATO_LABEL = (fase.testoEsitoEliminato ?? i18n.t('admin.risultati.pdf_eliminato')).toUpperCase();
 
     // ─ Fase header ─
     if (cursorY > 720) {
@@ -214,23 +215,39 @@ export async function exportProtocolloPdf(opts: ProtocolloPdfOpts): Promise<void
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(13);
     doc.setTextColor(46, 38, 61);
-    doc.text(`Fase ${fase.ordine}: ${nomeFaseConScope}`, margin, cursorY);
+    doc.text(
+      i18n.t('admin.risultati.pdf_phase', { ordine: fase.ordine, nome: nomeFaseConScope }),
+      margin,
+      cursorY,
+    );
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(9);
     doc.setTextColor(93, 89, 108);
     doc.text(
-      `Stato: ${fase.stato.replace(/_/g, ' ')} · Scala: ${scala} · Candidati: ${rows.length}`,
+      i18n.t('admin.risultati.pdf_phase_meta', {
+        stato: fase.stato.replace(/_/g, ' '),
+        scala,
+        n: rows.length,
+      }),
       margin,
       cursorY + 14,
     );
     cursorY += 22;
 
     // ─ Table head ─
+    const COL = {
+      pos: i18n.t('admin.risultati.pdf_col_pos'),
+      num: i18n.t('admin.risultati.pdf_col_num'),
+      cand: i18n.t('admin.risultati.pdf_col_cand'),
+      strumento: i18n.t('admin.risultati.pdf_col_strumento'),
+      media: i18n.t('admin.risultati.pdf_col_media'),
+      esito: i18n.t('admin.risultati.pdf_col_esito'),
+    };
     const head: string[][] = [
       showEsito
-        ? ['Pos.', 'N°', 'Candidato', 'Strumento', 'Media', 'Esito']
-        : ['Pos.', 'N°', 'Candidato', 'Strumento', 'Media'],
+        ? [COL.pos, COL.num, COL.cand, COL.strumento, COL.media, COL.esito]
+        : [COL.pos, COL.num, COL.cand, COL.strumento, COL.media],
     ];
 
     const body: string[][] = rows.map((r, i) => {
@@ -306,7 +323,7 @@ export async function exportProtocolloPdf(opts: ProtocolloPdfOpts): Promise<void
   doc.line(pageW - margin - 220, sigY, pageW - margin, sigY);
   doc.setFontSize(9);
   doc.setTextColor(93, 89, 108);
-  doc.text('Il Presidente della Commissione', pageW - margin - 220, sigY + 12);
+  doc.text(i18n.t('admin.risultati.pdf_signature'), pageW - margin - 220, sigY + 12);
   if (presidente) {
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(46, 38, 61);
@@ -321,7 +338,7 @@ export async function exportProtocolloPdf(opts: ProtocolloPdfOpts): Promise<void
     doc.setFontSize(8);
     doc.setTextColor(165, 163, 174);
     doc.text(
-      `Pagina ${p} di ${finalTotalPages}`,
+      i18n.t('admin.risultati.pdf_page', { p, total: finalTotalPages }),
       pageW - margin,
       pageH - 20,
       { align: 'right' },
