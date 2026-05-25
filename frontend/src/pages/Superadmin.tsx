@@ -47,22 +47,12 @@ import {
   type ChangePlanBody,
   TENANT_PLANS,
 } from '@/api/platform';
+import { PIANI, pianoPriceLabel, pianoDurataLabel } from '@/lib/piani';
 
 // ─── Local plan metadata (mirrors js/piani.js badge_color / limits) ──────────
 
-const PIANI: Record<TenantPiano, {
-  nome: string;
-  prezzo?: number;
-  badge_color: string;
-  limit_concorsi: number | null;
-  limit_iscritti_annui: number | null;
-}> = {
-  trial:   { nome: 'Trial',   prezzo: 0,    badge_color: 'slate',   limit_concorsi: 1,    limit_iscritti_annui: 50 },
-  starter: { nome: 'Starter', prezzo: 490,  badge_color: 'sky',     limit_concorsi: 5,    limit_iscritti_annui: 300 },
-  pro:     { nome: 'Pro',     prezzo: 990,  badge_color: 'brand',   limit_concorsi: 20,   limit_iscritti_annui: 2000 },
-  ultra:   { nome: 'Ultra',   prezzo: 1990, badge_color: 'amber',   limit_concorsi: null, limit_iscritti_annui: null },
-  ppe:     { nome: 'PPE',     prezzo: 0,    badge_color: 'emerald', limit_concorsi: null, limit_iscritti_annui: null },
-};
+// Catalogo piani: single source of truth in lib/piani.ts (port di js/piani.js).
+// Prima era hardcoded qui con valori divergenti (prezzi/limiti errati).
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -1336,8 +1326,18 @@ function NewEnteDialog({ existingSlugs, onClose, onCreated }: {
                 >
                   <input type="radio" name="ne-piano" value={k} checked={piano === k} onChange={() => setPiano(k)} className="sr-only" />
                   <div className="flex items-baseline justify-between mb-1">
-                    <span className="font-semibold text-ink-900">{PIANI[k].nome}</span>
-                    <span className="text-xs text-ink-700">{PIANI[k].prezzo === 0 ? 'Gratuito' : `€${PIANI[k].prezzo}/anno`}</span>
+                    <span className="font-semibold text-ink-900">
+                      {PIANI[k].nome}
+                      {PIANI[k].featured && (
+                        <span className="ml-1.5 text-[10px] font-bold uppercase tracking-wide text-brand-700 bg-brand-100 rounded px-1.5 py-0.5">consigliato</span>
+                      )}
+                    </span>
+                    <span className="text-xs text-ink-700">{pianoPriceLabel(k)}</span>
+                  </div>
+                  <p className="text-[11px] text-ink-600 leading-snug">{PIANI[k].descrizione}</p>
+                  <div className="mt-1 text-[11px] text-ink-500 flex gap-3">
+                    <span>📊 {PIANI[k].limit_concorsi ?? '∞'} concorsi</span>
+                    <span>👥 {PIANI[k].limit_iscritti_annui ?? '∞'} iscr/anno</span>
                   </div>
                   {piano === k && (
                     <div className="mt-2 pt-2 border-t border-slate-200 text-xs text-emerald-700 font-medium inline-flex items-center gap-1">
@@ -1629,11 +1629,13 @@ function ChangePlanDialog({ t, onClose, onSaved }: { t: Tenant; onClose: () => v
               <div className="flex items-center gap-2 mb-1">
                 <strong className="text-ink-900">{selectedPiano.nome}</strong>
                 <span className="text-ink-700">·</span>
-                <span className="text-ink-700">{selectedPiano.prezzo === 0 ? 'Gratuito' : `€${selectedPiano.prezzo}/anno`}</span>
+                <span className="text-ink-700">{pianoPriceLabel(piano)}</span>
                 {changed
                   ? <span className="ml-auto text-xs text-emerald-700 font-medium">↑ cambio</span>
                   : <span className="ml-auto text-xs text-ink-500">nessun cambio</span>}
               </div>
+              <p className="text-xs text-ink-600 mb-1">{selectedPiano.descrizione}</p>
+              <p className="text-[11px] text-ink-500">Durata: {pianoDurataLabel(piano)}</p>
               <ul className="text-xs text-ink-900 grid sm:grid-cols-2 gap-1 mt-2">
                 <li>Concorsi: <strong>{selectedPiano.limit_concorsi ?? <em className="font-normal">illimitato</em>}</strong></li>
                 <li>Iscrizioni/anno: <strong>{selectedPiano.limit_iscritti_annui ?? <em className="font-normal">illimitato</em>}</strong></li>
