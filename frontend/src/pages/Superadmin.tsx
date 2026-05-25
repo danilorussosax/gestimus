@@ -6,7 +6,7 @@
  * Renders inside AppLayout.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -230,61 +230,84 @@ function KpiCard({
   );
 }
 
-// Inline sparkline (no extra lib) — same SVG math as vanilla sparklineCard
-function SparklineCard({
-  label, currentValue, sub, values, color, yMin = 0, yMax = null,
+// Card risorsa con finestra 24h — SVG inline (no chart lib). Mostra valore
+// corrente, span coperto, e statistiche min/medio/picco sulla serie storica
+// campionata dal backend (1 campione/intervalMs, fino a 24h).
+function ResourceCard24h({
+  label, current, series, color, format, yMax = null, intervalMs,
 }: {
   label: string;
-  currentValue: string;
-  sub: string;
-  values: number[];
+  current: string;
+  series: number[]; // cronologica (vecchio → nuovo)
   color: string;
-  yMin?: number;
+  format: (v: number) => string;
   yMax?: number | null;
+  intervalMs: number;
 }) {
-  const w = 300, h = 140, padding = 6;
-  let pathEl: React.ReactNode;
-  if (values.length >= 2) {
-    const innerW = w - padding * 2;
-    const innerH = h - padding * 2;
-    const maxV = yMax ?? Math.max(...values);
-    const minV = Math.min(yMin, ...values);
+  const w = 320, h = 120, pad = 6;
+  const n = series.length;
+  const stats = n
+    ? { min: Math.min(...series), max: Math.max(...series), avg: series.reduce((a, b) => a + b, 0) / n }
+    : null;
+  const spanMin = n > 1 ? Math.round(((n - 1) * intervalMs) / 60000) : 0;
+  const spanLabel = spanMin >= 60 ? `${(spanMin / 60).toFixed(1)}h` : `${spanMin} min`;
+
+  let chart: React.ReactNode;
+  if (n >= 2 && stats) {
+    const innerW = w - pad * 2, innerH = h - pad * 2;
+    const maxV = yMax ?? stats.max;
+    const minV = Math.min(0, stats.min);
     const range = (maxV - minV) || 1;
-    const HIST_MAX = 60;
-    const stepX = innerW / Math.max(1, HIST_MAX - 1);
-    const offsetX = padding + innerW - (values.length - 1) * stepX;
-    const pts = values.map((v, i) => ({
-      x: offsetX + i * stepX,
-      y: padding + innerH - ((v - minV) / range) * innerH,
+    const stepX = innerW / (n - 1);
+    const pts = series.map((v, i) => ({
+      x: pad + i * stepX,
+      y: pad + innerH - ((v - minV) / range) * innerH,
     }));
     const line = 'M ' + pts.map((p) => `${p.x.toFixed(1)} ${p.y.toFixed(1)}`).join(' L ');
-    const first = pts[0];
-    const last = pts[pts.length - 1];
-    const area = `${line} L ${last.x.toFixed(1)} ${(h - padding).toFixed(1)} L ${first.x.toFixed(1)} ${(h - padding).toFixed(1)} Z`;
-    pathEl = (
+    const first = pts[0], last = pts[n - 1];
+    const area = `${line} L ${last.x.toFixed(1)} ${(h - pad).toFixed(1)} L ${first.x.toFixed(1)} ${(h - pad).toFixed(1)} Z`;
+    const avgY = pad + innerH - ((stats.avg - minV) / range) * innerH;
+    chart = (
       <>
+        <line x1={pad} y1={avgY} x2={w - pad} y2={avgY} stroke={color} strokeOpacity={0.25} strokeWidth={1} strokeDasharray="3 3" />
         <path d={area} fill={color} fillOpacity={0.08} />
-        <path d={line} fill="none" stroke={color} strokeWidth={1.75} strokeLinejoin="round" strokeLinecap="round" />
+        <path d={line} fill="none" stroke={color} strokeWidth={1.5} strokeLinejoin="round" strokeLinecap="round" />
         <circle cx={last.x} cy={last.y} r={3} fill={color} />
       </>
     );
   } else {
-    pathEl = (
-      <text x={w / 2} y={h / 2} textAnchor="middle" dominantBaseline="middle" fill="#94a3b8" fontSize={12} fontFamily="ui-monospace,monospace">
-        in attesa…
+    chart = (
+      <text x={w / 2} y={h / 2} textAnchor="middle" dominantBaseline="middle" fill="#94a3b8" fontSize={11} fontFamily="ui-monospace,monospace">
+        raccolta dati… (1 campione / {Math.round(intervalMs / 1000)}s)
       </text>
     );
   }
+
   return (
     <div className="bg-white border border-slate-200 rounded-xl p-4">
-      <div className="flex items-baseline justify-between gap-2 mb-3">
+      <div className="flex items-baseline justify-between gap-2 mb-1">
         <p className="text-[11px] uppercase tracking-wide text-ink-500 font-medium">{label}</p>
-        <span className="text-xl font-bold text-ink-900">{currentValue}</span>
+        <span className="text-xl font-bold text-ink-900">{current}</span>
       </div>
-      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="w-full h-32 block">
-        {pathEl}
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-brand-700 bg-brand-50 rounded px-1.5 py-0.5">
+          ultime 24h
+        </span>
+        <span className="text-[10px] text-ink-400 font-mono">{n > 1 ? `${spanLabel} · ${n} campioni` : '—'}</span>
+      </div>
+      <svg viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none" className="w-full h-28 block">
+        {chart}
       </svg>
-      <p className="text-[10px] text-ink-500 mt-2 font-mono">{sub}</p>
+      {stats && n > 1 && (
+        <div className="grid grid-cols-3 gap-1 mt-2 text-center">
+          {([['min', stats.min], ['medio', stats.avg], ['picco', stats.max]] as const).map(([k, v]) => (
+            <div key={k}>
+              <p className="text-[9px] uppercase tracking-wide text-ink-400">{k}</p>
+              <p className="text-xs font-semibold text-ink-800 font-mono">{format(v)}</p>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -309,9 +332,6 @@ export default function Superadmin() {
   const [smtpEnte, setSmtpEnte] = useState<Tenant | null>(null);
   const [auditEnte, setAuditEnte] = useState<Tenant | null>(null);
   const [backupsEnte, setBackupsEnte] = useState<Tenant | null>(null);
-
-  // Sparkline history
-  const histRef = useRef<{ rss: number[]; cpu: number[] }>({ rss: [], cpu: [] });
 
   // ── Queries ──────────────────────────────────────────────────────────────
   const tenantsQ = useQuery({
@@ -368,6 +388,15 @@ export default function Superadmin() {
   });
   const sys: SystemSnapshot | undefined = systemQ.data;
 
+  // Serie 24h RAM/CPU dal backend (ring buffer, 1 campione/60s). Polling più
+  // rado dello snapshot live: la serie cambia di un punto al minuto.
+  const systemHistoryQ = useQuery({
+    queryKey: ['platform', 'system-history'],
+    queryFn: () => platformApi.getSystemHistory(),
+    refetchInterval: activeTab === 'dashboard' ? 60_000 : false,
+    staleTime: 30_000,
+  });
+
   const runtimeQ = useQuery({
     queryKey: ['platform', 'runtime'],
     queryFn: () => platformApi.getRuntime(),
@@ -383,16 +412,6 @@ export default function Superadmin() {
     enabled: activeTab === 'config',
     staleTime: 60_000,
   });
-
-  // Push sparkline history
-  useEffect(() => {
-    if (!sys) return;
-    const h = histRef.current;
-    h.rss.push(sys.memory.rss / (1024 * 1024));
-    h.cpu.push(sys.cpu.processPct ?? 0);
-    if (h.rss.length > 60) h.rss.shift();
-    if (h.cpu.length > 60) h.cpu.shift();
-  }, [sys]);
 
   // ── Mutations ─────────────────────────────────────────────────────────────
   const invalidateAll = useCallback(() => {
@@ -478,13 +497,15 @@ export default function Superadmin() {
     ? `heap ${(sys.memory.heapUsed / 1024 / 1024).toFixed(0)}/${(sys.memory.heapTotal / 1024 / 1024).toFixed(0)} MB · ${cores} core · load sistema ${loadAvgSysPct ?? '—'}% (media 60s) · up ${fmtUptime(sys.uptimeSec)}`
     : 'dati di sistema non disponibili';
 
-  // ── Sparkline data ────────────────────────────────────────────────────────
-  const hist = histRef.current;
-  const currentRss = hist.rss.length ? hist.rss[hist.rss.length - 1] : null;
-  const currentCpu = hist.cpu.length ? hist.cpu[hist.cpu.length - 1] : null;
-  const peakRss = hist.rss.length ? Math.max(...hist.rss) : 0;
-  const peakCpu = hist.cpu.length ? Math.max(...hist.cpu) : 0;
-  const POLL_MS = 5000;
+  // ── Serie risorse 24h (dal backend) ───────────────────────────────────────
+  const samples = systemHistoryQ.data?.samples ?? [];
+  const histIntervalMs = systemHistoryQ.data?.intervalMs ?? 60_000;
+  const rssSeries = samples.map((s) => s.rssMb);
+  const cpuSeries = samples.map((s) => s.cpuPct);
+  // Valore corrente: snapshot live (5s) se disponibile, altrimenti ultimo campione.
+  const liveRssMb = sys ? sys.memory.rss / (1024 * 1024) : (rssSeries.at(-1) ?? null);
+  const liveCpuPct = sys?.cpu?.processPct ?? cpuSeries.at(-1) ?? null;
+  const cpuSeriesMax = cpuSeries.length ? Math.max(...cpuSeries) : 0;
 
   // ── Lifecycle helpers ─────────────────────────────────────────────────────
   function doLifecycle(ten: Tenant, op: 'suspend' | 'reactivate' | 'restore') {
@@ -769,28 +790,24 @@ export default function Superadmin() {
           />
         </div>
 
-        {/* Sparkline strip */}
+        {/* Risorse processo — finestra 24h (serie dal backend) */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <SparklineCard
+          <ResourceCard24h
             label="Memoria processo (RSS)"
-            currentValue={currentRss != null ? formatMb(currentRss) : 'n/d'}
-            sub={hist.rss.length > 0
-              ? `peak ${formatMb(peakRss)} · ${hist.rss.length} pt · finestra ${Math.ceil(hist.rss.length * POLL_MS / 60000)} min`
-              : 'in attesa di campionamento…'}
-            values={hist.rss}
+            current={liveRssMb != null ? formatMb(liveRssMb) : 'n/d'}
+            series={rssSeries}
             color="#0ea5e9"
-            yMin={0}
+            format={formatMb}
+            intervalMs={histIntervalMs}
           />
-          <SparklineCard
+          <ResourceCard24h
             label="CPU processo Node"
-            currentValue={currentCpu != null ? `${currentCpu.toFixed(1)}%` : 'n/d'}
-            sub={hist.cpu.length > 0
-              ? `peak ${peakCpu.toFixed(1)}% · campionamento ogni ${POLL_MS / 1000}s`
-              : 'in attesa di campionamento…'}
-            values={hist.cpu}
+            current={liveCpuPct != null ? `${liveCpuPct.toFixed(1)}%` : 'n/d'}
+            series={cpuSeries}
             color="#10b981"
-            yMin={0}
-            yMax={Math.max(100, peakCpu * 1.1)}
+            format={(v) => `${v.toFixed(1)}%`}
+            yMax={Math.max(100, cpuSeriesMax * 1.1)}
+            intervalMs={histIntervalMs}
           />
         </div>
 

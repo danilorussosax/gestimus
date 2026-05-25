@@ -5,6 +5,7 @@ import { shutdownPools } from './db/client.js';
 import { stopRealtimeHub } from './realtime/hub.js';
 import { runTenantCleanup, cleanupStaleBozze } from './services/cleanup.js';
 import { cleanupExpiredSessions } from './services/session.js';
+import { startSystemMetricsSampler } from './services/system-metrics.js';
 
 const app = await createApp();
 
@@ -15,6 +16,9 @@ async function start() {
   try {
     await app.listen({ port: env.PORT, host: env.HOST });
     app.log.info(`Gestimus API listening on http://${env.HOST}:${env.PORT}`);
+
+    // Campionamento risorse processo (RAM/CPU) per le card 24h del super-admin.
+    startSystemMetricsSampler();
 
     if (env.CLEANUP_ENABLED) {
       if (!cron.validate(env.CLEANUP_CRON_SCHEDULE)) {
