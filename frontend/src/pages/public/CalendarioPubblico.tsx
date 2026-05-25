@@ -134,25 +134,29 @@ body.display-mode { background:#f4f5f7; }
 .cal-disp__title { font-size:2rem; font-weight:800; color:#1d2026; line-height:1.1; }
 .cal-disp__sub { font-size:.95rem; color:#6b7280; }
 .cal-day__date { font-size:1.15rem; font-weight:700; color:#374151; text-transform:capitalize; margin:18px 0 10px; }
-.cal-board { background:#fff; border-radius:20px; box-shadow:0 1px 3px rgba(0,0,0,.07); padding:18px 18px 22px; margin-bottom:22px; overflow-x:auto; }
-.cal-board__sala { font-size:1.6rem; font-weight:800; color:#1d2026; padding:4px 6px 14px; }
-.cal-grid { display:grid; gap:10px; align-items:stretch; position:relative; }
-.cal-colhead { font-size:1.25rem; font-weight:700; color:#1d2026; padding:6px 10px 12px; border-bottom:2px solid #eceef1; text-align:center; align-self:end; }
+/* Griglia delle sale: almeno 4 sale per riga (più su schermi larghi). Il min
+   track (100% − 3·gap)/4 tiene conto dei 3 gap fra 4 colonne, così 4 board ci
+   stanno SEMPRE; sopra ~1250px il cap a 300px ne fa entrare di più. */
+.cal-sale-grid { display:grid; gap:16px; grid-template-columns:repeat(auto-fill, minmax(min(calc((100% - 3 * 16px) / 4), 300px), 1fr)); align-items:start; }
+.cal-board { background:#fff; border-radius:20px; box-shadow:0 1px 3px rgba(0,0,0,.07); padding:14px 14px 18px; margin:0; overflow:hidden; min-width:0; }
+.cal-board__sala { font-size:1.25rem; font-weight:800; color:#1d2026; padding:2px 4px 10px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.cal-grid { display:grid; gap:8px; align-items:stretch; position:relative; }
+.cal-colhead { font-size:.95rem; font-weight:700; color:#1d2026; padding:6px 6px 10px; border-bottom:2px solid #eceef1; text-align:center; align-self:end; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .cal-corner { border-bottom:2px solid #eceef1; }
-.cal-time { display:flex; flex-direction:column; align-items:flex-end; justify-content:flex-start; padding:4px 12px 0 0; color:#9aa0aa; }
-.cal-time__h { font-size:1.05rem; font-weight:700; color:#3a3f4a; font-variant-numeric:tabular-nums; }
-.cal-time__30 { font-size:.8rem; color:#b3b8c0; margin-top:2px; }
+.cal-time { display:flex; flex-direction:column; align-items:flex-end; justify-content:flex-start; padding:4px 6px 0 0; color:#9aa0aa; }
+.cal-time__h { font-size:.85rem; font-weight:700; color:#3a3f4a; font-variant-numeric:tabular-nums; }
+.cal-time__30 { font-size:.72rem; color:#b3b8c0; margin-top:2px; }
 .cal-rowline { grid-column:1 / -1; border-top:1px solid #f0f1f3; pointer-events:none; }
-.cal-card { border-radius:18px; padding:16px 18px; display:flex; flex-direction:column; gap:10px; overflow:auto; box-shadow:0 1px 2px rgba(0,0,0,.05); position:relative; z-index:1; }
-.cal-card__cat { font-size:1.4rem; font-weight:800; line-height:1.15; }
-.cal-card__time { font-size:.9rem; font-variant-numeric:tabular-nums; opacity:.85; }
-.cal-card__fase { font-size:.85rem; opacity:.8; }
-.cal-names { display:flex; flex-direction:column; gap:6px; margin-top:2px; }
-.cal-name { display:flex; align-items:center; gap:10px; }
+.cal-card { border-radius:14px; padding:10px 12px; display:flex; flex-direction:column; gap:8px; overflow:hidden; box-shadow:0 1px 2px rgba(0,0,0,.05); position:relative; z-index:1; min-width:0; }
+.cal-card__cat { font-size:1.05rem; font-weight:800; line-height:1.15; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+.cal-card__time { font-size:.82rem; font-variant-numeric:tabular-nums; opacity:.85; }
+.cal-card__fase { font-size:.82rem; opacity:.8; }
+.cal-names { display:flex; flex-direction:column; gap:5px; margin-top:2px; }
+.cal-name { display:flex; align-items:center; gap:8px; min-width:0; }
 .cal-name--now { font-weight:800; }
-.cal-ava { width:30px; height:30px; border-radius:50%; display:grid; place-items:center; font-size:.72rem; font-weight:800; flex:0 0 auto; }
-.cal-name__t { font-size:.82rem; font-variant-numeric:tabular-nums; opacity:.7; min-width:42px; }
-.cal-name__n { font-size:1rem; }
+.cal-ava { width:26px; height:26px; border-radius:50%; display:grid; place-items:center; font-size:.68rem; font-weight:800; flex:0 0 auto; }
+.cal-name__t { font-size:.78rem; font-variant-numeric:tabular-nums; opacity:.7; min-width:38px; flex:0 0 auto; }
+.cal-name__n { font-size:.9rem; flex:1 1 auto; min-width:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
 .cal-name__badge { font-size:.62rem; font-weight:800; text-transform:uppercase; letter-spacing:.04em; padding:1px 7px; border-radius:999px; }
 .cal-empty { color:#9aa0aa; font-style:italic; padding:24px; text-align:center; }
 `;
@@ -343,11 +347,13 @@ function buildSalaBoardHtml(salaNome: string, blocchi: CalBlocco[]): string {
   let colCursor = 2;
   for (const sez of sezNames) {
     sezColStart[sez] = colCursor;
-    for (let j = 0; j < maxLanes[sez]; j++) colDefs.push('minmax(220px, 1fr)');
+    // minmax(0, 1fr): le lane si comprimono per stare nella board a 1/4 di riga
+    // (i nomi troncano con ellipsis) invece di forzare scroll orizzontale.
+    for (let j = 0; j < maxLanes[sez]; j++) colDefs.push('minmax(0, 1fr)');
     colCursor += maxLanes[sez];
   }
-  const cols = `96px ${colDefs.join(' ')}`;
-  const rows = `auto repeat(${T}, 72px)`;
+  const cols = `56px ${colDefs.join(' ')}`;
+  const rows = `auto repeat(${T}, 58px)`;
 
   let cells = `<div class="cal-corner" style="grid-column:1;grid-row:1"></div>`;
   cells += sezNames
@@ -430,7 +436,7 @@ function DisplayBoard({ data }: { data: CalendarioPubblicResponse }) {
             const sale = [...bySala.keys()].sort((a, b) => a.localeCompare(b));
             return `<section>
               <div class="cal-day__date">${esc(fmtDay(g.data))}</div>
-              ${sale.map((s) => buildSalaBoardHtml(s, bySala.get(s)!)).join('')}
+              <div class="cal-sale-grid">${sale.map((s) => buildSalaBoardHtml(s, bySala.get(s)!)).join('')}</div>
             </section>`;
           })
           .join('');

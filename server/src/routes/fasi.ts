@@ -723,16 +723,16 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
         body.data.seed,
       );
 
-      // Bulk UPDATE: una sola query con UNNEST invece di N UPDATE sequenziali.
-      // Per 100+ candidati questo è ~30x più veloce sul DB.
-      const ids = shuffled;
-      const positions = shuffled.map((_, i) => i + 1);
+      // Bulk UPDATE: una sola query invece di N UPDATE sequenziali (~30x più
+      // veloce per 100+ candidati). La mappa id→posizione viaggia come UNICO
+      // parametro JSON (jsonb_to_recordset): passare due array JS a unnest fa sì
+      // che Drizzle li espanda in `($1,$2,...)` → record, non array, e Postgres
+      // fallisce con "cannot cast type record to uuid[]".
+      const mapping = shuffled.map((cfId, i) => ({ id: cfId, pos: i + 1 }));
       await tx.execute(sql`
         UPDATE candidati_fase AS cf
         SET posizione = data.pos, updated_at = NOW()
-        FROM (
-          SELECT unnest(${ids}::uuid[]) AS id, unnest(${positions}::int[]) AS pos
-        ) AS data
+        FROM jsonb_to_recordset(${JSON.stringify(mapping)}::jsonb) AS data(id uuid, pos int)
         WHERE cf.id = data.id
       `);
 

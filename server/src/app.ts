@@ -10,6 +10,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync, existsSync } from 'node:fs';
 import { env } from './env.js';
+import { captureError } from './observability/sentry.js';
 import { pingDb } from './db/client.js';
 import { registerTenantMiddleware } from './middleware/tenant.js';
 import { registerAuthMiddleware } from './middleware/auth.js';
@@ -71,6 +72,9 @@ export async function createApp(): Promise<FastifyInstance> {
     const status = e.statusCode ?? 500;
     if (status >= 500) {
       req.log.error({ err }, 'errore interno');
+      // Error tracking: i 5xx vanno a Sentry (no-op se SENTRY_DSN assente) con
+      // il minimo contesto utile, senza PII di body/cookie.
+      captureError(err, { method: req.method, url: req.url, statusCode: status });
       return reply.code(status).send({ error: 'errore interno del server' });
     }
     return reply.code(status).send({ error: e.error ?? e.message ?? 'errore' });
