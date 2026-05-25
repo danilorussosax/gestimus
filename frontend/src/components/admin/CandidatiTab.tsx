@@ -1029,13 +1029,16 @@ function CandidatoFormDialog({
 interface MembriModalProps {
   open: boolean;
   gruppo: CandidatoFull | null;
+  /** Candidati del concorso, per il picker "aggiungi membro esistente". */
+  candidati: CandidatoFull[];
   onClose: () => void;
 }
 
-function MembriGruppoModal({ open, gruppo, onClose }: MembriModalProps) {
+function MembriGruppoModal({ open, gruppo, candidati, onClose }: MembriModalProps) {
   const [membri, setMembri] = useState<MembroGruppo[]>([]);
   const [loading, setLoading] = useState(false);
   const [draft, setDraft] = useState({ nome: '', cognome: '', strumento: '', dataNascita: '' });
+  const [pickSearch, setPickSearch] = useState('');
   const [busy, setBusy] = useState(false);
 
   const reload = useCallback(async () => {
@@ -1054,6 +1057,7 @@ function MembriGruppoModal({ open, gruppo, onClose }: MembriModalProps) {
   useEffect(() => {
     if (open && gruppo) {
       setDraft({ nome: '', cognome: '', strumento: '', dataNascita: '' });
+      setPickSearch('');
       void reload();
     }
   }, [open, gruppo, reload]);
@@ -1073,6 +1077,27 @@ function MembriGruppoModal({ open, gruppo, onClose }: MembriModalProps) {
         dataNascita: draft.dataNascita.trim() || undefined,
       });
       setDraft({ nome: '', cognome: '', strumento: '', dataNascita: '' });
+      await reload();
+    } catch (e) {
+      toast.error(httpErrorMessage(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Aggiunge un candidato individuale già esistente come membro, copiandone
+  // l'anagrafica (porting della modale vanilla openMembriGruppoModal).
+  const addExisting = async (cand: CandidatoFull) => {
+    if (!gruppo) return;
+    setBusy(true);
+    try {
+      await candidatiApi.addMembro({
+        candidatoId: gruppo.id,
+        nome: cand.nome,
+        cognome: cand.cognome ?? undefined,
+        strumento: cand.strumento ?? undefined,
+        dataNascita: cand.dataNascita ?? undefined,
+      });
       await reload();
     } catch (e) {
       toast.error(httpErrorMessage(e));
@@ -1144,9 +1169,61 @@ function MembriGruppoModal({ open, gruppo, onClose }: MembriModalProps) {
               )}
             </div>
 
+            {/* Picker: aggiungi un candidato individuale già esistente come membro */}
             <div className="pt-3 border-t border-slate-200">
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
-                Aggiungi membro
+                Aggiungi da candidati esistenti
+              </p>
+              <input
+                className="c-input mb-2"
+                placeholder="Cerca candidato per nome…"
+                value={pickSearch}
+                onChange={(e) => setPickSearch(e.target.value)}
+              />
+              {(() => {
+                const q = pickSearch.trim().toLowerCase();
+                const pickable = candidati.filter(
+                  (c) =>
+                    c.id !== gruppo?.id &&
+                    c.tipo !== 'gruppo' &&
+                    c.tipo !== 'orchestra' &&
+                    (q === '' ||
+                      `${c.nome} ${c.cognome ?? ''}`.toLowerCase().includes(q)),
+                );
+                if (pickable.length === 0) {
+                  return (
+                    <p className="text-xs text-slate-400 italic">
+                      {q ? 'Nessun candidato trovato.' : 'Nessun candidato individuale disponibile.'}
+                    </p>
+                  );
+                }
+                return (
+                  <div className="max-h-40 overflow-y-auto space-y-1">
+                    {pickable.slice(0, 20).map((c) => (
+                      <button
+                        key={c.id}
+                        type="button"
+                        disabled={busy}
+                        onClick={() => void addExisting(c)}
+                        className="w-full flex items-center justify-between gap-2 text-left px-3 py-1.5 rounded-lg border border-slate-200 hover:bg-brand-50 disabled:opacity-50"
+                      >
+                        <span className="text-sm text-slate-800 truncate">
+                          {[c.nome, c.cognome].filter(Boolean).join(' ')}
+                          {c.strumento && (
+                            <span className="ml-2 text-[10px] text-purple-700">{c.strumento}</span>
+                          )}
+                        </span>
+                        <span className="text-xs text-brand-700 font-medium shrink-0">+ aggiungi</span>
+                      </button>
+                    ))}
+                  </div>
+                );
+              })()}
+            </div>
+
+            <div className="pt-3 border-t border-slate-200">
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">
+                Aggiungi membro manualmente
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                 <input
@@ -1849,6 +1926,7 @@ export function CandidatiTab({ concorsoId }: { concorsoId: string }) {
       <MembriGruppoModal
         open={membriModal.open}
         gruppo={membriModal.gruppo}
+        candidati={candidati}
         onClose={() => {
           setMembriModal({ open: false, gruppo: null });
           // Ricarica le pill membri delle card
