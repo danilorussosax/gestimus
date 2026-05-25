@@ -116,7 +116,7 @@ Un **singolo processo Node/Fastify** + un **singolo database Postgres**. La sepa
 | **Test** | Vitest (jsdom) + Playwright (E2E Chromium) |
 | **Auth** | Cookie-session HttpOnly (nessun token in localStorage) |
 
-> Il vecchio frontend vanilla (`js/`, `css/`, `index.html` nella root) è **superseded** dal frontend React in `frontend/`. Il codice vanilla è conservato ma non più sviluppato attivamente.
+> Il vecchio frontend vanilla (`js/`, `css/`, `index.html` nella root) è stato **deprecato e rimosso**: React in `frontend/` è l'unico frontend, servito sempre da Fastify (`frontend/dist`). Rimossa anche la vecchia istanza PocketBase (migrazione a Postgres completata).
 
 ### Backend
 
@@ -231,10 +231,7 @@ gestimus/
 │   ├── tests/                   # rls/ · auth/ · crud/ · realtime/ (~154 test)
 │   └── package.json
 ├── tests/
-│   ├── unit/                    # node --test (scoring, tiebreak, rng) — no DB
-│   └── e2e/                     # Playwright legacy (smoke client + super-admin)
-├── js/                          # [SUPERSEDED] Frontend vanilla (conservato, non sviluppato)
-├── css/                         # [SUPERSEDED] Stili vanilla
+│   └── load/                    # Load test autocannon (percorsi caldi) — perf
 ├── deploy/                      # Template config nginx/systemd
 ├── docs/                        # Documentazione (architettura, deploy, manuali)
 └── .github/                     # CI + Dependabot + issue/PR templates
