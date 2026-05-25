@@ -22,6 +22,7 @@ import { listBackups } from '../services/backup.js';
 import { runTenantCleanup } from '../services/cleanup.js';
 import { encryptSmtp, isEncryptedSmtp } from '../services/crypto-smtp.js';
 import { invalidateTransporter } from '../services/email.js';
+import { getSystemHistory, SAMPLE_INTERVAL_MS } from '../services/system-metrics.js';
 import { readdir, stat as fsStat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { env } from '../env.js';
@@ -787,6 +788,20 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
     };
     systemSnapshotInflight = compute().finally(() => { systemSnapshotInflight = null; });
     return systemSnapshotInflight;
+  });
+
+  /**
+   * GET /system/history → serie temporale (max 24h) di RAM/CPU del processo,
+   * campionata ogni SAMPLE_INTERVAL_MS dal sampler in-memory. Alimenta le card
+   * RAM/CPU del super-admin con una finestra di 24h (buffer per-processo: si
+   * resetta al restart). Vuota finché il sampler non ha raccolto campioni.
+   */
+  app.get('/system/history', { preHandler: platformGuards }, async () => {
+    return {
+      samples: getSystemHistory(),
+      intervalMs: SAMPLE_INTERVAL_MS,
+      maxHours: 24,
+    };
   });
 
   /**

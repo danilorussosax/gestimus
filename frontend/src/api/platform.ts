@@ -65,6 +65,21 @@ export interface SystemSnapshot {
   uptimeSec: number;
 }
 
+/** Un campione storico delle risorse processo (serie 24h, /system/history). */
+export interface SystemSample {
+  ts: number; // epoch ms
+  rssMb: number;
+  heapUsedMb: number;
+  cpuPct: number;
+  loadAvg1: number;
+}
+
+export interface SystemHistory {
+  samples: SystemSample[];
+  intervalMs: number;
+  maxHours: number;
+}
+
 /** Aggregato runtime per-tenant (/runtime). */
 export interface TenantRuntime {
   reqCountMin: number;
@@ -223,6 +238,9 @@ export const platformApi = {
 
   /** GET /api/platform/system — snapshot risorse Node (200ms CPU sample). */
   getSystem: () => http.get<SystemSnapshot>(`${BASE}/system`),
+
+  /** Serie temporale 24h di RAM/CPU del processo (card super-admin). */
+  getSystemHistory: () => http.get<SystemHistory>(`${BASE}/system/history`),
 
   /** GET /api/platform/runtime — aggregato per-tenant sliding 60s. */
   getRuntime: () => http.get<RuntimeMetrics>(`${BASE}/runtime`),
