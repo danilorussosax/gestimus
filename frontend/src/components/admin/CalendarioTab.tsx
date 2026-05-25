@@ -62,6 +62,7 @@ import { calendarioApi } from '@/api/calendario';
 import { getConcorso } from '@/api/concorsi';
 import { commissariApi } from '@/api/commissari';
 import { commissioniApi } from '@/api/commissioni';
+import { normalizeCandidato } from '@/api/candidati';
 import { exportCalendarioPdf } from '@/lib/calendario-pdf';
 import type {
   Sala,
@@ -965,7 +966,10 @@ export function CalendarioTab({ concorsoId }: CalendarioTabProps) {
   });
   const { data: candidati = [] } = useQuery({
     queryKey: CANDIDATI_KEY(concorsoId),
-    queryFn: () => http.get<Candidato[]>('candidati', { concorsoId, limit: 1000 }),
+    queryFn: () =>
+      http
+        .get<Candidato[]>('candidati', { concorsoId, limit: 1000 })
+        .then((rows) => rows.map(normalizeCandidato)),
   });
 
   // candidati_fase per ogni fase referenziata da un blocco ESIBIZIONE → da qui
@@ -1150,7 +1154,7 @@ export function CalendarioTab({ concorsoId }: CalendarioTabProps) {
   });
 
   // ── Board data ─────────────────────────────────────────────────────────────
-  const days = [...new Set(eventi.map((e) => e.data).filter(Boolean))].sort() as string[];
+  const days = [...new Set(eventi.map((e) => e.data).filter(Boolean))].sort();
   const lanes = [
     ...sale.map((s) => ({ id: s.id, nome: s.nome })),
     { id: SALA_NONE, nome: t('cal.sala.senza') },

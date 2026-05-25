@@ -3,11 +3,20 @@
  * Routes: GET/POST /api/candidati, PATCH/DELETE /api/candidati/:id
  * Campo foto: il backend accetta un campo `foto` nella PATCH body (dataURL) ma
  * la route /api/upload/candidati/:id è supportata tramite http.upload.
+ *
+ * SHAPE BRIDGE — il backend NON ha i campi `tipo` né `fotoUrl`: la tabella
+ * candidati usa `isGruppo` + `tipoGruppo` (e `foto`). Il frontend (form,
+ * scoring, tiebreak, calendario) ragiona su un campo derivato `tipo`
+ * ('individuale' | 'gruppo' | 'orchestra') e su `fotoUrl`. Questi due campi
+ * vengono derivati in lettura (normalizeCandidato) e ri-tradotti in scrittura
+ * (denormalizeBody → isGruppo/tipoGruppo). Senza questo ponte un "gruppo"
+ * veniva salvato con isGruppo=false (zod scartava `tipo`) e letto come
+ * individuale, e le foto non comparivano mai (c.fotoUrl === undefined).
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { http } from '@/lib/api';
-import type { Candidato, Sezione, Categoria } from '@/types';
+import type { Candidato, CandidatoTipo, Sezione, Categoria } from '@/types';
 
 // ── Tipi locali ──────────────────────────────────────────────────────────────
 
@@ -34,6 +43,66 @@ export interface CandidatoFull extends Candidato {
   updatedAt: string;
 }
 
+// ── Shape bridge tra backend (isGruppo/tipoGruppo/foto) e frontend
+//    (tipo/fotoUrl) ─────────────────────────────────────────────────────────
+
+/** Riga grezza così come torna dal backend (no `tipo`, no `fotoUrl`). */
+type CandidatoRaw = Omit<CandidatoFull, 'tipo' | 'fotoUrl'> & {
+  isGruppo: boolean;
+  tipoGruppo: 'ensemble' | 'orchestra' | null;
+  foto: string | null;
+};
+
+/** Deriva il `tipo` del frontend dai campi reali del backend. */
+function deriveTipo(isGruppo: boolean, tipoGruppo: string | null): CandidatoTipo {
+  if (!isGruppo) return 'individuale';
+  return tipoGruppo === 'orchestra' ? 'orchestra' : 'gruppo';
+}
+
+/**
+ * Aggiunge i campi derivati `tipo` e `fotoUrl` alla riga del backend.
+ * Esportata: i componenti che fanno `http.get<Candidato[]>('candidati')` grezzo
+ * devono passarci ogni riga, altrimenti `c.tipo`/`c.fotoUrl` restano undefined.
+ * Accetta una shape larga (Candidato | CandidatoRaw) e restituisce sempre la
+ * forma completa CandidatoFull (con `tipo` e `fotoUrl` valorizzati).
+ */
+export function normalizeCandidato(
+  raw: { isGruppo: boolean; tipoGruppo?: 'ensemble' | 'orchestra' | null; foto?: string | null },
+): CandidatoFull {
+  return {
+    ...(raw as unknown as CandidatoFull),
+    tipo: deriveTipo(raw.isGruppo, raw.tipoGruppo ?? null),
+    fotoUrl: raw.foto ?? null,
+  };
+}
+
+/**
+ * Traduce il body del form (che porta `tipo`) nei campi reali del backend
+ * (`isGruppo` + `tipoGruppo`). Rimuove i campi derivati `tipo`/`fotoUrl` che il
+ * backend non conosce. Lascia invariati gli altri campi.
+ */
+function denormalizeBody<T extends { tipo?: CandidatoTipo | null }>(
+  body: T,
+): Omit<T, 'tipo' | 'fotoUrl'> & { isGruppo?: boolean; tipoGruppo?: 'ensemble' | 'orchestra' | null } {
+  const { tipo, ...rest } = body as T & { fotoUrl?: unknown };
+  delete (rest as { fotoUrl?: unknown }).fotoUrl;
+  if (tipo === undefined) {
+    // PATCH che non tocca il tipo: non inviare isGruppo/tipoGruppo.
+    return rest as Omit<T, 'tipo' | 'fotoUrl'>;
+  }
+  if (tipo === 'individuale' || tipo == null) {
+    return { ...(rest as object), isGruppo: false, tipoGruppo: null } as Omit<T, 'tipo' | 'fotoUrl'> & {
+      isGruppo: boolean;
+      tipoGruppo: 'ensemble' | 'orchestra' | null;
+    };
+  }
+  return {
+    ...(rest as object),
+    isGruppo: true,
+    tipoGruppo: tipo === 'orchestra' ? 'orchestra' : 'ensemble',
+  } as Omit<T, 'tipo' | 'fotoUrl'> & { isGruppo: boolean; tipoGruppo: 'ensemble' | 'orchestra' | null };
+}
+
 export interface CreateCandidatoInput {
   concorsoId: string;
   nome: string;
@@ -57,8 +126,13 @@ export interface CreateCandidatoInput {
   noteLibere?: string | null;
   sezioneId?: string | null;
   categoriaId?: string | null;
-  isGruppo?: boolean;
   gruppoNome?: string | null;
+  /**
+   * Tipo del candidato dal form. Tradotto in `isGruppo`+`tipoGruppo` da
+   * denormalizeBody prima dell'invio (il backend non conosce `tipo`).
+   */
+  tipo?: CandidatoTipo;
+  isGruppo?: boolean;
   tipoGruppo?: 'ensemble' | 'orchestra' | null;
 }
 
@@ -96,14 +170,17 @@ export type MembroGruppoUpdate = Partial<Omit<MembroGruppoInput, 'candidatoId'>>
 
 export const candidatiApi = {
   list: (concorsoId: string, opts?: { limit?: number; offset?: number }) =>
-    http.get<CandidatoFull[]>('candidati', { concorsoId, limit: opts?.limit ?? 500, offset: opts?.offset }),
+    http
+      .get<CandidatoRaw[]>('candidati', { concorsoId, limit: opts?.limit ?? 500, offset: opts?.offset })
+      .then((rows) => rows.map(normalizeCandidato)),
 
-  get: (id: string) => http.get<CandidatoFull>(`candidati/${id}`),
+  get: (id: string) => http.get<CandidatoRaw>(`candidati/${id}`).then(normalizeCandidato),
 
-  create: (body: CreateCandidatoInput) => http.post<CandidatoFull>('candidati', body),
+  create: (body: CreateCandidatoInput) =>
+    http.post<CandidatoRaw>('candidati', denormalizeBody(body)).then(normalizeCandidato),
 
   update: (id: string, body: UpdateCandidatoInput) =>
-    http.patch<CandidatoFull>(`candidati/${id}`, body),
+    http.patch<CandidatoRaw>(`candidati/${id}`, denormalizeBody(body)).then(normalizeCandidato),
 
   delete: (id: string) => http.del<void>(`candidati/${id}`),
 
@@ -135,7 +212,8 @@ export const candidatiApi = {
 
   // ── Storico cross-concorso ────────────────────────────────────────────────
   /** Tutti i candidati del tenant (nessun filtro concorso) per lo storico. */
-  listAll: () => http.get<CandidatoFull[]>('candidati', { limit: 2000 }),
+  listAll: () =>
+    http.get<CandidatoRaw[]>('candidati', { limit: 2000 }).then((rows) => rows.map(normalizeCandidato)),
 
   /** Fasi di un concorso (per i conteggi dello storico). */
   fasi: (concorsoId: string) =>

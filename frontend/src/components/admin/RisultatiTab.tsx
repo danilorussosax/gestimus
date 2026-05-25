@@ -19,6 +19,7 @@ import { rankWithTieBreak, effectiveStrategy, type RankedRow } from '@/lib/tiebr
 import { fetchValutazioniByFase } from '@/api/valutazioni';
 import { getConcorso } from '@/api/concorsi';
 import { listCriteri } from '@/api/criteri';
+import { normalizeCandidato } from '@/api/candidati';
 import { criteriFromRecords } from '@/lib/scoring';
 import { commissariApi } from '@/api/commissari';
 import { commissioniApi } from '@/api/commissioni';
@@ -78,7 +79,10 @@ function useCandidatiFase(faseId: string | undefined) {
 function useCandidati(concorsoId: string) {
   return useQuery({
     queryKey: ['candidati', concorsoId],
-    queryFn: () => http.get<Candidato[]>('candidati', { concorsoId, limit: 1000 }),
+    queryFn: () =>
+      http
+        .get<Candidato[]>('candidati', { concorsoId, limit: 1000 })
+        .then((rows) => rows.map(normalizeCandidato)),
     enabled: !!concorsoId,
     staleTime: 30_000,
   });

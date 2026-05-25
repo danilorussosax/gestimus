@@ -42,13 +42,14 @@ function AuditRow({ entry }: { entry: AuditEntry }) {
   const emoji = mapping ? mapping[0] : '•';
   const label = mapping ? t(mapping[1]) : entry.action;
 
-  const ts = new Date(entry.timestamp).toLocaleString('it-IT', {
+  const ts = new Date(entry.createdAt).toLocaleString('it-IT', {
     dateStyle: 'short',
     timeStyle: 'short',
   });
 
-  // Replica vanilla: target_label → mostra etichetta se presente
-  const target = entry.targetLabel ? ` · ${entry.targetLabel}` : '';
+  // Il backend non fornisce un'etichetta target leggibile: mostriamo il
+  // targetType (es. "concorso", "fase") quando presente.
+  const target = entry.targetType ? ` · ${entry.targetType}` : '';
 
   return (
     <div className="flex items-start gap-3 px-4 py-3 border-b border-slate-100 last:border-b-0 hover:bg-canvas">
@@ -67,18 +68,10 @@ function AuditRow({ entry }: { entry: AuditEntry }) {
           {target && <span className="font-normal text-ink-500">{target}</span>}
         </div>
         <div className="text-xs text-ink-500 mt-0.5">
-          {entry.actorEmail ? (
-            <span className="text-ink-700">{entry.actorEmail}</span>
+          {entry.actorAccountId ? (
+            <span className="text-ink-700 font-mono">{entry.actorAccountId.slice(0, 8)}</span>
           ) : (
             <span className="text-ink-500 italic">{t('admin.audit.system')}</span>
-          )}
-          {entry.actorRole && (
-            <>
-              {' '}
-              <span className="text-[10px] font-bold uppercase tracking-wider text-ink-500">·</span>
-              {' '}
-              {entry.actorRole}
-            </>
           )}
         </div>
       </div>
@@ -140,13 +133,13 @@ export function AuditTab({ concorsoId }: AuditTabProps) {
     });
   }, [entries, scope, concorsoId]);
 
-  // Filtro testo libero — cerca in action, actor_email, target_label
-  // (replica vanilla: `${i.action} ${i.actor_email} ${i.target_label}`)
+  // Filtro testo libero — cerca nei campi disponibili lato backend
+  // (action, actorAccountId, targetType, targetId).
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return scopedEntries;
     return scopedEntries.filter((e) => {
-      const hay = `${e.action} ${e.actorEmail ?? ''} ${e.targetLabel ?? ''}`.toLowerCase();
+      const hay = `${e.action} ${e.actorAccountId ?? ''} ${e.targetType ?? ''} ${e.targetId ?? ''}`.toLowerCase();
       return hay.includes(q);
     });
   }, [scopedEntries, query]);

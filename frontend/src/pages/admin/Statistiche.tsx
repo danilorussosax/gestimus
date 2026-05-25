@@ -41,6 +41,7 @@ import {
 import { fetchValutazioniByFase } from '@/api/valutazioni';
 import { rankWithTieBreak, effectiveStrategy } from '@/lib/tiebreak';
 import { listCriteri } from '@/api/criteri';
+import { normalizeCandidato } from '@/api/candidati';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -132,7 +133,10 @@ function useCandidatiFase(faseId: string | undefined) {
 function useCandidati(concorsoId: string | undefined) {
   return useQuery({
     queryKey: ['candidati', concorsoId],
-    queryFn: () => http.get<Candidato[]>('candidati', { concorsoId, limit: 1000 }),
+    queryFn: () =>
+      http
+        .get<Candidato[]>('candidati', { concorsoId, limit: 1000 })
+        .then((rows) => rows.map(normalizeCandidato)),
     enabled: !!concorsoId,
     staleTime: 30_000,
   });

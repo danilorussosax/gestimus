@@ -75,12 +75,19 @@ export interface Fase {
   ammessi: number | null;
   dataPrevista: string | null;
   scala: number;
-  modoValutazione: 'autonoma' | 'vincolata';
-  metodoMedia: string;
+  // Backend enum: 'autonoma' | 'sincrona' (nullable). NON esiste 'vincolata'.
+  modoValutazione: 'autonoma' | 'sincrona' | null;
+  metodoMedia: string | null;
   tempoMinuti: number | null;
-  tiebreakStrategy: string | null;
+  // Il backend restituisce un array di step ({key,enabled}) o null, non una stringa.
+  tiebreakStrategy: { key: string; enabled: boolean }[] | null;
   sezioniIds: string[];
-  criteri: Criterio[];
+  /**
+   * NON restituito dalla GET /fasi: i criteri arrivano da GET /criteri e
+   * vengono attaccati lato client (vedi lib/scoring criteriFromRecords) prima
+   * dello scoring. Opzionale per riflettere la realtà del payload.
+   */
+  criteri?: Criterio[];
 }
 
 export interface FaseRuntime {
@@ -96,17 +103,27 @@ export interface Candidato {
   id: string;
   concorsoId: string;
   numeroCandidato: number | null;
+  /**
+   * Campo DERIVATO lato client (vedi api/candidati.ts normalizeCandidato).
+   * Il backend NON lo restituisce: ha `isGruppo` + `tipoGruppo`. Derivato da
+   * normalizeCandidato in ogni read.
+   */
   tipo: CandidatoTipo;
   nome: string;
-  cognome: string;
+  cognome: string | null;
   strumento: string | null;
   dataNascita: string | null;
   nazionalita: string | null;
   email: string | null;
   sezioneId: string | null;
   categoriaId: string | null;
+  // Campi reali del backend per i gruppi.
   isGruppo: boolean;
   gruppoNome: string | null;
+  tipoGruppo: 'ensemble' | 'orchestra' | null;
+  /** Path foto reale del backend (colonna `foto`). */
+  foto: string | null;
+  /** Alias di `foto` derivato in lettura (normalizeCandidato). */
   fotoUrl: string | null;
   [k: string]: unknown;
 }
@@ -115,33 +132,36 @@ export interface Commissario {
   id: string;
   concorsoId: string;
   nome: string;
-  cognome: string;
+  cognome: string | null;
   specialita: string | null;
   email: string | null;
   stato: 'ATTIVO' | 'INATTIVO';
   bio: string | null;
-  fotoUrl: string | null;
-  concorsiIds: string[];
+  /** Colonna reale del backend: `foto` (path). Non esiste `fotoUrl`. */
+  foto: string | null;
 }
 
 export interface Commissione {
   id: string;
   concorsoId: string;
   nome: string;
-  descrizione: string | null;
-  commissariIds: string[];
-  sezioniIds: string[];
-  categorieIds: string[];
-  presidenteId: string | null;
+  // Field reali della GET /commissioni (vedi api/commissioni.ts CommissioneRecord):
+  // presidenteCommissarioId + array `commissari`/`sezioni`/`categorie` (di ID).
+  presidenteCommissarioId: string | null;
+  commissari: string[];
+  sezioni: string[];
+  categorie: string[];
 }
 
 export interface CandidatoFase {
   id: string;
   faseId: string;
   candidatoId: string;
-  stato: 'IN_ATTESA' | 'COMPLETATO';
+  // Enum completo del CHECK DB (mancavano IN_ESECUZIONE / ELIMINATO).
+  stato: 'IN_ATTESA' | 'IN_ESECUZIONE' | 'COMPLETATO' | 'ELIMINATO';
   posizione: number | null;
-  ammessoProssimaFase: boolean;
+  // Nullable lato DB: NULL finché l'esito non è deciso (fase non conclusa).
+  ammessoProssimaFase: boolean | null;
   eventoId: string | null;
   oraPrevista: string | null;
 }
@@ -160,25 +180,37 @@ export interface Sezione {
   id: string;
   concorsoId: string;
   nome: string;
-  ordine: number;
+  descrizione: string | null;
+  // Il backend lascia `ordine` nullable.
+  ordine: number | null;
 }
 export interface Categoria {
   id: string;
-  concorsoId: string;
-  sezioneId: string | null;
+  // Il backend NON restituisce `concorsoId` per le categorie: appartengono a
+  // una sezione (sezioneId, NOT NULL). La sezione porta il concorso.
+  sezioneId: string;
   nome: string;
-  ordine: number;
+  descrizione: string | null;
+  etaMin: number | null;
+  etaMax: number | null;
+  ordine: number | null;
 }
 
-export type IscrizioneStato = 'pending' | 'email_verified' | 'approved' | 'rejected';
+// Stati REALI del CHECK constraint DB (vedi api/iscrizioni.ts IscrizioneStatoDb).
+export type IscrizioneStato =
+  | 'BOZZA'
+  | 'INVIATA'
+  | 'EMAIL_VERIFICATA'
+  | 'APPROVATA'
+  | 'RIFIUTATA';
 export interface Iscrizione {
   id: string;
   concorsoId: string;
   stato: IscrizioneStato;
   nome: string;
-  cognome: string;
+  cognome: string | null;
   email: string;
-  consensiGdpr: Record<string, boolean>;
+  consensiGdpr: Record<string, boolean> | null;
   candidatoId: string | null;
   createdAt: string;
   [k: string]: unknown;
@@ -201,7 +233,7 @@ export interface Sala {
   concorsoId: string;
   nome: string;
   indirizzo: string | null;
-  ordine: number;
+  ordine: number | null;
 }
 export interface Evento {
   id: string;
@@ -212,11 +244,12 @@ export interface Evento {
   salaId: string | null;
   tipo: string;
   titolo: string | null;
-  data: string | null;
+  // `data` è NOT NULL lato DB → sempre valorizzato.
+  data: string;
   oraInizio: string | null;
   oraFine: string | null;
   durataCandidatoMinuti: number | null;
-  ordine: number;
+  ordine: number | null;
 }
 
 export interface Account {
@@ -228,17 +261,25 @@ export interface Account {
   lastLoginAt: string | null;
 }
 
+// Forma REALE restituita da GET /api/audit-log (riga grezza di audit_log).
+// Il backend NON arricchisce con email/ruolo attore né con un'etichetta target:
+// restituisce gli ID. Campi precedenti (timestamp/targetLabel/actorEmail/
+// actorRole) erano fantasma → in UI davano "Invalid Date" e attore "sistema".
 export interface AuditEntry {
   id: string;
+  tenantId: string;
   action: string;
+  /** UUID dell'account che ha compiuto l'azione (null = azione di sistema). */
+  actorAccountId: string | null;
+  /** Tipo del target (es. 'concorso', 'fase'). */
+  targetType: string | null;
   /** UUID del target (es. concorsoId, faseId…). */
   targetId: string | null;
-  /** Etichetta leggibile del target (es. nome concorso). Può essere null. */
-  targetLabel: string | null;
   payload: unknown;
-  /** ISO datetime (campo `created_at` del backend). */
-  timestamp: string;
-  actorEmail: string | null;
-  /** Ruolo dell'attore al momento dell'azione (es. "admin", "commissario"). */
-  actorRole: string | null;
+  ip: string | null;
+  userAgent: string | null;
+  /** HMAC tamper-evidence (può essere null sulle righe legacy). */
+  sig: string | null;
+  /** ISO datetime. */
+  createdAt: string;
 }

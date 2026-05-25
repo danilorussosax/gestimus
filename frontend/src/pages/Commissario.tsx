@@ -52,6 +52,7 @@ import {
 } from '@/api/fase-runtime';
 import { useFaseRuntime } from '@/hooks/useFaseRuntime';
 import { listCriteri } from '@/api/criteri';
+import { normalizeCandidato } from '@/api/candidati';
 import { criteriFromRecords } from '@/lib/scoring';
 
 // ── Scoring helpers (created by Risultati agent, imported at integration) ────
@@ -119,17 +120,11 @@ function loadDraft(faseId: string | null, candidatoFaseId: string): DraftState |
 }
 
 // ── Helper: resolve commissariIds from Commissione ────────────────────────────
-// The shared Commissione type declares `commissariIds` but the server actually
-// returns the join arrays as `commissari` (array of IDs). Handle both.
+// La GET /commissioni espone gli id dei membri nell'array `commissari`.
 
 function getCommissariIds(com: Commissione | undefined | null): string[] {
   if (!com) return [];
-  // Real server field: `commissari`
-  const raw = (com as unknown as { commissari?: string[] }).commissari;
-  if (Array.isArray(raw)) return raw;
-  // Fallback to type declaration
-  if (Array.isArray(com.commissariIds)) return com.commissariIds;
-  return [];
+  return Array.isArray(com.commissari) ? com.commissari : [];
 }
 
 // ── Helper: display name ──────────────────────────────────────────────────────
@@ -1435,12 +1430,8 @@ export default function Commissario() {
   });
 
   // Derive the active concorso from the commissario record.
-  // The server returns `concorsoId` (singular). The shared types/index.ts
-  // declares `concorsiIds` (legacy array). Handle both.
-  const commissarioConcorsoId: string | null =
-    (commissario as unknown as { concorsoId?: string | null })?.concorsoId
-    ?? commissario?.concorsiIds?.[0]
-    ?? null;
+  // Il server (e ora il tipo Commissario) espone `concorsoId` (singolare).
+  const commissarioConcorsoId: string | null = commissario?.concorsoId ?? null;
   const concorso = concorsiList?.find((c) => c.id === commissarioConcorsoId) ?? null;
 
   const concorsoId = concorso?.id ?? null;
@@ -1474,7 +1465,10 @@ export default function Commissario() {
 
   const { data: candidati, isLoading: loadingCandidati } = useQuery({
     queryKey: ['candidati', concorsoId],
-    queryFn: () => http.get<Candidato[]>('candidati', { concorsoId: concorsoId!, limit: 2000 }),
+    queryFn: () =>
+      http
+        .get<Candidato[]>('candidati', { concorsoId: concorsoId!, limit: 2000 })
+        .then((rows) => rows.map(normalizeCandidato)),
     enabled: !!concorsoId,
   });
 
