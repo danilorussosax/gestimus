@@ -5,6 +5,7 @@ import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import multipart from '@fastify/multipart';
 import fastifyStatic from '@fastify/static';
+import helmet from '@fastify/helmet';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync, existsSync } from 'node:fs';
@@ -110,6 +111,49 @@ export async function createApp(): Promise<FastifyInstance> {
   // rotte client (BrowserRouter); 'vanilla' (default) → vecchio statico da root.
   const reactDist = resolve(projectRoot, 'frontend/dist');
   const serveReact = env.FRONTEND === 'react' && existsSync(resolve(reactDist, 'index.html'));
+
+  // Security headers (helmet). CSP adattata al frontend servito:
+  //   - react: script solo 'self' (asset hashati, theme-init esterno);
+  //   - vanilla: serve i CDN (Tailwind play → usa eval; jsPDF/marked) + lo
+  //     <script> inline di tailwind.config → 'unsafe-inline'/'unsafe-eval'.
+  // Google Fonts (style+font) per entrambi; img data:/blob: per le preview foto;
+  // connect a Sentry ingest. Permissions-Policy aggiunta a mano (non in helmet 13).
+  const isProd = env.NODE_ENV === 'production';
+  const scriptSrc = serveReact
+    ? ["'self'"]
+    : ["'self'", "'unsafe-inline'", "'unsafe-eval'", 'https://cdn.tailwindcss.com', 'https://cdn.jsdelivr.net'];
+  await app.register(helmet, {
+    contentSecurityPolicy: {
+      // useDefaults:false → SOLO le direttive sotto (i default di helmet
+      // includono `upgrade-insecure-requests`, che su http romperebbe gli asset).
+      useDefaults: false,
+      directives: {
+        defaultSrc: ["'self'"],
+        baseUri: ["'self'"],
+        objectSrc: ["'none'"],
+        frameAncestors: ["'self'"],
+        scriptSrc,
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'],
+        fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+        imgSrc: ["'self'", 'data:', 'blob:'],
+        connectSrc: ["'self'", 'https://*.ingest.sentry.io', 'https://*.sentry.io'],
+        manifestSrc: ["'self'"],
+        workerSrc: ["'self'", 'blob:'],
+        formAction: ["'self'"],
+        ...(isProd ? { upgradeInsecureRequests: [] } : {}),
+      },
+    },
+    // COEP romperebbe i font/risorse cross-origin (Google Fonts): off.
+    crossOriginEmbedderPolicy: false,
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    // HSTS solo in prod (dietro TLS); su http i browser lo ignorano comunque.
+    hsts: isProd ? { maxAge: 15552000, includeSubDomains: true } : false,
+  });
+  // Permissions-Policy: disabilita feature non usate (helmet 13 non la include).
+  app.addHook('onRequest', async (_req, reply) => {
+    reply.header('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
+  });
+
   if (serveReact) {
     const indexHtml = readFileSync(resolve(reactDist, 'index.html'), 'utf8');
     await app.register(fastifyStatic, { root: reactDist, prefix: '/', decorateReply: false });
