@@ -74,3 +74,65 @@ export function formatTime(ms: number): string {
   const s = tot % 60;
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
+
+// ── cfHasAllVotes — pure check: have all active commissari voted for a cf? ────
+//
+// Returns true if every activeCommId has submitted a vote for every criterio
+// in faseCriteriKeys for the given candidatoFaseId (cfId).
+
+export function cfHasAllVotes(
+  cfId: string,
+  activeCommIds: string[],
+  faseCriteriKeys: string[],
+  valsAll: { candidatoFaseId: string; commissarioId: string; criterio: string }[],
+): boolean {
+  if (faseCriteriKeys.length === 0) return false;
+  return activeCommIds.every((cid) =>
+    faseCriteriKeys.every((ck) =>
+      valsAll.some((v) => v.candidatoFaseId === cfId && v.commissarioId === cid && v.criterio === ck),
+    ),
+  );
+}
+
+// ── resolveSyncCurrentCf — sincrona mode: find current/waiting cf ─────────────
+//
+// Iterates ordered faseCfList; for the first non-fully-voted cf:
+//   - if this commissario already voted → set as waitingFor (others pending)
+//   - otherwise → set as currentCf
+// Returns { currentCf, waitingFor }.
+
+export interface SyncCfResolution<T extends { id: string; candidatoId: string }> {
+  currentCf: T | null;
+  waitingFor: T | null;
+}
+
+export function resolveSyncCurrentCf<T extends { id: string; candidatoId: string }>(
+  faseCfList: T[],
+  myVotedCfIds: Set<string>,
+  activeCommIds: string[],
+  faseCriteriKeys: string[],
+  valsAll: { candidatoFaseId: string; commissarioId: string; criterio: string }[],
+): SyncCfResolution<T> {
+  let currentCf: T | null = null;
+  let waitingFor: T | null = null;
+
+  for (const cf of faseCfList) {
+    if (cfHasAllVotes(cf.id, activeCommIds, faseCriteriKeys, valsAll)) continue;
+    if (myVotedCfIds.has(cf.id)) {
+      waitingFor = cf;
+    } else {
+      currentCf = cf;
+    }
+    break;
+  }
+
+  return { currentCf, waitingFor };
+}
+
+// ── isAmmesso — threshold logic (ordine 1 → 65%, others → 70%) ───────────────
+//
+// norm: normalised score (0-1), ordine: fase ordine (1-based integer).
+
+export function isAmmesso(norm: number, ordine: number): boolean {
+  return ordine === 1 ? norm >= 0.65 : norm >= 0.70;
+}
