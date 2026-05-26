@@ -264,6 +264,8 @@ function FaseStats({ fase, candidati, concorso }: FaseStatsProps) {
               />
               <Bar dataKey="count" radius={[3, 3, 0, 0]}>
                 {histogram.map((entry, idx) => (
+                  // Cell resta l'unico modo recharts per colorare le barre singole (no rimpiazzo)
+                  // eslint-disable-next-line @typescript-eslint/no-deprecated
                   <Cell
                     key={`cell-${idx}`}
                     fill={entry.count > 0 ? 'hsl(var(--primary))' : 'hsl(var(--muted))'}

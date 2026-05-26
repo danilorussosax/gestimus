@@ -203,7 +203,7 @@ export async function exportCalendarioPdf(opts: CalendarioPdfOpts): Promise<void
         doc.setFont('helvetica', 'italic');
         doc.setFontSize(8);
         doc.setTextColor(...INK_SOFT);
-        const wrapped = doc.splitTextToSize(`${t('cal.pub.giuria')}: ${names}`, pageW - 2 * margin);
+        const wrapped = doc.splitTextToSize(`${t('cal.pub.giuria')}: ${names}`, pageW - 2 * margin) as string[];
         if (y + wrapped.length * 10 > 800) {
           doc.addPage();
           y = margin;
