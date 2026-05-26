@@ -26,6 +26,22 @@ export interface CriterioRuntime {
   peso: number;
 }
 
+/** Input "fase-like" degli helper di scoring: un oggetto fase (solo i campi
+ *  letti, grezzi → `unknown`) oppure un numero (ordine/scala). Sostituisce
+ *  `any` SENZA cambiare il runtime: i campi restano `unknown` e si
+ *  narrowano/castano localmente (i cast sono erasi alla compilazione). */
+interface FaseLike {
+  criteri?: unknown;
+  pesi?: unknown;
+  ordine?: unknown;
+  metodoMedia?: unknown;
+  metodo_media?: unknown;
+  scala?: unknown;
+  modoValutazione?: unknown;
+  modo_valutazione?: unknown;
+}
+type FaseInput = FaseLike | number | null | undefined;
+
 // Build the default criteri array for a given fase ordine.
 export function defaultCriteri(ordine = 1): CriterioRuntime[] {
   const w = PESI[ordine] ?? PESI[1];
@@ -51,33 +67,36 @@ export function slugifyKey(s: unknown): string {
 //   • fase.criteri = [{key,label,peso}, …]  (preferred, dynamic)
 //   • fase.pesi    = {tecnica:..., …}        (legacy mapping, builds default 4-criteri)
 //   • else: defaults from PESI[ordine].
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function getCriteri(faseOrOrdine: any): CriterioRuntime[] {
+export function getCriteri(faseOrOrdine: FaseInput): CriterioRuntime[] {
   if (faseOrOrdine != null && typeof faseOrOrdine === 'object') {
-    if (Array.isArray(faseOrOrdine.criteri) && faseOrOrdine.criteri.length > 0) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      return faseOrOrdine.criteri.map((c: any, i: number) => ({
-        key: c.key || slugifyKey(c.label) || `crit_${i + 1}`,
-        label: c.label || c.key || `Criterio ${i + 1}`,
-        peso: Number(c.peso) || 0,
-      }));
+    const criteriRaw = faseOrOrdine.criteri;
+    if (Array.isArray(criteriRaw) && criteriRaw.length > 0) {
+      return (criteriRaw as unknown[]).map((raw, i) => {
+        const c = (raw ?? {}) as { key?: unknown; label?: unknown; peso?: unknown };
+        return {
+          key: (c.key || slugifyKey(c.label) || `crit_${i + 1}`) as string,
+          label: (c.label || c.key || `Criterio ${i + 1}`) as string,
+          peso: Number(c.peso) || 0,
+        };
+      });
     }
-    if (faseOrOrdine.pesi && typeof faseOrOrdine.pesi === 'object') {
+    const pesiRaw = faseOrOrdine.pesi;
+    if (pesiRaw && typeof pesiRaw === 'object') {
+      const pesi = pesiRaw as Record<string, unknown>;
       return DEFAULT_CRITERI_KEYS.map((k) => ({
         key: k,
         label: DEFAULT_CRITERI_LABEL[k] ?? k,
-        peso: Number(faseOrOrdine.pesi[k]) || 0,
+        peso: Number(pesi[k]) || 0,
       }));
     }
-    if (faseOrOrdine.ordine != null) return defaultCriteri(faseOrOrdine.ordine);
+    if (faseOrOrdine.ordine != null) return defaultCriteri(faseOrOrdine.ordine as number);
     return defaultCriteri(1);
   }
   return defaultCriteri(faseOrOrdine as number | undefined);
 }
 
 // Backward-compat: returns a {key: peso} map. Built from getCriteri.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function getPesiFor(faseOrOrdine: any): Record<string, number> {
+export function getPesiFor(faseOrOrdine: FaseInput): Record<string, number> {
   const out: Record<string, number> = {};
   getCriteri(faseOrOrdine).forEach((c) => { out[c.key] = c.peso ?? 0; });
   return out;
@@ -99,14 +118,16 @@ function votoCriterio(voti: Record<string, unknown> | null | undefined, key: str
 // mediaCandidato, così lo scoring usa i criteri CONFIGURATI (con i loro pesi)
 // e non i 4 criteri di default. La chiave deriva dal nome (slug) e coincide con
 // la `criterio` salvata nelle valutazioni.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function criteriFromRecords(records: readonly any[] | null | undefined): CriterioRuntime[] {
+export function criteriFromRecords(records: readonly unknown[] | null | undefined): CriterioRuntime[] {
   if (!Array.isArray(records)) return [];
-  return records.map((c, i) => ({
-    key: c?.key || slugifyKey(c?.nome ?? c?.label) || `crit_${i + 1}`,
-    label: c?.nome ?? c?.label ?? `Criterio ${i + 1}`,
-    peso: Number(c?.peso) || 0,
-  }));
+  return (records as readonly unknown[]).map((raw, i) => {
+    const c = raw as { key?: unknown; nome?: unknown; label?: unknown; peso?: unknown } | null | undefined;
+    return {
+      key: (c?.key || slugifyKey(c?.nome ?? c?.label) || `crit_${i + 1}`) as string,
+      label: (c?.nome ?? c?.label ?? `Criterio ${i + 1}`) as string,
+      peso: Number(c?.peso) || 0,
+    };
+  });
 }
 
 // Total weighted score for a single commissario across the fase's criteri.
@@ -127,8 +148,7 @@ function pesatoVoti(criteri: CriterioRuntime[], voti: Record<string, unknown> | 
   return criteri.reduce((s, c) => s + votoCriterio(voti, c.key), 0) / criteri.length;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function pesato(voti: Record<string, unknown> | null | undefined, faseOrOrdine: any): number {
+export function pesato(voti: Record<string, unknown> | null | undefined, faseOrOrdine: FaseInput): number {
   return pesatoVoti(getCriteri(faseOrOrdine), voti);
 }
 
@@ -141,8 +161,7 @@ export interface ValutazioneRaw {
 
 // Aggregate per-candidato media across all commissioners' weighted totals.
 // Uses the fase-configured criteri and metodo_media.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function mediaCandidato(valutazioni: ValutazioneRaw[], faseOrOrdine: any): number {
+export function mediaCandidato(valutazioni: ValutazioneRaw[], faseOrOrdine: FaseInput): number {
   const criteri = getCriteri(faseOrOrdine);
   const metodo = getMetodoMedia(faseOrOrdine);
   const byCom: Record<string, Record<string, unknown>> = {};
@@ -212,11 +231,11 @@ export const METODI_MEDIA: Record<string, {
   },
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function getMetodoMedia(fase: any): string {
+export function getMetodoMedia(fase: FaseInput): string {
   if (!fase) return 'aritmetica';
-  const m = fase.metodoMedia ?? fase.metodo_media;
-  return Object.prototype.hasOwnProperty.call(METODI_MEDIA, m) ? (m as string) : 'aritmetica';
+  const f = fase as FaseLike;
+  const m = f.metodoMedia ?? f.metodo_media;
+  return Object.prototype.hasOwnProperty.call(METODI_MEDIA, m as string) ? (m as string) : 'aritmetica';
 }
 
 export function suggerisciMetodo(nCommissari: unknown): { metodo: string; motivo: string } {
@@ -282,8 +301,7 @@ export function computeAggregate(values: unknown, metodo = 'aritmetica'): number
 
 // Resolve the score scale (max value of an individual vote) of a fase.
 // Default 10.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function getScala(faseOrScala: any): number {
+export function getScala(faseOrScala: FaseInput): number {
   if (faseOrScala == null) return 10;
   const raw = typeof faseOrScala === 'number' ? faseOrScala : Number(faseOrScala.scala);
   const n = Number(raw) || 10;
@@ -295,10 +313,10 @@ export function voteStep(scala: unknown): number {
 }
 
 // Modalità di valutazione: 'autonoma' (default) o 'sincrona'.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function getModoValutazione(fase: any): 'autonoma' | 'sincrona' {
+export function getModoValutazione(fase: FaseInput): 'autonoma' | 'sincrona' {
   if (!fase) return 'autonoma';
-  return fase.modoValutazione === 'sincrona' || fase.modo_valutazione === 'sincrona'
+  const f = fase as FaseLike;
+  return f.modoValutazione === 'sincrona' || f.modo_valutazione === 'sincrona'
     ? 'sincrona'
     : 'autonoma';
 }
