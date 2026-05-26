@@ -152,8 +152,8 @@ function displayNameComm(c: CommissarioRecord | null | undefined): string {
 }
 
 function applyVerbaleTags(template: string, ctx: Record<string, string>): string {
-  return template.replace(/<([a-z_]+)>/gi, (_full, name) => {
-    const key = name.toLowerCase() as string;
+  return template.replace(/<([a-z_]+)>/gi, (_full: string, name: string) => {
+    const key = name.toLowerCase();
     return Object.prototype.hasOwnProperty.call(ctx, key) ? ctx[key] : _full;
   });
 }

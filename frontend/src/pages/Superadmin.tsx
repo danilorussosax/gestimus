@@ -357,7 +357,7 @@ export default function Superadmin() {
     enabled: (tenantsQ.data?.length ?? 0) > 0,
     staleTime: 60_000,
   });
-  const statsMap: Map<string, TenantStats> = statsQ.data ?? new Map();
+  const statsMap: Map<string, TenantStats> = statsQ.data ?? new Map<string, TenantStats>();
 
   const smtpQ = useQuery({
     queryKey: ['platform', 'smtp'],
@@ -376,7 +376,7 @@ export default function Superadmin() {
     enabled: (tenantsQ.data?.length ?? 0) > 0,
     staleTime: 60_000,
   });
-  const smtpMap: Map<string, TenantSmtp> = smtpQ.data ?? new Map();
+  const smtpMap: Map<string, TenantSmtp> = smtpQ.data ?? new Map<string, TenantSmtp>();
 
   // System + runtime (polling 5s when dashboard active)
   const systemQ = useQuery({

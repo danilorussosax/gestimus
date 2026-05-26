@@ -119,7 +119,7 @@ function readImageResized(file: File, maxPx: number, quality: number): Promise<s
 
 /** Build tiebreak step list from saved strategy (or all-enabled defaults). */
 function buildStepsFromStrategy(strategy: unknown): TiebreakStepField[] {
-  const saved: TiebreakStepField[] = Array.isArray(strategy) ? strategy : [];
+  const saved: TiebreakStepField[] = Array.isArray(strategy) ? (strategy as TiebreakStepField[]) : [];
   const savedMap = new Map(saved.map((s) => [s.key, s.enabled]));
   return TIEBREAK_STEPS_DEF.map((def) => ({
     key: def.key,

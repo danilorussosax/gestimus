@@ -72,7 +72,7 @@ export async function resolveAdmittedIds(
   );
 
   const ranked = rankWithTieBreak(
-    rows as Parameters<typeof rankWithTieBreak>[0],
+    rows,
     faseWithCriteri,
     {
       strategy: effectiveStrategy(faseWithCriteri, conc),
