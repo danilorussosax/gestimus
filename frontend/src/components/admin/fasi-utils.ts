@@ -8,6 +8,7 @@
 // =============================================================================
 
 import type { FaseRecord, TiebreakStep } from '@/api/fasi';
+import type { CriterioRecord } from '@/api/criteri';
 import type { SezioneRecord } from '@/api/sezioni';
 import type { FaseStato } from '@/types';
 
@@ -310,4 +311,79 @@ export function fmtDate(iso: string | null | undefined): string {
   } catch {
     return iso;
   }
+}
+
+// ---------------------------------------------------------------------------
+// Wizard templates — usati da FaseWizardDialog per popolare la lista di fasi
+// da creare. Spostati qui (da FasiTab) per isolamento testabile.
+// ---------------------------------------------------------------------------
+
+export interface WizItem {
+  nome: string;
+  ammessi: number | '';
+}
+
+export const WIZ_TEMPLATES: Record<string, { label: string; items: WizItem[] }> = {
+  unica: { label: 'Fase unica', items: [{ nome: 'Audizione', ammessi: '' }] },
+  elim_fin: {
+    label: 'Eliminatoria + Finale',
+    items: [
+      { nome: 'Eliminatoria', ammessi: 10 },
+      { nome: 'Finale', ammessi: '' },
+    ],
+  },
+  elim_semi_fin: {
+    label: 'Eliminatoria + Semifinale + Finale',
+    items: [
+      { nome: 'Eliminatoria', ammessi: 20 },
+      { nome: 'Semifinale', ammessi: 6 },
+      { nome: 'Finale', ammessi: '' },
+    ],
+  },
+  custom: { label: 'Personalizzato', items: [{ nome: 'Fase 1', ammessi: '' }] },
+};
+
+// ---------------------------------------------------------------------------
+// buildDefaults — costruisce il FaseFormValues iniziale per FaseFormDialog.
+// Pure: nessuno stato React, nessun side effect.
+// ---------------------------------------------------------------------------
+
+export function buildDefaults(
+  fase: FaseRecord | undefined,
+  criteriExisting: CriterioRecord[] | undefined,
+  suggeritoMetodo: string,
+  prefill?: {
+    sezioniIds?: string[];
+    scala?: number;
+    tempoMinuti?: number;
+    modoValutazione?: 'autonoma' | 'sincrona';
+    metodoMedia?: string;
+    commissioneId?: string | null;
+  },
+): FaseFormValues {
+  const criteri: CriterioFV[] =
+    criteriExisting && criteriExisting.length > 0
+      ? criteriExisting.map((c) => ({ label: c.nome, key: '', peso: c.peso || 0 }))
+      : DEFAULT_CRITERI.map((c) => ({ ...c }));
+  return {
+    nome: fase?.nome ?? '',
+    dataPrevista: fase?.dataPrevista ?? '',
+    scala: fase?.scala ?? prefill?.scala ?? 10,
+    tempoMinuti: fase?.tempoMinuti ?? prefill?.tempoMinuti ?? 0,
+    ammessi: fase?.ammessi ?? '',
+    testoEsitoPromosso: fase?.testoEsitoPromosso ?? '',
+    testoEsitoEliminato: fase?.testoEsitoEliminato ?? '',
+    modoValutazione:
+      (fase?.modoValutazione ?? prefill?.modoValutazione) === 'sincrona' ? 'sincrona' : 'autonoma',
+    metodoMedia: fase?.metodoMedia ?? prefill?.metodoMedia ?? suggeritoMetodo,
+    criteri,
+    sezioniIds: Array.isArray(fase?.sezioniIds)
+      ? [...fase.sezioniIds]
+      : prefill?.sezioniIds
+        ? [...prefill.sezioniIds]
+        : [],
+    commissioneId: fase?.commissioneId ?? prefill?.commissioneId ?? '',
+    tiebreakStrategy: Array.isArray(fase?.tiebreakStrategy) ? fase.tiebreakStrategy : null,
+    tiebreakTouched: Array.isArray(fase?.tiebreakStrategy) && fase.tiebreakStrategy.length > 0,
+  };
 }

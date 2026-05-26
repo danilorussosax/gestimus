@@ -21,12 +21,11 @@
  */
 
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router-dom';
 
-import { http } from '@/lib/api';
 import { useAuth } from '@/contexts/AuthContext';
 import { cn } from '@/lib/utils';
 import { getPresidenteForFase, type CommissioneLike } from '@/lib/presidenti';
@@ -48,6 +47,8 @@ import {
   displayName,
   ageFromDate,
   formatTime,
+  resolveSyncCurrentCf,
+  isAmmesso,
   type DraftState,
 } from './commissario-utils';
 
@@ -61,11 +62,15 @@ import {
   resetFaseTimer,
 } from '@/api/fase-runtime';
 import { useFaseRuntime } from '@/hooks/useFaseRuntime';
-import { listCriteri } from '@/api/criteri';
 import type { FaseRecord } from '@/api/fasi';
-import { normalizeCandidato } from '@/api/candidati';
-import { criteriFromRecords } from '@/lib/scoring';
 import { resolveAdmittedIds } from '@/lib/admitted';
+import { useCommissarioData } from '@/hooks/useCommissarioData';
+import { KpiCard } from '@/components/commissario/KpiCard';
+import { PreflightItem } from '@/components/commissario/PreflightItem';
+import { HistoryCard } from '@/components/commissario/HistoryCard';
+import { CountdownConfirm } from '@/components/commissario/CountdownConfirm';
+import { WaitingPanel } from '@/components/commissario/WaitingPanel';
+import { AllDonePanel } from '@/components/commissario/AllDonePanel';
 
 // ── Scoring helpers (modulo @/lib/scoring) ──────────────────────────────────
 // Adapter tipato direttamente dal modulo reale via `typeof import(...)`: niente
@@ -235,118 +240,6 @@ function FloatingTimer({ faseId, isPresidente, candidatoFaseId }: FloatingTimerP
           </button>
         </div>
       )}
-    </div>
-  );
-}
-
-// ── Countdown confirm dialog ──────────────────────────────────────────────────
-
-interface CountdownConfirmProps {
-  candidato: Candidato | null | undefined;
-  anonimo: boolean;
-  ammesso: boolean;
-  totale: number;
-  scala: number;
-  fmtVoto: (v: number, scala: number) => string;
-  onConfirm: () => void;
-  onCancel: () => void;
-}
-
-function CountdownConfirm({
-  candidato,
-  anonimo,
-  ammesso,
-  totale,
-  scala,
-  fmtVoto,
-  onConfirm,
-  onCancel,
-}: CountdownConfirmProps) {
-  const { t } = useTranslation();
-  const [remaining, setRemaining] = useState(5);
-  const [pct, setPct] = useState(100);
-  const confirmedRef = useRef(false);
-  const totalSec = 5;
-
-  useEffect(() => {
-    const start = Date.now();
-    const id = setInterval(() => {
-      const elapsed = Date.now() - start;
-      const rem = Math.max(0, totalSec * 1000 - elapsed);
-      const remSec = Math.ceil(rem / 1000);
-      setRemaining(remSec);
-      setPct((rem / (totalSec * 1000)) * 100);
-      if (rem <= 0) {
-        clearInterval(id);
-        if (!confirmedRef.current) {
-          confirmedRef.current = true;
-          onConfirm();
-        }
-      }
-    }, 100);
-
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        clearInterval(id);
-        onCancel();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-
-    return () => {
-      clearInterval(id);
-      window.removeEventListener('keydown', onKey);
-    };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const headerCls = ammesso
-    ? 'bg-gradient-to-br from-emerald-500 to-emerald-700'
-    : 'bg-gradient-to-br from-rose-500 to-rose-700';
-  const numCls = ammesso ? 'text-emerald-600' : 'text-rose-600';
-  const barCls = ammesso ? 'bg-emerald-500' : 'bg-rose-500';
-  const verdictText = ammesso ? t('com.confirm.approved') : t('com.confirm.rejected');
-  const numLabel = `#${String(candidato?.numeroCandidato ?? '').padStart(3, '0')}`;
-  const nameLabel = anonimo ? '' : ` ${displayName(candidato)}`;
-
-  return (
-    <div className="fixed inset-0 z-50 bg-slate-900/55 backdrop-blur-sm flex items-center justify-center p-4 view-fade">
-      <div className="bg-white rounded-3xl shadow-2xl max-w-md w-full overflow-hidden">
-        <div className={cn(headerCls, 'text-white px-6 py-5 text-center')}>
-          <div className="text-4xl mb-1">⏳</div>
-          <div className="text-[10px] uppercase tracking-widest font-bold opacity-90">
-            {t('com.confirm.title')}
-          </div>
-          <h3 className="text-lg font-bold mt-1 leading-tight">
-            {numLabel}{nameLabel}
-          </h3>
-          <div className="mt-3 inline-flex items-center gap-2 bg-white/20 rounded-full px-3 py-1 text-xs font-bold">
-            {ammesso ? '✓' : '✕'} {verdictText} · {fmtVoto(totale, scala)}/{scala}
-          </div>
-        </div>
-        <div className="p-6 text-center">
-          <div className={cn('text-7xl font-black tabular-nums', numCls)}>{remaining}</div>
-          <p className="text-sm text-slate-600 mt-3">
-            {/* Hardcoded IT: the i18n key contains HTML tags; render plain equivalent */}
-            Salvataggio automatico tra{' '}
-            <strong>{remaining}</strong>{' '}
-            {remaining === 1 ? 'secondo' : 'secondi'}.{' '}
-            Hai questo tempo per <strong>annullare</strong> e riconsiderare la valutazione.
-          </p>
-          <div className="w-full h-2 bg-slate-200 rounded-full mt-4 overflow-hidden">
-            <div
-              className={cn('h-full rounded-full transition-all', barCls)}
-              style={{ width: `${pct}%` }}
-            />
-          </div>
-          <button
-            className="c-btn c-btn--outline mt-5 w-full"
-            onClick={onCancel}
-          >
-            {t('com.confirm.cancel')}
-          </button>
-        </div>
-      </div>
     </div>
   );
 }
@@ -803,160 +696,6 @@ function PresidentePanel({
   );
 }
 
-function KpiCard({
-  gradient,
-  value,
-  label,
-  icon,
-  progress,
-}: {
-  gradient: string;
-  value: string | number;
-  label: string;
-  icon: string;
-  progress?: number;
-}) {
-  return (
-    <div className={cn('relative rounded-2xl p-5 bg-gradient-to-br text-white shadow-md overflow-hidden', gradient)}>
-      <div className="flex items-start justify-between mb-3">
-        <div className="w-11 h-11 rounded-xl bg-white/95 text-slate-700 flex items-center justify-center shadow-sm text-lg">
-          {icon}
-        </div>
-        <span className="text-white/70 cursor-pointer leading-none text-lg" title="Altre opzioni">⋯</span>
-      </div>
-      <div className="text-3xl sm:text-4xl font-extrabold leading-none mb-1.5 drop-shadow-sm">
-        {value}
-      </div>
-      <div className="text-xs sm:text-sm font-medium text-white/90 tracking-wide">{label}</div>
-      {progress !== undefined && (
-        <div className="mt-3 h-1.5 bg-white/25 rounded-full overflow-hidden">
-          <div
-            className="h-full bg-white rounded-full transition-all"
-            style={{ width: `${Math.max(0, Math.min(100, progress))}%` }}
-          />
-        </div>
-      )}
-    </div>
-  );
-}
-
-function PreflightItem({ ok, label }: { ok: boolean; label: string }) {
-  return (
-    <li className="flex items-start gap-2.5 p-2 rounded-lg bg-white border border-slate-200">
-      <span
-        className={cn(
-          'w-6 h-6 inline-flex items-center justify-center rounded-full text-xs font-bold shrink-0',
-          ok ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700',
-        )}
-      >
-        {ok ? '✓' : '✗'}
-      </span>
-      <span className={cn('text-sm leading-snug', ok ? 'text-slate-800' : 'text-rose-900 font-medium')}>
-        {label}
-      </span>
-    </li>
-  );
-}
-
-// ── History card ──────────────────────────────────────────────────────────────
-
-interface HistoryCardProps {
-  cf: CandidatoFase;
-  candidati: Candidato[];
-  valutazioni: Valutazione[];
-  commissarioId: string;
-  anonimo: boolean;
-  fase: Fase;
-  fmtVotoFn: (v: number, scala: number) => string;
-  getCriteriFn: (f: Fase) => { key: string; label: string; peso: number }[];
-  pesatoFn: (voti: Record<string, number>, f: Fase) => number;
-  getScalaFn: (f: Fase) => number;
-}
-
-function HistoryCard({
-  cf,
-  candidati,
-  valutazioni,
-  commissarioId,
-  anonimo,
-  fase,
-  fmtVotoFn,
-  getCriteriFn,
-  pesatoFn,
-  getScalaFn,
-}: HistoryCardProps) {
-  const { t } = useTranslation();
-  const cand = candidati.find((c) => c.id === cf.candidatoId);
-  const myVotes = valutazioni.filter(
-    (v) => v.candidatoFaseId === cf.id && v.commissarioId === commissarioId,
-  );
-  const voti: Record<string, number> = {};
-  myVotes.forEach((v) => { voti[v.criterio] = v.voto; });
-  const scala = getScalaFn(fase);
-  const totale = pesatoFn(voti, fase);
-  const norm = scala ? totale / scala : 0;
-  const ammesso = cf.ammessoProssimaFase;
-
-  return (
-    <div
-      className={cn(
-        'bg-white border rounded-xl p-3',
-        ammesso ? 'border-emerald-200' : 'border-rose-200',
-      )}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          {!anonimo && (
-            <div className="w-7 h-7 rounded-full bg-slate-100 overflow-hidden flex items-center justify-center text-sm text-slate-400 shrink-0">
-              {cand?.fotoUrl ? (
-                <img src={cand.fotoUrl} alt="" className="w-full h-full object-cover" />
-              ) : (
-                '👤'
-              )}
-            </div>
-          )}
-          <div className="font-mono text-xs text-slate-500">
-            #{String(cand?.numeroCandidato ?? '').padStart(3, '0')}
-          </div>
-        </div>
-        <span
-          className={cn(
-            'text-[10px] font-bold px-2 py-0.5 rounded-full',
-            ammesso ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800',
-          )}
-        >
-          {ammesso ? t('com.confirm.approved') : t('com.confirm.rejected')}
-        </span>
-      </div>
-      {!anonimo && (
-        <div className="font-medium text-sm text-slate-900 truncate mt-1">
-          {displayName(cand)}
-        </div>
-      )}
-      <div className="text-xs text-slate-500 truncate">{cand?.strumento ?? ''}</div>
-      <div className="mt-2 grid grid-cols-2 gap-1 text-[11px]">
-        {getCriteriFn(fase).map((c) => (
-          <div
-            key={c.key}
-            className="flex justify-between bg-slate-50 px-1.5 py-0.5 rounded"
-            title={c.label}
-          >
-            <span className="text-slate-500">{(c.label || '?').charAt(0).toUpperCase()}</span>
-            <span className="font-mono font-medium">{fmtVotoFn(voti[c.key] ?? 0, scala)}</span>
-          </div>
-        ))}
-      </div>
-      <div className="mt-2 text-right">
-        <span className="text-[10px] text-slate-400">{t('com.tot_short')} </span>
-        <span className={cn('text-sm font-bold', norm >= 0.65 ? 'text-slate-900' : 'text-rose-600')}>
-          {fmtVotoFn(totale, scala)}
-          <span className="text-[10px] text-slate-400">/{scala}</span>
-        </span>
-      </div>
-    </div>
-  );
-}
-
 // ── Scoring sheet ─────────────────────────────────────────────────────────────
 
 interface ScoringSheetProps {
@@ -1049,7 +788,7 @@ function ScoringSheet({
   const norm = scala ? totale / scala : 0;
   const totaleCls = norm >= 0.8 ? 'text-emerald-600' : norm >= 0.65 ? 'text-slate-900' : 'text-rose-600';
 
-  const ammesso = fase.ordine === 1 ? norm >= 0.65 : norm >= 0.70;
+  const ammesso = isAmmesso(norm, fase.ordine);
 
   async function doSave() {
     setSaving(true);
@@ -1357,7 +1096,6 @@ function ScoringSheet({
 export default function Commissario() {
   const { t } = useTranslation();
   const { user } = useAuth();
-  const qc = useQueryClient();
   const commissarioId = user?.commissarioId ?? null;
 
   // Scoring module (lazy-loaded once)
@@ -1368,100 +1106,24 @@ export default function Commissario() {
 
   // ── Data fetching ──────────────────────────────────────────────────────────
 
-  const { data: concorsiList, isLoading: loadingConcorsi } = useQuery({
-    queryKey: ['concorsi'],
-    queryFn: () => http.get<Concorso[]>('concorsi', { limit: 1000 }),
-  });
+  const {
+    concorsiList,
+    commissario,
+    fasi,
+    commissioni,
+    commissariList,
+    candidatiFaseList,
+    candidati,
+    valutazioni,
+    faseWithCriteri: buildFaseWithCriteri,
+    isLoading,
+    commissarioConcorsoId,
+    invalidateAll,
+  } = useCommissarioData(commissarioId);
 
-  const { data: commissario, isLoading: loadingCommissario } = useQuery({
-    queryKey: ['commissario', commissarioId],
-    queryFn: () => http.get<Commissario>(`commissari/${commissarioId ?? ''}`),
-    enabled: !!commissarioId,
-  });
-
-  // Derive the active concorso from the commissario record.
-  // Il server (e ora il tipo Commissario) espone `concorsoId` (singolare).
-  const commissarioConcorsoId: string | null = commissario?.concorsoId ?? null;
+  // Derive the active concorso (mirrors what the hook does internally, but we
+  // need the object here for guards and child component props).
   const concorso = concorsiList?.find((c) => c.id === commissarioConcorsoId) ?? null;
-
-  const concorsoId = concorso?.id ?? null;
-
-  const { data: fasi, isLoading: loadingFasi } = useQuery({
-    queryKey: ['fasi', concorsoId],
-    queryFn: () => http.get<Fase[]>('fasi', { concorsoId: concorsoId ?? '', limit: 1000 }),
-    enabled: !!concorsoId,
-  });
-
-  const { data: commissioni, isLoading: loadingCommissioni } = useQuery({
-    queryKey: ['commissioni', concorsoId],
-    queryFn: () => http.get<Commissione[]>('commissioni', { concorsoId: concorsoId ?? '', limit: 1000 }),
-    enabled: !!concorsoId,
-  });
-
-  // Lista commissari del concorso → per mostrare nome/foto (non l'id troncato)
-  // nello stato d'attesa in modalità sincrona.
-  const { data: commissariList } = useQuery({
-    queryKey: ['commissari', concorsoId],
-    queryFn: () => http.get<Commissario[]>('commissari', { concorsoId: concorsoId ?? '', limit: 1000 }),
-    enabled: !!concorsoId,
-  });
-
-  const { data: candidatiFaseList, isLoading: loadingCfs } = useQuery({
-    queryKey: ['candidati-fase', concorsoId],
-    queryFn: async () => {
-      // Load for all fasi in this concorso
-      const allFasi = await http.get<Fase[]>('fasi', { concorsoId: concorsoId ?? '', limit: 1000 });
-      const results = await Promise.all(
-        allFasi.map((f) =>
-          http.get<CandidatoFase[]>('candidati-fase', { faseId: f.id, limit: 2000 }),
-        ),
-      );
-      return results.flat();
-    },
-    enabled: !!concorsoId,
-  });
-
-  const { data: candidati, isLoading: loadingCandidati } = useQuery({
-    queryKey: ['candidati', concorsoId],
-    queryFn: () =>
-      http
-        .get<Candidato[]>('candidati', { concorsoId: concorsoId ?? '', limit: 2000 })
-        .then((rows) => rows.map(normalizeCandidato)),
-    enabled: !!concorsoId,
-  });
-
-  const { data: valutazioni, isLoading: loadingVals } = useQuery({
-    queryKey: ['valutazioni', concorsoId],
-    queryFn: () => http.get<Valutazione[]>('valutazioni', { concorsoId: concorsoId ?? '', limit: 10000 }),
-    enabled: !!concorsoId,
-  });
-
-  // ── Criteri configurati della fase attiva ──────────────────────────────────
-  // GET /api/fasi non porta i `criteri`, quindi scoring.getCriteri(fase) ripiega
-  // sui 4 criteri di default. Recuperiamo i criteri CONFIGURATI della fase IN_CORSO
-  // e li attacchiamo alla fase (faseWithCriteri) prima di ogni chiamata di scoring.
-  // L'hook va chiamato INCONDIZIONATAMENTE (prima degli early return) per rispettare
-  // le regole degli hook React; risolviamo l'id della fase attiva dal dato grezzo.
-  const faseId = fasi?.find((f) => f.stato === 'IN_CORSO')?.id ?? null;
-  const criteriQ = useQuery({
-    queryKey: ['criteri', faseId],
-    queryFn: () => listCriteri(faseId ?? ''),
-    enabled: !!faseId,
-    staleTime: 60_000,
-  });
-
-  // ── Derived loading / error ────────────────────────────────────────────────
-
-  const isLoading =
-    loadingConcorsi || loadingCommissario || loadingFasi ||
-    loadingCommissioni || loadingCfs || loadingCandidati || loadingVals;
-
-  function invalidateAll() {
-    void qc.invalidateQueries({ queryKey: ['fasi', concorsoId] });
-    void qc.invalidateQueries({ queryKey: ['candidati-fase', concorsoId] });
-    void qc.invalidateQueries({ queryKey: ['valutazioni', concorsoId] });
-    void qc.invalidateQueries({ queryKey: ['commissioni', concorsoId] });
-  }
 
   // ── Guard: no commissario profile ─────────────────────────────────────────
 
@@ -1561,7 +1223,7 @@ export default function Commissario() {
   // e per il render della scheda voto, così i commissari votano i criteri giusti
   // con i pesi configurati. Le chiavi (slug del nome) coincidono con la `criterio`
   // scritta nelle valutazioni — coerenti fra lettura (render) e scrittura (POST).
-  const faseWithCriteri: Fase = { ...fase, criteri: criteriFromRecords(criteriQ.data) };
+  const faseWithCriteri: Fase = buildFaseWithCriteri(fase);
   const faseCommissione = commissioniList.find((c) => c.id === fase.commissioneId);
   const assignedIds: string[] = getCommissariIds(faseCommissione);
   const isAssigned = assignedIds.includes(commissarioId);
@@ -1622,25 +1284,13 @@ export default function Commissario() {
     valsAll.filter((v) => v.commissarioId === commissarioId).map((v) => v.candidatoFaseId),
   );
 
-  function cfHasAllVotes(cfId: string): boolean {
-    if (faseCriteriKeys.length === 0) return false;
-    return activeCommIds.every((cid) =>
-      faseCriteriKeys.every((ck) =>
-        valsAll.some((v) => v.candidatoFaseId === cfId && v.commissarioId === cid && v.criterio === ck),
-      ),
-    );
-  }
-
   let currentCf: CandidatoFase | null = null;
   let waitingFor: CandidatoFase | null = null;
 
   if (modo === 'sincrona') {
-    for (const cf of faseCfList) {
-      if (cfHasAllVotes(cf.id)) continue;
-      if (myVotedCfIds.has(cf.id)) { waitingFor = cf; }
-      else { currentCf = cf; }
-      break;
-    }
+    const resolved = resolveSyncCurrentCf(faseCfList, myVotedCfIds, activeCommIds, faseCriteriKeys, valsAll);
+    currentCf = resolved.currentCf;
+    waitingFor = resolved.waitingFor;
   } else {
     currentCf = faseCfList.find((cf) => !myVotedCfIds.has(cf.id)) ?? null;
   }
@@ -1663,8 +1313,20 @@ export default function Commissario() {
     const eta = ageFromDate(wCand?.dataNascita);
 
     return (
-      <section className={cn('view-fade', isPresidenteFase ? 'c-page max-w-7xl mx-auto py-8' : 'max-w-2xl mx-auto py-8')}>
-        {isPresidenteFase && (
+      <WaitingPanel
+        fase={fase}
+        concorso={concorso}
+        isPresidenteFase={isPresidenteFase}
+        wCand={wCand}
+        commInFase={commInFase}
+        votedSet={votedSet}
+        votedCount={votedCount}
+        totalCount={totalCount}
+        eta={eta}
+        commissarioId={commissarioId}
+        commById={commById}
+        invalidateAll={invalidateAll}
+        presidentePanelSlot={
           <PresidentePanel
             concorso={concorso}
             fasi={fasiPresidente}
@@ -1673,113 +1335,8 @@ export default function Commissario() {
             valutazioni={valsAll}
             onFaseChanged={invalidateAll}
           />
-        )}
-        <div className={cn('bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-soft', isPresidenteFase && 'max-w-2xl mx-auto')}>
-          <div className="text-center">
-            <div className="text-5xl mb-3">⏳</div>
-            <div className="text-xs font-semibold text-amber-700 uppercase tracking-wider">
-              {fase.nome}
-              <span className="inline-flex items-center gap-1 ml-1 text-[10px] font-medium px-1.5 py-0.5 bg-indigo-100 text-indigo-700 rounded normal-case">
-                {t('com.sincrona_tag')}
-              </span>
-            </div>
-            <h2 className="text-xl sm:text-2xl font-bold text-slate-900 mt-2">{t('com.waiting.title')}</h2>
-            <p className="text-sm text-slate-600 mt-2">{t('com.waiting.subtitle')}</p>
-          </div>
-
-          <div className="mt-6 flex items-center gap-3 bg-slate-50 border border-slate-200 rounded-xl p-3">
-            <div className="text-3xl font-black tabular-nums text-brand-700 leading-none">
-              {String(wCand?.numeroCandidato ?? '').padStart(3, '0')}
-            </div>
-            {!concorso.anonimo && (
-              <div className="w-12 h-12 rounded-full bg-slate-100 overflow-hidden flex items-center justify-center text-2xl text-slate-400 shrink-0 ring-2 ring-white">
-                {wCand?.fotoUrl ? <img src={wCand.fotoUrl} alt="" className="w-full h-full object-cover" /> : '👤'}
-              </div>
-            )}
-            <div className="min-w-0 flex-1">
-              {concorso.anonimo ? (
-                <>
-                  <div className="font-semibold text-slate-900 truncate">{t('com.candidate_anonymous')}</div>
-                  <div className="text-xs text-slate-600 truncate">{wCand?.strumento ?? ''}</div>
-                </>
-              ) : (
-                <>
-                  <div className="font-semibold text-slate-900 truncate">{displayName(wCand)}</div>
-                  <div className="text-xs text-slate-600 truncate">
-                    {wCand?.strumento ?? ''}
-                    {eta ? ` · ${t('com.candidate_age', { eta })}` : ''}
-                    {wCand?.nazionalita ? ` · ${wCand.nazionalita}` : ''}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-
-          <div className="mt-6">
-            <div className="flex items-center justify-between text-xs uppercase tracking-wider text-slate-500 mb-2">
-              <span>{t('com.waiting.committee_progress')}</span>
-              <span className="font-mono font-semibold text-slate-700">{votedCount} / {totalCount}</span>
-            </div>
-            <div className="h-2 bg-slate-200 rounded-full overflow-hidden mb-3">
-              <div
-                className="h-full bg-gradient-to-r from-amber-400 to-amber-500 transition-all"
-                style={{ width: `${totalCount ? (votedCount / totalCount) * 100 : 0}%` }}
-              />
-            </div>
-            {/* Per-commissario status list (matching vanilla renderWaiting) */}
-            <div className="space-y-2">
-              {commInFase.map((cid) => {
-                const v = votedSet.has(cid);
-                const isMe = cid === commissarioId;
-                const comm = commById.get(cid);
-                const nome = displayName(comm) || cid.substring(0, 8);
-                return (
-                  <div
-                    key={cid}
-                    className={cn(
-                      'flex items-center justify-between bg-white border rounded-lg px-3 py-2',
-                      v ? 'border-emerald-200' : 'border-slate-200',
-                    )}
-                  >
-                    <div className="flex items-center gap-2 min-w-0">
-                      <div className="w-7 h-7 rounded-full bg-slate-100 overflow-hidden flex items-center justify-center text-sm shrink-0">
-                        {comm?.foto ? (
-                          <img src={comm.foto} alt="" className="w-full h-full object-cover" />
-                        ) : (
-                          '🧑‍⚖️'
-                        )}
-                      </div>
-                      <span className={cn('text-sm truncate', isMe ? 'font-semibold text-slate-900' : 'text-slate-700')}>
-                        {nome}{isMe ? ` ${t('com.you_suffix', { defaultValue: '(tu)' })}` : ''}
-                      </span>
-                    </div>
-                    <span
-                      className={cn(
-                        'text-[11px] px-2 py-0.5 rounded-full font-semibold whitespace-nowrap',
-                        v ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800',
-                      )}
-                    >
-                      {v ? t('com.voted') : t('com.waiting_dot')}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          <div className="mt-6 flex items-center justify-center gap-2">
-            <button
-              className="text-sm font-semibold text-white bg-brand-600 hover:bg-brand-700 px-4 py-2 rounded-lg shadow-sm"
-              onClick={invalidateAll}
-            >
-              ↻ {t('com.waiting.refresh')}
-            </button>
-            <Link to="/" className="text-sm font-medium text-slate-700 hover:bg-slate-100 px-4 py-2 rounded-lg">
-              {t('com.change_role')}
-            </Link>
-          </div>
-        </div>
-      </section>
+        }
+      />
     );
   }
 
@@ -1787,8 +1344,11 @@ export default function Commissario() {
 
   if (!currentCf) {
     return (
-      <section className={cn('view-fade', isPresidenteFase ? 'c-page max-w-7xl mx-auto py-8' : 'max-w-2xl mx-auto text-center py-16')}>
-        {isPresidenteFase && (
+      <AllDonePanel
+        isPresidenteFase={isPresidenteFase}
+        evaluatedCount={myEvaluated.length}
+        faseNome={fase.nome}
+        presidentePanelSlot={
           <PresidentePanel
             concorso={concorso}
             fasi={fasiPresidente}
@@ -1797,23 +1357,8 @@ export default function Commissario() {
             valutazioni={valsAll}
             onFaseChanged={invalidateAll}
           />
-        )}
-        <div className={cn(isPresidenteFase && 'bg-white border border-slate-200 rounded-2xl p-6 sm:p-8 shadow-soft max-w-2xl mx-auto text-center')}>
-          <div className="text-6xl mb-4">✅</div>
-          <h2 className="text-xl font-bold text-slate-900">{t('com.all_done.title')}</h2>
-          <p className="text-slate-600 mt-2">
-            {t('com.all_done.desc', { count: myEvaluated.length, fase: fase.nome })}
-          </p>
-          <p className="text-sm text-slate-500 mt-1">
-            {isPresidenteFase ? t('com.all_done.help_pres') : t('com.all_done.help')}
-          </p>
-          <div className="mt-6">
-            <Link to="/" className="text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 px-4 py-2 rounded-lg">
-              {t('com.back_to_menu')}
-            </Link>
-          </div>
-        </div>
-      </section>
+        }
+      />
     );
   }
 
