@@ -115,7 +115,7 @@ function beep() {
     osc.start();
     gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
     osc.stop(ctx.currentTime + 0.6);
-    osc.onended = () => { ctx.close().catch(() => {}); };
+    osc.onended = () => { ctx.close().catch(() => { /* noop */ }); };
   } catch { /* silent fallback */ }
 }
 
@@ -136,7 +136,7 @@ function FloatingTimer({ faseId, isPresidente, candidatoFaseId }: FloatingTimerP
   // Presidente auto-start: when the current cf changes, start the timer.
   useEffect(() => {
     if (!isPresidente || !candidatoFaseId) return;
-    void startFaseTimer(faseId, candidatoFaseId).then(() => refetch()).catch(() => {});
+    void startFaseTimer(faseId, candidatoFaseId).then(() => refetch()).catch(() => { /* noop */ });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [faseId, candidatoFaseId, isPresidente]);
 
