@@ -58,7 +58,7 @@ function displayName(
 ): string {
   if (!c) return '—';
   if (c.tipo === 'gruppo' || c.tipo === 'orchestra') return c.nome || '—';
-  return `${c.nome || ''} ${c.cognome || ''}`.trim() || '—';
+  return `${c.nome} ${c.cognome ?? ''}`.trim() || '—';
 }
 
 function ageFromDate(iso: string | null | undefined): number | null {
@@ -150,7 +150,7 @@ async function readImageResized(
 
 /** Normalizza per il match identità dello storico (accenti + case insensitive). */
 function norm(s: string | null | undefined): string {
-  return (s || '')
+  return (s ?? '')
     .toLowerCase()
     .normalize('NFD')
     .replace(/[̀-ͯ]/g, '')
@@ -264,8 +264,8 @@ function CandidatoFormDialog({
 
   // Backward compat: split legacy combined nome.
   const splitInit = useMemo(() => {
-    let n = existing?.nome || '';
-    let cg = existing?.cognome || '';
+    let n = existing?.nome ?? '';
+    let cg = existing?.cognome ?? '';
     if (existing && !cg && n.includes(' ')) {
       const parts = n.split(/\s+/);
       n = parts[0] ?? '';
@@ -367,9 +367,9 @@ function CandidatoFormDialog({
         const drafts: MembroDraft[] = rows.map((m) => ({
           id: m.id,
           nome: m.nome || '',
-          cognome: m.cognome || '',
-          strumento: m.strumento || '',
-          dataNascita: m.dataNascita || '',
+          cognome: m.cognome ?? '',
+          strumento: m.strumento ?? '',
+          dataNascita: m.dataNascita ?? '',
         }));
         setInitialMembri(drafts);
         setMembri(drafts.map((m) => ({ ...m })));
@@ -1553,7 +1553,7 @@ function CandidatoCard({
                 key={m.id}
                 className="text-[10px] px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded-full font-medium"
               >
-                {m.nome || ''} {m.cognome || ''}
+                {m.nome} {m.cognome ?? ''}
                 {m.strumento ? ` · ${m.strumento}` : ''}
               </span>
             ))}

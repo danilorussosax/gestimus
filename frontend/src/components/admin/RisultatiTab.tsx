@@ -214,8 +214,8 @@ function FaseLeaderboard({ fase, candidati, showEsito, anon, concorso, commissio
   );
 
   // Custom esito labels with fallback (vanilla: fase.testo_esito_promosso)
-  const promossoLabel = ((fase.testoEsitoPromosso || '') || (t('admin.risultati.promosso') || 'PROMOSSO')).toUpperCase();
-  const eliminatoLabel = ((fase.testoEsitoEliminato || '') || (t('admin.risultati.eliminato') || 'ELIMINATO')).toUpperCase();
+  const promossoLabel = ((fase.testoEsitoPromosso ?? '') || (t('admin.risultati.promosso') || 'PROMOSSO')).toUpperCase();
+  const eliminatoLabel = ((fase.testoEsitoEliminato ?? '') || (t('admin.risultati.eliminato') || 'ELIMINATO')).toUpperCase();
 
   return (
     <>
