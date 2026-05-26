@@ -82,7 +82,7 @@ function fmtDate(iso: string | null | undefined): string {
       year: 'numeric',
     });
   } catch {
-    return iso ?? '—';
+    return iso;
   }
 }
 
@@ -1184,7 +1184,7 @@ function MembriGruppoModal({ open, gruppo, candidati, onClose }: MembriModalProp
                 const q = pickSearch.trim().toLowerCase();
                 const pickable = candidati.filter(
                   (c) =>
-                    c.id !== gruppo?.id &&
+                    c.id !== gruppo.id &&
                     c.tipo !== 'gruppo' &&
                     c.tipo !== 'orchestra' &&
                     (q === '' ||

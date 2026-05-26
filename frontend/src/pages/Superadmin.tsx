@@ -478,18 +478,18 @@ export default function Superadmin() {
   for (const ten of tenants) {
     const s = statsMap.get(ten.id);
     if (s) { totConcorsi += s.concorsi; totDisk += s.diskUsageBytes; }
-    const p = PIANI[ten.piano];
-    if (ten.stato === 'attivo' && ten.piano !== 'ppe' && p?.prezzo) revenue += p.prezzo;
+    const p = PIANI[ten.piano] ?? PIANI.trial;
+    if (ten.stato === 'attivo' && ten.piano !== 'ppe' && p.prezzo) revenue += p.prezzo;
   }
 
-  const cpuPct = sys?.cpu?.processPct;
-  const cores = sys?.cpu?.cores ?? 0;
+  const cpuPct = sys?.cpu.processPct;
+  const cores = sys?.cpu.cores ?? 0;
   let sysVal = 'n/d';
   if (sys) {
     const mb = sys.memory.rss / (1024 * 1024);
     sysVal = `${mb < 1024 ? mb.toFixed(0) + ' MB' : (mb / 1024).toFixed(2) + ' GB'} · CPU ${typeof cpuPct === 'number' ? cpuPct.toFixed(1) : '—'}%`;
   }
-  const loadAvg1 = sys?.cpu?.loadAvg1;
+  const loadAvg1 = sys?.cpu.loadAvg1;
   const loadAvgSysPct = cores > 0 && Number.isFinite(loadAvg1)
     ? Math.round(((loadAvg1 ?? 0) / cores) * 100)
     : null;
@@ -504,7 +504,7 @@ export default function Superadmin() {
   const cpuSeries = samples.map((s) => s.cpuPct);
   // Valore corrente: snapshot live (5s) se disponibile, altrimenti ultimo campione.
   const liveRssMb = sys ? sys.memory.rss / (1024 * 1024) : (rssSeries.at(-1) ?? null);
-  const liveCpuPct = sys?.cpu?.processPct ?? cpuSeries.at(-1) ?? null;
+  const liveCpuPct = sys?.cpu.processPct ?? cpuSeries.at(-1) ?? null;
   const cpuSeriesMax = cpuSeries.length ? Math.max(...cpuSeries) : 0;
 
   // ── Lifecycle helpers ─────────────────────────────────────────────────────
@@ -659,7 +659,7 @@ export default function Superadmin() {
         <footer className="px-4 py-3 bg-slate-50 border-t border-slate-100 flex items-center justify-between text-xs">
           <span className="text-ink-700 inline-flex items-center gap-1.5">
             <Folder className="w-3 h-3" />
-            <strong>{stats ? fmtBytes(stats.diskUsageBytes ?? 0) : '·'}</strong>
+            <strong>{stats ? fmtBytes(stats.diskUsageBytes) : '·'}</strong>
           </span>
           <span className="text-ink-700 inline-flex items-center gap-1.5">
             {smtp?.configured
@@ -726,7 +726,7 @@ export default function Superadmin() {
           <MiniBar used={concorsiUsed} limit={piano.limit_concorsi} />
         </td>
         <td className="px-3 py-2.5 text-right text-ink-900">{stats?.iscrizioni ?? '·'}</td>
-        <td className="px-3 py-2.5 text-right text-ink-700">{stats ? fmtBytes(stats.diskUsageBytes ?? 0) : '·'}</td>
+        <td className="px-3 py-2.5 text-right text-ink-700">{stats ? fmtBytes(stats.diskUsageBytes) : '·'}</td>
         <td className="px-3 py-2.5 text-right">
           {rt && rt.reqCountMin > 0 ? (
             <span className={`text-[10px] font-mono ${rt.errorRate > 0 ? 'text-rose-700' : 'text-ink-700'}`}>
@@ -1151,7 +1151,7 @@ function DetailDrawer({
             </div>
             <div className="flex items-center justify-between text-xs text-ink-700 mt-3 pt-3 border-t border-slate-100">
               <span className="inline-flex items-center gap-1.5"><Folder className="w-3 h-3" />Storage uploads</span>
-              <strong className="text-ink-900">{stats ? fmtBytes(stats.diskUsageBytes ?? 0) : '·'}</strong>
+              <strong className="text-ink-900">{stats ? fmtBytes(stats.diskUsageBytes) : '·'}</strong>
             </div>
           </section>
 

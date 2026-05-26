@@ -225,14 +225,14 @@ function FaseLeaderboard({ fase, candidati, showEsito, anon, concorso, commissio
           {tiebreakCount > 0 && (
             <span
               className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-amber-100 text-amber-800 border border-amber-200"
-              title={t('admin.risultati.tiebreak_badge_title') ?? 'Spareggi applicati per risolvere parità di punteggio'}
+              title={t('admin.risultati.tiebreak_badge_title')}
             >
-              {'⚖ '}{(t('admin.risultati.tiebreak_badge') ?? '{n} spareggi').replace('{n}', String(tiebreakCount))}
+              {'⚖ '}{t('admin.risultati.tiebreak_badge').replace('{n}', String(tiebreakCount))}
             </span>
           )}
           {exAequoGroups.size > 0 && (
             <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-violet-100 text-violet-800 border border-violet-200">
-              {'🤝 '}{(t('admin.risultati.ex_aequo_badge') ?? '{n} ex aequo').replace('{n}', String(exAequoGroups.size))}
+              {'🤝 '}{t('admin.risultati.ex_aequo_badge').replace('{n}', String(exAequoGroups.size))}
             </span>
           )}
         </div>
@@ -339,8 +339,8 @@ function FaseLeaderboard({ fase, candidati, showEsito, anon, concorso, commissio
       {/* Ex-aequo note — bg-violet-50 box (exact vanilla markup) */}
       {exAequoGroups.size > 0 && (
         <div className="mt-3 bg-violet-50 border border-violet-200 rounded-xl px-3 py-2 text-xs text-violet-900">
-          <strong>{t('admin.risultati.ex_aequo_note_title') ?? 'Nota ex aequo'}:</strong>{' '}
-          {t('admin.risultati.ex_aequo_note_body') ?? 'Le posizioni indicate sono condivise tra i candidati ex aequo; la posizione immediatamente successiva non viene assegnata. I premi previsti dal regolamento per le posizioni interessate si sommano e dividono in parti uguali tra i vincitori.'}
+          <strong>{t('admin.risultati.ex_aequo_note_title')}:</strong>{' '}
+          {t('admin.risultati.ex_aequo_note_body')}
         </div>
       )}
 
@@ -349,7 +349,7 @@ function FaseLeaderboard({ fase, candidati, showEsito, anon, concorso, commissio
         <div className="mt-2 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 text-xs text-amber-900">
           <details>
             <summary className="cursor-pointer font-semibold">
-              {t('admin.risultati.tiebreak_details_title') ?? 'Dettaglio spareggi applicati'}
+              {t('admin.risultati.tiebreak_details_title')}
             </summary>
             <ul className="mt-2 space-y-1.5">
               {ranked
@@ -665,7 +665,7 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
                   <span className="text-slate-500 font-normal">{scope}</span>
                 ) : (
                   <span className="text-xs text-slate-400 italic ml-2">
-                    {t('admin.risultati.fase_scope_all') ?? 'tutte le sezioni'}
+                    {t('admin.risultati.fase_scope_all')}
                   </span>
                 )}
               </h3>
@@ -749,7 +749,7 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
           onClick={() => { void handleExportPdf(); }}
         >
           <FileText className="h-4 w-4" aria-hidden />
-          {t('admin.risultati.export_pdf') ?? 'Esporta PDF'}
+          {t('admin.risultati.export_pdf')}
         </button>
 
         {/* CSV — vanilla: slate-900 button */}
@@ -759,7 +759,7 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
           onClick={() => { void handleExportCsv(); }}
         >
           <Download className="h-4 w-4" aria-hidden />
-          {t('admin.risultati.export_csv') ?? 'Esporta CSV'}
+          {t('admin.risultati.export_csv')}
         </button>
       </div>
     </div>

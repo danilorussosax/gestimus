@@ -88,10 +88,10 @@ const STATO_LABEL: Record<IscrizioneStatoDb, string> = {
 };
 
 function StatoBadge({ stato }: { stato: IscrizioneStatoDb }) {
-  const color = STATO_COLORS[stato] ?? 'bg-slate-100 text-slate-700';
+  const color = STATO_COLORS[stato];
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider ${color}`}>
-      {STATO_LABEL[stato] ?? stato}
+      {STATO_LABEL[stato]}
     </span>
   );
 }
@@ -293,7 +293,7 @@ function IscrizioneDetailDialog({
 
   const gdpr = isc.consensiGdpr ?? {};
 
-  const detailStatoCls = STATO_DETAIL_COLORS[isc.stato] ?? 'bg-slate-100 text-slate-700';
+  const detailStatoCls = STATO_DETAIL_COLORS[isc.stato];
 
   return (
     <Dialog open={open} onOpenChange={(v) => !v && onClose()}>

@@ -236,7 +236,7 @@ export default function ImportCsvDialog({
       setStatus(`${file.name} · ${fmtBytes(file.size)}`);
       doParse(txt);
     } catch (err) {
-      toast.error(`Lettura file fallita: ${(err as Error)?.message ?? ''}`);
+      toast.error(`Lettura file fallita: ${(err as Error).message}`);
     }
   };
 
