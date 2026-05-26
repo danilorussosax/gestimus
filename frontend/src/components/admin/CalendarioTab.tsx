@@ -78,7 +78,7 @@ import type { CalendarioPubblicazione, SalaCreate } from '@/api/calendario';
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function hhmm(s: string | null | undefined) {
-  return s ? String(s).slice(0, 5) : '';
+  return s ? s.slice(0, 5) : '';
 }
 
 function fmtDay(iso: string) {

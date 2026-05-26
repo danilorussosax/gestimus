@@ -70,7 +70,7 @@ export const METODI_MEDIA: Record<string, MetodoDescriptor> = {
 
 // suggerisciMetodo — testo identico a js/scoring.js.
 export function suggerisciMetodo(nCommissari: number): { metodo: string; motivo: string } {
-  const n = Number(nCommissari) || 0;
+  const n = nCommissari || 0;
   if (n <= 2) return { metodo: 'aritmetica', motivo: `Con ${n} commissari un filtro statistico non ha abbastanza dati per essere significativo.` };
   if (n === 3) return { metodo: 'mediana', motivo: 'Con 3 commissari la mediana è la scelta più robusta — non viene influenzata da un singolo voto estremo.' };
   if (n <= 5) return { metodo: 'olimpica', motivo: `Con ${n} commissari la media olimpica scarta i due estremi e mantiene un numero significativo di voti.` };
@@ -283,7 +283,7 @@ export function gruppoFasi(fasi: FaseRecord[], sezioni: SezioneRecord[]): FaseGr
 // Emoji per categoria strumentale, dedotta dal nome della sezione.
 // Porta iconaPerSezione da js/views/admin/common.js (stesso ordine di pattern).
 export function iconaPerSezione(nome: string | undefined): string {
-  const s = String(nome ?? '').toLowerCase();
+  const s = (nome ?? '').toLowerCase();
   if (/canto|voce|voice|soprano|tenor|baritono|contralto|mezzosoprano|lirica|opera/.test(s)) return '🎤';
   if (/coro|choir|coral/.test(s)) return '🎼';
   if (/piano|tastier|harpsichord|clavicembal|fisarmonic|accordion|organo|\borgan\b/.test(s)) return '🎹';

@@ -192,7 +192,7 @@ function buildDefaults(
 ): FaseFormValues {
   const criteri: CriterioFV[] =
     criteriExisting && criteriExisting.length > 0
-      ? criteriExisting.map((c) => ({ label: c.nome, key: '', peso: Number(c.peso) || 0 }))
+      ? criteriExisting.map((c) => ({ label: c.nome, key: '', peso: c.peso || 0 }))
       : DEFAULT_CRITERI.map((c) => ({ ...c }));
   return {
     nome: fase?.nome ?? '',
@@ -263,7 +263,7 @@ function FaseFormDialog({
     setValues((p) => ({ ...p, [key]: val }));
 
   // ── Criteri editor handlers ──────────────────────────────────────────────
-  const totalPeso = values.criteri.reduce((s, c) => s + (Number(c.peso) || 0), 0);
+  const totalPeso = values.criteri.reduce((s, c) => s + (c.peso || 0), 0);
 
   const updateCriterio = (idx: number, field: keyof CriterioFV, val: string | number) =>
     setValues((p) => ({
@@ -286,7 +286,7 @@ function FaseFormDialog({
     const source = values.tiebreakStrategy;
     if (!Array.isArray(source)) return true;
     const row = source.find((s) => s.key === key);
-    return row ? !!row.enabled : true;
+    return row ? row.enabled : true;
   };
   const toggleTb = (key: string) => {
     setValues((p) => {
@@ -296,7 +296,7 @@ function FaseFormDialog({
           const src = p.tiebreakStrategy;
           if (!Array.isArray(src)) return true;
           const row = src.find((r) => r.key === s.key);
-          return row ? !!row.enabled : true;
+          return row ? row.enabled : true;
         })(),
       }));
       const next = base.map((s) => (s.key === key ? { ...s, enabled: !s.enabled } : s));
@@ -315,14 +315,14 @@ function FaseFormDialog({
 
     const scala = Number(values.scala) || 10;
     const tempoMinuti = Number(values.tempoMinuti) || 0;
-    const ammessi = values.ammessi === '' || values.ammessi == null ? null : Number(values.ammessi);
+    const ammessi = values.ammessi === '' || values.ammessi == null ? null : values.ammessi;
     const dataPrevista = values.dataPrevista || null;
 
     // Criteri: pesi % → int 0-100 (il server normalizza a 100 con largest-remainder).
     const criteriParsed: CriterioInput[] = values.criteri
       .map((c, i) => ({
         nome: c.label.trim(),
-        peso: Math.max(0, Math.min(100, Number(c.peso) || 0)),
+        peso: Math.max(0, Math.min(100, c.peso || 0)),
         ordine: i,
       }))
       .filter((c) => c.nome);
@@ -1484,7 +1484,7 @@ function FaseWizardDialog({
     setCriteri(DEFAULT_CRITERI.map((c) => ({ ...c })));
   }, [open, suggerito.metodo]);
 
-  const totalPeso = criteri.reduce((s, c) => s + (Number(c.peso) || 0), 0);
+  const totalPeso = criteri.reduce((s, c) => s + (c.peso || 0), 0);
 
   const pickTemplate = (k: string) => {
     setTpl(k);
@@ -1522,7 +1522,7 @@ function FaseWizardDialog({
     const criteriParsed: CriterioInput[] = criteri
       .map((c, i) => ({
         nome: c.label.trim(),
-        peso: Math.max(0, Math.min(100, Number(c.peso) || 0)),
+        peso: Math.max(0, Math.min(100, c.peso || 0)),
         ordine: i,
       }))
       .filter((c) => c.nome);
@@ -1542,7 +1542,7 @@ function FaseWizardDialog({
       // Creazione sequenziale: l'ordine globale è progressivo dal nextOrdine.
       for (let i = 0; i < cleanItems.length; i++) {
         const it = cleanItems[i];
-        const ammessi = it.ammessi === '' || it.ammessi == null ? null : Number(it.ammessi);
+        const ammessi = it.ammessi === '' || it.ammessi == null ? null : it.ammessi;
         const rec = await createFase({
           concorsoId,
           ordine: nextOrdine + i,
@@ -1943,7 +1943,7 @@ function SharedFieldsDialog({
       listCriteri(base.id)
         .then((rows) => {
           if (rows.length > 0) {
-            setCriteri(rows.map((r) => ({ label: r.nome, key: '', peso: Number(r.peso) || 0 })));
+            setCriteri(rows.map((r) => ({ label: r.nome, key: '', peso: r.peso || 0 })));
           }
         })
         .catch(() => { /* caricamento criteri non bloccante */ })
@@ -1955,7 +1955,7 @@ function SharedFieldsDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
-  const totalPeso = criteri.reduce((s, c) => s + (Number(c.peso) || 0), 0);
+  const totalPeso = criteri.reduce((s, c) => s + (c.peso || 0), 0);
   const updateCriterio = (idx: number, field: keyof CriterioFV, val: string | number) =>
     setCriteri((p) => p.map((c, i) => (i === idx ? { ...c, [field]: val } : c)));
   const addCriterio = () => setCriteri((p) => [...p, { label: '', key: '', peso: 0 }]);
@@ -1976,7 +1976,7 @@ function SharedFieldsDialog({
     let criteriPatch: CriterioInput[] | null = null;
     if (toggles.criteri) {
       criteriPatch = criteri
-        .map((c, i) => ({ nome: c.label.trim(), peso: Math.max(0, Math.min(100, Number(c.peso) || 0)), ordine: i }))
+        .map((c, i) => ({ nome: c.label.trim(), peso: Math.max(0, Math.min(100, c.peso || 0)), ordine: i }))
         .filter((c) => c.nome);
       if (criteriPatch.length === 0) {
         toast.error('Almeno un criterio richiesto');
@@ -2013,7 +2013,7 @@ function SharedFieldsDialog({
   const fieldWrap = (key: string, label: string, isDrift: boolean, control: ReactNode, help: string) => (
     <div className={cn('border rounded-xl p-3', isDrift ? 'border-amber-200 bg-amber-50/30' : 'border-slate-200 bg-white')}>
       <label className="flex items-start gap-3">
-        <input type="checkbox" className="mt-1 w-4 h-4" checked={!!toggles[key]} onChange={() => toggle(key)} />
+        <input type="checkbox" className="mt-1 w-4 h-4" checked={toggles[key]} onChange={() => toggle(key)} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2 flex-wrap">
             <span className="font-semibold text-sm text-slate-800">{label}</span>
@@ -2143,7 +2143,7 @@ function SharedFieldsDialog({
               <input
                 type="checkbox"
                 className="mt-1 w-4 h-4"
-                checked={!!toggles.criteri}
+                checked={toggles.criteri}
                 onChange={() => toggle('criteri')}
               />
               <div className="flex-1 min-w-0">
