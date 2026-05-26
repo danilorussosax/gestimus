@@ -7,6 +7,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { hashPassword } from '../services/password.js';
 import { invalidateAllSessionsForAccount } from '../services/session.js';
+import { replyValidationError } from '../lib/validation.js';
 
 const uuid = z.string().uuid();
 
@@ -75,7 +76,7 @@ export const accountsRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const parsed = createBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
 
     const passwordHash = await hashPassword(parsed.data.password);
     return req.dbTx(async (tx) => {
@@ -119,7 +120,7 @@ export const accountsRoutes: FastifyPluginAsync = async (app) => {
   app.patch('/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
     const parsed = updateBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
 
     // Anti self-demotion: l'admin non può togliere a sé stesso il ruolo admin
     if (req.account && req.account.id === id && parsed.data.role && parsed.data.role !== 'admin') {
@@ -198,7 +199,7 @@ export const accountsRoutes: FastifyPluginAsync = async (app) => {
   app.post('/:id/reset-password', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
     const parsed = resetPwdBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     const passwordHash = await hashPassword(parsed.data.password);
     return req.dbTx(async (tx) => {
       const [updated] = await tx

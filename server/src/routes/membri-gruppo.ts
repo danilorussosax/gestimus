@@ -5,6 +5,7 @@ import { candidati, candidatiMembri } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { parsePagination } from '../lib/pagination.js';
+import { replyValidationError } from '../lib/validation.js';
 
 const uuid = z.string().uuid();
 const createBody = z.object({
@@ -32,7 +33,7 @@ export const membriGruppoRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const parsed = createBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     return req.dbTx(async (tx) => {
       // Verifica che il candidato sia di tipo gruppo (isGruppo=true)
       const parent = await tx
@@ -60,7 +61,7 @@ export const membriGruppoRoutes: FastifyPluginAsync = async (app) => {
   app.patch('/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
     const parsed = createBody.partial().omit({ candidatoId: true }).safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     return req.dbTx(async (tx) => {
       const [updated] = await tx
         .update(candidatiMembri)

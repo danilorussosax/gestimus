@@ -11,6 +11,7 @@ import {
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { parsePagination } from '../lib/pagination.js';
+import { replyValidationError } from '../lib/validation.js';
 
 const uuid = z.string().uuid();
 // N15: bound applicativo su `voto`. Il trigger DB clamp_voto normalizza
@@ -151,7 +152,7 @@ export const valutazioniRoutes: FastifyPluginAsync = async (app) => {
     { preHandler: [requireRole('admin', 'commissario')] },
     async (req, reply) => {
       const parsed = upsertBody.safeParse(req.body);
-      if (!parsed.success) return reply.badRequest(parsed.error.message);
+      if (!parsed.success) return replyValidationError(reply, req, parsed.error);
       try {
         return await req.dbTx(async (tx) => {
           if (!await assertCanEvaluateCandidatoFase(
@@ -209,7 +210,7 @@ export const valutazioniRoutes: FastifyPluginAsync = async (app) => {
     async (req, reply) => {
       const { id } = z.object({ id: uuid }).parse(req.params);
       const parsed = updateBody.safeParse(req.body);
-      if (!parsed.success) return reply.badRequest(parsed.error.message);
+      if (!parsed.success) return replyValidationError(reply, req, parsed.error);
       try {
         return await req.dbTx(async (tx) => {
           const existing = await tx

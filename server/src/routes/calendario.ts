@@ -17,6 +17,7 @@ import type { TxClient } from '../middleware/tenant.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { generateToken } from '../lib/token.js';
+import { replyValidationError } from '../lib/validation.js';
 
 const uuid = z.string().uuid();
 const emptyToNull = <T>(v: T) => (v === '' ? null : v);
@@ -188,7 +189,7 @@ export const calendarioRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/sale', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const parsed = salaCreate.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     return req.dbTx(async (tx) => {
       if (!(await exists(tx, concorsi, concorsi.id, parsed.data.concorsoId)))
         return reply.badRequest('concorso non trovato');
@@ -204,7 +205,7 @@ export const calendarioRoutes: FastifyPluginAsync = async (app) => {
   app.patch('/sale/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
     const parsed = salaUpdate.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     return req.dbTx(async (tx) => {
       const [updated] = await tx
         .update(sale)
@@ -254,7 +255,7 @@ export const calendarioRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/eventi', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const parsed = eventoCreate.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     return req.dbTx(async (tx) => {
       if (!(await exists(tx, concorsi, concorsi.id, parsed.data.concorsoId)))
         return reply.badRequest('concorso non trovato');
@@ -274,7 +275,7 @@ export const calendarioRoutes: FastifyPluginAsync = async (app) => {
   app.patch('/eventi/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
     const parsed = eventoUpdate.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     return req.dbTx(async (tx) => {
       if (!(await checkEventoRefs(tx, reply, parsed.data))) return reply;
       const [updated] = await tx
@@ -324,7 +325,7 @@ export const calendarioRoutes: FastifyPluginAsync = async (app) => {
   app.post('/eventi/:id/riordina-slot', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
     const parsed = riordinaBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     return req.dbTx(async (tx) => {
       const [evento] = await tx.select().from(eventiCalendario).where(eq(eventiCalendario.id, id)).limit(1);
       if (!evento) return reply.notFound();
@@ -363,7 +364,7 @@ export const calendarioRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/pubblicazioni', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const parsed = pubCreate.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     const d = parsed.data;
     if (d.scopo === 'SEZIONE' && !d.sezioneId) return reply.badRequest('scopo SEZIONE richiede sezioneId');
     if (d.scopo === 'GIORNO' && !d.giorno) return reply.badRequest('scopo GIORNO richiede giorno');
@@ -382,7 +383,7 @@ export const calendarioRoutes: FastifyPluginAsync = async (app) => {
   app.patch('/pubblicazioni/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
     const parsed = pubUpdate.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     return req.dbTx(async (tx) => {
       if (parsed.data.sezioneId && !(await exists(tx, sezioni, sezioni.id, parsed.data.sezioneId)))
         return reply.badRequest('sezione non trovata');

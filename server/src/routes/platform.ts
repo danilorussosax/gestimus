@@ -26,6 +26,7 @@ import { getSystemHistory, SAMPLE_INTERVAL_MS } from '../services/system-metrics
 import { readdir, stat as fsStat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { env } from '../env.js';
+import { replyValidationError } from '../lib/validation.js';
 
 const TENANT_STATES = ['attivo', 'sospeso', 'archiviato'] as const;
 const TENANT_PLANS = ['trial', 'starter', 'pro', 'ultra', 'ppe'] as const;
@@ -317,7 +318,7 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
    */
   app.post('/tenants', { preHandler: platformGuards }, async (req, reply) => {
     const parsed = createTenantBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     const body = parsed.data;
 
     if (body.slug === PLATFORM_SLUG) {
@@ -387,7 +388,7 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
   app.patch('/tenants/:id', { preHandler: platformGuards }, async (req, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const parsed = updateTenantBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     const body = parsed.data;
 
     const current = await findTenant(id);
@@ -468,7 +469,7 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
   app.post('/tenants/:id/archive', { preHandler: platformGuards }, async (req, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const parsed = archiveBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     const current = await findTenant(id);
     if (!current) return reply.notFound();
     if (!guardPlatformTenant(current, reply)) return reply;
@@ -553,7 +554,7 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
    */
   app.get('/audit', { preHandler: platformGuards }, async (req, reply) => {
     const parsed = auditQuery.safeParse(req.query);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     const { limit, before, action, tenantId } = parsed.data;
 
     const conditions = [] as ReturnType<typeof eq>[];
@@ -592,7 +593,7 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
   app.post('/tenants/:id/change-plan', { preHandler: platformGuards }, async (req, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const parsed = changePlanBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     const body = parsed.data;
 
     const current = await findTenant(id);
@@ -665,7 +666,7 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
   app.put('/tenants/:id/smtp', { preHandler: platformGuards }, async (req, reply) => {
     const { id } = z.object({ id: z.string().uuid() }).parse(req.params);
     const parsed = smtpBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     const t = await findTenant(id);
     if (!t) return reply.notFound();
 
@@ -817,7 +818,7 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
    */
   app.patch('/config', { preHandler: platformGuards }, async (req, reply) => {
     const parsed = updateConfigBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     const body = parsed.data;
     const update: Partial<typeof platformConfig.$inferSelect> = { updatedAt: new Date() };
     if (body.require2faSuperadmin !== undefined) update.require2faSuperadmin = body.require2faSuperadmin;

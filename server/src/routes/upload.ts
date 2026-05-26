@@ -7,6 +7,7 @@ import { writeAudit } from '../services/audit.js';
 import { join } from 'node:path';
 import { deleteFile, saveFile, tenantUploadDir, type ResourceKind } from '../services/storage.js';
 import { env } from '../env.js';
+import { replyValidationError } from '../lib/validation.js';
 
 const uuid = z.string().uuid();
 
@@ -35,7 +36,7 @@ export const uploadRoutes: FastifyPluginAsync = async (app) => {
         id: uuid,
       })
       .safeParse(req.params);
-    if (!params.success) return reply.badRequest(params.error.message);
+    if (!params.success) return replyValidationError(reply, req, params.error);
     const { resource, id } = params.data;
 
     // N98: rimosso il guard `!ALLOWED_RESOURCES.includes(resource)` —
@@ -144,7 +145,7 @@ export const uploadRoutes: FastifyPluginAsync = async (app) => {
     const params = z
       .object({ resource: z.enum(['concorso', 'commissario', 'candidato']), id: uuid })
       .safeParse(req.params);
-    if (!params.success) return reply.badRequest(params.error.message);
+    if (!params.success) return replyValidationError(reply, req, params.error);
     const { resource, id } = params.data;
     if (!canManageUpload(req, resource, id)) {
       return reply.code(403).send({ error: 'permesso negato per questo upload' });

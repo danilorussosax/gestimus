@@ -5,6 +5,7 @@ import { dbSuper } from '../db/client.js';
 import { tenants } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
+import { replyValidationError } from '../lib/validation.js';
 
 // M167: "" (campo svuotato nel form) → undefined, così non finisce come stringa
 // vuota nel JSONB dell'ente. I campi email/pec gestiscono già il caso vuoto.
@@ -62,7 +63,7 @@ export const enteRoutes: FastifyPluginAsync = async (app) => {
    */
   app.patch('/', { preHandler: [requireAuth, requireRole('admin')] }, async (req, reply) => {
     const parsed = enteBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     // Merge JSONB lato server con `||`: atomico vs read-merge-write applicativo.
     // Due PATCH concorrenti producono il merge sequenziale corretto (last-write
     // wins per chiave, mai dropout cieco di campi).
@@ -102,7 +103,7 @@ export const enteRoutes: FastifyPluginAsync = async (app) => {
    */
   app.patch('/branding', { preHandler: [requireAuth, requireRole('admin')] }, async (req, reply) => {
     const parsed = brandingBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     const patch = JSON.stringify(parsed.data);
     await dbSuper
       .update(tenants)

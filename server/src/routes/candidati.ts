@@ -6,6 +6,7 @@ import { checkCandidatiLimit } from '../lib/plan-limits.js';
 import { candidati, categorie, sezioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
+import { replyValidationError } from '../lib/validation.js';
 
 // Verifica che sezione e categoria scelte appartengano al concorso del
 // candidato (e che la categoria appartenga alla sezione). Senza FK al DB
@@ -114,7 +115,7 @@ export const candidatiRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const parsed = createBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     return req.dbTx(async (tx) => {
       // N57: enforce limite di piano sul numero di candidati per concorso.
       const limitErr = await checkCandidatiLimit(tx, req.tenant!.id, parsed.data.concorsoId);
@@ -169,7 +170,7 @@ export const candidatiRoutes: FastifyPluginAsync = async (app) => {
   app.patch('/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
     const parsed = updateBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     return req.dbTx(async (tx) => {
       // Per validare lo scope sezione/categoria serve sapere il concorso del
       // candidato. Lo leggiamo prima (l'id non è modificabile via PATCH).

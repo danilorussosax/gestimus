@@ -14,6 +14,7 @@ import { deleteFile } from '../services/storage.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit, computeAuditLogSig } from '../services/audit.js';
 import { dbSuper } from '../db/client.js';
+import { replyValidationError } from '../lib/validation.js';
 
 // R15: scrub ricorsivo dell'email dell'interessato da un payload audit. Rimuove
 // qualunque CHIAVE il cui valore è l'email (a qualsiasi profondità, non solo la
@@ -182,7 +183,7 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
   app.post('/erase', async (req, reply) => {
     if (!req.tenant) return reply.code(400).send({ error: 'tenant context richiesto' });
     const parsed = erasureBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
 
     const REDACTED = '[ERASED]';
     const touched = { commissari: 0, candidati: 0, candidatiMembri: 0, iscrizioni: 0, accounts: 0, allegati: 0 };
