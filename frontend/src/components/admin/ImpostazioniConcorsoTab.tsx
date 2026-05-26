@@ -414,7 +414,7 @@ export function ImpostazioniConcorsoTab({ concorsoId }: { concorsoId: string }) 
 
   // ── Submit ───────────────────────────────────────────────────────────────────
   const handleSubmit = useCallback(
-    async (e: React.FormEvent) => {
+    async (e: React.SyntheticEvent) => {
       e.preventDefault();
       if (!form || !concorso) return;
 

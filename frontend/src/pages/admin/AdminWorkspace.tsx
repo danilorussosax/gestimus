@@ -151,25 +151,6 @@ function MobileTabButton({ tab, active, onClick }: MobileTabButtonProps) {
 }
 
 // ---------------------------------------------------------------------------
-// Dashboard placeholder tab
-// ---------------------------------------------------------------------------
-
-function DashboardPlaceholder() {
-  return (
-    <div className="c-tile text-center py-10 flex flex-col items-center gap-4">
-      <LayoutDashboard size={32} className="text-brand-600 opacity-60" />
-      <p className="text-ink-700 text-sm">
-        La dashboard completa si trova nella pagina dedicata.
-      </p>
-      <Link to="/admin/dashboard" className="c-btn c-btn--primary c-btn--sm">
-        <LayoutDashboard size={14} />
-        <span>Vai alla Dashboard</span>
-      </Link>
-    </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 

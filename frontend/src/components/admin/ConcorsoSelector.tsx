@@ -133,7 +133,7 @@ export function ConcorsoFormDialog({ open, onOpenChange, existing, onSaved }: Co
     }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.SyntheticEvent) => {
     e.preventDefault();
     const el = (e.currentTarget as HTMLFormElement).elements;
     const get = (name: string) =>
