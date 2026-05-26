@@ -16,7 +16,7 @@ interface AuthState {
   loading: boolean;
 }
 
-interface AuthContextValue extends AuthState {
+export interface AuthContextValue extends AuthState {
   isAuthenticated: boolean;
   hasRole: (...roles: Role[]) => boolean;
   /** Step 1 del login. La sessione cookie viene emessa dal backend; se l'account

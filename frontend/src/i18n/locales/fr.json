@@ -92,6 +92,7 @@
   "common.loading": "Chargement…",
   "common.empty": "Aucun élément",
   "common.required": "Obligatoire",
+  "common.offline_banner": "Vous êtes hors ligne. Certaines fonctionnalités sont indisponibles.",
   "modal.eyebrow": "Panneau",
   "modal.cancel": "Annuler",
   "modal.save": "Enregistrer",

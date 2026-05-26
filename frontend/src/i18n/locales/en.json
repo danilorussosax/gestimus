@@ -92,6 +92,7 @@
   "common.loading": "Loading…",
   "common.empty": "No items",
   "common.required": "Required",
+  "common.offline_banner": "You are offline. Some features are unavailable.",
   "modal.eyebrow": "Panel",
   "modal.cancel": "Cancel",
   "modal.save": "Save",

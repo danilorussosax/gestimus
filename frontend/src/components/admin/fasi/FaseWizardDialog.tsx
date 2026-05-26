@@ -431,6 +431,7 @@ export function FaseWizardDialog({
                       value={c.label}
                       onChange={(e) => updateCriterio(i, 'label', e.target.value)}
                       placeholder="Tecnica"
+                      aria-label={`Etichetta criterio ${i + 1}`}
                     />
                   </label>
                   <label className="col-span-4 c-field">
@@ -444,6 +445,7 @@ export function FaseWizardDialog({
                         className="c-input pr-7"
                         value={c.peso}
                         onChange={(e) => updateCriterio(i, 'peso', Number(e.target.value))}
+                        aria-label={`Peso criterio ${i + 1}`}
                       />
                       <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-slate-500 pointer-events-none">
                         %
