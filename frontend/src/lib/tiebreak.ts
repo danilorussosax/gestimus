@@ -5,6 +5,7 @@ import {
   getCriteri,
   getMetodoMedia,
   computeAggregate,
+  type FaseInput,
   type ValutazioneRaw,
   type CriterioRuntime,
 } from './scoring';
@@ -25,10 +26,8 @@ export interface TiebreakLogEntry {
 }
 
 export interface RankedRow {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  cf: any;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  cand: any;
+  cf: unknown;
+  cand: unknown;
   media: number;
   valutazioni: ValutazioneRaw[];
   posizione_finale: number;
@@ -36,32 +35,73 @@ export interface RankedRow {
   ex_aequo_group: string | null;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type InputRow = Omit<RankedRow, 'posizione_finale' | 'tiebreak_log' | 'ex_aequo_group'> & Record<string, any>;
+type InputRow = Omit<RankedRow, 'posizione_finale' | 'tiebreak_log' | 'ex_aequo_group'> &
+  Record<string, unknown>;
+
+// Loose shapes for accessing external candidato/fase fields (validati a runtime).
+interface CandShape {
+  id?: unknown;
+  tipo?: unknown;
+  data_nascita?: unknown;
+  dataNascita?: unknown;
+  numero_candidato?: unknown;
+  numeroCandidato?: unknown;
+}
+interface MembroShape {
+  data_nascita?: unknown;
+  dataNascita?: unknown;
+}
+interface FaseDate {
+  data_prevista?: unknown;
+  dataPrevista?: unknown;
+}
+
+// Riga di lavoro nella cascata: i campi finali sono assegnati man mano.
+interface WorkRow {
+  cf: unknown;
+  cand: unknown;
+  media: number;
+  valutazioni?: ValutazioneRaw[];
+  tiebreak_log?: TiebreakLogEntry[];
+  ex_aequo_group?: string | null;
+  posizione_finale?: number;
+}
+
+interface CascadeCtx {
+  presidenteId: string | null;
+  refDate: unknown;
+  allCandidati: unknown[];
+  getMembri: ((id: string) => unknown) | null;
+}
 
 export function defaultTiebreakStrategy(): TiebreakStep[] {
   return STEPS.map((key) => ({ key, enabled: true }));
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function effectiveStrategy(fase: any, concorso: any): TiebreakStep[] {
-  const fromFase = sanitize(fase?.tiebreak_strategy ?? fase?.tiebreakStrategy);
+export function effectiveStrategy(fase: unknown, concorso: unknown): TiebreakStep[] {
+  const f = fase as { tiebreak_strategy?: unknown; tiebreakStrategy?: unknown } | null | undefined;
+  const fromFase = sanitize(f?.tiebreak_strategy ?? f?.tiebreakStrategy);
   if (fromFase) return fromFase;
-  const fromConcorso = sanitize(
-    concorso?.default_tiebreak_strategy ?? concorso?.defaultTiebreakStrategy,
-  );
+  const c = concorso as
+    | { default_tiebreak_strategy?: unknown; defaultTiebreakStrategy?: unknown }
+    | null
+    | undefined;
+  const fromConcorso = sanitize(c?.default_tiebreak_strategy ?? c?.defaultTiebreakStrategy);
   if (fromConcorso) return fromConcorso;
   return defaultTiebreakStrategy();
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function sanitize(raw: any): TiebreakStep[] | null {
+function sanitize(raw: unknown): TiebreakStep[] | null {
   if (!Array.isArray(raw) || raw.length === 0) return null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const byKey = new Map(raw.map((s: any) => [s?.key, !!s?.enabled]));
+  const byKey = new Map(
+    (raw as unknown[]).map((s) => {
+      const o = s as { key?: unknown; enabled?: unknown } | null | undefined;
+      return [o?.key, !!o?.enabled] as const;
+    }),
+  );
   return STEPS.map((key) => ({
     key,
-    enabled: byKey.has(key) ? (byKey.get(key)!) : true,
+    enabled: byKey.get(key) ?? true,
   }));
 }
 
@@ -70,15 +110,14 @@ function sanitize(raw: any): TiebreakStep[] | null {
 // Mean across all commissari on a single criterio key.
 export function mediaCandidatoSuCriterio(
   valutazioni: ValutazioneRaw[],
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  fase: any,
+  fase: FaseInput,
   criterioKey: string,
 ): number {
   const metodo = getMetodoMedia(fase);
   const byCom = new Map<string, number>();
   for (const v of valutazioni) {
     if (!byCom.has(v.commissario_id)) byCom.set(v.commissario_id, 0);
-    if (v.criterio === criterioKey) byCom.set(v.commissario_id, Number(v.voto) || 0);
+    if (v.criterio === criterioKey) byCom.set(v.commissario_id, v.voto || 0);
   }
   const totals = [...byCom.values()];
   if (totals.length === 0) return 0;
@@ -88,8 +127,7 @@ export function mediaCandidatoSuCriterio(
 // Weighted score from a single commissario (the presidente).
 export function votoPresidente(
   valutazioni: ValutazioneRaw[],
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  fase: any,
+  fase: FaseInput,
   presidenteId: string | null,
 ): number | null {
   if (!presidenteId) return null;
@@ -97,7 +135,7 @@ export function votoPresidente(
   const miei: Record<string, number> = {};
   for (const v of valutazioni) {
     if (v.commissario_id !== presidenteId) continue;
-    miei[v.criterio] = Number(v.voto) || 0;
+    miei[v.criterio] = v.voto || 0;
   }
   if (Object.keys(miei).length === 0) return null;
   return criteri.reduce((s, c) => s + (miei[c.key] ?? 0) * (c.peso || 0), 0);
@@ -105,31 +143,32 @@ export function votoPresidente(
 
 // Age in decimal years. null if data_nascita is missing or in the future.
 export function etaCandidato(
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  cand: any,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  refDate: any,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  _allCandidati: any[] = [],
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getMembri: ((id: any) => any) | null = null,
+  cand: unknown,
+  refDate: unknown,
+  _allCandidati: unknown[] = [],
+  getMembri: ((id: string) => unknown) | null = null,
 ): number | null {
-  const ref = refDate ? new Date(refDate) : new Date();
+  const ref = refDate ? new Date(refDate as string | number | Date) : new Date();
   if (!cand) return null;
-  if (cand.tipo === 'gruppo' || cand.tipo === 'orchestra') {
+  const c = cand as CandShape;
+  if (c.tipo === 'gruppo' || c.tipo === 'orchestra') {
     if (typeof getMembri !== 'function') return null;
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    let membri: any[];
-    try { membri = getMembri(cand.id) ?? []; } catch { membri = []; }
-    if (!Array.isArray(membri) || membri.length === 0) return null;
-    const eta = membri
+    let membri: unknown[];
+    try {
+      const m = getMembri(c.id as string);
+      membri = Array.isArray(m) ? m : [];
+    } catch {
+      membri = [];
+    }
+    if (membri.length === 0) return null;
+    const eta = (membri as (MembroShape | null | undefined)[])
       .filter((m) => m?.data_nascita ?? m?.dataNascita)
-      .map((m) => yearsBetween(m.data_nascita ?? m.dataNascita, ref))
+      .map((m) => yearsBetween(m?.data_nascita ?? m?.dataNascita, ref))
       .filter((n): n is number => n != null);
     if (eta.length === 0) return null;
     return eta.reduce((s, x) => s + x, 0) / eta.length;
   }
-  const nascita = cand.data_nascita ?? cand.dataNascita;
+  const nascita = c.data_nascita ?? c.dataNascita;
   if (!nascita) return null;
   return yearsBetween(nascita, ref);
 }
@@ -161,32 +200,32 @@ function eq(a: number, b: number): boolean { return Math.abs(a - b) <= EPS; }
 export interface RankCtx {
   presidenteId?: string | null;
   refDate?: string | null;
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  allCandidati?: any[];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  getMembri?: ((id: any) => any) | null;
+  allCandidati?: unknown[];
+  getMembri?: ((id: string) => unknown) | null;
   strategy?: TiebreakStep[];
 }
 
 export function rankWithTieBreak(
   rows: InputRow[],
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  fase: any,
+  fase: FaseInput,
   ctx: RankCtx = {},
 ): RankedRow[] {
   const strategy = (ctx.strategy?.length ? ctx.strategy : defaultTiebreakStrategy()).filter(
     (s) => s.enabled,
   );
   const presidenteId = ctx.presidenteId ?? null;
-  const refDate = ctx.refDate ?? fase?.data_prevista ?? fase?.dataPrevista ?? new Date().toISOString();
+  const fd = fase as FaseDate | null | undefined;
+  const refDate = ctx.refDate ?? fd?.data_prevista ?? fd?.dataPrevista ?? new Date().toISOString();
   const allCandidati = ctx.allCandidati ?? [];
   const getMembri = typeof ctx.getMembri === 'function' ? ctx.getMembri : null;
 
   // Stable initial sort: media desc, then numero_candidato asc as tiebreaker.
   const sorted = rows.slice().sort((a, b) => {
     if (!eq(a.media, b.media)) return b.media - a.media;
-    const na = (a.cand?.numero_candidato ?? a.cand?.numeroCandidato ?? 0) as number;
-    const nb = (b.cand?.numero_candidato ?? b.cand?.numeroCandidato ?? 0) as number;
+    const ca = a.cand as CandShape | undefined;
+    const cb = b.cand as CandShape | undefined;
+    const na = (ca?.numero_candidato ?? ca?.numeroCandidato ?? 0) as number;
+    const nb = (cb?.numero_candidato ?? cb?.numeroCandidato ?? 0) as number;
     return na - nb;
   });
 
@@ -206,7 +245,7 @@ export function rankWithTieBreak(
       resolved.push({ ...g[0], tiebreak_log: [], ex_aequo_group: null, posizione_finale: 0 });
       continue;
     }
-    const enriched = g.map((r) => ({
+    const enriched: WorkRow[] = g.map((r) => ({
       ...r,
       tiebreak_log: [{ step: 'pari_su_media', valore: round2(r.media), motivazione: `Stessa media aggregata ${round2(r.media)}` }],
     }));
@@ -241,19 +280,23 @@ export function computeAdmittedIds(
   const n = Number(ammessi);
   if (!Number.isFinite(n) || n <= 0) return null;
   return ranked
-    .filter((r) => (r.posizione_finale ?? Infinity) <= n)
+    .filter((r) => r.posizione_finale <= n)
     .map((r) => (r.cf as { id: string }).id);
 }
 
 function round2(n: number): number { return Math.round((n + Number.EPSILON) * 100) / 100; }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function applyCascade(group: any[], strategy: TiebreakStep[], fase: any, ctx: { presidenteId: string | null; refDate: unknown; allCandidati: any[]; getMembri: ((id: any) => any) | null }): any[] {
-  let buckets: typeof group[] = [group];
+function applyCascade(
+  group: WorkRow[],
+  strategy: TiebreakStep[],
+  fase: FaseInput,
+  ctx: CascadeCtx,
+): WorkRow[] {
+  let buckets: WorkRow[][] = [group];
 
   for (const step of strategy) {
     if (step.key === 'ex_aequo') break;
-    const newBuckets: typeof group[] = [];
+    const newBuckets: WorkRow[][] = [];
     for (const bucket of buckets) {
       if (bucket.length === 1) { newBuckets.push(bucket); continue; }
       const sub = splitByStep(bucket, step.key, fase, ctx);
@@ -268,8 +311,11 @@ function applyCascade(group: any[], strategy: TiebreakStep[], fase: any, ctx: { 
   for (const bucket of buckets) {
     if (bucket.length <= 1) continue;
     if (hasExAequo) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const memberIds = bucket.map((r: any) => r.cf?.id || r.cand?.id).filter(Boolean);
+      const memberIds = bucket
+        // id può essere stringa vuota → fallback su valore falsy voluto (porting vanilla)
+        // eslint-disable-next-line @typescript-eslint/prefer-nullish-coalescing
+        .map((r) => (r.cf as CandShape | undefined)?.id || (r.cand as CandShape | undefined)?.id)
+        .filter(Boolean);
       const gid = exAequoGroupId(memberIds);
       for (const r of bucket) {
         r.ex_aequo_group = gid;
@@ -284,30 +330,34 @@ function applyCascade(group: any[], strategy: TiebreakStep[], fase: any, ctx: { 
       }
     } else {
       for (const r of bucket) {
+        const cand = r.cand as CandShape | undefined;
         r.tiebreak_log = [
           ...(r.tiebreak_log ?? []),
           {
             step: 'parita_residua',
             valore: bucket.length,
-            motivazione: `Parità non risolta e regola ex aequo disattivata: ordine ${r.cand?.numero_candidato ?? r.cand?.numeroCandidato ?? '?'} usato come tiebreak finale.`,
+            motivazione: `Parità non risolta e regola ex aequo disattivata: ordine ${(cand?.numero_candidato ?? cand?.numeroCandidato ?? '?') as string} usato come tiebreak finale.`,
           },
         ];
       }
     }
   }
 
-  const out: typeof group = [];
+  const out: WorkRow[] = [];
   for (const bucket of buckets) for (const r of bucket) out.push(r);
   return out;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function splitByStep(bucket: any[], stepKey: string, fase: any, ctx: any): any[][] {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const scored = bucket.map((r: any) => ({ r, score: stepScore(r, stepKey, fase, ctx) }));
+function splitByStep(
+  bucket: WorkRow[],
+  stepKey: StepKey,
+  fase: FaseInput,
+  ctx: CascadeCtx,
+): WorkRow[][] {
+  const scored = bucket.map((r) => ({ r, score: stepScore(r, stepKey, fase, ctx) }));
   if (scored.every((s) => s.score == null)) return [bucket];
 
-  const cmp = (a: unknown, b: unknown): number => {
+  const cmp = (a: number | string | null, b: number | string | null): number => {
     if (a == null && b == null) return 0;
     if (a == null) return 1;
     if (b == null) return -1;
@@ -316,18 +366,17 @@ function splitByStep(bucket: any[], stepKey: string, fase: any, ctx: any): any[]
       if (sa === sb) return 0;
       return sa < sb ? 1 : -1; // desc
     }
-    return (b as number) - (a as number);
+    return b - a;
   };
-  const same = (a: unknown, b: unknown): boolean => {
+  const same = (a: number | string | null, b: number | string | null): boolean => {
     if (a == null && b == null) return true;
     if (a == null || b == null) return false;
     if (typeof a === 'string' || typeof b === 'string') return String(a) === String(b);
-    return eq(a as number, b as number);
+    return eq(a, b);
   };
 
   scored.sort((a, b) => cmp(a.score, b.score));
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const subs: any[][] = [];
+  const subs: WorkRow[][] = [];
   let curSub: typeof scored = [];
   for (const s of scored) {
     if (curSub.length === 0 || same(curSub[0].score, s.score)) curSub.push(s);
@@ -337,14 +386,17 @@ function splitByStep(bucket: any[], stepKey: string, fase: any, ctx: any): any[]
   return subs;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function stepScore(row: any, stepKey: string, fase: any, ctx: any): number | string | null {
+function stepScore(
+  row: WorkRow,
+  stepKey: StepKey,
+  fase: FaseInput,
+  ctx: CascadeCtx,
+): number | string | null {
   if (stepKey === 'scomposizione') {
     return scomposizioneCompositeScore(row, fase);
   }
   if (stepKey === 'presidente') {
-    const v = votoPresidente(row.valutazioni ?? [], fase, ctx.presidenteId);
-    return v == null ? null : v;
+    return votoPresidente(row.valutazioni ?? [], fase, ctx.presidenteId);
   }
   if (stepKey === 'eta') {
     const e = etaCandidato(row.cand, ctx.refDate, ctx.allCandidati, ctx.getMembri);
@@ -354,21 +406,19 @@ function stepScore(row: any, stepKey: string, fase: any, ctx: any): number | str
   return null;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function scomposizioneCompositeScore(row: any, fase: any): string | null {
-  const criteri = (getCriteri(fase) ?? [])
+function scomposizioneCompositeScore(row: WorkRow, fase: FaseInput): string | null {
+  const criteri = getCriteri(fase)
     .slice()
-    .sort((a: CriterioRuntime, b: CriterioRuntime) => (b.peso || 0) - (a.peso || 0));
+    .sort((a, b) => (b.peso || 0) - (a.peso || 0));
   if (criteri.length === 0) return null;
-  const parts = criteri.map((c: CriterioRuntime) => {
+  const parts = criteri.map((c) => {
     const v = Math.max(0, mediaCandidatoSuCriterio(row.valutazioni ?? [], fase, c.key));
     return v.toFixed(6).padStart(20, '0');
   });
   return parts.join('|');
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function annotateStep(subs: any[][], stepKey: string): void {
+function annotateStep(subs: WorkRow[][], stepKey: StepKey): void {
   const label = stepLabel(stepKey);
   for (let i = 0; i < subs.length; i++) {
     const sub = subs[i];
