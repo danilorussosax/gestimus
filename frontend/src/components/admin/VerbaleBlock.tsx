@@ -742,7 +742,9 @@ async function loadImageDataURL(src: string): Promise<string | null> {
         const c = document.createElement('canvas');
         c.width = img.naturalWidth;
         c.height = img.naturalHeight;
-        (c.getContext('2d')!).drawImage(img, 0, 0);
+        const cctx = c.getContext('2d');
+        if (!cctx) { resolve(null); return; }
+        cctx.drawImage(img, 0, 0);
         resolve(c.toDataURL('image/png'));
       } catch {
         resolve(null);

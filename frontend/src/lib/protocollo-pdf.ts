@@ -92,7 +92,7 @@ function computeGroupSizes(fasi: FaseRecord[]): Map<string, number> {
     counts.set(sig, (counts.get(sig) ?? 0) + 1);
   }
   const result = new Map<string, number>();
-  for (const f of fasi) result.set(f.id, counts.get(signatures.get(f.id)!) ?? 1);
+  for (const f of fasi) result.set(f.id, counts.get(signatures.get(f.id) ?? '') ?? 1);
   return result;
 }
 
@@ -131,7 +131,9 @@ function loadImageDataURL(src: string): Promise<string | null> {
         const c = document.createElement('canvas');
         c.width = img.naturalWidth;
         c.height = img.naturalHeight;
-        (c.getContext('2d')!).drawImage(img, 0, 0);
+        const cctx = c.getContext('2d');
+        if (!cctx) { resolve(null); return; }
+        cctx.drawImage(img, 0, 0);
         resolve(c.toDataURL('image/png'));
       } catch {
         resolve(null);

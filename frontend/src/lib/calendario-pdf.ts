@@ -72,7 +72,9 @@ function loadImageDataURL(src: string): Promise<string | null> {
           const canvas = document.createElement('canvas');
           canvas.width = img.naturalWidth;
           canvas.height = img.naturalHeight;
-          canvas.getContext('2d')!.drawImage(img, 0, 0);
+          const cctx = canvas.getContext('2d');
+          if (!cctx) { resolve(null); return; }
+          cctx.drawImage(img, 0, 0);
           resolve(canvas.toDataURL('image/png'));
         } catch {
           resolve(null);

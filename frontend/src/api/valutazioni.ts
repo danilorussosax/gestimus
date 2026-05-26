@@ -81,7 +81,7 @@ export async function saveValutazione(params: SaveValutazioneParams): Promise<Va
 export function useValutazioniByCandidatoFase(candidatoFaseId: string | undefined) {
   return useQuery({
     queryKey: ['valutazioni', 'by-cf', candidatoFaseId],
-    queryFn: () => fetchValutazioniByCandidatoFase(candidatoFaseId!),
+    queryFn: () => fetchValutazioniByCandidatoFase(candidatoFaseId ?? ''),
     enabled: Boolean(candidatoFaseId),
     staleTime: 30_000,
   });
@@ -90,7 +90,7 @@ export function useValutazioniByCandidatoFase(candidatoFaseId: string | undefine
 export function useValutazioniByCommissario(commissarioId: string | undefined) {
   return useQuery({
     queryKey: ['valutazioni', 'by-commissario', commissarioId],
-    queryFn: () => fetchValutazioniByCommissario(commissarioId!),
+    queryFn: () => fetchValutazioniByCommissario(commissarioId ?? ''),
     enabled: Boolean(commissarioId),
     staleTime: 30_000,
   });
@@ -103,7 +103,7 @@ export function useValutazioniByCommissario(commissarioId: string | undefined) {
 export function useValutazioniByFase(candidatoFaseIds: string[] | undefined) {
   return useQuery({
     queryKey: ['valutazioni', 'by-fase', ...(candidatoFaseIds ?? [])],
-    queryFn: () => fetchValutazioniByFase(candidatoFaseIds!),
+    queryFn: () => fetchValutazioniByFase(candidatoFaseIds ?? []),
     enabled: Array.isArray(candidatoFaseIds) && candidatoFaseIds.length > 0,
     staleTime: 30_000,
   });

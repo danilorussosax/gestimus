@@ -1375,7 +1375,7 @@ export default function Commissario() {
 
   const { data: commissario, isLoading: loadingCommissario } = useQuery({
     queryKey: ['commissario', commissarioId],
-    queryFn: () => http.get<Commissario>(`commissari/${commissarioId!}`),
+    queryFn: () => http.get<Commissario>(`commissari/${commissarioId ?? ''}`),
     enabled: !!commissarioId,
   });
 
@@ -1388,13 +1388,13 @@ export default function Commissario() {
 
   const { data: fasi, isLoading: loadingFasi } = useQuery({
     queryKey: ['fasi', concorsoId],
-    queryFn: () => http.get<Fase[]>('fasi', { concorsoId: concorsoId!, limit: 1000 }),
+    queryFn: () => http.get<Fase[]>('fasi', { concorsoId: concorsoId ?? '', limit: 1000 }),
     enabled: !!concorsoId,
   });
 
   const { data: commissioni, isLoading: loadingCommissioni } = useQuery({
     queryKey: ['commissioni', concorsoId],
-    queryFn: () => http.get<Commissione[]>('commissioni', { concorsoId: concorsoId!, limit: 1000 }),
+    queryFn: () => http.get<Commissione[]>('commissioni', { concorsoId: concorsoId ?? '', limit: 1000 }),
     enabled: !!concorsoId,
   });
 
@@ -1402,7 +1402,7 @@ export default function Commissario() {
   // nello stato d'attesa in modalità sincrona.
   const { data: commissariList } = useQuery({
     queryKey: ['commissari', concorsoId],
-    queryFn: () => http.get<Commissario[]>('commissari', { concorsoId: concorsoId!, limit: 1000 }),
+    queryFn: () => http.get<Commissario[]>('commissari', { concorsoId: concorsoId ?? '', limit: 1000 }),
     enabled: !!concorsoId,
   });
 
@@ -1410,7 +1410,7 @@ export default function Commissario() {
     queryKey: ['candidati-fase', concorsoId],
     queryFn: async () => {
       // Load for all fasi in this concorso
-      const allFasi = await http.get<Fase[]>('fasi', { concorsoId: concorsoId!, limit: 1000 });
+      const allFasi = await http.get<Fase[]>('fasi', { concorsoId: concorsoId ?? '', limit: 1000 });
       const results = await Promise.all(
         allFasi.map((f) =>
           http.get<CandidatoFase[]>('candidati-fase', { faseId: f.id, limit: 2000 }),
@@ -1425,14 +1425,14 @@ export default function Commissario() {
     queryKey: ['candidati', concorsoId],
     queryFn: () =>
       http
-        .get<Candidato[]>('candidati', { concorsoId: concorsoId!, limit: 2000 })
+        .get<Candidato[]>('candidati', { concorsoId: concorsoId ?? '', limit: 2000 })
         .then((rows) => rows.map(normalizeCandidato)),
     enabled: !!concorsoId,
   });
 
   const { data: valutazioni, isLoading: loadingVals } = useQuery({
     queryKey: ['valutazioni', concorsoId],
-    queryFn: () => http.get<Valutazione[]>('valutazioni', { concorsoId: concorsoId!, limit: 10000 }),
+    queryFn: () => http.get<Valutazione[]>('valutazioni', { concorsoId: concorsoId ?? '', limit: 10000 }),
     enabled: !!concorsoId,
   });
 
@@ -1445,7 +1445,7 @@ export default function Commissario() {
   const faseId = fasi?.find((f) => f.stato === 'IN_CORSO')?.id ?? null;
   const criteriQ = useQuery({
     queryKey: ['criteri', faseId],
-    queryFn: () => listCriteri(faseId!),
+    queryFn: () => listCriteri(faseId ?? ''),
     enabled: !!faseId,
     staleTime: 60_000,
   });
@@ -1495,6 +1495,8 @@ export default function Commissario() {
       </section>
     );
   }
+  // `concorso` deriva da commissario.concorsoId: se c'è il concorso, c'è il commissario.
+  if (!commissario) return null;
 
   // ── Aliases ────────────────────────────────────────────────────────────────
 
@@ -1846,7 +1848,7 @@ export default function Commissario() {
         key={`${fase.id}-${currentCf.id}`}
         concorso={concorso}
         fase={faseWithCriteri}
-        commissario={commissario!}
+        commissario={commissario}
         cf={currentCf}
         candidato={candidato}
         isPresidente={isPresidenteFase}

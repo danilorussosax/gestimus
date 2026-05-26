@@ -312,7 +312,7 @@ export default function ImportCsvDialog({
           okSez++;
         }
         if (d.categoria) {
-          const seen = catNamesBySez.get(sez.id)!;
+          const seen = catNamesBySez.get(sez.id) ?? new Set<string>();
           if (!seen.has(norm(d.categoria))) {
             await categorieApi.create({
               sezioneId: sez.id,

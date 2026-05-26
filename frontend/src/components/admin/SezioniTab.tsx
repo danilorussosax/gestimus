@@ -577,7 +577,7 @@ function SezioneCard({
           <p className="text-xs text-slate-400 italic mb-2">Nessuna categoria</p>
         ) : (
           <ul className="space-y-1.5 mb-2">
-            {cats!.map((cat) => {
+            {(cats ?? []).map((cat) => {
               const catCandCount = candByCategoria[cat.id] ?? 0;
               return (
                 <li

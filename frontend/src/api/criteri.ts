@@ -70,7 +70,7 @@ export function deleteCriterio(id: string): Promise<void> {
 export function useCriteri(faseId: string | undefined) {
   return useQuery({
     queryKey: ['criteri', faseId],
-    queryFn: () => listCriteri(faseId!),
+    queryFn: () => listCriteri(faseId ?? ''),
     enabled: !!faseId,
   });
 }

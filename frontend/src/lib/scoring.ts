@@ -263,8 +263,11 @@ function winsorizzataArr(arr: number[]): number {
   if (arr.length <= 2) return aritmeticaArr(arr);
   const sorted = [...arr].sort((a, b) => a - b);
   const capped = [...sorted];
+  // arr.length > 2 garantito sopra → sorted[1] e sorted[len-2] esistono sempre
+  /* eslint-disable @typescript-eslint/no-non-null-assertion */
   capped[0] = sorted[1]!;
   capped[capped.length - 1] = sorted[sorted.length - 2]!;
+  /* eslint-enable @typescript-eslint/no-non-null-assertion */
   return aritmeticaArr(capped);
 }
 
