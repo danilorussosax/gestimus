@@ -21,7 +21,7 @@ export async function resizeImageToFile(
         canvas.width = w;
         canvas.height = h;
         const ctx = canvas.getContext('2d');
-        if (!ctx) return reject(new Error('no 2d context'));
+        if (!ctx) { reject(new Error('no 2d context')); return; }
         ctx.drawImage(img, 0, 0, w, h);
         resolve(canvas.toDataURL('image/jpeg', quality));
       };

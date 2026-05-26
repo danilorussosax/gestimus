@@ -479,7 +479,7 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
     enabled: !!candidatiQuery.data,
     staleTime: 60_000,
   });
-  const membriMap = membriMapQuery.data ?? (EMPTY_MEMBRI_MAP as MembriMap);
+  const membriMap = membriMapQuery.data ?? (EMPTY_MEMBRI_MAP);
 
   // Classifica per-fase completa (con presidente + età) per il blocco Verbale:
   // i tag <podio>/<vincitore>/<risultati>/<spareggi> dipendono da questa mappa.
