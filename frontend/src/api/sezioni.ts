@@ -42,7 +42,7 @@ export const sezioniApi = {
   update: (id: string, body: UpdateSezioneBody) =>
     http.patch<SezioneRecord>(`sezioni/${id}`, body),
 
-  delete: (id: string) => http.del<void>(`sezioni/${id}`),
+  delete: (id: string) => http.del<undefined>(`sezioni/${id}`),
 };
 
 // ---------------------------------------------------------------------------

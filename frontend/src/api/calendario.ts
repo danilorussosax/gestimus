@@ -91,7 +91,7 @@ export const calendarioApi = {
     http.patch<Sala>(`calendario/sale/${id}`, body),
 
   deleteSala: (id: string) =>
-    http.del<void>(`calendario/sale/${id}`),
+    http.del<undefined>(`calendario/sale/${id}`),
 
   // ── Eventi ──
   getEventi: (concorsoId?: string) =>
@@ -104,7 +104,7 @@ export const calendarioApi = {
     http.patch<Evento>(`calendario/eventi/${id}`, body),
 
   deleteEvento: (id: string) =>
-    http.del<void>(`calendario/eventi/${id}`),
+    http.del<undefined>(`calendario/eventi/${id}`),
 
   /** POST /calendario/eventi/:id/genera-slot → ricalcola gli orari individuali */
   generaSlot: (eventoId: string) =>
@@ -128,5 +128,5 @@ export const calendarioApi = {
     http.patch<CalendarioPubblicazione>(`calendario/pubblicazioni/${id}`, body),
 
   deletePubblicazione: (id: string) =>
-    http.del<void>(`calendario/pubblicazioni/${id}`),
+    http.del<undefined>(`calendario/pubblicazioni/${id}`),
 };

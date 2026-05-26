@@ -96,7 +96,7 @@ export function updateFase(id: string, body: UpdateFaseBody): Promise<FaseRecord
 
 /** DELETE /api/fasi/:id → 204 */
 export function deleteFase(id: string): Promise<void> {
-  return http.del<void>(`fasi/${id}`);
+  return http.del<undefined>(`fasi/${id}`);
 }
 
 /** POST /api/fasi/:id/start — PIANIFICATA → IN_CORSO */

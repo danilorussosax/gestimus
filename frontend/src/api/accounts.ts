@@ -51,5 +51,5 @@ export const accountsApi = {
     http.post<{ ok: boolean }>(`accounts/${id}/reset-password`, { password }),
 
   /** DELETE /accounts/:id → elimina account. */
-  remove: (id: string) => http.del<void>(`accounts/${id}`),
+  remove: (id: string) => http.del<undefined>(`accounts/${id}`),
 };

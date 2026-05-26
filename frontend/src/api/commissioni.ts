@@ -55,28 +55,28 @@ export const commissioniApi = {
   update: (id: string, body: UpdateCommissioneBody) =>
     http.patch<CommissioneRecord>(`commissioni/${id}`, body),
 
-  delete: (id: string) => http.del<void>(`commissioni/${id}`),
+  delete: (id: string) => http.del<undefined>(`commissioni/${id}`),
 
   // ---- N-N: commissari ----
   addCommissario: (commissioneId: string, commissarioId: string) =>
-    http.post<void>(`commissioni/${commissioneId}/commissari/${commissarioId}`),
+    http.post<undefined>(`commissioni/${commissioneId}/commissari/${commissarioId}`),
 
   removeCommissario: (commissioneId: string, commissarioId: string) =>
-    http.del<void>(`commissioni/${commissioneId}/commissari/${commissarioId}`),
+    http.del<undefined>(`commissioni/${commissioneId}/commissari/${commissarioId}`),
 
   // ---- N-N: sezioni ----
   addSezione: (commissioneId: string, sezioneId: string) =>
-    http.post<void>(`commissioni/${commissioneId}/sezioni/${sezioneId}`),
+    http.post<undefined>(`commissioni/${commissioneId}/sezioni/${sezioneId}`),
 
   removeSezione: (commissioneId: string, sezioneId: string) =>
-    http.del<void>(`commissioni/${commissioneId}/sezioni/${sezioneId}`),
+    http.del<undefined>(`commissioni/${commissioneId}/sezioni/${sezioneId}`),
 
   // ---- N-N: categorie ----
   addCategoria: (commissioneId: string, categoriaId: string) =>
-    http.post<void>(`commissioni/${commissioneId}/categorie/${categoriaId}`),
+    http.post<undefined>(`commissioni/${commissioneId}/categorie/${categoriaId}`),
 
   removeCategoria: (commissioneId: string, categoriaId: string) =>
-    http.del<void>(`commissioni/${commissioneId}/categorie/${categoriaId}`),
+    http.del<undefined>(`commissioni/${commissioneId}/categorie/${categoriaId}`),
 
   /**
    * Full sync helper: given the desired arrays, compute the delta and apply
