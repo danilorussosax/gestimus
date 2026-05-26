@@ -240,7 +240,7 @@ function FaseFormDialog({
   // altrimenti tutti i commissari del concorso (come db.getFaseCommissariIds).
   const nCommissari = useMemo(() => {
     const tutti = commissari?.length ?? 0;
-    if (isEdit && existing?.commissioneId) {
+    if (isEdit && existing.commissioneId) {
       const comm = commissioni?.find((c) => c.id === existing.commissioneId);
       if (comm) return comm.commissari.length;
     }
@@ -387,13 +387,13 @@ function FaseFormDialog({
     }
   };
 
-  const metodoConsigliatoNome = METODI_MEDIA[suggerito.metodo]?.nome ?? suggerito.metodo;
+  const metodoConsigliatoNome = METODI_MEDIA[suggerito.metodo].nome;
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-4xl sm:p-8">
         <DialogHeader>
-          <DialogTitle>{isEdit ? `Modifica fase: ${existing?.nome}` : 'Nuova fase'}</DialogTitle>
+          <DialogTitle>{isEdit ? `Modifica fase: ${existing.nome}` : 'Nuova fase'}</DialogTitle>
           <DialogDescription className="sr-only">
             Configura nome, esecuzione, metodo di media, criteri, scope e regole di spareggio della fase.
           </DialogDescription>

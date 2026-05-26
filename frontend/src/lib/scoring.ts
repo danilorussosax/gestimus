@@ -98,7 +98,7 @@ export function getCriteri(faseOrOrdine: FaseInput): CriterioRuntime[] {
 // Backward-compat: returns a {key: peso} map. Built from getCriteri.
 export function getPesiFor(faseOrOrdine: FaseInput): Record<string, number> {
   const out: Record<string, number> = {};
-  getCriteri(faseOrOrdine).forEach((c) => { out[c.key] = c.peso ?? 0; });
+  getCriteri(faseOrOrdine).forEach((c) => { out[c.key] = c.peso; });
   return out;
 }
 

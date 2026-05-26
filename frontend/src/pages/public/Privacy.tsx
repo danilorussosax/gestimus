@@ -98,16 +98,16 @@ function DirittiPanel() {
     try {
       const res = await fetch(`/api/privacy/export?t=${encodeURIComponent(t)}`);
       const data: unknown = await res.json();
-      if (!res.ok) throw new Error((data as { error?: string })?.error ?? `HTTP ${res.status}`);
+      if (!res.ok) throw new Error((data as { error?: string }).error ?? `HTTP ${res.status}`);
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `miei-dati-iscrizione-${(data as { iscrizione?: { id?: string } })?.iscrizione?.id ?? 'export'}.json`;
+      a.download = `miei-dati-iscrizione-${(data as { iscrizione?: { id?: string } }).iscrizione?.id ?? 'export'}.json`;
       a.click();
       URL.revokeObjectURL(a.href);
       setResult({ kind: 'export-ok', content: JSON.stringify(data, null, 2) });
     } catch (e) {
-      setResult({ kind: 'err', content: (e as Error).message ?? 'Errore' });
+      setResult({ kind: 'err', content: (e as Error).message });
     } finally {
       setLoading(false);
       setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
@@ -126,10 +126,10 @@ function DirittiPanel() {
     try {
       const res = await fetch(`/api/privacy/erase?t=${encodeURIComponent(t)}`, { method: 'DELETE' });
       const data: unknown = await res.json();
-      if (!res.ok) throw new Error((data as { error?: string })?.error ?? `HTTP ${res.status}`);
+      if (!res.ok) throw new Error((data as { error?: string }).error ?? `HTTP ${res.status}`);
       setResult({ kind: 'erase-ok', content: JSON.stringify(data, null, 2) });
     } catch (e) {
-      setResult({ kind: 'err', content: (e as Error).message ?? 'Errore' });
+      setResult({ kind: 'err', content: (e as Error).message });
     } finally {
       setLoading(false);
       setTimeout(() => resultRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);

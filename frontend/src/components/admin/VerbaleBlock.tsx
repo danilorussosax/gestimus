@@ -260,9 +260,9 @@ function buildVerbaleContext(
       );
       vincitore = displayNameCand(cand0);
       podio = rows
-        .filter((r) => (r.posizione_finale ?? Infinity) <= 3)
+        .filter((r) => r.posizione_finale <= 3)
         .map((r) => {
-          const pos = r.posizione_finale ?? 1;
+          const pos = r.posizione_finale;
           const place =
             pos === 1 ? '1° Premio' : pos === 2 ? '2° Premio' : '3° Premio';
           const cand = candidati.find(
@@ -281,7 +281,7 @@ function buildVerbaleContext(
       const rows = rankedByFase.get(f.id) ?? [];
       if (rows.length === 0) return '';
       const scala = getScala(f);
-      const lines = rows.map((r, i) => {
+      const lines = rows.map((r) => {
         const cf = r.cf as CandidatoFase;
         const cand = candidati.find((c) => c.id === cf.candidatoId);
         const esito =
@@ -290,7 +290,7 @@ function buildVerbaleContext(
             : cf.ammessoProssimaFase
             ? 'PROMOSSO'
             : 'ELIMINATO';
-        return `  ${r.posizione_finale ?? (i + 1)}. ${displayNameCand(cand)} — ${fmtVoto(r.media, scala)}/${scala} — ${esito}`;
+        return `  ${r.posizione_finale}. ${displayNameCand(cand)} — ${fmtVoto(r.media, scala)}/${scala} — ${esito}`;
       });
       return `${f.nome}:\n${lines.join('\n')}`;
     })
@@ -311,7 +311,7 @@ function buildVerbaleContext(
         const cand = candidati.find(
           (c) => c.id === (r.cf as CandidatoFase).candidatoId,
         );
-        const motivazioni = (r.tiebreak_log ?? [])
+        const motivazioni = r.tiebreak_log
           .filter((s) => s.motivazione)
           .map((s) => s.motivazione)
           .join(' → ');
@@ -375,7 +375,7 @@ function buildVerbaleContext(
 
     const faseClassifica = faseRows.length === 0
       ? '—'
-      : faseRows.map((r, i) => {
+      : faseRows.map((r) => {
           const cf = r.cf as CandidatoFase;
           const cand = candidati.find((c) => c.id === cf.candidatoId);
           const esito =
@@ -384,7 +384,7 @@ function buildVerbaleContext(
               : cf.ammessoProssimaFase
               ? 'PROMOSSO'
               : 'ELIMINATO';
-          return `${r.posizione_finale ?? (i + 1)}. ${displayNameCand(cand)} — ${fmtVoto(r.media, scala)}/${scala} — ${esito}`;
+          return `${r.posizione_finale}. ${displayNameCand(cand)} — ${fmtVoto(r.media, scala)}/${scala} — ${esito}`;
         }).join('\n');
 
     const fasePromossi = faseRows.filter(
@@ -394,11 +394,11 @@ function buildVerbaleContext(
     );
     const fasePromossiStr = fasePromossi.length === 0
       ? '—'
-      : fasePromossi.map((r, i) => {
+      : fasePromossi.map((r) => {
           const cand = candidati.find(
             (c) => c.id === (r.cf as CandidatoFase).candidatoId,
           );
-          return `${r.posizione_finale ?? (i + 1)}. ${displayNameCand(cand)} — ${fmtVoto(r.media, scala)}/${scala}`;
+          return `${r.posizione_finale}. ${displayNameCand(cand)} — ${fmtVoto(r.media, scala)}/${scala}`;
         }).join('\n');
 
     const faseEliminati = faseRows.filter(
@@ -408,11 +408,11 @@ function buildVerbaleContext(
     );
     const faseEliminatiStr = faseEliminati.length === 0
       ? '—'
-      : faseEliminati.map((r, i) => {
+      : faseEliminati.map((r) => {
           const cand = candidati.find(
             (c) => c.id === (r.cf as CandidatoFase).candidatoId,
           );
-          return `${r.posizione_finale ?? (i + 1)}. ${displayNameCand(cand)} — ${fmtVoto(r.media, scala)}/${scala}`;
+          return `${r.posizione_finale}. ${displayNameCand(cand)} — ${fmtVoto(r.media, scala)}/${scala}`;
         }).join('\n');
 
     const faseSpareggiInvolved = faseRows.filter(
@@ -427,7 +427,7 @@ function buildVerbaleContext(
             const cand = candidati.find(
               (c) => c.id === (r.cf as CandidatoFase).candidatoId,
             );
-            const motivazioni = (r.tiebreak_log ?? [])
+            const motivazioni = r.tiebreak_log
               .filter((s) => s.motivazione)
               .map((s) => s.motivazione)
               .join(' → ');
@@ -437,7 +437,7 @@ function buildVerbaleContext(
 
     Object.assign(ctx, {
       fase: fase.nome || '',
-      fase_numero: String(fase.ordine ?? ''),
+      fase_numero: String(fase.ordine),
       fase_data: fmtFaseDate(fase.dataPrevista),
       fase_stato: fase.stato || '',
       fase_scala: String(scala),
@@ -545,8 +545,8 @@ export function VerbaleBlock({
         handleTemplateChange(template + `<${tag}>`);
         return;
       }
-      const start = ta.selectionStart ?? template.length;
-      const end = ta.selectionEnd ?? template.length;
+      const start = ta.selectionStart;
+      const end = ta.selectionEnd;
       const tagStr = `<${tag}>`;
       const next = template.slice(0, start) + tagStr + template.slice(end);
       handleTemplateChange(next);
@@ -561,7 +561,7 @@ export function VerbaleBlock({
 
   // Reset to default.
   const handleReset = () => {
-    if (!window.confirm(t('admin.risultati.verbale.reset_msg') ?? 'Ripristinare il template di default? Il testo attuale verrà perso.')) {
+    if (!window.confirm(t('admin.risultati.verbale.reset_msg'))) {
       return;
     }
     try {
@@ -603,11 +603,10 @@ export function VerbaleBlock({
         <div>
           <h3 className="font-semibold text-slate-900 text-lg flex items-center gap-2">
             <FileText className="h-[18px] w-[18px] text-brand-500" aria-hidden />
-            {t('admin.risultati.verbale.heading') ?? 'Verbale della commissione'}
+            {t('admin.risultati.verbale.heading')}
           </h3>
           <p className="text-sm text-slate-600 mt-1">
-            {t('admin.risultati.verbale.help') ??
-              'Scrivi il testo del verbale usando i tag dinamici; la preview si aggiorna in tempo reale.'}
+            {t('admin.risultati.verbale.help')}
           </p>
         </div>
         <div className="flex gap-2">
@@ -617,7 +616,7 @@ export function VerbaleBlock({
             onClick={handleReset}
           >
             <RefreshCw className="h-3 w-3" aria-hidden />
-            {t('admin.risultati.verbale.reset') ?? 'Ripristina template'}
+            {t('admin.risultati.verbale.reset')}
           </button>
           <button
             type="button"
@@ -625,22 +624,21 @@ export function VerbaleBlock({
             disabled={fasi.length === 0}
             onClick={() => { void handleExportPdf(); }}
           >
-            {t('admin.risultati.verbale.export_pdf') ?? 'Esporta verbale PDF'}
+            {t('admin.risultati.verbale.export_pdf')}
           </button>
         </div>
       </div>
 
       {fasi.length === 0 ? (
         <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-3">
-          {t('admin.risultati.verbale.no_fasi') ??
-            'Nessuna fase definita per questo concorso.'}
+          {t('admin.risultati.verbale.no_fasi')}
         </p>
       ) : (
         <>
           {/* Fase selector */}
           <div className="flex items-center gap-2 flex-wrap">
             <label className="text-xs uppercase tracking-wider text-slate-500">
-              {t('admin.risultati.verbale.fase_label') ?? 'Fase di riferimento'}
+              {t('admin.risultati.verbale.fase_label')}
             </label>
             <select
               className="border border-slate-300 rounded-lg px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-brand-300"
@@ -654,8 +652,7 @@ export function VerbaleBlock({
               ))}
             </select>
             <span className="text-xs text-slate-500">
-              {t('admin.risultati.verbale.fase_help') ??
-                'I tag <fase_*> vengono risolti per la fase selezionata.'}
+              {t('admin.risultati.verbale.fase_help')}
             </span>
           </div>
 
@@ -663,7 +660,7 @@ export function VerbaleBlock({
           <div className="space-y-3">
             <div>
               <p className="text-xs uppercase tracking-wider text-slate-500 mb-1.5">
-                {t('admin.risultati.verbale.tags_general') ?? 'Tag generali'}
+                {t('admin.risultati.verbale.tags_general')}
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {VERBALE_TAGS_GENERAL.map((td) => (
@@ -682,7 +679,7 @@ export function VerbaleBlock({
             {selectedFase && (
               <div>
                 <p className="text-xs uppercase tracking-wider text-slate-500 mb-1.5">
-                  {t('admin.risultati.verbale.tags_fase') ?? 'Tag fase corrente'}
+                  {t('admin.risultati.verbale.tags_fase')}
                 </p>
                 <div className="flex flex-wrap gap-1.5">
                   {VERBALE_TAGS_FASE.map((td) => (
@@ -705,7 +702,7 @@ export function VerbaleBlock({
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             <div>
               <label className="text-xs uppercase tracking-wider text-slate-500 mb-1.5 block">
-                {t('admin.risultati.verbale.template_label') ?? 'Template'}
+                {t('admin.risultati.verbale.template_label')}
               </label>
               <textarea
                 ref={textareaRef}
@@ -718,7 +715,7 @@ export function VerbaleBlock({
             </div>
             <div>
               <label className="text-xs uppercase tracking-wider text-slate-500 mb-1.5 block">
-                {t('admin.risultati.verbale.preview_label') ?? 'Anteprima'}
+                {t('admin.risultati.verbale.preview_label')}
               </label>
               <div className="w-full min-h-[400px] border border-slate-200 bg-slate-50 rounded-lg p-3 text-sm whitespace-pre-wrap leading-relaxed text-slate-800">
                 {preview}
@@ -834,7 +831,7 @@ async function exportVerbalePdf(
   const fasePresId = faseComm?.presidenteCommissarioId ?? null;
   const firmatari: CommissarioRecord[] =
     templateHasSign && faseComm
-      ? (faseComm.commissari ?? [])
+      ? faseComm.commissari
           .map((id) => commissari.find((c) => c.id === id))
           .filter((c): c is CommissarioRecord => !!c)
       : [];

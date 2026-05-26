@@ -109,7 +109,7 @@ function colorForIndex(i: number) {
 }
 
 function initials(name: string): string {
-  const p = (name ?? '').trim().split(/\s+/);
+  const p = name.trim().split(/\s+/);
   return ((p[0]?.[0] ?? '') + (p[1]?.[0] ?? '')).toUpperCase() || '•';
 }
 
@@ -180,21 +180,21 @@ async function handlePdfExport(
       fase: b.fase ? { nome: b.fase.nome } : null,
       commissione: Array.isArray(b.commissione)
         ? b.commissione.map((m) => ({
-            nome: m.nome ?? '',
+            nome: m.nome,
             cognome: m.cognome ?? '',
             specialita: (m as { specialita?: string }).specialita ?? '',
           }))
         : [],
       slot: Array.isArray(b.slot)
-        ? b.slot.map((s) => ({ oraPrevista: s.oraPrevista ?? null, etichetta: s.etichetta ?? '' }))
+        ? b.slot.map((s) => ({ oraPrevista: s.oraPrevista ?? null, etichetta: s.etichetta }))
         : [],
     })),
   }));
   await exportCalendarioPdf({
     titolo: data.concorso.nome || i18n.t('cal.title'),
-    sottotitolo: data.pubblicazione?.etichetta ?? undefined,
+    sottotitolo: data.pubblicazione.etichetta ?? undefined,
     logoUrl: data.concorso.logo || logoFallback,
-    mostraCommissione: data.pubblicazione?.mostraCommissione ?? false,
+    mostraCommissione: data.pubblicazione.mostraCommissione,
     giorni,
   });
 }
@@ -396,7 +396,7 @@ function buildSalaBoardHtml(salaNome: string, blocchi: CalBlocco[]): string {
         return `<div class="cal-name${live === 'now' ? ' cal-name--now' : ''}">
           <span class="cal-ava" style="background:${c.ava};color:${c.avaFg}">${esc(initials(s.etichetta))}</span>
           <span class="cal-name__t">${esc(hhmm(s.oraPrevista) || '')}</span>
-          <span class="cal-name__n">${esc(s.etichetta ?? '')}</span>
+          <span class="cal-name__n">${esc(s.etichetta)}</span>
           ${badge}
         </div>`;
       })
@@ -445,8 +445,8 @@ function DisplayBoard({ data }: { data: CalendarioPubblicResponse }) {
   const headHtml = `<div class="cal-disp__head">
     ${data.concorso.logo ? `<img src="${esc(data.concorso.logo)}" alt="" class="cal-disp__logo" onerror="this.style.display='none'" />` : ''}
     <div>
-      <div class="cal-disp__title">${esc(data.concorso.nome ?? '')}</div>
-      ${data.pubblicazione?.etichetta ? `<div class="cal-disp__sub">${esc(data.pubblicazione.etichetta)}</div>` : ''}
+      <div class="cal-disp__title">${esc(data.concorso.nome)}</div>
+      ${data.pubblicazione.etichetta ? `<div class="cal-disp__sub">${esc(data.pubblicazione.etichetta)}</div>` : ''}
     </div>
   </div>`;
 
@@ -473,9 +473,9 @@ function ContentView({
   logoFallback: string | null;
 }) {
   const { t } = useTranslation();
-  const mostraCommissione = data.pubblicazione?.mostraCommissione ?? false;
+  const mostraCommissione = data.pubblicazione.mostraCommissione;
   const logoSrc = data.concorso.logo ?? logoFallback;
-  const titolo = data.concorso.nome ?? t('cal.title');
+  const titolo = data.concorso.nome;
 
   if (display) return <DisplayBoard data={data} />;
 
@@ -497,7 +497,7 @@ function ContentView({
             <h1 className="text-2xl font-bold text-ink-900 truncate">
               {titolo}
             </h1>
-            {data.pubblicazione?.etichetta && (
+            {data.pubblicazione.etichetta && (
               <p className="text-sm text-ink-700">{data.pubblicazione.etichetta}</p>
             )}
           </div>
