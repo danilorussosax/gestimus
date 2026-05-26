@@ -17,7 +17,7 @@ const homeForRole = (role: User['role']) => (role === 'superadmin' ? '/superadmi
 // ─── Schema login ─────────────────────────────────────────────────────────────
 
 const loginSchema = z.object({
-  email: z.string().min(1, 'Email obbligatoria').email('Email non valida'),
+  email: z.email('Email non valida'),
   password: z.string().min(1, 'Password obbligatoria'),
 });
 type LoginFields = z.infer<typeof loginSchema>;
@@ -135,7 +135,7 @@ export default function Login() {
         setMfaChallenge(res.challenge);
         return;
       }
-      navigate(homeForRole(res.user.role), { replace: true });
+      void navigate(homeForRole(res.user.role), { replace: true });
     } catch (err) {
       const raw = httpErrorMessage(err);
       const invalid = /failed to authenticate|invalid credentials/i.test(raw);
@@ -144,7 +144,7 @@ export default function Login() {
   };
 
   const handleMfaSuccess = (user: User) => {
-    navigate(homeForRole(user.role), { replace: true });
+    void navigate(homeForRole(user.role), { replace: true });
   };
 
   return (

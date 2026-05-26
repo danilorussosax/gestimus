@@ -21,7 +21,7 @@ import { exportCalendarioPdf } from '@/lib/calendario-pdf';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const hhmm = (s: string | null | undefined) => (s ? String(s).slice(0, 5) : '');
+const hhmm = (s: string | null | undefined) => (s ? s.slice(0, 5) : '');
 
 /**
  * Escape HTML per le interpolazioni nei template-string renderizzati via
@@ -61,7 +61,7 @@ function nowRome(): { date: string; minutes: number } {
 
 function slotMinutes(oraPrevista: string | null | undefined): number | null {
   if (!oraPrevista) return null;
-  return Number(String(oraPrevista).slice(0, 2)) * 60 + Number(String(oraPrevista).slice(3, 5));
+  return Number(oraPrevista.slice(0, 2)) * 60 + Number(oraPrevista.slice(3, 5));
 }
 
 type SlotWithLive = CalBlocco['slot'][0] & { _live?: 'now' | 'next' | null };
@@ -80,10 +80,10 @@ function markLive(data: CalendarioPubblicResponse): void {
     if (!isToday) continue;
     const timed = flat
       .filter((s) => slotMinutes(s.oraPrevista) != null)
-      .sort((a, b) => slotMinutes(a.oraPrevista)! - slotMinutes(b.oraPrevista)!);
+      .sort((a, b) => (slotMinutes(a.oraPrevista) ?? 0) - (slotMinutes(b.oraPrevista) ?? 0));
     let current: SlotWithLive | null = null;
     for (const s of timed) {
-      if (slotMinutes(s.oraPrevista)! <= minutes) current = s;
+      if ((slotMinutes(s.oraPrevista) ?? 0) <= minutes) current = s;
     }
     if (current) {
       current._live = 'now';
@@ -109,13 +109,13 @@ function colorForIndex(i: number) {
 }
 
 function initials(name: string): string {
-  const p = String(name || '').trim().split(/\s+/);
+  const p = (name ?? '').trim().split(/\s+/);
   return ((p[0]?.[0] ?? '') + (p[1]?.[0] ?? '')).toUpperCase() || '•';
 }
 
 function toMin(s: string | null | undefined): number | null {
   if (!s) return null;
-  const m = /^(\d{1,2}):(\d{2})/.exec(String(s));
+  const m = /^(\d{1,2}):(\d{2})/.exec(s);
   return m ? Number(m[1]) * 60 + Number(m[2]) : null;
 }
 
@@ -308,9 +308,10 @@ function buildSalaBoardHtml(salaNome: string, blocchi: CalBlocco[]): string {
     .map((b) => toMin(b.oraInizio))
     .filter((x): x is number => x != null);
   const ends = blocchi
-    .map((b) =>
-      toMin(b.oraFine) ?? (toMin(b.oraInizio) != null ? toMin(b.oraInizio)! + 60 : null),
-    )
+    .map((b) => {
+      const start = toMin(b.oraInizio);
+      return toMin(b.oraFine) ?? (start != null ? start + 60 : null);
+    })
     .filter((x): x is number => x != null);
   const minStart = starts.length ? Math.floor(Math.min(...starts) / 30) * 30 : 9 * 60;
   const maxEnd = ends.length
@@ -436,7 +437,7 @@ function DisplayBoard({ data }: { data: CalendarioPubblicResponse }) {
             const sale = [...bySala.keys()].sort((a, b) => a.localeCompare(b));
             return `<section>
               <div class="cal-day__date">${esc(fmtDay(g.data))}</div>
-              <div class="cal-sale-grid">${sale.map((s) => buildSalaBoardHtml(s, bySala.get(s)!)).join('')}</div>
+              <div class="cal-sale-grid">${sale.map((s) => buildSalaBoardHtml(s, bySala.get(s) ?? [])).join('')}</div>
             </section>`;
           })
           .join('');
@@ -473,8 +474,8 @@ function ContentView({
 }) {
   const { t } = useTranslation();
   const mostraCommissione = data.pubblicazione?.mostraCommissione ?? false;
-  const logoSrc = data.concorso.logo || logoFallback;
-  const titolo = data.concorso.nome || t('cal.title');
+  const logoSrc = data.concorso.logo ?? logoFallback;
+  const titolo = data.concorso.nome ?? t('cal.title');
 
   if (display) return <DisplayBoard data={data} />;
 

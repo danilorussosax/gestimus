@@ -14,7 +14,7 @@
  */
 
 import { useEffect, useRef, useState } from 'react';
-import { useForm, useFieldArray, Controller } from 'react-hook-form';
+import { useForm, useFieldArray, Controller, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useMutation, useQuery } from '@tanstack/react-query';
@@ -33,7 +33,7 @@ const MAX_ALLEGATO_BYTES = 2 * 1024 * 1024;
 
 function calcEta(iso: string | undefined | null): number | null {
   if (!iso) return null;
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso));
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(iso);
   if (!m) return null;
   const by = +m[1], bm = +m[2], bd = +m[3];
   const now = new Date();
@@ -88,7 +88,7 @@ const schema = z.object({
   tutore_email: z.string().optional(),
   tutore_telefono: z.string().optional(),
   // Contatti
-  email: z.string().email('Email non valida'),
+  email: z.email('Email non valida'),
   telefono: z.string().optional(),
   indirizzo: z.string().optional(),
   citta: z.string().optional(),
@@ -135,7 +135,7 @@ function SectionHeader({ num, title, subtitle }: { num: string; title: string; s
 
 // ─── c-field wrapper ──────────────────────────────────────────────────────────
 
-function CField({
+function _CField({
   label,
   hint,
   error,
@@ -177,9 +177,9 @@ export default function Iscrizione() {
   const savedDraft = loadDraft();
 
   const form = useForm<FormValues, unknown, FormValues>({
-    resolver: zodResolver(schema) as any,
+    resolver: zodResolver(schema) as Resolver<FormValues, unknown, FormValues>,
     defaultValues: {
-      tipo: (savedDraft.tipo!) ?? 'individuale',
+      tipo: savedDraft.tipo ?? 'individuale',
       nome: savedDraft.nome ?? '',
       cognome: savedDraft.cognome ?? '',
       sesso: savedDraft.sesso ?? '',
@@ -254,7 +254,7 @@ export default function Iscrizione() {
 
   const concorsoQ = useQuery({
     queryKey: ['pub-concorso', firstConcorso?.id],
-    queryFn: () => publicApi.getConcorso(firstConcorso!.id),
+    queryFn: () => publicApi.getConcorso(firstConcorso?.id ?? ''),
     enabled: !!firstConcorso?.id,
     staleTime: 120_000,
   });
@@ -270,7 +270,7 @@ export default function Iscrizione() {
     mutationFn: async (vals: FormValues) => {
       if (!concorso) throw new Error('Nessun concorso disponibile');
       const docentiArr = (vals.docenti_preparatori_text ?? '').split('\n').map((s) => s.trim()).filter(Boolean);
-      const validBrani = (vals.programma ?? []).filter((p) => p.titolo);
+      const validBrani = vals.programma.filter((p) => p.titolo);
       const payload = {
         concorsoId: concorso.id,
         website: vals.website ?? '',
@@ -294,8 +294,8 @@ export default function Iscrizione() {
         scuolaProvenienza: vals.scuola_provenienza,
         programma: validBrani,
         docentiPreparatori: docentiArr,
-        sezioneId: vals.sezione || undefined,
-        categoriaId: vals.categoria || undefined,
+        sezioneId: vals.sezione ?? undefined,
+        categoriaId: vals.categoria ?? undefined,
         isGruppo: isGruppo,
         gruppoNome: isGruppo ? vals.gruppo_nome : undefined,
         tipoGruppo: isGruppo ? (tipo === 'orchestra' ? 'orchestra' as const : 'ensemble' as const) : undefined,
@@ -320,7 +320,7 @@ export default function Iscrizione() {
       const failedUploads: string[] = [];
       if (res.uploadToken) {
         for (const [field, tipoAllegato] of Object.entries(ALLEGATO_TIPI)) {
-          const inp = fileRefs[field]?.current;
+          const inp = fileRefs[field].current;
           let file = inp?.files?.[0];
           if (!file) continue;
           if (tipoAllegato === 'foto') file = await resizeImageToFile(file, 800, 0.85);
@@ -747,7 +747,7 @@ export default function Iscrizione() {
                 <div className="col-span-5">
                   <input placeholder="Titolo brano" className="c-input" {...register(`programma.${idx}.titolo`)} />
                   {errors.programma?.[idx]?.titolo && (
-                    <p className="text-xs text-rose-600 mt-0.5">{errors.programma[idx]?.titolo?.message}</p>
+                    <p className="text-xs text-rose-600 mt-0.5">{errors.programma[idx].titolo.message}</p>
                   )}
                 </div>
                 <input placeholder="Autore/Compositore" className="c-input col-span-5" {...register(`programma.${idx}.autore`)} />
@@ -831,7 +831,7 @@ export default function Iscrizione() {
                   <input
                     type="checkbox"
                     className="mt-1 rounded border-slate-300"
-                    checked={!!field.value}
+                    checked={field.value}
                     onChange={(e) => field.onChange(e.target.checked ? true : (undefined))}
                   />
                 )}
@@ -857,7 +857,7 @@ export default function Iscrizione() {
                   <input
                     type="checkbox"
                     className="mt-1 rounded border-slate-300"
-                    checked={!!field.value}
+                    checked={field.value}
                     onChange={(e) => field.onChange(e.target.checked ? true : (undefined))}
                   />
                 )}
