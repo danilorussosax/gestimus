@@ -73,8 +73,11 @@ export async function createApp(): Promise<FastifyInstance> {
     if (status >= 500) {
       req.log.error({ err }, 'errore interno');
       // Error tracking: i 5xx vanno a Sentry (no-op se SENTRY_DSN assente) con
-      // il minimo contesto utile, senza PII di body/cookie.
-      captureError(err, { method: req.method, url: req.url, statusCode: status });
+      // il minimo contesto utile, senza PII di body/cookie. La query string può
+      // trasportare PII/segreti (?email=..., ?token=...): teniamo solo il path
+      // per debuggabilità e scartiamo tutto ciò che segue il `?`.
+      const scrubbedUrl = req.url.split('?')[0]!;
+      captureError(err, { method: req.method, url: scrubbedUrl, statusCode: status });
       return reply.code(status).send({ error: 'errore interno del server' });
     }
     return reply.code(status).send({ error: e.error ?? e.message ?? 'errore' });
