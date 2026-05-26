@@ -57,7 +57,7 @@ import ImportCsvDialog from '@/components/admin/ImportCsvDialog';
 // ---------------------------------------------------------------------------
 function displayName(c: { nome?: string | null; cognome?: string | null } | null | undefined): string {
   if (!c) return '—';
-  return `${c.nome || ''} ${c.cognome || ''}`.trim() || '—';
+  return `${c.nome ?? ''} ${c.cognome ?? ''}`.trim() || '—';
 }
 
 function ageFromDate(iso: string | null | undefined): number | null {
@@ -335,8 +335,8 @@ function CommissarioFormDialog({ concorsoId, existing, onClose }: FormDialogProp
   }, [accountsQuery.data, existing, isEdit]);
 
   // ----- Split nome/cognome (port: se manca cognome ma nome contiene spazi) -----
-  let initNome = existing?.nome || '';
-  let initCognome = existing?.cognome || '';
+  let initNome = existing?.nome ?? '';
+  let initCognome = existing?.cognome ?? '';
   if (existing && !initCognome && initNome.includes(' ')) {
     const parts = initNome.split(/\s+/);
     initNome = parts[0];
@@ -345,17 +345,17 @@ function CommissarioFormDialog({ concorsoId, existing, onClose }: FormDialogProp
 
   const todayISO = new Date().toISOString().slice(0, 10);
   const initialFoto = existing?.foto ? fileUrl(existing.foto) : null;
-  const initialCv = existing?.cv || '';
+  const initialCv = existing?.cv ?? '';
 
   // ----- Controlled form state (mirror del vanilla che usa formFields()) -----
   const [nome, setNome] = useState(initNome);
   const [cognome, setCognome] = useState(initCognome);
-  const [specialita, setSpecialita] = useState(existing?.specialita || '');
-  const [dataNascita, setDataNascita] = useState(existing?.dataNascita || '');
-  const [nazionalita, setNazionalita] = useState(existing?.nazionalita || '');
-  const [email, setEmail] = useState(existing?.email || '');
-  const [telefono, setTelefono] = useState(existing?.telefono || '');
-  const [bio, setBio] = useState(existing?.bio || '');
+  const [specialita, setSpecialita] = useState(existing?.specialita ?? '');
+  const [dataNascita, setDataNascita] = useState(existing?.dataNascita ?? '');
+  const [nazionalita, setNazionalita] = useState(existing?.nazionalita ?? '');
+  const [email, setEmail] = useState(existing?.email ?? '');
+  const [telefono, setTelefono] = useState(existing?.telefono ?? '');
+  const [bio, setBio] = useState(existing?.bio ?? '');
 
   // Foto: preview (dataURL nuovo o URL esistente), blob da uploadare, flag rimozione.
   const [fotoPreview, setFotoPreview] = useState<string | null>(initialFoto);
@@ -370,7 +370,7 @@ function CommissarioFormDialog({ concorsoId, existing, onClose }: FormDialogProp
 
   // ----- Credenziali (create flow) -----
   const [accToggle, setAccToggle] = useState(false);
-  const [accEmail, setAccEmail] = useState(existing?.email || '');
+  const [accEmail, setAccEmail] = useState(existing?.email ?? '');
   const [accPassword, setAccPassword] = useState('');
 
   // Modale credenziali one-time.
@@ -1210,13 +1210,13 @@ export default function CommissariTab({ concorsoId }: { concorsoId: string }) {
     if (archQ) {
       const q = archQ.toLowerCase();
       list = list.filter((c) => {
-        const hay = `${c.nome} ${c.cognome || ''} ${c.specialita || ''} ${c.email || ''} ${c.telefono || ''} ${c.nazionalita || ''} ${c.bio || ''}`.toLowerCase();
+        const hay = `${c.nome} ${c.cognome ?? ''} ${c.specialita ?? ''} ${c.email ?? ''} ${c.telefono ?? ''} ${c.nazionalita ?? ''} ${c.bio ?? ''}`.toLowerCase();
         return hay.includes(q);
       });
     }
     if (archSort === 'nome') {
       list.sort((a, b) =>
-        `${a.cognome || ''} ${a.nome}`.localeCompare(`${b.cognome || ''} ${b.nome}`, 'it'),
+        `${a.cognome ?? ''} ${a.nome}`.localeCompare(`${b.cognome ?? ''} ${b.nome}`, 'it'),
       );
     } else if (archSort === 'recente') {
       list.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));

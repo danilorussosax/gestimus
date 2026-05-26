@@ -379,7 +379,7 @@ function CommissioneFormDialog({
                         {presidentiOvunque.has(c.id) ? ' 🎯' : ''}
                       </span>
                       <span className="text-[10px] text-slate-500 ml-auto truncate">
-                        {c.specialita || ''}
+                        {c.specialita ?? ''}
                       </span>
                     </label>
                   );
@@ -710,7 +710,7 @@ function CommissioneCard({
                   <span
                     key={cat.id}
                     className="text-[11px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded-full"
-                    title={sez?.nome || ''}
+                    title={sez?.nome ?? ''}
                   >
                     {cat.nome}
                   </span>

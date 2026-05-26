@@ -98,7 +98,7 @@ function fmtDay(iso: string) {
 function displayName(cand: Candidato | null | undefined): string {
   if (!cand) return '—';
   if (cand.tipo === 'gruppo' || cand.tipo === 'orchestra') return cand.nome || '—';
-  return `${cand.nome || ''} ${cand.cognome || ''}`.trim() || '—';
+  return `${cand.nome} ${cand.cognome ?? ''}`.trim() || '—';
 }
 
 function publicCalUrl(token: string, display = false) {
@@ -1018,7 +1018,7 @@ export function CalendarioTab({ concorsoId }: CalendarioTabProps) {
     for (const arr of m.values()) {
       arr.sort(
         (a, b) =>
-          (a.oraPrevista || '').localeCompare(b.oraPrevista || '') ||
+          (a.oraPrevista ?? '').localeCompare(b.oraPrevista ?? '') ||
           (a.posizione ?? 0) - (b.posizione ?? 0),
       );
     }
@@ -1169,7 +1169,7 @@ export function CalendarioTab({ concorsoId }: CalendarioTabProps) {
       setDraggingBlockId(null);
       const ev = eventi.find((x) => x.id === id);
       if (!ev) return;
-      if (ev.data === day && (ev.salaId || '') === (salaId || '')) return;
+      if (ev.data === day && (ev.salaId ?? '') === (salaId ?? '')) return;
       updateEventoMut.mutate({ id, body: { data: day, salaId } });
     },
     [draggingBlockId, eventi, updateEventoMut],
