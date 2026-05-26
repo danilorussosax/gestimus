@@ -63,14 +63,14 @@ export const commissariApi = {
   update: (id: string, body: UpdateCommissarioBody) =>
     http.patch<CommissarioRecord>(`commissari/${id}`, body),
 
-  delete: (id: string) => http.del<void>(`commissari/${id}`),
+  delete: (id: string) => http.del<undefined>(`commissari/${id}`),
 
   /** Upload/replace photo. Uses /api/upload/commissario/:id */
   uploadFoto: (id: string, file: Blob) =>
     http.upload<CommissarioRecord>('commissario', id, file, 'file'),
 
   /** DELETE /api/upload/commissario/:id — remove photo */
-  deleteFoto: (id: string) => http.del<void>(`/api/upload/commissario/${id}`),
+  deleteFoto: (id: string) => http.del<undefined>(`/api/upload/commissario/${id}`),
 };
 
 // ---------------------------------------------------------------------------

@@ -183,13 +183,13 @@ export const candidatiApi = {
   update: (id: string, body: UpdateCandidatoInput) =>
     http.patch<CandidatoRaw>(`candidati/${id}`, denormalizeBody(body)).then(normalizeCandidato),
 
-  delete: (id: string) => http.del<void>(`candidati/${id}`),
+  delete: (id: string) => http.del<undefined>(`candidati/${id}`),
 
   /** Carica la foto del candidato via /api/upload/candidati/:id (multipart). */
   uploadFoto: (id: string, file: Blob) => http.upload('candidati', id, file),
 
   /** Rimuove la foto del candidato (DELETE /api/upload/candidati/:id). */
-  deleteFoto: (id: string) => http.del<void>(`/api/upload/candidati/${id}`),
+  deleteFoto: (id: string) => http.del<undefined>(`/api/upload/candidati/${id}`),
 
   /** Sezioni e categorie del concorso — necessarie per il form candidato. */
   sezioni: (concorsoId: string) =>
@@ -209,7 +209,7 @@ export const candidatiApi = {
   updateMembro: (id: string, body: MembroGruppoUpdate) =>
     http.patch<MembroGruppo>(`membri-gruppo/${id}`, body),
 
-  removeMembro: (id: string) => http.del<void>(`membri-gruppo/${id}`),
+  removeMembro: (id: string) => http.del<undefined>(`membri-gruppo/${id}`),
 
   // ── Storico cross-concorso ────────────────────────────────────────────────
   /** Tutti i candidati del tenant (nessun filtro concorso) per lo storico. */

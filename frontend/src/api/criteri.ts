@@ -62,7 +62,7 @@ export function updateCriterio(
 
 /** DELETE /api/criteri/:id */
 export function deleteCriterio(id: string): Promise<void> {
-  return http.del<void>(`criteri/${id}`);
+  return http.del<undefined>(`criteri/${id}`);
 }
 
 // ─── React Query hook ────────────────────────────────────────────────────────

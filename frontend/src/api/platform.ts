@@ -213,7 +213,7 @@ export const platformApi = {
   restoreTenant: (id: string) => http.post<Tenant>(`${BASE}/tenants/${id}/restore`),
 
   /** DELETE /api/platform/tenants/:id — hard-delete immediato. */
-  deleteTenant: (id: string) => http.del<void>(`${BASE}/tenants/${id}`),
+  deleteTenant: (id: string) => http.del<undefined>(`${BASE}/tenants/${id}`),
 
   /** POST /api/platform/tenants/:id/change-plan */
   changePlan: (id: string, body: ChangePlanBody) =>

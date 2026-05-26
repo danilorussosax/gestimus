@@ -47,7 +47,7 @@ export const categorieApi = {
   update: (id: string, body: UpdateCategoriaBody) =>
     http.patch<CategoriaRecord>(`categorie/${id}`, body),
 
-  delete: (id: string) => http.del<void>(`categorie/${id}`),
+  delete: (id: string) => http.del<undefined>(`categorie/${id}`),
 };
 
 // ---------------------------------------------------------------------------
