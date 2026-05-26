@@ -40,7 +40,7 @@ interface FaseLike {
   modoValutazione?: unknown;
   modo_valutazione?: unknown;
 }
-type FaseInput = FaseLike | number | null | undefined;
+export type FaseInput = FaseLike | number | null | undefined;
 
 // Build the default criteri array for a given fase ordine.
 export function defaultCriteri(ordine = 1): CriterioRuntime[] {
