@@ -92,7 +92,7 @@ function useCandidati(concorsoId: string) {
 function useValutazioniForFase(cfIds: string[] | undefined) {
   return useQuery({
     queryKey: ['valutazioni', 'by-fase', ...(cfIds ?? [])],
-    queryFn: () => fetchValutazioniByFase(cfIds!),
+    queryFn: () => fetchValutazioniByFase(cfIds ?? []),
     enabled: Array.isArray(cfIds) && cfIds.length > 0,
     staleTime: 30_000,
   });
@@ -510,7 +510,7 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
       counts.set(sig, (counts.get(sig) ?? 0) + 1);
     }
     const result = new Map<string, number>();
-    for (const f of fasi) result.set(f.id, counts.get(signatures.get(f.id)!) ?? 1);
+    for (const f of fasi) result.set(f.id, counts.get(signatures.get(f.id) ?? '') ?? 1);
     return result;
   }, [fasiQuery.data]);
 

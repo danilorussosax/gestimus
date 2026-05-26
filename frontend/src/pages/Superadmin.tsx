@@ -482,15 +482,16 @@ export default function Superadmin() {
     if (ten.stato === 'attivo' && ten.piano !== 'ppe' && p?.prezzo) revenue += p.prezzo;
   }
 
-  const rssMb = sys ? sys.memory.rss / (1024 * 1024) : null;
   const cpuPct = sys?.cpu?.processPct;
   const cores = sys?.cpu?.cores ?? 0;
-  const sysVal = sys
-    ? `${rssMb! < 1024 ? rssMb!.toFixed(0) + ' MB' : (rssMb! / 1024).toFixed(2) + ' GB'} · CPU ${typeof cpuPct === 'number' ? cpuPct.toFixed(1) : '—'}%`
-    : 'n/d';
+  let sysVal = 'n/d';
+  if (sys) {
+    const mb = sys.memory.rss / (1024 * 1024);
+    sysVal = `${mb < 1024 ? mb.toFixed(0) + ' MB' : (mb / 1024).toFixed(2) + ' GB'} · CPU ${typeof cpuPct === 'number' ? cpuPct.toFixed(1) : '—'}%`;
+  }
   const loadAvg1 = sys?.cpu?.loadAvg1;
   const loadAvgSysPct = cores > 0 && Number.isFinite(loadAvg1)
-    ? Math.round((loadAvg1! / cores) * 100)
+    ? Math.round(((loadAvg1 ?? 0) / cores) * 100)
     : null;
   const sysSub = sys
     ? `heap ${(sys.memory.heapUsed / 1024 / 1024).toFixed(0)}/${(sys.memory.heapTotal / 1024 / 1024).toFixed(0)} MB · ${cores} core · load sistema ${loadAvgSysPct ?? '—'}% (media 60s) · up ${fmtUptime(sys.uptimeSec)}`
@@ -1802,7 +1803,7 @@ function AuditDialog({ t, onClose }: { t: Tenant; onClose: () => void }) {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {auditQ.data!.map((r) => (
+                    {(auditQ.data ?? []).map((r) => (
                       <tr key={r.id}>
                         <td className="px-3 py-2 whitespace-nowrap text-ink-700">{fmtDate(r.createdAt)}</td>
                         <td className="px-3 py-2"><code>{r.action}</code></td>

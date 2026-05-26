@@ -256,8 +256,9 @@ export function gruppoFasi(fasi: FaseRecord[], sezioni: SezioneRecord[]): FaseGr
     const ids = Array.isArray(f.sezioniIds) ? [...f.sezioniIds].sort() : [];
     const key = ids.length === 0 ? '__shared__' : ids.length === 1 ? `s:${ids[0]}` : `m:${ids.join(',')}`;
     const type: GroupType = ids.length === 0 ? 'shared' : ids.length === 1 ? 'single' : 'multi';
-    if (!groups.has(key)) groups.set(key, { key, type, sezioneIds: ids, fasi: [] });
-    groups.get(key)!.fasi.push(f);
+    let g = groups.get(key);
+    if (!g) { g = { key, type, sezioneIds: ids, fasi: [] }; groups.set(key, g); }
+    g.fasi.push(f);
   }
   // Ordina le sotto-fasi per ordine globale (sequenza di valutazione).
   for (const g of groups.values()) g.fasi.sort((a, b) => a.ordine - b.ordine);

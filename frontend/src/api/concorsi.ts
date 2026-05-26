@@ -143,7 +143,7 @@ export function useConcorsi() {
 export function useConcorso(id: string | null | undefined) {
   return useQuery({
     queryKey: concorsoQueryKey(id ?? ''),
-    queryFn: () => getConcorso(id!),
+    queryFn: () => getConcorso(id ?? ''),
     enabled: Boolean(id),
     staleTime: 30_000,
   });
@@ -153,7 +153,7 @@ export function useConcorso(id: string | null | undefined) {
 export function useConcorsoSummary(id: string | null | undefined) {
   return useQuery({
     queryKey: concorsoSummaryQueryKey(id ?? ''),
-    queryFn: () => getConcorsoSummary(id!),
+    queryFn: () => getConcorsoSummary(id ?? ''),
     enabled: Boolean(id),
     staleTime: 30_000,
   });
