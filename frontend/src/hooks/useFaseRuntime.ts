@@ -70,7 +70,7 @@ function deriveTimer(record: FaseRuntimeRecord | null, skewOffset: number): Time
   const elapsedMs = paused
     ? new Date(record.timerPausedAt ?? 0).getTime() - startedMs
     : nowMs - startedMs;
-  const bonusMs = (Number(record.timerBonusSeconds) || 0) * 1000;
+  const bonusMs = (record.timerBonusSeconds || 0) * 1000;
   const remainingMs = Math.max(0, durMs + bonusMs - elapsedMs);
   return {
     remainingMs,

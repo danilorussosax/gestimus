@@ -1091,7 +1091,7 @@ function ScoringSheet({
       {showConfirm && (
         <CountdownConfirm
           candidato={candidato ?? null}
-          anonimo={!!concorso.anonimo}
+          anonimo={concorso.anonimo}
           ammesso={ammesso}
           totale={totale}
           scala={scala}
@@ -1171,7 +1171,7 @@ function ScoringSheet({
                     candidati={candidati}
                     valutazioni={valutazioni}
                     commissarioId={commissario.id}
-                    anonimo={!!concorso.anonimo}
+                    anonimo={concorso.anonimo}
                     fase={fase}
                     fmtVotoFn={scoring.fmtVoto}
                     getCriteriFn={scoring.getCriteri}

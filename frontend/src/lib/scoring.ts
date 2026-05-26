@@ -307,7 +307,7 @@ export function computeAggregate(values: unknown, metodo = 'aritmetica'): number
 export function getScala(faseOrScala: FaseInput): number {
   if (faseOrScala == null) return 10;
   const raw = typeof faseOrScala === 'number' ? faseOrScala : Number(faseOrScala.scala);
-  const n = Number(raw) || 10;
+  const n = raw || 10;
   return Math.max(2, n);
 }
 
@@ -334,7 +334,7 @@ export function fmtVoto(v: unknown, scala: unknown): string {
 
 // Eliminatoria admission suggestion. Thresholds relative to scala.
 export function suggestEliminatoria({ media, voti, scala = 10 }: { media: number; voti?: number[]; scala?: number }): { ammesso: boolean; fascia: 'MERITO' | 'STANDARD' | 'ELIMINATO' } {
-  const s = Number(scala) || 10;
+  const s = scala || 10;
   const norm = s ? media / s : 0;
   if (norm >= 0.65) return { ammesso: true, fascia: norm >= 0.80 ? 'MERITO' : 'STANDARD' };
   if (norm >= 0.60) {

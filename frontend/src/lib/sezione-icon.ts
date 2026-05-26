@@ -1,7 +1,7 @@
 // Emoji per sezione — port ESATTO di iconaPerSezione() da js/views/admin/common.js.
 // Usato da SezioniTab, CandidatiTab, CommissioniTab, FasiTab per coerenza.
 export function iconaPerSezione(nome: string | null | undefined): string {
-  const s = String(nome ?? '').toLowerCase();
+  const s = (nome ?? '').toLowerCase();
   if (/canto|voce|voice|soprano|tenor|baritono|contralto|mezzosoprano|lirica|opera/.test(s)) return '🎤';
   if (/coro|choir|coral/.test(s)) return '🎼';
   if (/piano|tastier|harpsichord|clavicembal|fisarmonic|accordion|organo|\borgan\b/.test(s)) return '🎹';

@@ -102,7 +102,7 @@ function fmtDay(iso: string): string {
   }
 }
 
-const hhmm = (s: string | null | undefined) => (s ? String(s).slice(0, 5) : '');
+const hhmm = (s: string | null | undefined) => (s ? s.slice(0, 5) : '');
 
 // ─── Export principale ──────────────────────────────────────────────────────
 
@@ -127,7 +127,7 @@ export async function exportCalendarioPdf(opts: CalendarioPdfOpts): Promise<void
   doc.setFont('helvetica', 'bold');
   doc.setFontSize(18);
   doc.setTextColor(...INK);
-  doc.text(String(opts.titolo || t('cal.pdf.title')), margin + (opts.logoUrl ? 52 : 0), margin + 10);
+  doc.text(opts.titolo || t('cal.pdf.title'), margin + (opts.logoUrl ? 52 : 0), margin + 10);
   doc.setFont('helvetica', 'normal');
   doc.setFontSize(10);
   doc.setTextColor(...INK_SOFT);
