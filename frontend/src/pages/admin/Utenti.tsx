@@ -52,7 +52,7 @@ type ModalMode = 'create' | 'resetPwd' | null;
 // ─── Schemas ─────────────────────────────────────────────────────────────────
 
 const createSchema = z.object({
-  email: z.string().email('Email non valida'),
+  email: z.email('Email non valida'),
   password: z.string().min(8, 'Minimo 8 caratteri').max(200),
   role: z.enum(['admin', 'commissario']),
   attivo: z.boolean().optional(),

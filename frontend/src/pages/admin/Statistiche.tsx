@@ -145,7 +145,7 @@ function useCandidati(concorsoId: string | undefined) {
 function useValutazioniForCfs(cfIds: string[] | undefined) {
   return useQuery({
     queryKey: ['valutazioni', 'by-fase', ...(cfIds ?? [])],
-    queryFn: () => fetchValutazioniByFase(cfIds!),
+    queryFn: () => fetchValutazioniByFase(cfIds ?? []),
     enabled: Array.isArray(cfIds) && cfIds.length > 0,
     staleTime: 30_000,
   });
@@ -554,7 +554,7 @@ function InstrumentsBar({ candidati }: { candidati: Candidato[] }) {
   const { t } = useTranslation();
   const data = useMemo(() => {
     const map: Record<string, number> = {};
-    candidati.forEach((c) => { const k = c.strumento || 'Altro'; map[k] = (map[k] ?? 0) + 1; });
+    candidati.forEach((c) => { const k = c.strumento ?? 'Altro'; map[k] = (map[k] ?? 0) + 1; });
     return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, value]) => ({ name, value }));
   }, [candidati]);
 
@@ -582,7 +582,7 @@ function NationalitiesBar({ candidati }: { candidati: Candidato[] }) {
   const { t } = useTranslation();
   const data = useMemo(() => {
     const map: Record<string, number> = {};
-    candidati.forEach((c) => { const k = c.nazionalita || '—'; map[k] = (map[k] ?? 0) + 1; });
+    candidati.forEach((c) => { const k = c.nazionalita ?? '—'; map[k] = (map[k] ?? 0) + 1; });
     return Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([name, value]) => ({ name, value }));
   }, [candidati]);
 
