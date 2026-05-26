@@ -7,6 +7,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 const uuid = z.string().uuid();
 const querySchema = z.object({
   limit: z.coerce.number().int().min(1).max(1000).default(200),
+  offset: z.coerce.number().int().nonnegative().default(0),
   action: z.string().max(100).optional(),
   actor: uuid.optional(),
   before: z.string().datetime().optional(),
@@ -18,13 +19,17 @@ export const auditRoutes: FastifyPluginAsync = async (app) => {
   app.addHook('preHandler', requireRole('admin'));
 
   /**
-   * GET /audit-log?limit=&action=&actor=&before=&after=
+   * GET /audit-log?limit=&offset=&action=&actor=&before=&after=
    * Solo admin del tenant. Ordinamento desc per created_at.
+   *
+   * Contratto lista paginato (riusabile): `{ items, total, limit, offset }`.
+   * `total` è il conteggio totale che soddisfa i filtri (non solo la pagina),
+   * così il client può mostrare "N di M" e abilitare avanti/indietro.
    */
   app.get('/', async (req, reply) => {
     const parsed = querySchema.safeParse(req.query);
     if (!parsed.success) return reply.badRequest(parsed.error.message);
-    const { limit, action, actor, before, after } = parsed.data;
+    const { limit, offset, action, actor, before, after } = parsed.data;
 
     return req.dbTx(async (tx) => {
       const conditions = [];
@@ -34,8 +39,19 @@ export const auditRoutes: FastifyPluginAsync = async (app) => {
       if (after) conditions.push(gte(auditLog.createdAt, new Date(after)));
 
       const where = conditions.length ? and(...conditions) : undefined;
-      const query = tx.select().from(auditLog).orderBy(desc(auditLog.createdAt)).limit(limit);
-      return where ? await query.where(where) : await query;
+
+      const pageQuery = tx
+        .select()
+        .from(auditLog)
+        .orderBy(desc(auditLog.createdAt))
+        .limit(limit)
+        .offset(offset);
+      const items = where ? await pageQuery.where(where) : await pageQuery;
+
+      const countQuery = tx.select({ n: sql<number>`count(*)::int` }).from(auditLog);
+      const [countRow] = where ? await countQuery.where(where) : await countQuery;
+
+      return { items, total: countRow?.n ?? 0, limit, offset };
     });
   });
 

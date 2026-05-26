@@ -80,8 +80,9 @@ export function normalizeCandidato(
  * Traduce il body del form (che porta `tipo`) nei campi reali del backend
  * (`isGruppo` + `tipoGruppo`). Rimuove i campi derivati `tipo`/`fotoUrl` che il
  * backend non conosce. Lascia invariati gli altri campi.
+ * Esportata per i test del contratto write-path (ui → payload).
  */
-function denormalizeBody<T extends { tipo?: CandidatoTipo | null }>(
+export function denormalizeBody<T extends { tipo?: CandidatoTipo | null }>(
   body: T,
 ): Omit<T, 'tipo' | 'fotoUrl'> & { isGruppo?: boolean; tipoGruppo?: 'ensemble' | 'orchestra' | null } {
   const { tipo, ...rest } = body as T & { fotoUrl?: unknown };

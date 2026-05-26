@@ -279,3 +279,115 @@ jobs:
             echo "::warning::File > 5 MB trovati (considera Git LFS o esclusione):"
             echo "$LARGE"
           fi
+
+  # ---------------------------------------------------------------------------
+  # 3c) E2E smoke + flussi core (Playwright) — gate browser-to-backend.
+  #     Stack riproducibile: Postgres 18 reale → bootstrap/schema/policies/seed
+  #     → backend Fastify (:4000) → frontend Vite (:5173, proxy con Host
+  #     preservato) → Playwright (chromium).
+  #     Il tenant è risolto SOLO dal sottodominio (Host header): mappiamo
+  #     ente1.gestimus.local → 127.0.0.1 in /etc/hosts con uno step automatico,
+  #     così non serve alcuna configurazione locale manuale. Il modello di
+  #     sicurezza (tenant da Host, niente header di bypass) resta invariato.
+  #     Blocca il merge se login / workspace admin / crea-fase / voto-commissario
+  #     regrediscono.
+  # ---------------------------------------------------------------------------
+  e2e:
+    name: E2E smoke + flussi core (Playwright)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL_BOOTSTRAP: postgres://postgres:postgres@localhost:5432/postgres
+      DATABASE_URL_APP: postgres://gestimus_app:devpassword@localhost:5432/gestimus
+      DATABASE_URL_SUPER: postgres://gestimus_super:devpassword@localhost:5432/gestimus
+      SESSION_COOKIE_SECRET: ci-secret-min-32-chars-long-aaaaaaaaaaaa
+      GESTIMUS_SECRET_KEY: 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+      LOG_LEVEL: error
+      # NB: NODE_ENV NON impostato → default 'development'. È l'ambiente in cui
+      # gli E2E sono scritti e passano: cookie SameSite=Lax (necessario col proxy
+      # cross-port :5173→:4000) e rate-limit login rilassato (100k fuori prod, vs
+      # 10/15min in prod) così i login admin↔commissario ripetuti non vengono
+      # bloccati.
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: |
+            server/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install server deps
+        working-directory: server
+        run: npm ci
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+      - name: Install Playwright (chromium + deps)
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Bootstrap DB (ruoli + database)
+        working-directory: server
+        run: npm run db:bootstrap
+      - name: Setup schema + policies RLS
+        working-directory: server
+        run: |
+          npx drizzle-kit push --force
+          npm run db:policies
+      - name: Seed dati demo
+        working-directory: server
+        run: npm run db:seed
+
+      - name: Mappa tenant ente1 → 127.0.0.1 (niente /etc/hosts manuale)
+        run: echo "127.0.0.1 ente1.gestimus.local" | sudo tee -a /etc/hosts
+
+      - name: Avvia backend Fastify (:4000, background)
+        working-directory: server
+        run: |
+          npx tsx src/index.ts > /tmp/backend.log 2>&1 &
+          # Readiness: /readyz verifica anche la connettività DB.
+          for i in $(seq 1 90); do
+            if curl -sf http://127.0.0.1:4000/readyz >/dev/null; then
+              echo "backend ready ($i s)"; exit 0
+            fi
+            sleep 1
+          done
+          echo "::error::backend non avviato/non pronto entro 90s"
+          cat /tmp/backend.log || true
+          exit 1
+
+      - name: Playwright (smoke + flussi core)
+        working-directory: frontend
+        # Playwright avvia da sé il dev server Vite (webServer in config). 1 retry
+        # assorbe la flakiness transitoria di timing realtime/SSE.
+        run: npx playwright test --retries=1 --reporter=list,html
+
+      - name: Backend log (debug)
+        if: always()
+        run: cat /tmp/backend.log || true
+
+      - name: Upload Playwright report + trace (on failure)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          retention-days: 7
+          if-no-files-found: ignore

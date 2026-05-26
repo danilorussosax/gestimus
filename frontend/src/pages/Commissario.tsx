@@ -40,6 +40,16 @@ import type {
   Valutazione,
   Concorso,
 } from '@/types';
+import {
+  persistDraft,
+  loadDraft,
+  clearDraft,
+  getCommissariIds,
+  displayName,
+  ageFromDate,
+  formatTime,
+  type DraftState,
+} from './commissario-utils';
 
 import {
   startFase,
@@ -57,19 +67,12 @@ import { normalizeCandidato } from '@/api/candidati';
 import { criteriFromRecords } from '@/lib/scoring';
 import { resolveAdmittedIds } from '@/lib/admitted';
 
-// ── Scoring helpers (created by Risultati agent, imported at integration) ────
-// We use dynamic-import-style soft refs so TypeScript won't fail before the
-// file exists. At runtime they will be present.
-
-/* eslint-disable @typescript-eslint/no-explicit-any */
-interface ScoringModule {
-  pesato: (voti: Record<string, number>, fase: any) => number;
-  getScala: (fase: any) => number;
-  fmtVoto: (v: number, scala: number) => string;
-  getCriteri: (fase: any) => { key: string; label: string; peso: number }[];
-  getModoValutazione: (fase: any) => 'autonoma' | 'sincrona';
-  voteStep: (scala: number) => number;
-}
+// ── Scoring helpers (modulo @/lib/scoring) ──────────────────────────────────
+// Adapter tipato direttamente dal modulo reale via `typeof import(...)`: niente
+// interfaccia parallela con `any` da tenere allineata a mano (le firme restano
+// la fonte di verità in @/lib/scoring). L'import resta dinamico così il modulo
+// di scoring (e le sue dipendenze pesanti) non entra nel bundle iniziale.
+type ScoringModule = typeof import('@/lib/scoring');
 // Lazy-imported once below
 let _scoring: ScoringModule | null = null;
 async function getScoring(): Promise<ScoringModule> {
@@ -78,7 +81,6 @@ async function getScoring(): Promise<ScoringModule> {
   }
   return _scoring;
 }
-/* eslint-enable @typescript-eslint/no-explicit-any */
 
 type SaveValutacionFn = (args: {
   candidatoFaseId: string;
@@ -96,68 +98,8 @@ async function getSaveValutazione(): Promise<SaveValutacionFn> {
   return _saveValutazione;
 }
 
-// ── sessionStorage draft persistence ─────────────────────────────────────────
-
-const DRAFT_KEY = 'gc_commissario_draft';
-
-interface DraftState {
-  voti: Record<string, number>;
-  note: string;
-  faseId: string | null;
-  candidatoFaseId: string | null;
-}
-
-function persistDraft(d: DraftState) {
-  try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify(d)); } catch { /* quota/private */ }
-}
-
-function loadDraft(faseId: string | null, candidatoFaseId: string): DraftState | null {
-  try {
-    const raw = sessionStorage.getItem(DRAFT_KEY);
-    if (!raw) return null;
-    const d = JSON.parse(raw) as DraftState;
-    if (d?.faseId === faseId && d.candidatoFaseId === candidatoFaseId) return d;
-  } catch { /* corrupted */ }
-  return null;
-}
-
-// ── Helper: resolve commissariIds from Commissione ────────────────────────────
-// La GET /commissioni espone gli id dei membri nell'array `commissari`.
-
-function getCommissariIds(com: Commissione | undefined | null): string[] {
-  if (!com) return [];
-  return Array.isArray(com.commissari) ? com.commissari : [];
-}
-
-// ── Helper: display name ──────────────────────────────────────────────────────
-
-function displayName(p: { nome?: string | null; cognome?: string | null } | null | undefined): string {
-  if (!p) return '';
-  const parts = [p.cognome, p.nome].filter(Boolean);
-  return parts.length ? parts.join(' ') : '';
-}
-
-// ── Helper: age from ISO date string ─────────────────────────────────────────
-
-function ageFromDate(iso: string | null | undefined): number | null {
-  if (!iso) return null;
-  const birth = new Date(iso);
-  if (isNaN(birth.getTime())) return null;
-  const today = new Date();
-  let age = today.getFullYear() - birth.getFullYear();
-  const m = today.getMonth() - birth.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < birth.getDate())) age--;
-  return age;
-}
-
-// ── Helper: format time ms → MM:SS ───────────────────────────────────────────
-
-function formatTime(ms: number): string {
-  const tot = Math.max(0, Math.ceil(ms / 1000));
-  const m = Math.floor(tot / 60);
-  const s = tot % 60;
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
+// ── Helper puri (persistDraft/loadDraft/getCommissariIds/displayName/ageFromDate/
+//    formatTime) estratti in ./commissario-utils ──────────────────────────────
 
 // ── Beep (timer expired) ──────────────────────────────────────────────────────
 
@@ -1137,9 +1079,10 @@ function ScoringSheet({
   const sliderMin = scala >= 30 ? 0 : 1;
   const mid = scala / 2;
 
-  // Pesi label
+  // Pesi label. NB: criteri.peso è già una percentuale 0-100 (colonna integer in
+  // `criteri`), non una frazione 0-1 → niente *100 (mostrava "3500%" invece di "35%").
   const pesiLabel = criteri
-    .map((c) => `${(c.label || c.key || '?').charAt(0).toUpperCase()}${Math.round((c.peso || 0) * 100)}`)
+    .map((c) => `${(c.label || c.key || '?').charAt(0).toUpperCase()}${Math.round(c.peso || 0)}`)
     .join('/');
 
   const eta = ageFromDate(candidato?.dataNascita);
@@ -1327,7 +1270,7 @@ function ScoringSheet({
               <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                 {criteri.map((c) => {
                   const val = draft.voti[c.key] ?? sliderMin;
-                  const peso = Math.round((c.peso || 0) * 100);
+                  const peso = Math.round(c.peso || 0); // peso 0-100, già percentuale
                   return (
                     <div key={c.key} className="bg-slate-50 border border-slate-200 rounded-xl p-3.5">
                       <div className="flex items-center justify-between">
@@ -1884,7 +1827,7 @@ export default function Commissario() {
   function handleReset() {
     // Clear draft and re-init to defaults by invalidating — the ScoringSheet
     // key will not change so we remove the draft from storage and force re-init.
-    try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* noop */ }
+    clearDraft();
     invalidateAll();
   }
 

@@ -103,24 +103,32 @@ interface AuditTabProps {
   concorsoId: string;
 }
 
+const AUDIT_PAGE_SIZE = 200;
+
 export function AuditTab({ concorsoId }: AuditTabProps) {
   const { t } = useTranslation();
   const [scope, setScope] = useState<'concorso' | 'all'>('concorso');
   const [query, setQuery] = useState('');
+  const [offset, setOffset] = useState(0);
 
-  // queryKey include scope: cambiare scope invalida la cache e ricarica.
+  // queryKey include scope+offset: cambiarli ricarica la pagina corretta.
+  // placeholderData mantiene la pagina precedente durante il fetch (niente
+  // flash di skeleton al cambio pagina).
   const {
-    data: entries = [],
+    data,
     isLoading,
     isError,
     error,
     refetch,
     isFetching,
   } = useQuery({
-    queryKey: ['audit-log', scope] as const,
-    queryFn: () => auditApi.list({ limit: 200 }),
+    queryKey: ['audit-log', scope, offset] as const,
+    queryFn: () => auditApi.list({ limit: AUDIT_PAGE_SIZE, offset }),
     staleTime: 30_000,
+    placeholderData: (prev) => prev,
   });
+  const entries = data?.items ?? [];
+  const total = data?.total ?? 0;
 
   // Filtro scope client-side: include l'evento se il suo targetId è il concorso
   // OPPURE se il concorsoId compare nel payload serializzato (vanilla:
@@ -167,7 +175,7 @@ export function AuditTab({ concorsoId }: AuditTabProps) {
               <button
                 key={s}
                 type="button"
-                onClick={() => setScope(s)}
+                onClick={() => { setScope(s); setOffset(0); }}
                 className={`text-xs font-medium px-3 py-1.5 rounded-md${
                   scope === s
                     ? ' bg-white text-ink-900 shadow-soft'
@@ -224,6 +232,39 @@ export function AuditTab({ concorsoId }: AuditTabProps) {
           filtered.map((entry) => <AuditRow key={entry.id} entry={entry} />)
         )}
       </div>
+
+      {/* Paginazione server-side (contratto items/total/limit/offset). I filtri
+          scope/testo raffinano la pagina corrente lato client. */}
+      {!isLoading && !isError && total > AUDIT_PAGE_SIZE && (
+        <div className="flex items-center justify-between gap-2 text-xs text-ink-600">
+          <span>
+            {t('admin.audit.range', {
+              defaultValue: '{{from}}–{{to}} di {{total}}',
+              from: offset + 1,
+              to: Math.min(offset + entries.length, total),
+              total,
+            })}
+          </span>
+          <div className="flex items-center gap-1">
+            <button
+              type="button"
+              className="c-btn c-btn--ghost c-btn--sm"
+              disabled={offset === 0 || isFetching}
+              onClick={() => setOffset((o) => Math.max(0, o - AUDIT_PAGE_SIZE))}
+            >
+              {t('common.prev', { defaultValue: '‹ Precedenti' })}
+            </button>
+            <button
+              type="button"
+              className="c-btn c-btn--ghost c-btn--sm"
+              disabled={offset + AUDIT_PAGE_SIZE >= total || isFetching}
+              onClick={() => setOffset((o) => o + AUDIT_PAGE_SIZE)}
+            >
+              {t('common.next', { defaultValue: 'Successivi ›' })}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
