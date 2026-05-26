@@ -160,14 +160,17 @@ describe('Candidati-fase + Audit', () => {
   test('audit-log: admin lista eventi del tenant', async () => {
     const r = await app.inject({ method: 'GET', url: '/api/audit-log?limit=50', headers: H1() });
     assert.equal(r.statusCode, 200);
-    assert.ok(Array.isArray(r.json()));
-    assert.ok((r.json() as unknown[]).length > 0, 'almeno un evento di audit dai setup');
+    // Contratto paginato { items, total, limit, offset } (vedi audit.ts).
+    const body = r.json() as { items: unknown[]; total: number };
+    assert.ok(Array.isArray(body.items));
+    assert.ok(body.items.length > 0, 'almeno un evento di audit dai setup');
+    assert.ok(body.total >= body.items.length);
   });
 
   test('audit-log: filtro per action=fase.create → solo quelle azioni', async () => {
     const r = await app.inject({ method: 'GET', url: '/api/audit-log?action=fase.create&limit=50', headers: H1() });
     assert.equal(r.statusCode, 200);
-    const rows = r.json() as Array<{ action: string }>;
+    const rows = (r.json() as { items: Array<{ action: string }> }).items;
     assert.ok(rows.length > 0);
     assert.ok(rows.every((x) => x.action === 'fase.create'));
   });
