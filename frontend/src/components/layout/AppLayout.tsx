@@ -86,7 +86,7 @@ export function AppLayout() {
 
   const handleLogout = () => {
     void logout().then(() => {
-      navigate('/login', { replace: true });
+      void navigate('/login', { replace: true });
     });
   };
 

@@ -83,9 +83,9 @@ export function useDeleteSezione(concorsoId: string) {
   return useMutation({
     mutationFn: (id: string) => sezioniApi.delete(id),
     onSuccess: () => {
-      qc.invalidateQueries({ queryKey: sezioniKeys.all(concorsoId) });
+      void qc.invalidateQueries({ queryKey: sezioniKeys.all(concorsoId) });
       // categorie belonging to this sezione are also gone
-      qc.invalidateQueries({ queryKey: ['categorie', concorsoId] });
+      void qc.invalidateQueries({ queryKey: ['categorie', concorsoId] });
     },
   });
 }
