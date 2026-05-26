@@ -106,7 +106,7 @@ interface ConcorsoFormDialogProps {
   onSaved?: (c: Concorso) => void;
 }
 
-function ConcorsoFormDialog({ open, onOpenChange, existing, onSaved }: ConcorsoFormDialogProps) {
+export function ConcorsoFormDialog({ open, onOpenChange, existing, onSaved }: ConcorsoFormDialogProps) {
   const { t } = useTranslation();
   const isEdit = !!existing;
   const createMutation = useCreateConcorso();

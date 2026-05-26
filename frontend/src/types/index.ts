@@ -261,6 +261,18 @@ export interface Account {
   lastLoginAt: string | null;
 }
 
+/**
+ * Contratto lista paginato (riusabile) restituito dagli endpoint list che
+ * supportano la paginazione reale: `items` è la pagina corrente, `total` il
+ * conteggio totale che soddisfa i filtri (per "N di M" + avanti/indietro).
+ */
+export interface Paginated<T> {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 // Forma REALE restituita da GET /api/audit-log (riga grezza di audit_log).
 // Il backend NON arricchisce con email/ruolo attore né con un'etichetta target:
 // restituisce gli ID. Campi precedenti (timestamp/targetLabel/actorEmail/

@@ -9,11 +9,13 @@
  */
 
 import { http } from '@/lib/api';
-import type { AuditEntry } from '@/types';
+import type { AuditEntry, Paginated } from '@/types';
 
 export interface AuditQuery {
   /** Max entry da restituire (default 200, max 1000). */
   limit?: number;
+  /** Offset di paginazione (default 0). */
+  offset?: number;
   /** Filtra per action esatta (es. 'account.create'). */
   action?: string;
   /** Filtra per actorAccountId (UUID). */
@@ -31,11 +33,12 @@ export interface AuditStat {
 
 export const auditApi = {
   /**
-   * GET /audit-log?limit=&action=&actor=&before=&after=
-   * Solo admin. Ritorna entry ordinate per createdAt desc.
+   * GET /audit-log?limit=&offset=&action=&actor=&before=&after=
+   * Solo admin. Contratto paginato `{ items, total, limit, offset }`, entry
+   * ordinate per createdAt desc.
    */
   list: (query?: AuditQuery) =>
-    http.get<AuditEntry[]>('audit-log', query as Record<string, unknown>),
+    http.get<Paginated<AuditEntry>>('audit-log', query as Record<string, unknown>),
 
   /**
    * GET /audit-log/stats → conteggio per action negli ultimi 30gg.

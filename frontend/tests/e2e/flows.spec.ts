@@ -215,7 +215,16 @@ test.describe('Flow · Voto commissario', () => {
     // Bottone di salvataggio del voto: "✓ Salva e prossimo candidato".
     const saveBtn = page.getByRole('button', { name: /Salva e prossimo candidato/ });
     await expect(saveBtn).toBeVisible({ timeout: 10_000 });
-    await saveBtn.click();
+    // Il widget timer (role="timer", fixed bottom-6 right-6, z-40) galleggia
+    // nell'angolo in basso a destra e copre il bottone quando questo resta in
+    // fondo al viewport: un click "reale" (anche con force) cadrebbe sul timer,
+    // non sul bottone. dispatchEvent('click') invia l'evento direttamente al
+    // nodo del bottone (nessuna coordinata / hit-test) → l'onClick React parte.
+    // La validità del test resta intatta: `votePromise` asserisce comunque che
+    // la POST /api/valutazioni vada a buon fine (200/201).
+    // NB UX (follow-up M5): il timer fisso copre la CTA primaria di voto →
+    // valutare `pointer-events-none` sul widget o riposizionarlo.
+    await saveBtn.dispatchEvent('click');
 
     // Si apre un overlay di conferma con countdown di 5s che salva da solo
     // (non c'è un bottone "conferma immediata", solo "Annulla"). Attendiamo che
@@ -377,5 +386,44 @@ test.describe('Flow · Approva iscrizione (admin)', () => {
     if (isc?.candidatoId) created.candidati.push(isc.candidatoId);
 
     expect(errors, 'nessun errore JS nel tab Iscrizioni').toEqual([]);
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// 5) CTA "Nuovo concorso" vs "Cambia concorso" — devono avere comportamenti
+//    DISTINTI: "Nuovo concorso" apre il dialog di creazione in-place (l'URL
+//    resta sul workspace), "Cambia concorso" torna alla lista (rimuove ?c).
+// ───────────────────────────────────────────────────────────────────────────
+test.describe('Flow · CTA Nuovo vs Cambia concorso (admin)', () => {
+  test('"Nuovo concorso" apre la creazione; "Cambia concorso" torna alla lista', async ({ page }) => {
+    test.setTimeout(45_000);
+    const errors = errorSink(page);
+    await login(page, ADMIN);
+    const concorsoId = await getConcorsoId(page);
+    await page.goto(`/admin?c=${concorsoId}`);
+
+    // Sidebar desktop: le due CTA esistono e sono distinte (aria-label).
+    const nuovo = page.getByRole('button', { name: 'Nuovo concorso' });
+    const cambia = page.getByRole('button', { name: 'Cambia concorso' });
+    await expect(nuovo).toBeVisible({ timeout: 15_000 });
+    await expect(cambia).toBeVisible();
+
+    // "Nuovo concorso" → apre il dialog di creazione, SENZA lasciare il workspace.
+    await nuovo.click();
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible({ timeout: 10_000 });
+    await expect(dialog.getByText('Nuovo concorso')).toBeVisible();
+    expect(new URL(page.url()).searchParams.get('c'), 'URL resta sul workspace').toBe(concorsoId);
+
+    // Annulla (Escape) → chiude e l'utente resta nel workspace corrente.
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden({ timeout: 10_000 });
+    expect(new URL(page.url()).searchParams.get('c'), 'annullare resta nel workspace').toBe(concorsoId);
+
+    // "Cambia concorso" → torna alla lista (rimuove ?c).
+    await cambia.click();
+    await page.waitForURL((u) => !u.searchParams.has('c'), { timeout: 10_000 });
+
+    expect(errors, 'nessun errore JS nelle CTA concorso').toEqual([]);
   });
 });

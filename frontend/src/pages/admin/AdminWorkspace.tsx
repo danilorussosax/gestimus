@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -23,8 +23,9 @@ import {
   BookOpen,
 } from 'lucide-react';
 
-import { useActiveConcorso, useConcorso } from '@/api/concorsi';
-import { ConcorsoSelector } from '@/components/admin/ConcorsoSelector';
+import { useActiveConcorso, useConcorso, useConcorsoSummary } from '@/api/concorsi';
+import type { ConcorsoSummary } from '@/api/concorsi';
+import { ConcorsoSelector, ConcorsoFormDialog } from '@/components/admin/ConcorsoSelector';
 import { FasiTab } from '@/components/admin/FasiTab';
 import { CandidatiTab } from '@/components/admin/CandidatiTab';
 import { IscrizioniTab } from '@/components/admin/IscrizioniTab';
@@ -38,12 +39,6 @@ import AdminDashboard from '@/pages/admin/Dashboard';
 import AdminUtenti from '@/pages/admin/Utenti';
 import AdminManuale from '@/pages/admin/Manuale';
 import { ImpostazioniConcorsoTab } from '@/components/admin/ImpostazioniConcorsoTab';
-
-import { useCandidati } from '@/api/candidati';
-import { useCommissari } from '@/api/commissari';
-import { useCommissioni } from '@/api/commissioni';
-import { useFasi } from '@/api/fasi';
-import { useSezioni } from '@/api/sezioni';
 
 // ---------------------------------------------------------------------------
 // Tab definitions
@@ -91,30 +86,11 @@ const TABS: TabDef[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Count data hook — only called when activeId is available
-// ---------------------------------------------------------------------------
-
-function useCounts(concorsoId: string) {
-  // useCandidati returns a custom shape { candidati, ... } (not useQuery directly)
-  const { candidati }              = useCandidati(concorsoId);
-  const { data: commissari  = [] } = useCommissari(concorsoId);
-  const { data: commissioni = [] } = useCommissioni(concorsoId);
-  const { data: fasi        = [] } = useFasi(concorsoId);
-  const { data: sezioni     = [] } = useSezioni(concorsoId);
-  return {
-    candidati:   candidati.length,
-    commissari:  commissari.length,
-    commissioni: commissioni.length,
-    fasi:        fasi.length,
-    sezioni:     sezioni.length,
-  };
-}
-
-// ---------------------------------------------------------------------------
 // Sub-components
 // ---------------------------------------------------------------------------
 
-type Counts = ReturnType<typeof useCounts>;
+type Counts = Omit<ConcorsoSummary, 'concorsoId'>;
+const EMPTY_COUNTS: Counts = { candidati: 0, commissari: 0, commissioni: 0, fasi: 0, sezioni: 0 };
 
 interface SidebarNavItemProps {
   tab: TabDef;
@@ -274,6 +250,7 @@ export default function AdminWorkspace() {
     activeTab={activeTab}
     setActiveTab={setActiveTab}
     backToList={backToList}
+    enterConcorso={enterConcorso}
     lbl={lbl}
   />;
 }
@@ -288,6 +265,7 @@ interface WorkspaceInnerProps {
   activeTab: TabId;
   setActiveTab: (t: TabId) => void;
   backToList: () => void;
+  enterConcorso: (id: string) => void;
   lbl: (key: string, fallback: string) => string;
 }
 
@@ -297,9 +275,16 @@ function WorkspaceInner({
   activeTab,
   setActiveTab,
   backToList,
+  enterConcorso,
   lbl,
 }: WorkspaceInnerProps) {
-  const counts = useCounts(concorsoId);
+  // Badge/header: un solo summary aggregato (5 contatori) invece di scaricare
+  // candidati/commissari/commissioni/fasi/sezioni per intero al mount.
+  const { data: summary } = useConcorsoSummary(concorsoId);
+  const counts: Counts = summary ?? EMPTY_COUNTS;
+  // "Nuovo concorso": apre il dialog di creazione IN-PLACE (annullare resta nel
+  // workspace corrente). Distinto da "Cambia concorso" → torna alla lista.
+  const [createOpen, setCreateOpen] = useState(false);
 
   function getCount(tab: TabDef): number | null {
     if (!tab.countKey) return null;
@@ -417,6 +402,7 @@ function WorkspaceInner({
               <button
                 type="button"
                 onClick={backToList}
+                aria-label={lbl('admin.concorso.change', 'Cambia concorso')}
                 className="c-btn c-btn--ghost c-btn--sm !justify-start !gap-2"
                 style={{ color: '#525252' }}
               >
@@ -425,7 +411,8 @@ function WorkspaceInner({
               </button>
               <button
                 type="button"
-                onClick={backToList}
+                onClick={() => setCreateOpen(true)}
+                aria-label={lbl('admin.concorso.new', 'Nuovo concorso')}
                 className="c-btn c-btn--primary c-btn--sm !justify-start !gap-2"
               >
                 <Plus size={14} />
@@ -435,6 +422,14 @@ function WorkspaceInner({
 
           </div>
         </aside>
+
+        {/* "Nuovo concorso": creazione in-place; al salvataggio entra nel nuovo
+            concorso. Annullare lascia l'utente nel workspace corrente. */}
+        <ConcorsoFormDialog
+          open={createOpen}
+          onOpenChange={setCreateOpen}
+          onSaved={(c) => { setCreateOpen(false); enterConcorso(c.id); }}
+        />
 
         {/* ── Main content ─────────────────────────────────────────── */}
         <div className="flex-1 min-w-0">

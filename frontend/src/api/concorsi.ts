@@ -105,11 +105,30 @@ export async function deleteConcorso(id: string, force = false): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
+// Summary — conteggi sintetici del concorso (badge/header workspace admin).
+// Una sola GET aggregata invece di scaricare candidati/commissari/commissioni/
+// fasi/sezioni per intero solo per contarli. Endpoint: GET concorsi/:id/summary.
+// ---------------------------------------------------------------------------
+export interface ConcorsoSummary {
+  concorsoId: string;
+  candidati: number;
+  commissari: number;
+  commissioni: number;
+  fasi: number;
+  sezioni: number;
+}
+
+export async function getConcorsoSummary(id: string): Promise<ConcorsoSummary> {
+  return http.get<ConcorsoSummary>(`concorsi/${id}/summary`);
+}
+
+// ---------------------------------------------------------------------------
 // React-Query hooks
 // ---------------------------------------------------------------------------
 
 export const CONCORSI_QUERY_KEY = ['concorsi'] as const;
 export const concorsoQueryKey = (id: string) => ['concorsi', id] as const;
+export const concorsoSummaryQueryKey = (id: string) => ['concorsi', id, 'summary'] as const;
 
 /** Returns the list of all concorsi for the current tenant. */
 export function useConcorsi() {
@@ -125,6 +144,16 @@ export function useConcorso(id: string | null | undefined) {
   return useQuery({
     queryKey: concorsoQueryKey(id ?? ''),
     queryFn: () => getConcorso(id!),
+    enabled: Boolean(id),
+    staleTime: 30_000,
+  });
+}
+
+/** Conteggi sintetici del concorso (candidati/commissari/commissioni/fasi/sezioni). */
+export function useConcorsoSummary(id: string | null | undefined) {
+  return useQuery({
+    queryKey: concorsoSummaryQueryKey(id ?? ''),
+    queryFn: () => getConcorsoSummary(id!),
     enabled: Boolean(id),
     staleTime: 30_000,
   });

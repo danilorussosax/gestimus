@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { candidati, concorsi, iscrizioni } from '../db/schema.js';
+import { candidati, commissari, commissioni, concorsi, fasi, iscrizioni, sezioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { parsePagination } from '../lib/pagination.js';
@@ -39,6 +39,33 @@ export const concorsiRoutes: FastifyPluginAsync = async (app) => {
       const rows = await tx.select().from(concorsi).where(eq(concorsi.id, id)).limit(1);
       if (rows.length === 0) return reply.notFound();
       return rows[0];
+    });
+  });
+
+  // Conteggi sintetici del concorso per badge/header del workspace admin: query
+  // aggregate dedicate invece di scaricare 5 liste intere lato client. Le count
+  // girano nella stessa transazione (RLS per-tenant) sequenzialmente — il pool
+  // pg espone UNA connessione per tx, quindi niente query concorrenti.
+  app.get('/concorsi/:id/summary', { preHandler: [requireAuth] }, async (req, reply) => {
+    const { id } = z.object({ id: uuid }).parse(req.params);
+    return req.dbTx(async (tx) => {
+      // Esistenza + isolamento tenant (RLS): concorso assente/altrui → 404.
+      const [exists] = await tx.select({ id: concorsi.id }).from(concorsi).where(eq(concorsi.id, id)).limit(1);
+      if (!exists) return reply.notFound();
+      const n = sql<number>`count(*)::int`;
+      const [cand]  = await tx.select({ n }).from(candidati).where(eq(candidati.concorsoId, id));
+      const [comm]  = await tx.select({ n }).from(commissari).where(eq(commissari.concorsoId, id));
+      const [commi] = await tx.select({ n }).from(commissioni).where(eq(commissioni.concorsoId, id));
+      const [fas]   = await tx.select({ n }).from(fasi).where(eq(fasi.concorsoId, id));
+      const [sez]   = await tx.select({ n }).from(sezioni).where(eq(sezioni.concorsoId, id));
+      return {
+        concorsoId: id,
+        candidati:   cand?.n ?? 0,
+        commissari:  comm?.n ?? 0,
+        commissioni: commi?.n ?? 0,
+        fasi:        fas?.n ?? 0,
+        sezioni:     sez?.n ?? 0,
+      };
     });
   });
 

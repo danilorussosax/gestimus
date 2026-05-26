@@ -627,7 +627,9 @@ export function RisultatiTab({ concorsoId }: RisultatiTabProps) {
     );
   }
 
-  const fasi = fasiQuery.data ?? [];
+  // Ordina per `ordine`: l'endpoint /fasi non garantisce un ordine stabile
+  // (nessun ORDER BY) → senza questo le card uscirebbero in ordine sparso.
+  const fasi = [...(fasiQuery.data ?? [])].sort((a, b) => (a.ordine ?? 0) - (b.ordine ?? 0));
   const candidati = candidatiQuery.data ?? [];
   const commissari: CommissarioRecord[] = commissariQuery.data ?? [];
   const commissioni: CommissioneRecord[] = commissioniQuery.data ?? [];

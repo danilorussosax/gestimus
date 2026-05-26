@@ -1,7 +1,7 @@
 # Manuale Amministratore — Gestimus
 
-> **Versione manuale**: 2.1
-> **Data**: 24 maggio 2026
+> **Versione manuale**: 2.2
+> **Data**: 26 maggio 2026
 > **Destinatari**: Amministratori di tenant Gestimus (conservatori, accademie, festival, enti che organizzano concorsi musicali).
 > **Lingua interfaccia**: italiano, inglese, francese, spagnolo (vedi cap. 14).
 > **Stack attuale**: Fastify 5 + PostgreSQL 18 + Drizzle ORM (migrato da PocketBase a maggio 2026).
@@ -21,6 +21,10 @@ Questo manuale spiega come configurare e condurre un concorso musicale completo 
 > - **2FA TOTP** self-service per ogni account (cap. 2.5).
 > - **Import CSV di sezioni e categorie** gerarchico (cap. 4.7).
 > - **Calendario / scheduling**: board drag-and-drop a due livelli + pagina pubblica (cap. 16).
+
+> **Novità v2.2** (26 maggio 2026):
+> - Screenshot rigenerati dal frontend **React** (Vite + Tailwind, BrowserRouter), che ha sostituito la vecchia SPA vanilla JS.
+> - Allineamento testo allo stack attuale: routing a path (`/admin`, `/iscrizione`…), stati iscrizione (`INVIATA`/`EMAIL_VERIFICATA`/`APPROVATA`/`RIFIUTATA`), i18n via react-i18next, riferimenti di codice aggiornati.
 
 ## Indice
 
@@ -56,7 +60,7 @@ Gestimus è un gestionale SaaS multitenant pensato per **concorsi musicali a fas
 
 ### 1.2 Ruoli
 
-Gestimus distingue tre ruoli nella collezione `accounts`:
+Gestimus distingue tre ruoli nella tabella `accounts`:
 
 - **`superadmin`** — amministratore della piattaforma SaaS (un livello sopra al tenant). Gestisce piani, scadenze, creazione tenant. Non è normalmente operativo nel singolo concorso.
 - **`admin`** — amministratore di tenant. È il destinatario di questo manuale: configura concorsi, sezioni, commissioni, fasi, iscrizioni, esporta verbali.
@@ -66,7 +70,7 @@ Gestimus distingue tre ruoli nella collezione `accounts`:
 
 ### 1.3 Architettura semplificata
 
-- **Frontend**: applicazione web vanilla JS, SPA con hash-routing (`#/`, `#/admin`, `#/commissario`, `#/iscrizione`). Service worker per PWA e fallback offline; aggiornamenti realtime via Server-Sent Events.
+- **Frontend**: SPA React 19 (Vite + Tailwind), routing a path con BrowserRouter (`/`, `/admin`, `/commissario`, `/iscrizione`), servita da Fastify da `frontend/dist`. Service worker per PWA e fallback offline; aggiornamenti realtime via Server-Sent Events.
 - **Backend**: singolo processo Node.js 22 + Fastify 5 + Drizzle ORM su PostgreSQL 18. Integrità garantita da middleware (`assertCanManageFase`, `requireAdmin`), trigger DB (`clamp_voto`, freeze fase CONCLUSA) e validazione Zod sulle route REST.
 - **Multitenant**: un solo processo Node + un solo database Postgres condiviso, con isolamento per `tenant_id` via Row-Level Security. Provisioning/sospensione/archiviazione dei tenant interamente dalla UI super-admin (vedi `docs/MIGRATION_POSTGRES.md` per i dettagli).
 
@@ -103,7 +107,7 @@ Per creare un nuovo utente cliccare *Aggiungi utente* in alto a destra. Il siste
 
 ### 2.3 Reset password — come funziona
 
-Il reset password **non passa per email**: la collezione `accounts` è gestita dall'admin del tenant, che imposta direttamente la nuova password. Operazione registrata nell'audit (`account.password_reset`).
+Il reset password **non passa per email**: la tabella `accounts` è gestita dall'admin del tenant, che imposta direttamente la nuova password. Operazione registrata nell'audit (`account.password_reset`).
 
 > **Avvertenza**: il reset password eseguito dall'admin aggiorna direttamente l'hash Argon2id sul record `accounts`, senza richiedere la password precedente. Operazione registrata in audit con `account.password_reset` (e `account.password_reset_failed` in caso di errore DB).
 
@@ -145,7 +149,7 @@ Quando l'admin accede e non c'è un concorso attivo selezionato, compare il **se
 - **Modifica** (icona matita) apre la modale per cambiare nome/anno/stato/logo/anonimato/iscrizioni.
 - **Elimina** (icona cestino) cancella il concorso e tutti i dati collegati in cascata (fasi, candidati, commissari, sezioni, commissioni, valutazioni). Operazione confermata e registrata nell'audit.
 
-> **Cambio concorso**: dalla sidebar admin, in basso, il pulsante *Cambia concorso* torna al selettore senza eliminare nulla. Il concorso attivo è persistito in localStorage (`gestionale_meta_v2.activeConcorsoId`).
+> **Cambio concorso**: dalla sidebar admin, in basso, il pulsante *Cambia concorso* torna al selettore senza eliminare nulla. Il concorso attivo è persistito in localStorage (`gestimus_active_concorso`) e nel parametro URL `?c=<id>`.
 
 ### 3.2 Wizard "Nuovo concorso"
 
@@ -184,7 +188,7 @@ Se il logo del concorso manca, viene usato `./logo.png` (logo applicativo). L'an
 
 Nella modale di modifica concorso, in fondo, c'è il blocco *Iscrizioni pubbliche*:
 
-- **Accetta iscrizioni dal frontend pubblico** — toggle che apre/chiude il form `#/iscrizione`;
+- **Accetta iscrizioni dal frontend pubblico** — toggle che apre/chiude il form `/iscrizione`;
 - **Data/ora di chiusura iscrizioni** — opzionale. Oltre quella scadenza il form chiude automaticamente, anche se il flag è ancora attivo.
 
 Vedi cap. 8 per il dettaglio del flusso iscrizioni.
@@ -312,7 +316,7 @@ Il campo `stato` dei commissari accetta `ATTIVO` o `INATTIVO`. Un commissario in
 
 ### 5.4 Archivio commissari globale (fingerprint)
 
-Sotto la lista dei commissari del concorso compare l'archivio: una vista **deduplicata** dei commissari su **tutti i concorsi del tenant**. La deduplicazione usa il *fingerprint* definito in `db.js`:
+Sotto la lista dei commissari del concorso compare l'archivio: una vista **deduplicata** dei commissari su **tutti i concorsi del tenant**. La deduplicazione usa un *fingerprint* calcolato lato app:
 
 - **Email coincidente** → considerati la stessa persona (`e:lower(email)`).
 - **Email assente** → match su nome + cognome + specialità normalizzati (`n:nome|cognome|specialita`).
@@ -438,7 +442,7 @@ Il form *Modifica fase* è strutturato in cinque sezioni numerate:
 
 1. **Generale** — nome, data prevista.
 2. **Modalità di esecuzione** — tre card numeriche (scala di voto, tempo per candidato, posti per la fase successiva) con chip preset cliccabili, più due card di scelta tra **autonoma** e **sincrona**.
-3. **Metodo di calcolo della media** — sei card che illustrano i metodi disponibili (vedi 7.6), con il consigliato evidenziato in verde.
+3. **Metodo di calcolo della media** — cinque card che illustrano i metodi disponibili (vedi 7.11), con il consigliato evidenziato in verde.
 4. **Criteri di valutazione** — lista modificabile di criteri (nome + peso %) con totale live in alto a destra.
 5. **Restrizione e assegnazione** — chip per le sezioni di scope + dropdown per la commissione assegnata.
 
@@ -498,7 +502,7 @@ Il drift è informativo, non bloccante: ti permette di vedere a colpo d'occhio d
 
 Supponiamo un concorso con sezioni *Fiati* e *Archi*, e per ognuna vuoi tre fasi (eliminatoria/semifinale/finale). Crei due card-gruppo con il wizard, una per sezione. Il sistema le numera con `ordine` globale (es. 1–3 per Fiati, 4–6 per Archi).
 
-A runtime, `findPreviousFaseInChain(fase)` (in `db.js`) risolve la "fase precedente" così:
+A runtime, la logica di catena (lato app) risolve la "fase precedente" così:
 
 - se la fase è **globale** (scope vuoto), considera precedente qualunque fase di ordine inferiore;
 - se la fase è **ristretta a sezione X**, considera precedente solo le fasi globali **oppure** quelle che condividono almeno una sezione con X.
@@ -561,7 +565,7 @@ Se ci sono blocchi (✗) il pulsante *Avvia* è disabilitato con tooltip esplica
 
 ### 7.11 Metodi di calcolo media
 
-I metodi disponibili (`METODI_MEDIA` in `scoring.js`) e il loro consigliato in base al numero di commissari (`suggerisciMetodo`):
+I metodi disponibili (`METODI_MEDIA` in `frontend/src/lib/scoring.ts`) e il loro consigliato in base al numero di commissari (`suggerisciMetodo`):
 
 | Metodo | Quando si applica | Pro | Contro |
 | --- | --- | --- | --- |
@@ -645,13 +649,12 @@ Quando due o più candidati ottengono la **stessa media aggregata**, il sistema 
 
 **Quando si applica**
 
-La cascata viene eseguita **al congelamento della fase** (cioè quando il Presidente clicca *Concludi fase*). Il sistema:
+La cascata è calcolata dall'app (`rankWithTieBreak` in `frontend/src/lib/tiebreak.ts`) quando si visualizzano i **Risultati** e si genera il **verbale** di una fase conclusa. Il sistema:
 
 1. Calcola le medie aggregate.
 2. Raggruppa i candidati con la stessa media.
 3. Applica la cascata sotto-gruppo per sotto-gruppo.
-4. Scrive su ogni `candidati_fase` i campi `posizione_finale`, `tiebreak_log` (catena di motivazioni), `ex_aequo_group` (id condiviso tra i candidati in ex aequo).
-5. Registra `tiebreak.applied` nell'audit log se almeno uno spareggio è stato applicato.
+4. Produce per ogni candidato la **posizione finale**, la **catena di motivazioni** dello spareggio e l'eventuale **gruppo ex aequo**. Questi valori sono calcolati al volo (non sono colonne persistite su `candidati_fase`), così restano coerenti con i voti correnti.
 
 **Trasparenza nei risultati**
 
@@ -680,19 +683,19 @@ I tag dinamici `<spareggi>` (livello concorso) e `<fase_spareggi>` (livello fase
 
 La tab elenca tutte le iscrizioni ricevute via form pubblico, con pillole-filtro per stato:
 
-- **Tutte**, **In attesa** (pending), **Email verificata** (email_verified), **Approvate** (approved), **Rifiutate** (rejected).
+- **Tutte**, **In attesa** (`INVIATA`), **Email verificata** (`EMAIL_VERIFICATA`), **Approvate** (`APPROVATA`), **Rifiutate** (`RIFIUTATA`).
 
 Pulsanti in alto a destra:
 
-- *Form pubblico* (apre `#/iscrizione` in nuova scheda);
-- *Aggiorna* (ricarica via PB);
+- *Form pubblico* (apre `/iscrizione` in nuova scheda);
+- *Aggiorna* (ricarica i dati);
 - *Esporta CSV* (scarica le iscrizioni filtrate).
 
 ### 8.2 Form pubblico
 
 ![Form iscrizione pubblico](./screenshots/17-iscrizione-form-pubblico.png)
 
-Il candidato accede a `/#/iscrizione` (link visibile in fondo alla pagina di login). Il form è single-page e raccoglie *(v2.0: schema esteso)*:
+Il candidato accede a `/iscrizione` (link visibile in fondo alla pagina di login). Il form è single-page e raccoglie *(v2.0: schema esteso)*:
 
 - **Dati anagrafici**: nome, cognome, sesso, data nascita, luogo di nascita, codice fiscale, nazionalità;
 - **Contatti**: email, telefono, indirizzo, città, CAP, provincia, paese;
@@ -716,10 +719,11 @@ Il form ha protezioni anti-bot stateless:
 Stati possibili (`iscrizioni.stato`):
 
 ```
-pending          → appena inviata, manca conferma email
-email_verified   → il candidato ha cliccato il link nella mail di benvenuto
-approved         → l'admin l'ha approvata, è stato creato il record candidato
-rejected         → l'admin l'ha rifiutata (con motivo facoltativo)
+BOZZA            → form aperto ma non ancora inviato (raramente visibile)
+INVIATA          → inviata dal candidato, manca la conferma email
+EMAIL_VERIFICATA → il candidato ha cliccato il link nella mail di benvenuto
+APPROVATA        → l'admin l'ha approvata, è stato creato il record candidato
+RIFIUTATA        → l'admin l'ha rifiutata (con motivo facoltativo)
 ```
 
 Per ogni iscrizione l'admin può:
@@ -730,16 +734,16 @@ Per ogni iscrizione l'admin può:
 
 La route `POST /api/public/iscrizioni` (`server/src/routes/iscrizioni.ts`) gestisce automaticamente:
 
-- forza `stato='pending'` in creazione (ignora valori inviati dal client);
-- rigenera `token_verifica` con 40 caratteri crittografici;
-- verifica concorso ATTIVO + iscrizioni_aperte + non scaduto;
-- esige tutore_* per minori di 16 anni;
+- forza `stato='INVIATA'` in creazione (ignora valori inviati dal client);
+- genera `emailVerificationToken` server-side (token crittografico);
+- verifica concorso ATTIVO + iscrizioni aperte + non scaduto;
+- esige `tutore` per minori di 16 anni;
 - invia email di benvenuto con link di verifica;
-- alla transizione `approved` senza `candidato` legato, crea il record `candidati` e collega.
+- alla transizione `APPROVATA` senza `candidato` legato, crea il record `candidati` e collega.
 
 ### 8.4 Privacy
 
-L'informativa è accessibile a `#/privacy` ed è linkata dal form (badge GDPR verde "Conforme GDPR · Regolamento UE 2016/679"). Il modulo descrive:
+L'informativa è accessibile a `/privacy` ed è linkata dal form (badge GDPR verde "Conforme GDPR · Regolamento UE 2016/679"). Il modulo descrive:
 
 - finalità del trattamento (gestione iscrizione, valutazione, premiazione);
 - base giuridica (consenso + esecuzione contratto + obbligo legale);
@@ -983,7 +987,7 @@ La tab *Impostazioni concorso* (sotto la sidebar del concorso, non delle Imposta
 1. Prima conferma generica con counts (X candidati, Y fasi, Z commissari verranno cancellati).
 2. Modal di **type-to-delete** in stile GitHub: devi digitare il nome esatto del concorso per sbloccare il bottone "Elimina definitivamente". L'operazione è transazionale e irreversibile.
 
-### 12.6 Piano SaaS
+### 12.7 Piano SaaS
 
 Il piano è impostato dal superadmin di piattaforma (non dall'admin di tenant). L'admin lo vede tramite il record singleton `tenant_config` che contiene:
 
@@ -1000,7 +1004,7 @@ Le quote sono **applicate server-side**:
 
 I messaggi di errore sono espliciti: "Limite del piano raggiunto: 50/50 iscritti..." / "Piano scaduto il 15/03/2026...".
 
-### 12.7 SMTP *(v2.0)*
+### 12.8 SMTP *(v2.0)*
 
 La configurazione SMTP è **per-tenant** (ogni ente può usare il proprio provider, es. SendGrid, Mailgun, server SMTP del conservatorio). Sezione gestita dal **super-admin** della piattaforma, non dall'admin di tenant: chi gestisce il provisioning vede tutti gli enti nella tab "Gestione Enti" del super-admin e configura per ognuno host/porta/user/password/from.
 
@@ -1049,10 +1053,9 @@ Gestimus supporta **italiano** (default), **inglese**, **francese**, **spagnolo*
 
 Cliccando il selettore si apre un menu con le quattro lingue. La scelta è persistita in `localStorage` (`gc_lang`) e applicata immediatamente:
 
-- ricarica tutte le stringhe statiche marcate `data-i18n`;
-- emette un evento `langchange` che fa re-renderizzare le viste dinamiche.
+- aggiorna tutte le stringhe tramite react-i18next (hook `useTranslation`), senza ricaricare la pagina.
 
-Le traduzioni sono in `js/i18n.js` come dizionari per chiave (`SUPPORTED_LANGS = ['it','en','fr','es']`). Il fallback per chiavi mancanti è: lingua corrente → italiano → chiave letterale.
+Le traduzioni sono dizionari per chiave in `frontend/src/i18n/locales/*.json` (lingue `it`, `en`, `fr`, `es`). Il fallback per chiavi mancanti è: lingua corrente → italiano → chiave letterale.
 
 > **Nota**: i contenuti **creati dall'admin** (nomi di sezioni, categorie, fasi, commissari, template verbali) non vengono tradotti: sono testo libero. Se servi un pubblico multilingue, usa nomi neutri (es. "Junior" anziché "Giovani").
 
@@ -1079,9 +1082,9 @@ Anti **privilege escalation**: i campi sensibili (`role`, `attivo`, `commissario
 
 ### 15.4 Iscrizioni (`server/src/routes/iscrizioni.ts`)
 
-- forza `stato='pending'` in creazione (ignora valori inviati);
-- rigenera `token_verifica` server-side con `crypto.randomBytes(20).toString('hex')`;
-- azzera campi gestiti solo dall'admin (`approved_*`, `candidato`, `verified_at`, `note_admin`);
+- forza `stato='INVIATA'` in creazione (ignora valori inviati);
+- genera `emailVerificationToken` server-side con `crypto.randomBytes`;
+- azzera i campi gestiti solo dall'admin (`approvataAt`, `candidatoId`, `emailVerifiedAt`, `note`);
 - verifica consensi GDPR obbligatori === true;
 - verifica che il concorso sia ATTIVO + iscrizioni aperte + non scaduto;
 - esige tutore_* per minori di 16 anni;

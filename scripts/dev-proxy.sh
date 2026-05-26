@@ -40,6 +40,13 @@ PREFIX="${REPO_ROOT}/.devproxy"     # pid/log/temp/conf nginx (gitignored)
 CONF="${PREFIX}/nginx.conf"
 PIDFILE="${PREFIX}/nginx.pid"
 
+# Worker nginx come utente reale (non 'nobody'): serve file sotto la home,
+# es. il portfolio. Default = owner del repo (regge anche sotto sudo).
+SITE_USER="${SITE_USER:-$(stat -f '%Su' "${REPO_ROOT}")}"
+SITE_GROUP="${SITE_GROUP:-$(stat -f '%Sg' "${REPO_ROOT}")}"
+# NB: config del portfolio (ICAL_URL, immagini, ecc.) ora in
+# portfolio-sassofonista/frontend/inc/config.local.php — non più via fastcgi_param qui.
+
 # --- Output ------------------------------------------------------------------
 err() { print -P "%F{red}✗%f $*" >&2; }
 ok()  { print -P "%F{green}✓%f $*"; }
@@ -134,11 +141,16 @@ gen_conf() {
   mkdir -p "${PREFIX}/temp"
   cat > "${CONF}" <<EOF
 # GENERATO da scripts/dev-proxy.sh — non modificare a mano.
+# master root (bind :80) → worker come ${SITE_USER}: legge i file del portfolio
+# sotto la home (non attraversabile da 'nobody').
+user ${SITE_USER} ${SITE_GROUP};
 worker_processes 1;
 pid ${PIDFILE};
 error_log ${PREFIX}/error.log warn;
 events { worker_connections 256; }
 http {
+  include /opt/homebrew/etc/nginx/mime.types;
+  default_type application/octet-stream;
   access_log ${PREFIX}/access.log;
   client_body_temp_path ${PREFIX}/temp/client_body;
   proxy_temp_path ${PREFIX}/temp/proxy;
@@ -174,6 +186,43 @@ http {
       proxy_http_version 1.1;
       proxy_set_header Upgrade \$http_upgrade;
       proxy_set_header Connection \$connection_upgrade;
+    }
+  }
+
+  # ---------------------------------------------------------------------------
+  # Portfolio Danilo Russo (PHP server-rendered) → http://danilorusso.local/
+  # Stesso nginx, vhost separato. danilorusso.local NON è sotto il wildcard
+  # *.${BASE_DOMAIN}, quindi va risolto via /etc/hosts (dnsmasq non lo copre).
+  # Richiede PHP-FPM in ascolto su 127.0.0.1:9000.
+  # ---------------------------------------------------------------------------
+  server {
+    listen ${LISTEN_PORT};
+    server_name danilorusso.local;
+    root /Users/danilorusso/Desktop/WEBAPP/portfolio-sassofonista/frontend;
+    index index.php index.html;
+    charset utf-8;
+
+    # immagini servite da content/images (fuori dal docroot)
+    location /images/ {
+      alias /Users/danilorusso/Desktop/WEBAPP/portfolio-sassofonista/content/images/;
+      access_log off;
+      expires 30d;
+    }
+
+    # blocca accesso diretto agli include PHP
+    location ^~ /inc/ { deny all; return 404; }
+
+    location / {
+      try_files \$uri \$uri/ /index.php?\$query_string;
+    }
+
+    location ~ \.php\$ {
+      try_files \$uri =404;
+      fastcgi_pass 127.0.0.1:9000;
+      fastcgi_index index.php;
+      fastcgi_param SCRIPT_FILENAME \$document_root\$fastcgi_script_name;
+      fastcgi_param HTTP_AUTHORIZATION \$http_authorization;
+      include /opt/homebrew/etc/nginx/fastcgi_params;
     }
   }
 }
