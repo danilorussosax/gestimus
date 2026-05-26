@@ -441,7 +441,11 @@ export const commissioniCommissari = pgTable(
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
   },
-  (t) => [primaryKey({ columns: [t.commissioneId, t.commissarioId] })],
+  (t) => [
+    primaryKey({ columns: [t.commissioneId, t.commissarioId] }),
+    // Reverse lookup: cascade DELETE su commissario filtra solo commissario_id.
+    index('idx_commissioni_commissari_commissario').on(t.commissarioId),
+  ],
 );
 
 export const commissioniSezioni = pgTable(
@@ -457,7 +461,11 @@ export const commissioniSezioni = pgTable(
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
   },
-  (t) => [primaryKey({ columns: [t.commissioneId, t.sezioneId] })],
+  (t) => [
+    primaryKey({ columns: [t.commissioneId, t.sezioneId] }),
+    // Reverse lookup: cascade DELETE su sezione filtra solo sezione_id.
+    index('idx_commissioni_sezioni_sezione').on(t.sezioneId),
+  ],
 );
 
 export const commissioniCategorie = pgTable(
@@ -473,7 +481,11 @@ export const commissioniCategorie = pgTable(
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
   },
-  (t) => [primaryKey({ columns: [t.commissioneId, t.categoriaId] })],
+  (t) => [
+    primaryKey({ columns: [t.commissioneId, t.categoriaId] }),
+    // Reverse lookup: cascade DELETE su categoria filtra solo categoria_id.
+    index('idx_commissioni_categorie_categoria').on(t.categoriaId),
+  ],
 );
 
 export const fasi = pgTable(
@@ -536,7 +548,12 @@ export const fasiSezioni = pgTable(
       .notNull()
       .references(() => tenants.id, { onDelete: 'cascade' }),
   },
-  (t) => [primaryKey({ columns: [t.faseId, t.sezioneId] })],
+  (t) => [
+    primaryKey({ columns: [t.faseId, t.sezioneId] }),
+    // Reverse lookup: pre-check DELETE sezione (routes/sezioni.ts) e cascade
+    // DELETE su sezione filtrano solo sezione_id.
+    index('idx_fasi_sezioni_sezione').on(t.sezioneId),
+  ],
 );
 
 export const criteri = pgTable(
