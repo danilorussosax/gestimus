@@ -987,7 +987,6 @@ function ScoringSheet({
   allCfs,
   candidati,
   valutazioni,
-  commissioni,
   onSaved,
   onReset,
   scoring,

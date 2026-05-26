@@ -33,7 +33,7 @@
 // =============================================================================
 
 import { useState, useRef, useMemo } from 'react';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 
 import { fileUrl, httpErrorMessage } from '@/lib/api';
@@ -429,7 +429,7 @@ function CommissarioFormDialog({ concorsoId, existing, onClose }: FormDialogProp
       const patch: AccountUpdate = { attivo: !linkedAccount.attivo };
       await accountsApi.update(linkedAccount.id, patch);
       toast.success(linkedAccount.attivo ? 'Account disabilitato' : 'Account riattivato');
-      refreshAccounts();
+      void refreshAccounts();
     } catch (e) {
       toast.error(`Errore: ${httpErrorMessage(e)}`);
     }
@@ -446,14 +446,14 @@ function CommissarioFormDialog({ concorsoId, existing, onClose }: FormDialogProp
     try {
       await accountsApi.remove(linkedAccount.id);
       toast.success('Account eliminato');
-      refreshAccounts();
+      void refreshAccounts();
     } catch (e) {
       toast.error(`Errore: ${httpErrorMessage(e)}`);
     }
   };
 
   // ----- Submit (port di onPrimary) -----
-  const onSubmit = async (e: React.FormEvent) => {
+  const onSubmit = async (e: React.SyntheticEvent) => {
     e.preventDefault();
     const baseFields = {
       nome: nome.trim(),
@@ -525,7 +525,7 @@ function CommissarioFormDialog({ concorsoId, existing, onClose }: FormDialogProp
         } else if (fotoRemoved && existing?.foto) {
           try {
             await commissariApi.deleteFoto(savedId);
-            qc.invalidateQueries({ queryKey: ['commissari', concorsoId] });
+            void qc.invalidateQueries({ queryKey: ['commissari', concorsoId] });
           } catch {
             /* la rimozione foto non è bloccante */
           }
@@ -543,7 +543,7 @@ function CommissarioFormDialog({ concorsoId, existing, onClose }: FormDialogProp
             attivo: true,
           };
           await accountsApi.create(body);
-          refreshAccounts();
+          void refreshAccounts();
           setCred({
             email: createAccEmail,
             password: createAccPassword,

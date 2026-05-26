@@ -32,10 +32,9 @@ import {
   Trash2,
   Trophy,
   Undo2,
-  Users,
   X,
 } from 'lucide-react';
-import { http, httpErrorMessage } from '@/lib/api';
+import { httpErrorMessage } from '@/lib/api';
 import {
   platformApi,
   type Tenant,

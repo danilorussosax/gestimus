@@ -851,8 +851,8 @@ export default function SezioniTab({ concorsoId }: { concorsoId: string }) {
         open={importCsvOpen}
         onOpenChange={setImportCsvOpen}
         onDone={() => {
-          qc.invalidateQueries({ queryKey: ['sezioni', concorsoId] });
-          qc.invalidateQueries({ queryKey: ['categorie'] });
+          void qc.invalidateQueries({ queryKey: ['sezioni', concorsoId] });
+          void qc.invalidateQueries({ queryKey: ['categorie'] });
         }}
       />
     </div>

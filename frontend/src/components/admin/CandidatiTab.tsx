@@ -413,7 +413,7 @@ function CandidatoFormDialog({
     setMembri((prev) => prev.filter((_, i) => i !== idx));
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.SyntheticEvent) => {
     e.preventDefault();
     const docentiLines = docenti
       .split('\n')
@@ -1302,7 +1302,7 @@ function StoricoModal({ open, candidato, onClose }: StoricoModalProps) {
     let alive = true;
     setLoading(true);
     setRows([]);
-    (async () => {
+    void (async () => {
       try {
         const all = await candidatiApi.listAll();
         const key = `${norm(candidato.nome)}|${norm(candidato.cognome)}`;
@@ -1692,7 +1692,7 @@ export function CandidatiTab({ concorsoId }: { concorsoId: string }) {
       return;
     }
     let alive = true;
-    Promise.all(
+    void Promise.all(
       groupIds.map(async (id) => {
         try {
           const rows = await candidatiApi.membri(id);

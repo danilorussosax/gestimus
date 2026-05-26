@@ -16,7 +16,7 @@
 // brand/ink palette, design-system classes, card numerate).
 // =============================================================================
 
-import { useState, useEffect, useCallback, useMemo, type ReactNode, type FormEvent } from 'react';
+import { useState, useEffect, useCallback, useMemo, type ReactNode, type SyntheticEvent } from 'react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -60,7 +60,6 @@ import {
 import { useSezioni, type SezioneRecord } from '@/api/sezioni';
 import { useCommissioni, type CommissioneRecord } from '@/api/commissioni';
 import { useCommissari } from '@/api/commissari';
-import type { FaseStato } from '@/types';
 import {
   METODI_MEDIA,
   suggerisciMetodo,
@@ -306,7 +305,7 @@ function FaseFormDialog({
   };
 
   // ── Submit ─────────────────────────────────────────────────────────────────
-  const onSubmit = async (e: FormEvent) => {
+  const onSubmit = async (e: SyntheticEvent) => {
     e.preventDefault();
     const nome = values.nome.trim();
     if (!nome) {
@@ -1504,7 +1503,7 @@ function FaseWizardDialog({
   const removeCriterio = (idx: number) =>
     setCriteri((p) => (p.length > 1 ? p.filter((_, i) => i !== idx) : p));
 
-  const onSubmit = async (e: FormEvent) => {
+  const onSubmit = async (e: SyntheticEvent) => {
     e.preventDefault();
     const cleanItems = items
       .map((it) => ({ nome: it.nome.trim(), ammessi: it.ammessi }))
@@ -1965,7 +1964,7 @@ function SharedFieldsDialog({
 
   const toggle = (key: string) => setToggles((p) => ({ ...p, [key]: !p[key] }));
 
-  const onSubmit = async (e: FormEvent) => {
+  const onSubmit = async (e: SyntheticEvent) => {
     e.preventDefault();
     const patch: UpdateFaseBody = {};
     if (toggles.commissioneId) patch.commissioneId = commValue || null;
