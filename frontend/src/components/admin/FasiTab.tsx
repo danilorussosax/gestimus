@@ -1946,7 +1946,7 @@ function SharedFieldsDialog({
             setCriteri(rows.map((r) => ({ label: r.nome, key: '', peso: Number(r.peso) || 0 })));
           }
         })
-        .catch(() => {})
+        .catch(() => { /* caricamento criteri non bloccante */ })
         .finally(() => setCriteriLoading(false));
     }
     // Solo `open`: il reset dei criteri deve avvenire all'apertura del dialog.
@@ -2280,7 +2280,7 @@ export function FasiTab({ concorsoId }: { concorsoId: string }) {
     title: '',
     description: '',
     loading: false,
-    onConfirm: async () => {},
+    onConfirm: async () => { /* placeholder, sovrascritto all'apertura */ },
   });
 
   const openConfirm = useCallback(

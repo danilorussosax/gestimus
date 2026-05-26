@@ -1032,7 +1032,7 @@ export function CalendarioTab({ concorsoId }: CalendarioTabProps) {
   const [draggingBlockId, setDraggingBlockId] = useState<string | null>(null);
   const [draggingSlot, setDraggingSlot] = useState<{ cfId: string; eventoId: string } | null>(null);
   const [confirmState, setConfirmState] = useState<ConfirmState>({
-    open: false, title: '', message: '', onConfirm: () => {},
+    open: false, title: '', message: '', onConfirm: () => { /* placeholder */ },
   });
   const closeConfirm = () => setConfirmState((s) => ({ ...s, open: false }));
 
