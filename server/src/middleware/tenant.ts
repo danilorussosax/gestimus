@@ -208,7 +208,11 @@ export async function registerTenantMiddleware(app: FastifyInstance): Promise<vo
     }
 
     if (found.stato !== 'attivo') {
-      reply.code(403).send({ error: `tenant '${subdomain}' non attivo (${found.stato})` });
+      // #7: NON esporre lo stato esatto (sospeso/archiviato) a un chiamante non
+      // autenticato — era un leak che permetteva di profilare i tenant per stato.
+      // Restiamo su 403 (un tenant legittimo sospeso vede "non disponibile",
+      // distinto dal 404 di slug inesistente) ma senza rivelare il perché.
+      reply.code(403).send({ error: 'tenant non disponibile' });
       return reply;
     }
 

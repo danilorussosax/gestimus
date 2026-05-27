@@ -64,17 +64,32 @@ type PlatformAuditRow = {
   userAgent: string | null;
 };
 
-export function computeAuditLogSig(r: AuditLogRow): string {
-  return hmac([
+// #8: createdAt come ISO-8601 stabile per la firma. Una stringa già ISO viene
+// normalizzata via Date per evitare divergenze tra scrittura e rilettura DB.
+function toIsoOrNull(d: Date | string | null | undefined): string | null {
+  if (d == null) return null;
+  return d instanceof Date ? d.toISOString() : new Date(d).toISOString();
+}
+
+// #8: la firma include `createdAt` (v2) quando fornito. Senza createdAt la firma
+// è "legacy v1" — un DBA poteva retrodatare/postdatare una riga senza invalidare
+// l'HMAC, perché il timestamp non era coperto. Le righe nuove firmano sempre v2;
+// verifyAuditIntegrity accetta v2 e, in fallback, v1 (righe pre-fix).
+export function computeAuditLogSig(r: AuditLogRow, createdAt?: Date | string | null): string {
+  const fields: unknown[] = [
     r.tenantId ?? null, r.actorAccountId ?? null, r.action, r.targetType ?? null,
     r.targetId ?? null, r.payload ?? null, r.ip ?? null, r.userAgent ?? null,
-  ]);
+  ];
+  if (createdAt != null) fields.push(toIsoOrNull(createdAt));
+  return hmac(fields);
 }
-export function computePlatformAuditSig(r: PlatformAuditRow): string {
-  return hmac([
+export function computePlatformAuditSig(r: PlatformAuditRow, createdAt?: Date | string | null): string {
+  const fields: unknown[] = [
     r.actorAccountId ?? null, r.action, r.targetTenantSlug ?? null,
     r.targetTenantId ?? null, r.payload ?? null, r.ip ?? null, r.userAgent ?? null,
-  ]);
+  ];
+  if (createdAt != null) fields.push(toIsoOrNull(createdAt));
+  return hmac(fields);
 }
 
 /**
@@ -105,7 +120,10 @@ export async function writeAudit(
     ip: clientIp(req) ?? null,
     userAgent: sanitizeHeader(req.headers['user-agent'] as string | undefined) ?? null,
   };
-  await tx.insert(auditLog).values({ ...values, sig: computeAuditLogSig(values) });
+  // #8: createdAt impostato esplicitamente (non default DB) così possiamo
+  // firmarlo con lo STESSO valore che finisce nella riga.
+  const createdAt = new Date();
+  await tx.insert(auditLog).values({ ...values, createdAt, sig: computeAuditLogSig(values, createdAt) });
 }
 
 /**
@@ -131,7 +149,8 @@ export async function writePlatformAudit(
     ip: clientIp(req) ?? null,
     userAgent: sanitizeHeader(req.headers['user-agent'] as string | undefined) ?? null,
   };
-  await dbSuper.insert(platformAuditLog).values({ ...values, sig: computePlatformAuditSig(values) });
+  const createdAt = new Date(); // #8: firmato con la riga (vedi writeAudit)
+  await dbSuper.insert(platformAuditLog).values({ ...values, createdAt, sig: computePlatformAuditSig(values, createdAt) });
 }
 
 export type AuditIntegrityReport = {
@@ -167,8 +186,12 @@ export async function verifyAuditIntegrity(tenantId?: string): Promise<AuditInte
         continue;
       }
       report.checked += 1;
-      const expected = computeAuditLogSig(r as AuditLogRow);
-      if (expected !== r.sig) report.tampered.push({ id: r.id, action: r.action });
+      // #8: accetta la firma v2 (createdAt incluso); fallback alla v1 legacy per
+      // le righe firmate prima del fix (createdAt non coperto). Tampered solo se
+      // nessuna delle due combacia.
+      const v2 = computeAuditLogSig(r as AuditLogRow, r.createdAt);
+      const v1 = computeAuditLogSig(r as AuditLogRow);
+      if (r.sig !== v2 && r.sig !== v1) report.tampered.push({ id: r.id, action: r.action });
     }
     cursor = rows[rows.length - 1]!.id;
     if (rows.length < CHUNK) break;

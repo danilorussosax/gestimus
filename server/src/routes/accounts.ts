@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { and, count, eq, ne } from 'drizzle-orm';
+import { and, count, eq, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { parsePagination } from '../lib/pagination.js';
 import { accounts, commissari } from '../db/schema.js';
@@ -168,8 +168,15 @@ export const accountsRoutes: FastifyPluginAsync = async (app) => {
       const demoting = parsed.data.role && parsed.data.role !== 'admin';
       const disabling = parsed.data.attivo === false;
       if (demoting || disabling) {
+        // #4 (TOCTOU): advisory lock transazionale per-tenant → serializza TUTTE
+        // le demozioni/disattivazioni/cancellazioni di admin del tenant. Prima il
+        // check "ultimo admin" leggeva senza lock: due richieste concorrenti che
+        // degradavano gli ultimi due admin potevano passare entrambe (count letto
+        // prima di entrambe le scritture) → tenant senza admin. Con il lock la
+        // seconda attende il commit della prima e vede il conteggio aggiornato.
+        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended('admin_guard:' || ${req.tenant!.id}::text, 0))`);
         const target = await tx.select({ role: accounts.role, attivo: accounts.attivo })
-          .from(accounts).where(eq(accounts.id, id)).limit(1);
+          .from(accounts).where(eq(accounts.id, id)).limit(1).for('update');
         const isActiveAdmin = target[0]?.role === 'admin' && target[0]?.attivo === true;
         if (isActiveAdmin && (await otherActiveAdminsCount(tx, id)) === 0) {
           return reply.code(409).send({ error: 'non puoi rimuovere l\'ultimo admin attivo del tenant' });
@@ -223,9 +230,11 @@ export const accountsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(403).send({ error: 'non puoi cancellare il tuo stesso account' });
     }
     return req.dbTx(async (tx) => {
-      // L16: blocca la cancellazione dell'ultimo admin attivo del tenant.
+      // L16 + #4 (TOCTOU): stesso advisory lock per-tenant del PATCH → serializza
+      // la cancellazione dell'ultimo admin con le altre mutazioni admin.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended('admin_guard:' || ${req.tenant!.id}::text, 0))`);
       const target = await tx.select({ role: accounts.role, attivo: accounts.attivo })
-        .from(accounts).where(eq(accounts.id, id)).limit(1);
+        .from(accounts).where(eq(accounts.id, id)).limit(1).for('update');
       if (target[0]?.role === 'admin' && target[0]?.attivo === true
         && (await otherActiveAdminsCount(tx, id)) === 0) {
         return reply.code(409).send({ error: 'non puoi cancellare l\'ultimo admin attivo del tenant' });

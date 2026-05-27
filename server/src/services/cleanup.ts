@@ -1,4 +1,6 @@
 import { and, eq, isNotNull, lt, lte, sql } from 'drizzle-orm';
+import { rm } from 'node:fs/promises';
+import { resolve } from 'node:path';
 import { dbSuper, connectDirectClient } from '../db/client.js';
 import { iscrizioni, platformAuditLog, tenants } from '../db/schema.js';
 import { backupTenant, pruneOldBackups } from './backup.js';
@@ -113,10 +115,18 @@ export async function runTenantCleanup(): Promise<CleanupResult> {
             ip: null,
             userAgent: null,
           };
-          await tx.insert(platformAuditLog).values({ ...auditRow, sig: computePlatformAuditSig(auditRow) });
+          const createdAt = new Date(); // #8: firmato con la riga
+          await tx.insert(platformAuditLog).values({ ...auditRow, createdAt, sig: computePlatformAuditSig(auditRow, createdAt) });
           await tx.delete(tenants).where(eq(tenants.id, t.id));
         });
         result.deleted += 1;
+        // #10: elimina i file caricati del tenant (uploads/<slug>/). Il CASCADE
+        // del DELETE pulisce solo il database; senza questo la directory resta
+        // orfana sul disco all'infinito. Best-effort (force) DOPO il commit DB:
+        // un fallimento del filesystem non deve far ripartire il backup/delete.
+        await rm(resolve(env.UPLOADS_DIR, t.slug), { recursive: true, force: true }).catch((err) => {
+          result.errors.push({ tenantId: t.id, slug: t.slug, error: `uploads rm: ${err instanceof Error ? err.message : String(err)}` });
+        });
       } catch (err) {
         result.errors.push({
           tenantId: t.id,
