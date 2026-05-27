@@ -147,6 +147,18 @@ describe('Commissione / presidente fase', () => {
     assert.equal(r.statusCode, 200);
   });
 
+  test('admin: può concludere la fase anche se non è presidente → 200', async () => {
+    // fase su una commissione il cui presidente è il commissario (HC), non l'admin.
+    // L'admin deve poterla concludere "se necessario" (start + conclude da H1).
+    const f = (await app.inject({ method: 'POST', url: '/api/fasi', headers: H1(),
+      payload: { concorsoId: seedConcorsoId, ordine: 910004, nome: 'CP Admin Conclude', scala: 100, commissioneId: commissione } })).json();
+    createdFasi.push(f.id);
+    await app.inject({ method: 'POST', url: `/api/fasi/${f.id}/start`, headers: H1(), payload: {} });
+    const r = await app.inject({ method: 'POST', url: `/api/fasi/${f.id}/conclude`, headers: H1(), payload: {} });
+    assert.equal(r.statusCode, 200, r.body);
+    assert.equal(r.json().stato, 'CONCLUSA');
+  });
+
   // ---------- vincoli commissione ----------
   test('PATCH commissione: presidente di un altro concorso → 400', async () => {
     // crea un commissario in un concorso diverso (di test) e prova a metterlo
