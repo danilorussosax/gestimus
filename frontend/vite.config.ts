@@ -53,11 +53,17 @@ export default defineConfig({
             },
           },
           // Upload (foto candidati/commissari/loghi) serviti dal backend.
+          // StaleWhileRevalidate (non CacheFirst): serve subito la copia in cache
+          // ma rivalida in background ad ogni richiesta. Con CacheFirst una foto
+          // corretta dall'admin (stesso URL) restava stale fino a 7 giorni per
+          // chi l'aveva già in cache — su una valutazione concorsuale è un rischio
+          // d'identità (commissario vede la foto sbagliata). cacheName bumpato a
+          // -v2 per scartare le entry CacheFirst già persistite sui client.
           {
             urlPattern: ({ url }) => url.pathname.startsWith('/uploads/'),
-            handler: 'CacheFirst',
+            handler: 'StaleWhileRevalidate',
             options: {
-              cacheName: 'uploads-v1',
+              cacheName: 'uploads-v2',
               expiration: { maxEntries: 200, maxAgeSeconds: 7 * 24 * 60 * 60 },
               cacheableResponse: { statuses: [0, 200] },
             },

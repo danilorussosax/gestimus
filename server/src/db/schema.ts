@@ -738,6 +738,19 @@ export const iscrizioni = pgTable(
     // N60: pre-check DELETE sezione/categoria filtrano su questi FK.
     index('idx_iscrizioni_sezione').on(t.sezioneId),
     index('idx_iscrizioni_categoria').on(t.categoriaId),
+    // #7a: FK candidato_id ON DELETE SET NULL — senza indice l'eliminazione di
+    // un candidato fa seq scan su iscrizioni per applicare il SET NULL.
+    index('idx_iscrizioni_candidato').on(t.candidatoId),
+    // #7c: token risolti su endpoint PUBBLICI non autenticati (verify email /
+    // upload allegati). Indici PARZIALI: solo le righe con token pendente (i
+    // token sono azzerati dopo l'uso) → piccoli e selettivi, evitano il full
+    // table scan su ogni richiesta pubblica.
+    index('idx_iscrizioni_email_verification_token')
+      .on(t.emailVerificationToken)
+      .where(sql`${t.emailVerificationToken} IS NOT NULL`),
+    index('idx_iscrizioni_upload_token')
+      .on(t.uploadToken)
+      .where(sql`${t.uploadToken} IS NOT NULL`),
     // N95: indice unique parziale — fonte di verità in schema (era solo nella
     // migrazione 2026_05_23_iscrizioni_unique_partial). Una stessa email non può
     // iscriversi due volte allo stesso concorso, salvo iscrizioni RIFIUTATE
@@ -838,6 +851,12 @@ export const eventiCalendario = pgTable(
     index('idx_eventi_tenant').on(t.tenantId),
     index('idx_eventi_concorso').on(t.concorsoId),
     index('idx_eventi_concorso_data').on(t.concorsoId, t.data),
+    // #7a: FK ON DELETE SET NULL — senza indice il SET NULL all'eliminazione di
+    // una fase/sezione/categoria/sala fa seq scan su eventi_calendario.
+    index('idx_eventi_fase').on(t.faseId),
+    index('idx_eventi_sezione').on(t.sezioneId),
+    index('idx_eventi_categoria').on(t.categoriaId),
+    index('idx_eventi_sala').on(t.salaId),
   ],
 );
 
@@ -874,5 +893,8 @@ export const calendarioPubblicazioni = pgTable(
     uniqueIndex('uniq_calpub_token').on(t.token),
     index('idx_calpub_tenant').on(t.tenantId),
     index('idx_calpub_concorso').on(t.concorsoId),
+    // #7a: FK ON DELETE CASCADE — l'eliminazione di una sezione cancella le
+    // pubblicazioni collegate; senza indice il lookup figlio fa seq scan.
+    index('idx_calpub_sezione').on(t.sezioneId),
   ],
 );

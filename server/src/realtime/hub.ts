@@ -1,5 +1,6 @@
 import pg from 'pg';
 import { DATABASE_URL_DIRECT } from '../db/client.js';
+import { logger } from '../lib/logger.js';
 
 type Listener = (payload: unknown) => void;
 
@@ -29,11 +30,11 @@ async function connect(): Promise<void> {
   // PgBouncer transaction mode. Vedi DATABASE_URL_DIRECT in db/client.ts.
   const c = new pg.Client({ connectionString: DATABASE_URL_DIRECT });
   c.on('error', (err) => {
-    console.error('[realtime] LISTEN client error:', err.message);
+    logger.error({ module: 'realtime', err: err.message }, 'LISTEN client error');
     scheduleReconnect();
   });
   c.on('end', () => {
-    console.warn('[realtime] LISTEN client closed, will reconnect');
+    logger.warn({ module: 'realtime' }, 'LISTEN client chiuso, riconnessione in corso');
     scheduleReconnect();
   });
   c.on('notification', (msg) => {
@@ -52,7 +53,7 @@ async function connect(): Promise<void> {
       try {
         cb(parsed);
       } catch (err) {
-        console.error('[realtime] subscriber error:', err);
+        logger.error({ module: 'realtime', channel: msg.channel, err }, 'subscriber error');
       }
     }
   });
@@ -82,7 +83,7 @@ function scheduleReconnect() {
       client = null;
       await connect();
     } catch (err) {
-      console.error('[realtime] reconnect failed:', err);
+      logger.error({ module: 'realtime', err }, 'reconnect fallito');
       scheduleReconnect();
     }
   }, delay);

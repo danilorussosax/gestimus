@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { z } from 'zod';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -13,6 +13,20 @@ import type { User } from '@/types';
 /** Destinazione post-login in base al ruolo: il superadmin (subdomain platform)
  *  va alla sua console, non alla home admin. Coerente con PublicOnlyRoute. */
 const homeForRole = (role: User['role']) => (role === 'superadmin' ? '/superadmin' : '/');
+
+/** Pagina su cui atterrare dopo il login. Se l'utente era stato rediretto al
+ *  login da una rotta protetta (sessione scaduta o accesso diretto), ProtectedRoute
+ *  ha salvato l'URL originale in location.state.from: lo ripristiniamo così non
+ *  perde il contesto (es. una sessione di valutazione). Altrimenti home per ruolo.
+ *  Difesa: ignoriamo destinazioni verso /login per non creare un loop. */
+function postLoginDest(role: User['role'], fromState: unknown): string {
+  const from = (fromState as { from?: { pathname?: string; search?: string } } | null)?.from;
+  const pathname = from?.pathname;
+  if (from && pathname && pathname !== '/' && !pathname.startsWith('/login')) {
+    return pathname + (from.search ?? '');
+  }
+  return homeForRole(role);
+}
 
 // ─── Schema login ─────────────────────────────────────────────────────────────
 
@@ -116,6 +130,7 @@ function TotpStep({ challenge, onSuccess }: TotpStepProps) {
 export default function Login() {
   const { t } = useTranslation();
   const navigate = useNavigate();
+  const location = useLocation();
   const { loginWithCredentials } = useAuth();
 
   const [error, setError] = useState<string | null>(null);
@@ -135,7 +150,7 @@ export default function Login() {
         setMfaChallenge(res.challenge);
         return;
       }
-      void navigate(homeForRole(res.user.role), { replace: true });
+      void navigate(postLoginDest(res.user.role, location.state), { replace: true });
     } catch (err) {
       const raw = httpErrorMessage(err);
       const invalid = /failed to authenticate|invalid credentials/i.test(raw);
@@ -144,7 +159,7 @@ export default function Login() {
   };
 
   const handleMfaSuccess = (user: User) => {
-    void navigate(homeForRole(user.role), { replace: true });
+    void navigate(postLoginDest(user.role, location.state), { replace: true });
   };
 
   return (

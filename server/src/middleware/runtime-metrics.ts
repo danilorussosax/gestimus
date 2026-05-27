@@ -92,6 +92,14 @@ export type TenantRuntimeStats = {
 /**
  * Aggregato per-tenant sulla sliding window corrente. Tenant senza traffico
  * recente NON sono inclusi: il caller (route) decide se mostrare 0 o nulla.
+ *
+ * #10 — SCOPE PER-ISTANZA: questa finestra vive nella memoria del SINGOLO
+ * processo. Dietro un load balancer con N istanze, ogni istanza vede solo il
+ * proprio traffico: l'endpoint di metriche restituisce i dati dell'istanza che
+ * risponde, non l'aggregato di cluster. Per una vista completa multi-istanza
+ * vanno interrogate tutte le istanze (o si introduce uno store condiviso /
+ * scraping Prometheus — Fase 3, non in scope). Nel deploy singola-istanza
+ * corrente è accurato.
  */
 export function getRuntimeMetrics(): Record<string, TenantRuntimeStats> {
   const now = Date.now();

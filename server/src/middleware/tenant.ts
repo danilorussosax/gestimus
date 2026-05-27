@@ -4,6 +4,8 @@ import type { FastifyInstance, FastifyRequest } from 'fastify';
 import { dbApp, dbSuper } from '../db/client.js';
 import { tenants } from '../db/schema.js';
 import { env } from '../env.js';
+import { logger } from '../lib/logger.js';
+import { subscribe } from '../realtime/hub.js';
 
 export type TenantContext = {
   id: string;
@@ -65,6 +67,49 @@ const tenantInFlight = new Map<string, Promise<TenantContext | null>>();
 export function invalidateTenantCache(slug?: string): void {
   if (slug) tenantCache.delete(slug);
   else tenantCache.clear();
+}
+
+// #1: invalidazione cross-istanza. invalidateTenantCache() agisce solo sul Map
+// in-process dell'ISTANZA che esegue la modifica. Dietro un load balancer con
+// 2+ istanze, le altre continuerebbero a servire il tenant stale (es. sospeso
+// per mancato pagamento / ordine legale, oppure uno slug riassegnato a un altro
+// cliente) fino alla scadenza del TTL di 60s. broadcastTenantInvalidation()
+// invalida la copia locale E notifica via Postgres LISTEN/NOTIFY tutte le
+// istanze, che invalidano la propria. Riusa il client LISTEN dell'hub realtime.
+const TENANT_CACHE_INVALIDATION_CHANNEL = 'tenant_cache_invalidation';
+
+export async function broadcastTenantInvalidation(slug?: string): Promise<void> {
+  // Invalidazione locale immediata (sincrona, non può fallire).
+  invalidateTenantCache(slug);
+  // Broadcast alle altre istanze. Best-effort: un errore sul NOTIFY non deve far
+  // fallire la mutazione tenant chiamante — l'invalidazione locale è già fatta e
+  // sulle altre istanze resta al più la finestra di 60s del TTL (= comportamento
+  // pre-fix). Payload: lo slug, o '' per un clear totale (slug assente).
+  try {
+    await dbSuper.execute(
+      sql`SELECT pg_notify(${TENANT_CACHE_INVALIDATION_CHANNEL}, ${slug ?? ''})`,
+    );
+  } catch (err) {
+    logger.warn(
+      { module: 'tenant', slug, err: (err as Error).message },
+      'broadcast invalidazione cache tenant fallito (invalidazione locale comunque applicata)',
+    );
+  }
+}
+
+// Avvia il listener che invalida la cache locale quando un'ALTRA istanza (o
+// questa stessa) emette una NOTIFY su TENANT_CACHE_INVALIDATION_CHANNEL.
+// DEVE essere chiamato dopo startRealtimeHub() (usa il client LISTEN dell'hub).
+export async function startTenantCacheInvalidationListener(): Promise<void> {
+  await subscribe(TENANT_CACHE_INVALIDATION_CHANNEL, (payload) => {
+    // payload arriva come stringa raw (slug) o null/'' → clear totale. L'hub
+    // tenta JSON.parse: uno slug numerico ("123") diventa number → ricoerciamo.
+    if (payload === null || payload === undefined || payload === '') {
+      invalidateTenantCache();
+      return;
+    }
+    invalidateTenantCache(String(payload));
+  });
 }
 
 async function resolveTenantBySubdomain(subdomain: string): Promise<TenantContext | null> {
