@@ -5,6 +5,7 @@ import { candidati, candidatiFase, commissioni, commissioniCommissari, fasi } fr
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { parsePagination } from '../lib/pagination.js';
+import { replyValidationError } from '../lib/validation.js';
 
 // Permesso a marcare ammessoProssimaFase / cambiare lo stato di un candidato_fase:
 //   - admin/superadmin sempre
@@ -105,7 +106,7 @@ export const candidatiFaseRoutes: FastifyPluginAsync = async (app) => {
   // POST /candidati-fase → assegna candidato a fase
   app.post('/', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const parsed = assignBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     return req.dbTx(async (tx) => {
       try {
         // N140: fase e candidato devono appartenere al tenant (le FK non sono
@@ -144,7 +145,7 @@ export const candidatiFaseRoutes: FastifyPluginAsync = async (app) => {
   app.patch('/:id', { preHandler: [requireAuth] }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
     const parsed = updateBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     // N13 + N144: i campi che decidono l'esito (stato, posizione,
     // ammessoProssimaFase) sono admin-only. L'ammissione non è più una scelta
     // del singolo commissario (era last-write-wins): viene calcolata

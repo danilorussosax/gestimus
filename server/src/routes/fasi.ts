@@ -6,6 +6,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { faseChannel } from '../realtime/hub.js';
 import { parsePagination } from '../lib/pagination.js';
+import { replyValidationError } from '../lib/validation.js';
 
 // Permission per start/conclude/sorteggio/timer di una fase:
 //   - admin/superadmin sempre OK
@@ -178,7 +179,7 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const parsed = createBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     return req.dbTx(async (tx) => {
       try {
         const { sezioniIds, ...faseFields } = parsed.data;
@@ -227,7 +228,7 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
         ids: z.array(uuid).min(1),
       })
       .safeParse(req.body);
-    if (!body.success) return reply.badRequest(body.error.message);
+    if (!body.success) return replyValidationError(reply, req, body.error);
     return req.dbTx(async (tx) => {
       // N103: lock sulla riga del concorso → serializza reorder e create fasi.
       // Il solo FOR UPDATE sulle righe `fasi` non basta: su concorso vuoto non
@@ -289,7 +290,7 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
   app.patch('/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
     const parsed = updateBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     return req.dbTx(async (tx) => {
       const { sezioniIds, ...faseFields } = parsed.data;
       // R15: i trigger DB congelano le VALUTAZIONI di una fase CONCLUSA, ma non i
@@ -458,7 +459,7 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     // dei candidatiFase ammessi. Se assente, si mantiene l'ammissione esistente
     // (retrocompatibilità per chiamanti che non la inviano).
     const body = z.object({ admitted: z.array(uuid).optional() }).safeParse(req.body ?? {});
-    if (!body.success) return reply.badRequest(body.error.message);
+    if (!body.success) return replyValidationError(reply, req, body.error);
     return req.dbTx(async (tx) => {
       if (!await assertCanManageFase(tx, req, reply, id)) return;
       // N21: conclude ammesso solo da IN_CORSO (non da PIANIFICATA/CONCLUSA).
@@ -567,7 +568,7 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     async (req, reply) => {
       const { id } = z.object({ id: uuid }).parse(req.params);
       const body = z.object({ candidatoFaseId: uuid.optional() }).safeParse(req.body ?? {});
-      if (!body.success) return reply.badRequest(body.error.message);
+      if (!body.success) return replyValidationError(reply, req, body.error);
       return req.dbTx(async (tx) => {
         if (!await assertCanManageFase(tx, req, reply, id)) return;
         // N87: il candidatoFaseId, se fornito, deve appartenere a QUESTA fase.
@@ -702,7 +703,7 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     // M158: seed limitato a int32 non negativo — un valore estremo passerebbe a
     // shuffleSeeded producendo aritmetica fuori range / comportamento anomalo.
     const body = z.object({ seed: z.number().int().min(0).max(2_147_483_647) }).safeParse(req.body);
-    if (!body.success) return reply.badRequest(body.error.message);
+    if (!body.success) return replyValidationError(reply, req, body.error);
     return req.dbTx(async (tx) => {
       if (!await assertCanManageFase(tx, req, reply, id)) return;
       // N23: il sorteggio non ha senso su una fase conclusa (riordinare una
@@ -750,7 +751,7 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     // H1: bonus seconds must be non-negative. Reset si fa via /timer/reset, non
     // con un bonus negativo (che renderebbe l'aggregato fortemente sottozero).
     const body = z.object({ seconds: z.number().int().min(0).max(3600) }).safeParse(req.body);
-    if (!body.success) return reply.badRequest(body.error.message);
+    if (!body.success) return replyValidationError(reply, req, body.error);
     return req.dbTx(async (tx) => {
       if (!await assertCanManageFase(tx, req, reply, id)) return;
       // N22: il bonus ha senso solo su un timer avviato. Su fase mai avviata

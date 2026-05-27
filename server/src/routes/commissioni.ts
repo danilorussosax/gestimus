@@ -14,6 +14,7 @@ import {
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { parsePagination } from '../lib/pagination.js';
+import { replyValidationError } from '../lib/validation.js';
 
 const uuid = z.string().uuid();
 const createBody = z.object({
@@ -114,7 +115,7 @@ export const commissioniRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const parsed = createBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     return req.dbTx(async (tx) => {
       // N106: il concorsoId deve appartenere al tenant corrente (la FK verso
       // concorsi non è soggetta a RLS). Sotto RLS questa SELECT ritorna 0 righe
@@ -152,7 +153,7 @@ export const commissioniRoutes: FastifyPluginAsync = async (app) => {
   app.patch('/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
     const parsed = updateBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     return req.dbTx(async (tx) => {
       // N54: il presidente deve essere un commissario dello stesso concorso
       // della commissione. La FK garantisce solo l'esistenza.

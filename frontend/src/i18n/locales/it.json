@@ -92,6 +92,7 @@
   "common.loading": "Caricamento…",
   "common.empty": "Nessun elemento",
   "common.required": "Obbligatorio",
+  "common.offline_banner": "Sei offline. Alcune funzioni non sono disponibili.",
   "modal.eyebrow": "Pannello",
   "modal.cancel": "Annulla",
   "modal.save": "Salva",

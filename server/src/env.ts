@@ -60,7 +60,47 @@ const schema = z.object({
   SENTRY_ENVIRONMENT: z.string().optional(),
 });
 
-const parsed = schema.safeParse(process.env);
+// Hardening: in produzione il solo min-length non basta. Un placeholder come
+// `changeme-dev-secret-min-32-chars-long-xxxxx` ha 32+ char ma è un segreto
+// debole/di sviluppo. Rifiutiamo i pattern ovvii (placeholder, dev-secret,
+// char ripetuto) SOLO quando NODE_ENV === 'production'; dev/test restano
+// lenient così la suite e il dev locale bootano senza segreti "veri".
+const WEAK_SECRET_PATTERNS = [/changeme/i, /placeholder/i, /example/i, /xxxx/i, /dev-secret/i];
+
+function weakSecretReason(value: string): string | null {
+  for (const re of WEAK_SECRET_PATTERNS) {
+    if (re.test(value)) return `corrisponde a un pattern placeholder/debole (${re.source})`;
+  }
+  // Tutti char uguali (es. "aaaa...aaaa"): entropia nulla.
+  if (value.length > 0 && /^(.)\1*$/.test(value)) return 'è composto da un solo carattere ripetuto';
+  return null;
+}
+
+// I segreti/chiavi che, in produzione, devono essere "veri" e non placeholder.
+// PLATFORM_SMTP_PASSWORD è una credenziale: se impostata, vale lo stesso guard.
+const SECRET_ENV_KEYS = [
+  'SESSION_COOKIE_SECRET',
+  'GESTIMUS_SECRET_KEY',
+  'PLATFORM_SMTP_PASSWORD',
+] as const;
+
+const schemaWithProdGuard = schema.superRefine((data, ctx) => {
+  if (data.NODE_ENV !== 'production') return;
+  for (const key of SECRET_ENV_KEYS) {
+    const value = data[key];
+    if (typeof value !== 'string' || value.length === 0) continue;
+    const reason = weakSecretReason(value);
+    if (reason) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [key],
+        message: `segreto debole/placeholder in produzione: ${reason}`,
+      });
+    }
+  }
+});
+
+const parsed = schemaWithProdGuard.safeParse(process.env);
 
 if (!parsed.success) {
   console.error('Invalid environment configuration:');

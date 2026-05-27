@@ -459,6 +459,7 @@ export default function ImportCsvDialog({
               accept=".csv,.tsv,.txt,text/csv"
               className="hidden"
               onChange={onFileChange}
+              aria-label="Carica file CSV"
             />
             <button
               type="button"

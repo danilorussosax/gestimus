@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { and, eq, inArray, or, sql } from 'drizzle-orm';
+import { and, asc, eq, gt, inArray, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   accounts,
@@ -14,6 +14,7 @@ import { deleteFile } from '../services/storage.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit, computeAuditLogSig } from '../services/audit.js';
 import { dbSuper } from '../db/client.js';
+import { replyValidationError } from '../lib/validation.js';
 
 // R15: scrub ricorsivo dell'email dell'interessato da un payload audit. Rimuove
 // qualunque CHIAVE il cui valore è l'email (a qualsiasi profondità, non solo la
@@ -113,8 +114,35 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
         // (audit_log) del tenant — diritto di accesso completo. Gira sotto RLS
         // → solo le righe del tenant corrente. `sig` (HMAC tamper-evidence) e
         // ip/userAgent fanno parte del record di trattamento.
-        const auditList = await tx.select().from(auditLog);
-        raw.write(`,"auditLog":${JSON.stringify(auditList)}`);
+        //
+        // A2/Perf: audit_log è la tabella potenzialmente più grande. Prima un
+        // SELECT * la caricava INTERA in un array (rischio OOM). Ora iteriamo in
+        // chunk con keyset pagination su `id` (uuidv7 = monotòno crescente,
+        // ordine stabile, niente OFFSET costoso) e scriviamo ogni chunk
+        // incrementalmente nell'array JSON. L'export resta COMPLETO: il loop
+        // continua finché un chunk torna pieno, quindi non si tronca nulla; il
+        // picco di memoria è un solo chunk, non l'intera tabella.
+        const AUDIT_CHUNK = 1000;
+        raw.write(',"auditLog":[');
+        let auditCount = 0;
+        let cursor: string | null = null;
+        for (;;) {
+          const where = cursor ? gt(auditLog.id, cursor) : undefined;
+          const chunk: Array<typeof auditLog.$inferSelect> = await tx
+            .select()
+            .from(auditLog)
+            .where(where)
+            .orderBy(asc(auditLog.id))
+            .limit(AUDIT_CHUNK);
+          if (chunk.length === 0) break;
+          for (const row of chunk) {
+            raw.write(`${auditCount === 0 ? '' : ','}${JSON.stringify(row)}`);
+            auditCount += 1;
+          }
+          if (chunk.length < AUDIT_CHUNK) break;
+          cursor = chunk[chunk.length - 1]!.id;
+        }
+        raw.write(']');
 
         await writeAudit(tx, req, 'privacy.export', {
           payload: {
@@ -122,7 +150,7 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
             commissari: commissariList.length,
             candidati: candidatiList.length,
             iscrizioni: iscrizioniList.length,
-            auditLog: auditList.length,
+            auditLog: auditCount,
           },
         });
       });
@@ -155,7 +183,7 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
   app.post('/erase', async (req, reply) => {
     if (!req.tenant) return reply.code(400).send({ error: 'tenant context richiesto' });
     const parsed = erasureBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
 
     const REDACTED = '[ERASED]';
     const touched = { commissari: 0, candidati: 0, candidatiMembri: 0, iscrizioni: 0, accounts: 0, allegati: 0 };
@@ -276,11 +304,16 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
           .where(sql`lower(${candidati.email}) = ${email}`)
           .returning();
         touched.candidati += cand.length;
-        for (const c of cand) {
+        // Perf: N+1 → singolo UPDATE batch. Il valore di redaction è IDENTICO
+        // per ogni membro (nessuna dipendenza per-riga: niente email univoca,
+        // niente firma), quindi un'unica `WHERE candidatoId IN (...)` è
+        // semanticamente equivalente al loop precedente. Dentro la stessa tx.
+        const candIds = cand.map((c) => c.id);
+        if (candIds.length > 0) {
           const mem = await tx
             .update(candidatiMembri)
             .set({ nome: REDACTED, cognome: REDACTED, dataNascita: null, nazionalita: null })
-            .where(eq(candidatiMembri.candidatoId, c.id))
+            .where(inArray(candidatiMembri.candidatoId, candIds))
             .returning();
           touched.candidatiMembri += mem.length;
         }
@@ -339,11 +372,22 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
       if (targetIds.length) orConds.push(inArray(auditLog.targetId, targetIds));
       if (accountIds.length) orConds.push(inArray(auditLog.actorAccountId, accountIds));
       if (orConds.length > 0) {
+        // Fetch UNICO di tutte le righe bersaglio (un solo round-trip in lettura).
         const rows = await dbSuper
           .select()
           .from(auditLog)
           .where(and(eq(auditLog.tenantId, req.tenant.id), or(...orConds)));
-        for (const r of rows) {
+
+        // Calcoliamo la nuova firma di OGNI riga in app code, PRIMA di scrivere.
+        // L'HMAC dipende dal contenuto specifico della riga (payload scrubato,
+        // ip/userAgent condizionati a isOwnAction): un singolo UPDATE "uguale per
+        // tutti" sarebbe SCORRETTO. Restiamo quindi per-riga, ma:
+        //  - una sola SELECT (sopra) invece di letture ridondanti;
+        //  - tutti gli UPDATE in UNA transazione (un BEGIN/COMMIT, niente
+        //    autocommit per statement) → meno round-trip e atomicità.
+        // Lo schema di firma è invariato: stessa chiave, stessi campi nello
+        // stesso ordine di computeAuditLogSig — solo i valori in input cambiano.
+        const updates = rows.map((r) => {
           const isOwnAction = !!r.actorAccountId && accountIds.includes(r.actorAccountId);
           let payload = r.payload as Record<string, unknown> | null;
           if (email && payload && typeof payload === 'object') {
@@ -361,10 +405,17 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
             ip,
             userAgent,
           });
-          await dbSuper
-            .update(auditLog)
-            .set({ payload, ip, userAgent, sig })
-            .where(eq(auditLog.id, r.id));
+          return { id: r.id, payload, ip, userAgent, sig };
+        });
+        if (updates.length > 0) {
+          await dbSuper.transaction(async (tx) => {
+            for (const u of updates) {
+              await tx
+                .update(auditLog)
+                .set({ payload: u.payload, ip: u.ip, userAgent: u.userAgent, sig: u.sig })
+                .where(eq(auditLog.id, u.id));
+            }
+          });
         }
       }
     } catch (err) {

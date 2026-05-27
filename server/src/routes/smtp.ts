@@ -7,6 +7,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { encryptSmtp, isEncryptedSmtp } from '../services/crypto-smtp.js';
 import { invalidateTransporter, sendMail, verifyTenantSmtp } from '../services/email.js';
+import { replyValidationError } from '../lib/validation.js';
 
 const smtpBody = z.object({
   host: z.string().min(1).max(255),
@@ -73,7 +74,7 @@ export const smtpRoutes: FastifyPluginAsync = async (app) => {
    */
   app.put('/', async (req, reply) => {
     const parsed = smtpBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
 
     const encrypted = encryptSmtp(parsed.data);
 
@@ -105,7 +106,7 @@ export const smtpRoutes: FastifyPluginAsync = async (app) => {
         sendTo: z.string().email().optional(),
       })
       .safeParse(req.body ?? {});
-    if (!body.success) return reply.badRequest(body.error.message);
+    if (!body.success) return replyValidationError(reply, req, body.error);
 
     const verify = await verifyTenantSmtp(req.tenant!.id);
     if (!verify.ok) {

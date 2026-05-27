@@ -3,6 +3,7 @@ import { and, desc, eq, gte, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { auditLog } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
+import { replyValidationError } from '../lib/validation.js';
 
 const uuid = z.string().uuid();
 const querySchema = z.object({
@@ -28,7 +29,7 @@ export const auditRoutes: FastifyPluginAsync = async (app) => {
    */
   app.get('/', async (req, reply) => {
     const parsed = querySchema.safeParse(req.query);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     const { limit, offset, action, actor, before, after } = parsed.data;
 
     return req.dbTx(async (tx) => {

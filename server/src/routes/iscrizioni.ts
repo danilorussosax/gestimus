@@ -12,6 +12,7 @@ import { parsePagination } from '../lib/pagination.js';
 import { todayISODate, ageYears } from '../lib/date.js';
 import { checkCandidatiLimit } from '../lib/plan-limits.js';
 import { generateToken } from '../lib/token.js';
+import { replyValidationError } from '../lib/validation.js';
 
 const uuid = z.string().uuid();
 
@@ -192,7 +193,7 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
       if (!req.tenant) return reply.code(400).send({ error: 'tenant context richiesto' });
 
       const parsed = iscrizioneCreateBody.safeParse(req.body);
-      if (!parsed.success) return reply.badRequest(parsed.error.message);
+      if (!parsed.success) return replyValidationError(reply, req, parsed.error);
       const data = parsed.data;
 
       // Honeypot (campo `website`, vedi schema): se compilato → bot.
@@ -603,7 +604,7 @@ export const iscrizioniAdminRoutes: FastifyPluginAsync = async (app) => {
     async (req, reply) => {
       const { id } = z.object({ id: uuid }).parse(req.params);
       const body = z.object({ note: z.string().optional() }).safeParse(req.body ?? {});
-      if (!body.success) return reply.badRequest(body.error.message);
+      if (!body.success) return replyValidationError(reply, req, body.error);
 
       return req.dbTx(async (tx) => {
         // Lock pessimistico sulla riga iscrizione → previene doppia approvazione
@@ -711,7 +712,7 @@ export const iscrizioniAdminRoutes: FastifyPluginAsync = async (app) => {
     async (req, reply) => {
       const { id } = z.object({ id: uuid }).parse(req.params);
       const body = z.object({ reason: z.string().max(500).optional() }).safeParse(req.body ?? {});
-      if (!body.success) return reply.badRequest(body.error.message);
+      if (!body.success) return replyValidationError(reply, req, body.error);
       return req.dbTx(async (tx) => {
         // N111: non si rifiuta un'iscrizione già APPROVATA — l'approvazione ha
         // creato il candidato collegato; un reject lo lascerebbe orfano con stato

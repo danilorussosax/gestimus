@@ -122,9 +122,16 @@ export function useCommissarioData(commissarioId: string | null): CommissarioDat
     staleTime: 60_000,
   });
 
+  // criteriQ DEVE essere nel gate: lo scoring (initDraft, faseCriteriKeys per la
+  // risoluzione sincrona) usa i criteri CONFIGURATI. Se la pagina rende prima che
+  // criteriQ risolva, ScoringSheet monta coi 4 criteri di default e il draft resta
+  // su quelle chiavi → la POST /valutazioni salverebbe i voti sotto criteri sbagliati.
+  // criteriQ.isLoading è true solo quando sta davvero fetchando (enabled+isFetching);
+  // se non c'è una fase IN_CORSO la query è disabled → isLoading false, nessun hang.
   const isLoading =
     loadingConcorsi || loadingCommissario || loadingFasi ||
-    loadingCommissioni || loadingCfs || loadingCandidati || loadingVals;
+    loadingCommissioni || loadingCfs || loadingCandidati || loadingVals ||
+    criteriQ.isLoading;
 
   function invalidateAll() {
     void qc.invalidateQueries({ queryKey: ['fasi', concorsoId] });

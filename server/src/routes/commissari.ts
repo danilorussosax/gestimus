@@ -6,6 +6,7 @@ import { checkCommissariLimit } from '../lib/plan-limits.js';
 import { commissari, concorsi } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
+import { replyValidationError } from '../lib/validation.js';
 
 const uuid = z.string().uuid();
 // Helper: il form admin manda "" quando l'utente svuota un campo; gli stessi
@@ -57,7 +58,7 @@ export const commissariRoutes: FastifyPluginAsync = async (app) => {
   // POST /commissari (admin only)
   app.post('/', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const parsed = createBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
 
     return req.dbTx(async (tx) => {
       // N105: il concorsoId deve appartenere al tenant corrente. La FK verso
@@ -93,7 +94,7 @@ export const commissariRoutes: FastifyPluginAsync = async (app) => {
   app.patch('/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
     const parsed = updateBody.safeParse(req.body);
-    if (!parsed.success) return reply.badRequest(parsed.error.message);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
 
     return req.dbTx(async (tx) => {
       const [updated] = await tx
