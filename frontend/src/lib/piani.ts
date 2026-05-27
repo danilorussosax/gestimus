@@ -83,13 +83,57 @@ export const PIANI: Record<TenantPiano, PianoInfo> = {
   },
 };
 
-export function getPianoOrDefault(key: string | null | undefined): PianoInfo {
-  return PIANI[(key ?? '') as TenantPiano] ?? PIANI.trial;
+/** Mappa key→PianoInfo. La UI passa la mappa dinamica da usePiani(); di default
+ *  ricade sul catalogo statico PIANI (fallback robusto). */
+export type PianiMap = Record<string, PianoInfo>;
+
+/**
+ * Converte un Piano (shape API, camelCase) nel PianoInfo locale (snake_case).
+ * Single point of mapping: usato dall'hook usePiani() per costruire la mappa.
+ */
+export function pianoInfoFromApi(p: {
+  key: string;
+  nome: string;
+  descrizione: string;
+  prezzo: number;
+  durataGiorni: number | null;
+  limitConcorsi: number | null;
+  limitIscrittiAnnui: number | null;
+  badgeColor: string;
+  isPpe: boolean;
+  ppeSetupPerConcorso: number | null;
+  ppePerIscritto: number | null;
+  featured: boolean;
+}): PianoInfo {
+  return {
+    key: p.key,
+    nome: p.nome,
+    descrizione: p.descrizione,
+    prezzo: p.prezzo,
+    durata_giorni: p.durataGiorni,
+    limit_concorsi: p.limitConcorsi,
+    limit_iscritti_annui: p.limitIscrittiAnnui,
+    badge_color: p.badgeColor,
+    is_ppe: p.isPpe,
+    ppe_setup_per_concorso: p.ppeSetupPerConcorso ?? undefined,
+    ppe_per_iscritto: p.ppePerIscritto ?? undefined,
+    featured: p.featured,
+  };
+}
+
+export function getPianoOrDefault(
+  key: string | null | undefined,
+  map: PianiMap = PIANI,
+): PianoInfo {
+  return map[key ?? ''] ?? map.trial ?? PIANI.trial;
 }
 
 /** Etichetta prezzo human-readable (gestisce PPE e gratis). */
-export function pianoPriceLabel(key: string | null | undefined): string {
-  const p = getPianoOrDefault(key);
+export function pianoPriceLabel(
+  key: string | null | undefined,
+  map: PianiMap = PIANI,
+): string {
+  const p = getPianoOrDefault(key, map);
   if (p.is_ppe) {
     return `€${p.ppe_setup_per_concorso}/concorso + €${(p.ppe_per_iscritto ?? 0).toFixed(2)}/iscr`;
   }
@@ -98,8 +142,11 @@ export function pianoPriceLabel(key: string | null | undefined): string {
 }
 
 /** Etichetta durata (per le anteprime piano). */
-export function pianoDurataLabel(key: string | null | undefined): string {
-  const p = getPianoOrDefault(key);
+export function pianoDurataLabel(
+  key: string | null | undefined,
+  map: PianiMap = PIANI,
+): string {
+  const p = getPianoOrDefault(key, map);
   if (p.durata_giorni == null) return 'Pay-as-you-go (nessuna scadenza)';
   return `${p.durata_giorni} giorni`;
 }

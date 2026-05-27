@@ -2,6 +2,7 @@ import React from 'react';
 import { Download, Edit, Folder, List, Mail, X } from 'lucide-react';
 import { type Tenant, type TenantStats, type TenantSmtp } from '@/api/platform';
 import { PIANI } from '@/lib/piani';
+import { usePiani } from '@/hooks/usePiani';
 import { fmtBytes, fmtDate, cleanupCountdown } from '@/components/superadmin/format';
 import { StatoBadge, PianoBadge, UsageBar, StatTile } from '@/components/superadmin/ui';
 
@@ -17,9 +18,10 @@ export function DetailDrawer({
   onAudit: (t: Tenant) => void;
   onBackups: (t: Tenant) => void;
 }) {
+  const { pianiMap } = usePiani();
   const stats = statsMap.get(t.id);
   const smtp = smtpMap.get(t.id);
-  const piano = (t.piano in (PIANI as object)) ? PIANI[t.piano] : PIANI.trial;
+  const piano = pianiMap[t.piano] ?? PIANI.trial;
 
   return (
     <div className="fixed inset-0 z-40 flex justify-end">
@@ -32,7 +34,7 @@ export function DetailDrawer({
             <p className="text-xs text-ink-500 mt-0.5"><code>{t.slug}</code></p>
             <div className="flex flex-wrap gap-1.5 mt-2">
               <StatoBadge stato={t.stato} />
-              <PianoBadge piano={t.piano} />
+              <PianoBadge piano={t.piano} info={piano} />
               {t.pianoScadenza && (
                 <span className="text-[11px] text-ink-700">scade {fmtDate(t.pianoScadenza)}</span>
               )}

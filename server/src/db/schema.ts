@@ -44,7 +44,9 @@ export const tenants = pgTable(
   },
   (t) => [
     check('tenants_stato_check', sql`${t.stato} IN ('attivo','sospeso','archiviato')`),
-    check('tenants_piano_check', sql`${t.piano} IN ('trial','starter','pro','ultra','ppe')`),
+    // NB: niente più CHECK enum su `piano`: il catalogo piani è ora dinamico
+    // (tabella `piani`). La validità della chiave è garantita applicativamente
+    // in platform.ts (lookup su `piani` prima di create/patch/change-plan).
     check(
       'tenants_cleanup_days_check',
       sql`${t.cleanupAfterDays} >= 0 AND ${t.cleanupAfterDays} <= 3650`,
@@ -185,6 +187,33 @@ export const tenantConfig = pgTable('tenant_config', {
   maxCommissari: integer('max_commissari'),
   maxCandidatiPerConcorso: integer('max_candidati_per_concorso'),
   features: jsonb('features'),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * Catalogo piani SaaS — sorgente di verità unica (prima hard-coded in FE/BE).
+ * Tabella GLOBALE (niente tenant_id → niente RLS): gestita solo dal super-admin.
+ * Gli integer/numeric nullable indicano "illimitato"/"non impostato".
+ * `limit_iscritti_annui` è solo catalogo/display (non finisce in tenant_config).
+ */
+export const piani = pgTable('piani', {
+  key: text('key').primaryKey(),
+  nome: text('nome').notNull(),
+  descrizione: text('descrizione'),
+  prezzo: numeric('prezzo', { precision: 10, scale: 2, mode: 'number' }).notNull().default(0),
+  durataGiorni: integer('durata_giorni'),
+  limitConcorsi: integer('limit_concorsi'),
+  limitCommissari: integer('limit_commissari'),
+  limitCandidatiPerConcorso: integer('limit_candidati_per_concorso'),
+  limitIscrittiAnnui: integer('limit_iscritti_annui'),
+  badgeColor: text('badge_color'),
+  isPpe: boolean('is_ppe').notNull().default(false),
+  ppeSetupPerConcorso: numeric('ppe_setup_per_concorso', { precision: 10, scale: 2, mode: 'number' }),
+  ppePerIscritto: numeric('ppe_per_iscritto', { precision: 10, scale: 2, mode: 'number' }),
+  featured: boolean('featured').notNull().default(false),
+  attivo: boolean('attivo').notNull().default(true),
+  ordine: integer('ordine'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

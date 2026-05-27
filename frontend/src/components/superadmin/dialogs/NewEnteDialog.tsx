@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { httpErrorMessage } from '@/lib/api';
 import { platformApi, type TenantPiano, TENANT_PLANS } from '@/api/platform';
 import { PIANI, pianoPriceLabel } from '@/lib/piani';
+import { usePiani } from '@/hooks/usePiani';
 import { genPassword, kebabize, passwordScore } from '@/components/superadmin/format';
 
 export function NewEnteDialog({ existingSlugs, onClose, onCreated }: {
@@ -12,6 +13,8 @@ export function NewEnteDialog({ existingSlugs, onClose, onCreated }: {
   onClose: () => void;
   onCreated: () => void;
 }) {
+  const { piani, pianiMap } = usePiani();
+  const planKeys = piani.length ? piani.filter((p) => p.attivo).map((p) => p.key) : [...TENANT_PLANS];
   const [nome, setNome] = useState('');
   const [slug, setSlug] = useState('');
   const [slugTouched, setSlugTouched] = useState(false);
@@ -105,7 +108,9 @@ export function NewEnteDialog({ existingSlugs, onClose, onCreated }: {
               <span className="text-xs text-ink-500">— modificabile in seguito da "Cambia piano"</span>
             </header>
             <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {TENANT_PLANS.map((k) => (
+              {planKeys.map((k) => {
+                const info = pianiMap[k] ?? PIANI.trial;
+                return (
                 <label
                   key={k}
                   className={`cursor-pointer block border-2 rounded-lg p-3 transition-colors${piano === k ? ' border-brand-500 bg-brand-50' : ' border-slate-200 hover:border-slate-300'}`}
@@ -114,17 +119,17 @@ export function NewEnteDialog({ existingSlugs, onClose, onCreated }: {
                   <input type="radio" name="ne-piano" value={k} checked={piano === k} onChange={() => setPiano(k)} className="sr-only" />
                   <div className="flex items-baseline justify-between mb-1">
                     <span className="font-semibold text-ink-900">
-                      {PIANI[k].nome}
-                      {PIANI[k].featured && (
+                      {info.nome}
+                      {info.featured && (
                         <span className="ml-1.5 text-[10px] font-bold uppercase tracking-wide text-brand-700 bg-brand-100 rounded px-1.5 py-0.5">consigliato</span>
                       )}
                     </span>
-                    <span className="text-xs text-ink-700">{pianoPriceLabel(k)}</span>
+                    <span className="text-xs text-ink-700">{pianoPriceLabel(k, pianiMap)}</span>
                   </div>
-                  <p className="text-[11px] text-ink-600 leading-snug">{PIANI[k].descrizione}</p>
+                  <p className="text-[11px] text-ink-600 leading-snug">{info.descrizione}</p>
                   <div className="mt-1 text-[11px] text-ink-500 flex gap-3">
-                    <span>📊 {PIANI[k].limit_concorsi ?? '∞'} concorsi</span>
-                    <span>👥 {PIANI[k].limit_iscritti_annui ?? '∞'} iscr/anno</span>
+                    <span>📊 {info.limit_concorsi ?? '∞'} concorsi</span>
+                    <span>👥 {info.limit_iscritti_annui ?? '∞'} iscr/anno</span>
                   </div>
                   {piano === k && (
                     <div className="mt-2 pt-2 border-t border-slate-200 text-xs text-emerald-700 font-medium inline-flex items-center gap-1">
@@ -132,7 +137,8 @@ export function NewEnteDialog({ existingSlugs, onClose, onCreated }: {
                     </div>
                   )}
                 </label>
-              ))}
+                );
+              })}
             </div>
             <div className="mt-3 grid gap-3 sm:grid-cols-2">
               <div>

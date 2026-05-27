@@ -2,7 +2,7 @@
 
 import React from 'react';
 import type { TenantStato, TenantPiano } from '@/api/platform';
-import { PIANI } from '@/lib/piani';
+import { PIANI, type PianoInfo } from '@/lib/piani';
 
 // ─── StatoBadge ───────────────────────────────────────────────────────────────
 
@@ -25,8 +25,10 @@ export function StatoBadge({ stato }: { stato: TenantStato }) {
 
 // ─── PianoBadge ───────────────────────────────────────────────────────────────
 
-export function PianoBadge({ piano }: { piano: TenantPiano }) {
-  const p = PIANI[piano] ?? PIANI.trial;
+// `info` opzionale: se passato (dalla mappa dinamica di usePiani) ha priorità,
+// altrimenti ricade sul catalogo statico PIANI risolto per key.
+export function PianoBadge({ piano, info }: { piano: TenantPiano; info?: PianoInfo }) {
+  const p = info ?? PIANI[piano] ?? PIANI.trial;
   const colors: Record<string, string> = {
     sky:     'bg-sky-50 text-sky-700 ring-sky-200',
     emerald: 'bg-emerald-50 text-emerald-700 ring-emerald-200',

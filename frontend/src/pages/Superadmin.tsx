@@ -40,9 +40,12 @@ import {
   type TenantStats,
   type TenantSmtp,
   type SystemSnapshot,
+  type Piano,
   TENANT_PLANS,
 } from '@/api/platform';
 import { PIANI } from '@/lib/piani';
+import { usePiani, PIANI_QUERY_KEY } from '@/hooks/usePiani';
+import { PianoFormDialog } from '@/components/superadmin/dialogs/PianoFormDialog';
 import {
   fmtBytes,
   fmtDate,
@@ -77,6 +80,15 @@ import { DetailDrawer } from '@/components/superadmin/dialogs/DetailDrawer';
 export default function Superadmin() {
   const { t: _t } = useTranslation();
   const qc = useQueryClient();
+
+  // Catalogo piani dinamico (API) con fallback statico su PIANI. La mappa è
+  // sempre popolata: usata da PianoBadge, UsageBar, KPI revenue, filtro piani.
+  const { piani: pianiList, pianiMap } = usePiani();
+  // Opzioni filtro/select: piani dinamici (ordinati dal backend) se disponibili,
+  // altrimenti le key storiche statiche.
+  const pianoOptions: { key: string; nome: string }[] = pianiList.length
+    ? pianiList.map((p) => ({ key: p.key, nome: p.nome }))
+    : TENANT_PLANS.map((k) => ({ key: k, nome: PIANI[k].nome }));
 
   // ── State ────────────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<'dashboard' | 'config'>('dashboard');
@@ -239,8 +251,8 @@ export default function Superadmin() {
   for (const ten of tenants) {
     const s = statsMap.get(ten.id);
     if (s) { totConcorsi += s.concorsi; totDisk += s.diskUsageBytes; }
-    const p = PIANI[ten.piano] ?? PIANI.trial;
-    if (ten.stato === 'attivo' && ten.piano !== 'ppe' && p.prezzo) revenue += p.prezzo;
+    const p = pianiMap[ten.piano] ?? PIANI.trial;
+    if (ten.stato === 'attivo' && !p.is_ppe && p.prezzo) revenue += p.prezzo;
   }
 
   const cpuPct = sys?.cpu.processPct;
@@ -375,7 +387,7 @@ export default function Superadmin() {
     const smtp = smtpMap.get(ten.id);
     const rt = runtimeMap[ten.id];
     const isPlatform = ten.slug === 'platform';
-    const piano = PIANI[ten.piano] ?? PIANI.trial;
+    const piano = pianiMap[ten.piano] ?? PIANI.trial;
 
     return (
       <article
@@ -399,7 +411,7 @@ export default function Superadmin() {
           </div>
           <div className="flex flex-wrap items-center gap-1.5 mt-3">
             <StatoBadge stato={ten.stato} />
-            <PianoBadge piano={ten.piano} />
+            <PianoBadge piano={ten.piano} info={piano} />
             {ten.pianoScadenza && (
               <span className="text-[11px] text-ink-500">scade {fmtDate(ten.pianoScadenza)}</span>
             )}
@@ -457,7 +469,7 @@ export default function Superadmin() {
   function TableRow({ ten }: { ten: Tenant }) {
     const stats = statsMap.get(ten.id);
     const rt = runtimeMap[ten.id];
-    const piano = PIANI[ten.piano] ?? PIANI.trial;
+    const piano = pianiMap[ten.piano] ?? PIANI.trial;
     const concorsiUsed = stats?.concorsi ?? 0;
 
     return (
@@ -476,7 +488,7 @@ export default function Superadmin() {
           </div>
         </td>
         <td className="px-3 py-2.5"><StatoBadge stato={ten.stato} /></td>
-        <td className="px-3 py-2.5"><PianoBadge piano={ten.piano} /></td>
+        <td className="px-3 py-2.5"><PianoBadge piano={ten.piano} info={piano} /></td>
         <td className="px-3 py-2.5 text-right">
           <div className="text-ink-900 font-medium">
             {concorsiUsed}
@@ -608,7 +620,7 @@ export default function Superadmin() {
             onChange={(e) => setFilter((f) => ({ ...f, piano: e.target.value }))}
           >
             <option value="all">Tutti i piani</option>
-            {TENANT_PLANS.map((k) => <option key={k} value={k}>{PIANI[k].nome}</option>)}
+            {pianoOptions.map((p) => <option key={p.key} value={p.key}>{p.nome}</option>)}
           </select>
           <div className="inline-flex border border-slate-200 rounded-md p-0.5 bg-slate-50" role="tablist">
             {(['grid', 'table'] as const).map((l) => (
@@ -704,7 +716,8 @@ export default function Superadmin() {
     });
 
     return (
-      <div className="max-w-2xl">
+      <div className="space-y-8">
+        <section className="max-w-2xl">
         <h2 className="text-lg font-semibold text-ink-900 mb-1">Configurazione piattaforma</h2>
         <p className="text-sm text-ink-700 mb-5">Impostazioni globali applicate a tutti i tenant.</p>
         <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
@@ -748,7 +761,143 @@ export default function Superadmin() {
             </button>
           </div>
         </div>
+        </section>
+
+        <PianiPanel />
       </div>
+    );
+  }
+
+  // ── Catalogo piani (CRUD) ──────────────────────────────────────────────────
+  function PianiPanel() {
+    const { piani, isLoading, isError } = usePiani();
+    const [formPiano, setFormPiano] = useState<Piano | null | undefined>(undefined); // undefined = chiuso, null = nuovo
+
+    const invalidatePiani = () => {
+      void qc.invalidateQueries({ queryKey: PIANI_QUERY_KEY });
+    };
+
+    const deleteMut = useMutation({
+      mutationFn: (key: string) => platformApi.deletePiano(key),
+      onSuccess: () => { toast.success('Piano eliminato'); invalidatePiani(); },
+      onError: (err) => toast.error(httpErrorMessage(err)),
+    });
+
+    function doDelete(p: Piano) {
+      if (!window.confirm(`Eliminare il piano "${p.nome}" (${p.key})?`)) return;
+      deleteMut.mutate(p.key);
+    }
+
+    const fmtLimit = (v: number | null): number | string => v ?? '∞';
+    const fmtPrezzo = (p: Piano) => {
+      if (p.isPpe) return `€${p.ppeSetupPerConcorso ?? 0}/conc + €${(p.ppePerIscritto ?? 0).toFixed(2)}/iscr`;
+      if (p.prezzo === 0) return 'Gratis';
+      return `€${p.prezzo}/anno`;
+    };
+
+    const badgeCls: Record<string, string> = {
+      sky:     'bg-sky-50 text-sky-700 ring-sky-200',
+      emerald: 'bg-emerald-50 text-emerald-700 ring-emerald-200',
+      brand:   'bg-brand-50 text-brand-700 ring-brand-200',
+      amber:   'bg-amber-50 text-amber-700 ring-amber-200',
+      slate:   'bg-slate-100 text-slate-700 ring-slate-200',
+    };
+
+    return (
+      <section>
+        <div className="flex items-center justify-between mb-1">
+          <h2 className="text-lg font-semibold text-ink-900">Piani d'acquisto</h2>
+          <button className="c-btn c-btn--primary c-btn--sm" onClick={() => setFormPiano(null)}>
+            <Plus className="w-3.5 h-3.5" /><span>Nuovo piano</span>
+          </button>
+        </div>
+        <p className="text-sm text-ink-700 mb-4">Catalogo dei piani offerti ai tenant. Modificabili a runtime.</p>
+
+        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+          {isLoading ? (
+            <div className="px-4 py-10 text-center text-sm text-ink-700">Caricamento…</div>
+          ) : isError ? (
+            <div className="px-4 py-10 text-center text-sm text-rose-700">Errore nel caricamento dei piani.</div>
+          ) : piani.length === 0 ? (
+            <div className="px-4 py-10 text-center text-sm text-ink-700">Nessun piano configurato.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50 border-b border-slate-200">
+                  <tr className="text-[11px] uppercase tracking-wide text-ink-700">
+                    <th className="px-3 py-2.5 text-left font-semibold">Piano</th>
+                    <th className="px-3 py-2.5 text-left font-semibold">Prezzo</th>
+                    <th className="px-3 py-2.5 text-right font-semibold">Durata</th>
+                    <th className="px-3 py-2.5 text-right font-semibold">Concorsi</th>
+                    <th className="px-3 py-2.5 text-right font-semibold">Commissari</th>
+                    <th className="px-3 py-2.5 text-right font-semibold">Candidati</th>
+                    <th className="px-3 py-2.5 text-right font-semibold">Iscritti/anno</th>
+                    <th className="px-3 py-2.5 text-center font-semibold">Attivo</th>
+                    <th className="px-3 py-2.5 text-center font-semibold">Badge</th>
+                    <th className="px-3 py-2.5 text-right font-semibold">Azioni</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {piani.map((p) => (
+                    <tr key={p.key} className="hover:bg-slate-50">
+                      <td className="px-3 py-2.5">
+                        <div className="font-medium text-ink-900 flex items-center gap-1.5">
+                          {p.nome}
+                          {p.featured && (
+                            <span className="text-[10px] font-bold uppercase tracking-wide text-brand-700 bg-brand-100 rounded px-1.5 py-0.5">consigliato</span>
+                          )}
+                        </div>
+                        <code className="text-xs text-ink-500">{p.key}</code>
+                      </td>
+                      <td className="px-3 py-2.5 text-ink-900">{fmtPrezzo(p)}</td>
+                      <td className="px-3 py-2.5 text-right text-ink-700">{p.durataGiorni == null ? '—' : `${p.durataGiorni}g`}</td>
+                      <td className="px-3 py-2.5 text-right text-ink-700">{fmtLimit(p.limitConcorsi)}</td>
+                      <td className="px-3 py-2.5 text-right text-ink-700">{fmtLimit(p.limitCommissari)}</td>
+                      <td className="px-3 py-2.5 text-right text-ink-700">{fmtLimit(p.limitCandidatiPerConcorso)}</td>
+                      <td className="px-3 py-2.5 text-right text-ink-700">{fmtLimit(p.limitIscrittiAnnui)}</td>
+                      <td className="px-3 py-2.5 text-center">
+                        {p.attivo
+                          ? <span className="inline-flex items-center gap-1 text-emerald-700 text-xs font-medium"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />sì</span>
+                          : <span className="text-ink-500 text-xs">no</span>}
+                      </td>
+                      <td className="px-3 py-2.5 text-center">
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ring-1 ${badgeCls[p.badgeColor] ?? badgeCls.slate}`}>
+                          {p.badgeColor}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2.5 text-right whitespace-nowrap">
+                        <button
+                          className="p-1.5 rounded-md hover:bg-slate-100 text-ink-700"
+                          title="Modifica"
+                          onClick={() => setFormPiano(p)}
+                        >
+                          <Edit className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          className="p-1.5 rounded-md hover:bg-rose-50 text-rose-700"
+                          title="Elimina"
+                          onClick={() => doDelete(p)}
+                          disabled={deleteMut.isPending}
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+
+        {formPiano !== undefined && (
+          <PianoFormDialog
+            piano={formPiano}
+            onClose={() => setFormPiano(undefined)}
+            onSaved={() => { setFormPiano(undefined); invalidatePiani(); }}
+          />
+        )}
+      </section>
     );
   }
 

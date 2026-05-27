@@ -5,8 +5,12 @@ import { toast } from 'sonner';
 import { httpErrorMessage } from '@/lib/api';
 import { platformApi, type Tenant, type TenantPiano, TENANT_PLANS } from '@/api/platform';
 import { PIANI } from '@/lib/piani';
+import { usePiani } from '@/hooks/usePiani';
 
 export function EditMetaDialog({ t, onClose, onSaved }: { t: Tenant; onClose: () => void; onSaved: () => void }) {
+  const { piani, pianiMap } = usePiani();
+  // Piani dal catalogo dinamico (attivi); fallback alla lista statica se vuoto.
+  const planKeys = piani.length ? piani.filter((p) => p.attivo).map((p) => p.key) : [...TENANT_PLANS];
   const [nome, setNome] = useState(t.nome);
   const [piano, setPiano] = useState<TenantPiano>(t.piano);
   const [pianoScadenza, setPianoScadenza] = useState(t.pianoScadenza ?? '');
@@ -46,7 +50,7 @@ export function EditMetaDialog({ t, onClose, onSaved }: { t: Tenant; onClose: ()
                 value={piano}
                 onChange={(e) => setPiano(e.target.value as TenantPiano)}
               >
-                {TENANT_PLANS.map((k) => <option key={k} value={k}>{PIANI[k].nome}</option>)}
+                {planKeys.map((k) => <option key={k} value={k}>{(pianiMap[k] ?? PIANI.trial).nome}</option>)}
               </select>
             </div>
             <div>

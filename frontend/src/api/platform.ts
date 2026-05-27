@@ -13,9 +13,15 @@ import { http } from '@/lib/api';
 // ─── Tipi locali ─────────────────────────────────────────────────────────────
 
 export const TENANT_STATES = ['attivo', 'sospeso', 'archiviato'] as const;
+/** Chiavi dei piani "storici" hard-coded — usati solo come fallback statico. */
 export const TENANT_PLANS = ['trial', 'starter', 'pro', 'ultra', 'ppe'] as const;
 export type TenantStato = (typeof TENANT_STATES)[number];
-export type TenantPiano = (typeof TENANT_PLANS)[number];
+/**
+ * Chiave piano. I piani sono ormai dinamici (gestiti dal super-admin via CRUD,
+ * vedi platformApi.listPiani / lib/piani.ts), quindi è una stringa libera e
+ * non più un union chiuso. La lista statica TENANT_PLANS resta come fallback.
+ */
+export type TenantPiano = string;
 
 /** Shape pubblica del tenant (publicTenant() nel backend). */
 export interface Tenant {
@@ -131,6 +137,26 @@ export interface PlatformConfig {
   updatedAt: string;
 }
 
+/** Catalogo piani d'acquisto (CRUD super-admin). Shape camelCase dal backend. */
+export interface Piano {
+  key: string;
+  nome: string;
+  descrizione: string;
+  prezzo: number;
+  durataGiorni: number | null;
+  limitConcorsi: number | null;
+  limitCommissari: number | null;
+  limitCandidatiPerConcorso: number | null;
+  limitIscrittiAnnui: number | null;
+  badgeColor: string;
+  isPpe: boolean;
+  ppeSetupPerConcorso: number | null;
+  ppePerIscritto: number | null;
+  featured: boolean;
+  attivo: boolean;
+  ordine: number | null;
+}
+
 // ─── Body types ──────────────────────────────────────────────────────────────
 
 export interface CreateTenantBody {
@@ -174,6 +200,29 @@ export interface SmtpBody {
   password: string;
   from: string;
 }
+
+/** Body create piano (tutti i campi obbligatori tranne quelli nullable). */
+export interface CreatePianoBody {
+  key: string;
+  nome: string;
+  descrizione: string;
+  prezzo: number;
+  durataGiorni: number | null;
+  limitConcorsi: number | null;
+  limitCommissari: number | null;
+  limitCandidatiPerConcorso: number | null;
+  limitIscrittiAnnui: number | null;
+  badgeColor: string;
+  isPpe: boolean;
+  ppeSetupPerConcorso: number | null;
+  ppePerIscritto: number | null;
+  featured: boolean;
+  attivo: boolean;
+  ordine: number | null;
+}
+
+/** Body update piano: tutti opzionali (la key non si modifica). */
+export type UpdatePianoBody = Partial<Omit<CreatePianoBody, 'key'>>;
 
 // ─── API ──────────────────────────────────────────────────────────────────────
 
@@ -269,4 +318,19 @@ export const platformApi = {
   /** PATCH /api/platform/config */
   updateConfig: (body: { require2faSuperadmin?: boolean; defaultCleanupDays?: number }) =>
     http.patch<PlatformConfig | null>(`${BASE}/config`, body),
+
+  // ── Catalogo piani (CRUD) ────────────────────────────────────────────────
+
+  /** GET /api/platform/piani */
+  listPiani: () => http.get<Piano[]>(`${BASE}/piani`),
+
+  /** POST /api/platform/piani → 201 */
+  createPiano: (body: CreatePianoBody) => http.post<Piano>(`${BASE}/piani`, body),
+
+  /** PATCH /api/platform/piani/:key → 200 */
+  updatePiano: (key: string, body: UpdatePianoBody) =>
+    http.patch<Piano>(`${BASE}/piani/${encodeURIComponent(key)}`, body),
+
+  /** DELETE /api/platform/piani/:key → 204 (409 se piano in uso). */
+  deletePiano: (key: string) => http.del<undefined>(`${BASE}/piani/${encodeURIComponent(key)}`),
 };

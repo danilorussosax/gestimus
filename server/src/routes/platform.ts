@@ -9,6 +9,7 @@ import {
   commissari,
   concorsi,
   iscrizioni,
+  piani,
   platformAuditLog,
   platformConfig,
   tenantConfig,
@@ -30,8 +31,13 @@ import { MAX_LIMIT } from '../lib/pagination.js';
 import { replyValidationError } from '../lib/validation.js';
 
 const TENANT_STATES = ['attivo', 'sospeso', 'archiviato'] as const;
-const TENANT_PLANS = ['trial', 'starter', 'pro', 'ultra', 'ppe'] as const;
+// Il catalogo piani non è più hard-coded: la chiave `piano` è validata a runtime
+// contro la tabella `piani` (vedi assertPianoExists). Niente enum statico.
 const PLATFORM_SLUG = 'platform';
+
+// Una key di piano è una stringa breve, non vuota (slug-like). La sua esistenza
+// nel catalogo viene poi verificata via assertPianoExists.
+const pianoKeySchema = z.string().min(1).max(50);
 
 // M4: cache breve dello snapshot /system (il campionamento CPU costa 200ms).
 let systemSnapshotCache: { data: unknown; expiresAt: number } | null = null;
@@ -68,7 +74,7 @@ const createTenantBody = z.object({
     .max(63)
     .regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/, 'slug deve essere kebab-case'),
   nome: z.string().min(1).max(255),
-  piano: z.enum(TENANT_PLANS),
+  piano: pianoKeySchema,
   pianoScadenza: z.string().date().nullable().optional(),
   dominio: dominioSchema.optional(),
   note: z.string().max(2000).nullable().optional(),
@@ -81,7 +87,7 @@ const createTenantBody = z.object({
 const updateTenantBody = z
   .object({
     nome: z.string().min(1).max(255),
-    piano: z.enum(TENANT_PLANS),
+    piano: pianoKeySchema,
     pianoScadenza: z.string().date().nullable(),
     dominio: dominioSchema,
     note: z.string().max(2000).nullable(),
@@ -118,7 +124,7 @@ const smtpBody = z.object({
  * `null` significano "usa quello di default del piano (vedi piani.js lato FE)".
  */
 const changePlanBody = z.object({
-  piano: z.enum(TENANT_PLANS),
+  piano: pianoKeySchema,
   pianoScadenza: z.string().date().nullable().optional(),
   overrides: z
     .object({
@@ -135,6 +141,109 @@ const auditQuery = z.object({
   action: z.string().max(100).optional(),
   tenantId: z.string().uuid().optional(),
 });
+
+// ---------------------------------------------------------------------------
+// Catalogo piani (tabella globale `piani`)
+// ---------------------------------------------------------------------------
+
+// Limite intero >= 0 oppure null (= illimitato/non impostato).
+const limitField = z.number().int().nonnegative().nullable().optional();
+// Prezzo numerico >= 0 oppure null (per i campi PPE opzionali).
+const moneyField = z.number().nonnegative().nullable().optional();
+
+const createPianoBody = z.object({
+  key: z
+    .string()
+    .min(1)
+    .max(50)
+    .regex(/^[a-z0-9][a-z0-9-]*$/, 'key deve essere kebab-case (lowercase)'),
+  nome: z.string().min(1).max(255),
+  descrizione: z.string().max(2000).nullable().optional(),
+  prezzo: z.number().nonnegative().optional(), // default 0 lato DB
+  durataGiorni: z.number().int().positive().nullable().optional(),
+  limitConcorsi: limitField,
+  limitCommissari: limitField,
+  limitCandidatiPerConcorso: limitField,
+  limitIscrittiAnnui: limitField,
+  badgeColor: z.string().max(50).nullable().optional(),
+  isPpe: z.boolean().optional(),
+  ppeSetupPerConcorso: moneyField,
+  ppePerIscritto: moneyField,
+  featured: z.boolean().optional(),
+  attivo: z.boolean().optional(),
+  ordine: z.number().int().nullable().optional(),
+});
+
+// In PATCH tutti i campi sono opzionali (la key è nel path, non modificabile).
+const updatePianoBody = createPianoBody.omit({ key: true }).partial();
+
+type PianoRow = typeof piani.$inferSelect;
+
+function publicPiano(p: PianoRow) {
+  return {
+    key: p.key,
+    nome: p.nome,
+    descrizione: p.descrizione,
+    prezzo: p.prezzo,
+    durataGiorni: p.durataGiorni,
+    limitConcorsi: p.limitConcorsi,
+    limitCommissari: p.limitCommissari,
+    limitCandidatiPerConcorso: p.limitCandidatiPerConcorso,
+    limitIscrittiAnnui: p.limitIscrittiAnnui,
+    badgeColor: p.badgeColor,
+    isPpe: p.isPpe,
+    ppeSetupPerConcorso: p.ppeSetupPerConcorso,
+    ppePerIscritto: p.ppePerIscritto,
+    featured: p.featured,
+    attivo: p.attivo,
+    ordine: p.ordine,
+    createdAt: p.createdAt,
+    updatedAt: p.updatedAt,
+  };
+}
+
+async function findPiano(key: string): Promise<PianoRow | undefined> {
+  const rows = await dbSuper.select().from(piani).where(eq(piani.key, key)).limit(1);
+  return rows[0];
+}
+
+/**
+ * Verifica che la key piano esista nel catalogo. Ritorna la riga piano (per
+ * riusarne i limiti) o invia un 400 e ritorna null. Sostituisce il vecchio
+ * enum statico TENANT_PLANS nelle route di assegnazione piano al tenant.
+ */
+async function assertPianoExists(key: string, reply: FastifyReply): Promise<PianoRow | null> {
+  const p = await findPiano(key);
+  if (!p) {
+    reply.code(400).send({ error: `piano "${key}" inesistente nel catalogo` });
+    return null;
+  }
+  return p;
+}
+
+/**
+ * Copia i limiti del piano in tenant_config (upsert), SALVO override espliciti.
+ * Convenzione (vedi plan-limits.ts): NULL = illimitato. Da usare dentro una tx.
+ * `limitIscrittiAnnui` resta solo catalogo/display → non finisce qui.
+ */
+async function applyPlanLimitsToTenantConfig(
+  tx: Parameters<Parameters<typeof dbSuper.transaction>[0]>[0],
+  tenantId: string,
+  plan: PianoRow,
+): Promise<void> {
+  const values = {
+    maxConcorsi: plan.limitConcorsi ?? null,
+    maxCommissari: plan.limitCommissari ?? null,
+    maxCandidatiPerConcorso: plan.limitCandidatiPerConcorso ?? null,
+  };
+  await tx
+    .insert(tenantConfig)
+    .values({ tenantId, ...values })
+    .onConflictDoUpdate({
+      target: tenantConfig.tenantId,
+      set: { ...values, updatedAt: new Date() },
+    });
+}
 
 type TenantRow = typeof tenants.$inferSelect;
 
@@ -329,6 +438,9 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
     if (body.slug === PLATFORM_SLUG) {
       return reply.code(409).send({ error: 'slug "platform" è riservato' });
     }
+    // Validazione dinamica del piano contro il catalogo (ex enum statico).
+    const plan = await assertPianoExists(body.piano, reply);
+    if (!plan) return reply;
     const existing = await dbSuper
       .select({ id: tenants.id })
       .from(tenants)
@@ -366,6 +478,9 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
           attivo: true,
           emailVerified: true,
         });
+        // Copia i limiti del piano in tenant_config (create-tenant non accetta
+        // override espliciti, quindi vincono sempre quelli del piano).
+        await applyPlanLimitsToTenantConfig(tx, tenant!.id, plan);
         return tenant!;
       });
     } catch (err) {
@@ -399,6 +514,16 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
     const current = await findTenant(id);
     if (!current) return reply.notFound();
 
+    // Se il PATCH cambia il piano, validalo contro il catalogo (ex enum statico)
+    // e ricava i limiti da copiare. Niente override espliciti in questa route:
+    // un cambio piano qui riallinea sempre tenant_config ai limiti del piano.
+    const planChanged = body.piano !== undefined && body.piano !== current.piano;
+    let newPlan: PianoRow | null = null;
+    if (body.piano !== undefined) {
+      newPlan = await assertPianoExists(body.piano, reply);
+      if (!newPlan) return reply;
+    }
+
     const update: Partial<TenantRow> = { updatedAt: new Date() };
     if (body.nome !== undefined) update.nome = body.nome;
     if (body.piano !== undefined) update.piano = body.piano;
@@ -417,9 +542,16 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
       }
     }
 
-    const [updated] = await dbSuper.update(tenants).set(update).where(eq(tenants.id, id)).returning();
-    await auditChange(req, 'platform.tenant.update', updated!, { changes: body });
-    return publicTenant(updated!);
+    const updated = await dbSuper.transaction(async (tx) => {
+      const [t] = await tx.update(tenants).set(update).where(eq(tenants.id, id)).returning();
+      // Copia i limiti del nuovo piano solo se il piano è effettivamente cambiato.
+      if (planChanged && newPlan) {
+        await applyPlanLimitsToTenantConfig(tx, id, newPlan);
+      }
+      return t!;
+    });
+    await auditChange(req, 'platform.tenant.update', updated, { changes: body });
+    return publicTenant(updated);
   });
 
   /**
@@ -609,6 +741,10 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
     const current = await findTenant(id);
     if (!current) return reply.notFound();
 
+    // Validazione dinamica del piano (ex enum statico) + lookup limiti del piano.
+    const plan = await assertPianoExists(body.piano, reply);
+    if (!plan) return reply;
+
     const updated = await dbSuper.transaction(async (tx) => {
       const [t] = await tx
         .update(tenants)
@@ -621,30 +757,28 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
         .returning();
 
       if (body.overrides) {
+        // L'override esplicito vince sui limiti del piano (upsert con i valori passati).
         const o = body.overrides;
-        const existing = await tx
-          .select()
-          .from(tenantConfig)
-          .where(eq(tenantConfig.tenantId, id))
-          .limit(1);
-        if (existing[0]) {
-          await tx
-            .update(tenantConfig)
-            .set({
-              maxConcorsi: o.maxConcorsi ?? null,
-              maxCommissari: o.maxCommissari ?? null,
-              maxCandidatiPerConcorso: o.maxCandidatiPerConcorso ?? null,
-              updatedAt: new Date(),
-            })
-            .where(eq(tenantConfig.tenantId, id));
-        } else {
-          await tx.insert(tenantConfig).values({
+        await tx
+          .insert(tenantConfig)
+          .values({
             tenantId: id,
             maxConcorsi: o.maxConcorsi ?? null,
             maxCommissari: o.maxCommissari ?? null,
             maxCandidatiPerConcorso: o.maxCandidatiPerConcorso ?? null,
+          })
+          .onConflictDoUpdate({
+            target: tenantConfig.tenantId,
+            set: {
+              maxConcorsi: o.maxConcorsi ?? null,
+              maxCommissari: o.maxCommissari ?? null,
+              maxCandidatiPerConcorso: o.maxCandidatiPerConcorso ?? null,
+              updatedAt: new Date(),
+            },
           });
-        }
+      } else {
+        // Nessun override → copia i limiti del nuovo piano in tenant_config.
+        await applyPlanLimitsToTenantConfig(tx, id, plan);
       }
       return t!;
     });
@@ -656,6 +790,126 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
     });
 
     return publicTenant(updated);
+  });
+
+  // =========================================================================
+  // Catalogo piani (CRUD) — tabella globale `piani`, solo super-admin
+  // =========================================================================
+
+  /**
+   * GET /piani → catalogo completo (ordinato per `ordine`, poi `key`).
+   */
+  app.get('/piani', { preHandler: platformGuards }, async () => {
+    const rows = await dbSuper.select().from(piani).orderBy(asc(piani.ordine), asc(piani.key));
+    return rows.map(publicPiano);
+  });
+
+  /**
+   * POST /piani → crea un piano (201). 409 se la key esiste già.
+   */
+  app.post('/piani', { preHandler: platformGuards }, async (req, reply) => {
+    const parsed = createPianoBody.safeParse(req.body);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
+    const body = parsed.data;
+
+    const existing = await findPiano(body.key);
+    if (existing) {
+      return reply.code(409).send({ error: `piano "${body.key}" già esistente` });
+    }
+
+    let created;
+    try {
+      const [row] = await dbSuper
+        .insert(piani)
+        .values({
+          key: body.key,
+          nome: body.nome,
+          descrizione: body.descrizione ?? null,
+          prezzo: body.prezzo ?? 0,
+          durataGiorni: body.durataGiorni ?? null,
+          limitConcorsi: body.limitConcorsi ?? null,
+          limitCommissari: body.limitCommissari ?? null,
+          limitCandidatiPerConcorso: body.limitCandidatiPerConcorso ?? null,
+          limitIscrittiAnnui: body.limitIscrittiAnnui ?? null,
+          badgeColor: body.badgeColor ?? null,
+          isPpe: body.isPpe ?? false,
+          ppeSetupPerConcorso: body.ppeSetupPerConcorso ?? null,
+          ppePerIscritto: body.ppePerIscritto ?? null,
+          featured: body.featured ?? false,
+          attivo: body.attivo ?? true,
+          ordine: body.ordine ?? null,
+        })
+        .returning();
+      created = row!;
+    } catch (err) {
+      // Race SELECT-then-INSERT sulla PK key → mappa il 23505 a 409.
+      const e = err as { code?: string; cause?: { code?: string } };
+      if ((e.code ?? e.cause?.code) === '23505') {
+        return reply.code(409).send({ error: `piano "${body.key}" già esistente` });
+      }
+      throw err;
+    }
+
+    await writePlatformAudit(req, 'platform.piano.create', { payload: { key: created.key } });
+    return reply.code(201).send(publicPiano(created));
+  });
+
+  /**
+   * PATCH /piani/:key → aggiorna un piano (404 se assente).
+   */
+  app.patch('/piani/:key', { preHandler: platformGuards }, async (req, reply) => {
+    const { key } = z.object({ key: pianoKeySchema }).parse(req.params);
+    const parsed = updatePianoBody.safeParse(req.body);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
+    const body = parsed.data;
+
+    const current = await findPiano(key);
+    if (!current) return reply.notFound();
+
+    const update: Partial<PianoRow> = { updatedAt: new Date() };
+    if (body.nome !== undefined) update.nome = body.nome;
+    if (body.descrizione !== undefined) update.descrizione = body.descrizione;
+    if (body.prezzo !== undefined) update.prezzo = body.prezzo;
+    if (body.durataGiorni !== undefined) update.durataGiorni = body.durataGiorni;
+    if (body.limitConcorsi !== undefined) update.limitConcorsi = body.limitConcorsi;
+    if (body.limitCommissari !== undefined) update.limitCommissari = body.limitCommissari;
+    if (body.limitCandidatiPerConcorso !== undefined)
+      update.limitCandidatiPerConcorso = body.limitCandidatiPerConcorso;
+    if (body.limitIscrittiAnnui !== undefined) update.limitIscrittiAnnui = body.limitIscrittiAnnui;
+    if (body.badgeColor !== undefined) update.badgeColor = body.badgeColor;
+    if (body.isPpe !== undefined) update.isPpe = body.isPpe;
+    if (body.ppeSetupPerConcorso !== undefined) update.ppeSetupPerConcorso = body.ppeSetupPerConcorso;
+    if (body.ppePerIscritto !== undefined) update.ppePerIscritto = body.ppePerIscritto;
+    if (body.featured !== undefined) update.featured = body.featured;
+    if (body.attivo !== undefined) update.attivo = body.attivo;
+    if (body.ordine !== undefined) update.ordine = body.ordine;
+
+    const [updated] = await dbSuper.update(piani).set(update).where(eq(piani.key, key)).returning();
+    await writePlatformAudit(req, 'platform.piano.update', { payload: { key, changes: body } });
+    return publicPiano(updated!);
+  });
+
+  /**
+   * DELETE /piani/:key → 204. 409 se almeno un tenant usa questo piano
+   * (non orfaniamo i tenant: prima va riassegnato il piano).
+   */
+  app.delete('/piani/:key', { preHandler: platformGuards }, async (req, reply) => {
+    const { key } = z.object({ key: pianoKeySchema }).parse(req.params);
+    const current = await findPiano(key);
+    if (!current) return reply.notFound();
+
+    const inUse = await dbSuper
+      .select({ id: tenants.id })
+      .from(tenants)
+      .where(eq(tenants.piano, key))
+      .limit(1);
+    if (inUse[0]) {
+      return reply.code(409).send({ error: `piano "${key}" in uso da almeno un tenant` });
+    }
+
+    await dbSuper.delete(piani).where(eq(piani.key, key));
+    await writePlatformAudit(req, 'platform.piano.delete', { payload: { key } });
+    return reply.code(204).send();
   });
 
   /**

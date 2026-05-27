@@ -5,10 +5,13 @@ import { toast } from 'sonner';
 import { httpErrorMessage } from '@/lib/api';
 import { platformApi, type Tenant, type TenantPiano, type ChangePlanBody, TENANT_PLANS } from '@/api/platform';
 import { PIANI, pianoPriceLabel, pianoDurataLabel } from '@/lib/piani';
+import { usePiani } from '@/hooks/usePiani';
 import { fmtDate } from '@/components/superadmin/format';
 import { PianoBadge } from '@/components/superadmin/ui';
 
 export function ChangePlanDialog({ t, onClose, onSaved }: { t: Tenant; onClose: () => void; onSaved: () => void }) {
+  const { piani, pianiMap } = usePiani();
+  const planKeys = piani.length ? piani.filter((p) => p.attivo).map((p) => p.key) : [...TENANT_PLANS];
   const [piano, setPiano] = useState<TenantPiano>(t.piano);
   const [pianoScadenza, setPianoScadenza] = useState(t.pianoScadenza ?? '');
   const [maxConcorsi, setMaxConcorsi] = useState('');
@@ -30,7 +33,7 @@ export function ChangePlanDialog({ t, onClose, onSaved }: { t: Tenant; onClose: 
 
   const parseOpt = (v: string): number | null => v.trim() === '' ? null : Number(v);
 
-  const selectedPiano = PIANI[piano] ?? PIANI.trial;
+  const selectedPiano = pianiMap[piano] ?? PIANI.trial;
   const changed = piano !== t.piano;
 
   const mut = useMutation({
@@ -66,7 +69,7 @@ export function ChangePlanDialog({ t, onClose, onSaved }: { t: Tenant; onClose: 
             </div>
             <div className="grid sm:grid-cols-2 gap-3 text-sm">
               <div><span className="text-ink-700">Scadenza:</span> <strong>{t.pianoScadenza ? fmtDate(t.pianoScadenza) : <em className="font-normal text-ink-500">non impostata</em>}</strong></div>
-              <div><span className="text-ink-700">Limite concorsi:</span> <strong>{(PIANI[t.piano]?.limit_concorsi ?? null) == null ? <em className="font-normal text-ink-500">illimitato</em> : PIANI[t.piano].limit_concorsi}</strong></div>
+              <div><span className="text-ink-700">Limite concorsi:</span> <strong>{(pianiMap[t.piano]?.limit_concorsi ?? null) == null ? <em className="font-normal text-ink-500">illimitato</em> : pianiMap[t.piano]?.limit_concorsi}</strong></div>
             </div>
           </section>
 
@@ -77,7 +80,7 @@ export function ChangePlanDialog({ t, onClose, onSaved }: { t: Tenant; onClose: 
               <div>
                 <label className="text-sm font-medium block mb-1">Piano</label>
                 <select className="c-input" value={piano} onChange={(e) => setPiano(e.target.value as TenantPiano)}>
-                  {TENANT_PLANS.map((k) => <option key={k} value={k}>{PIANI[k].nome}{k === t.piano ? ' (attuale)' : ''}</option>)}
+                  {planKeys.map((k) => <option key={k} value={k}>{(pianiMap[k] ?? PIANI.trial).nome}{k === t.piano ? ' (attuale)' : ''}</option>)}
                 </select>
               </div>
               <div>
