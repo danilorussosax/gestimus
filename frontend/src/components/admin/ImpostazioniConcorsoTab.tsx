@@ -454,7 +454,15 @@ export function ImpostazioniConcorsoTab({ concorsoId }: { concorsoId: string }) 
 
       setIsSubmitting(true);
       try {
-        await updateMutation.mutateAsync({ id: concorsoId, body: patch });
+        const updated = await updateMutation.mutateAsync({ id: concorsoId, body: patch });
+        // FIX tiebreak: scrivi SUBITO il concorso aggiornato nella cache del
+        // dettaglio. Il re-seed (setSeeded(false) qui sotto) legge da `concorso`
+        // = cache di useConcorso; senza questo, leggeva il valore STALE (refetch
+        // dell'invalidate ancora in volo) e — al primo salvataggio di una
+        // strategia — ricostruiva i toggle da `defaultTiebreakStrategy` null →
+        // tutte le regole tornavano selezionate. Con setQueryData il re-seed
+        // vede il valore appena salvato.
+        qc.setQueryData(concorsoQueryKey(concorsoId), updated);
         // Invalidate list + detail (mirrors vanilla's db.updateConcorso side-effect)
         void qc.invalidateQueries({ queryKey: CONCORSI_QUERY_KEY });
         void qc.invalidateQueries({ queryKey: concorsoQueryKey(concorsoId) });
