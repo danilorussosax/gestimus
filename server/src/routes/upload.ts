@@ -73,6 +73,7 @@ export const uploadRoutes: FastifyPluginAsync = async (app) => {
     } catch (err) {
       const e = err as { code?: string; message?: string };
       if (e.code === 'UNSUPPORTED_MIME') return reply.code(415).send({ error: e.message });
+      if (e.code === 'INVALID_IMAGE') return reply.code(415).send({ error: e.message });
       if (e.code === 'FILE_TOO_LARGE') return reply.code(413).send({ error: e.message });
       throw err;
     }

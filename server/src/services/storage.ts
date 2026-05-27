@@ -2,6 +2,7 @@ import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { join, normalize, resolve } from 'node:path';
 import { randomBytes } from 'node:crypto';
+import sharp from 'sharp';
 import { env } from '../env.js';
 
 export type ResourceKind = 'concorso' | 'commissario' | 'candidato' | 'iscrizione';
@@ -50,6 +51,32 @@ function magicMatches(buffer: Buffer, mimeType: string): boolean {
       return startsWith(0x50, 0x4b, 0x03, 0x04) || startsWith(0x50, 0x4b, 0x05, 0x06); // ZIP (docx)
     default:
       return false;
+  }
+}
+
+// GDPR (#3): le immagini caricate (foto candidati/commissari, loghi) possono
+// trasportare metadati EXIF — incluso GPS e altri PII — che verrebbero serviti
+// pubblicamente da /uploads/. Ri-codifichiamo i raster con sharp PRIMA di
+// scrivere su disco: `.rotate()` applica l'orientamento EXIF e poi la
+// ri-codifica SCARTA tutti i metadati (EXIF/GPS/IPTC/XMP). Per JPEG/PNG/WEBP è
+// supportato ovunque; per GIF passiamo `{ animated: true }` per preservare
+// l'animazione (richiede libvips con supporto GIF — se assente sharp throwa e
+// l'upload viene rifiutato pulito come immagine corrotta).
+const RASTER_MIME = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
+
+async function stripImageMetadata(buffer: Buffer, mimeType: string): Promise<Buffer> {
+  switch (mimeType) {
+    case 'image/jpeg':
+      return sharp(buffer).rotate().jpeg({ quality: 85 }).toBuffer();
+    case 'image/png':
+      return sharp(buffer).rotate().png().toBuffer();
+    case 'image/webp':
+      return sharp(buffer).rotate().webp().toBuffer();
+    case 'image/gif':
+      // animated:true preserva i frame multipli; la ri-codifica scarta i metadati.
+      return sharp(buffer, { animated: true }).gif().toBuffer();
+    default:
+      return buffer;
   }
 }
 
@@ -111,6 +138,18 @@ export async function saveFile(args: {
     });
   }
 
+  // #3 GDPR: per i tipi raster, ri-codifica via sharp DOPO le validazioni
+  // (magic-byte/mime/size sopra) per scartare EXIF/GPS prima della scrittura.
+  // Un'immagine corrotta fa throware sharp → upload rifiutato pulito (415-like).
+  let outBuffer = args.buffer;
+  if (RASTER_MIME.has(args.mimeType)) {
+    try {
+      outBuffer = await stripImageMetadata(args.buffer, args.mimeType);
+    } catch {
+      throw Object.assign(new Error('immagine non valida o corrotta'), { code: 'INVALID_IMAGE' });
+    }
+  }
+
   const dir = tenantUploadDir(args.tenantSlug, args.resource, args.id);
   await mkdir(dir, { recursive: true });
 
@@ -133,7 +172,7 @@ export async function saveFile(args: {
   // metà writeFile lascerebbe altrimenti un file parziale/corrotto al path
   // finale (rename è atomico sullo stesso filesystem).
   const tmpPath = `${absPath}.tmp-${randomBytes(8).toString('hex')}`;
-  await writeFile(tmpPath, args.buffer);
+  await writeFile(tmpPath, outBuffer);
   try {
     await rename(tmpPath, absPath);
   } catch (err) {
@@ -146,7 +185,7 @@ export async function saveFile(args: {
     filename,
     path: absPath,
     publicUrl: publicPath(args.tenantSlug, args.resource, args.id, filename),
-    sizeBytes: args.buffer.length,
+    sizeBytes: outBuffer.length,
     mimeType: args.mimeType,
   };
 }

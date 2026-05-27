@@ -9,11 +9,13 @@ import helmet from '@fastify/helmet';
 import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { readFileSync, existsSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { env } from './env.js';
 import { captureError } from './observability/sentry.js';
 import { pingDb } from './db/client.js';
 import { registerTenantMiddleware } from './middleware/tenant.js';
 import { registerAuthMiddleware } from './middleware/auth.js';
+import { validateSessionToken } from './services/session.js';
 import { registerRuntimeMetrics } from './middleware/runtime-metrics.js';
 import { authRoutes } from './routes/auth.js';
 import { concorsiRoutes } from './routes/concorsi.js';
@@ -60,6 +62,18 @@ export async function createApp(): Promise<FastifyInstance> {
     requestTimeout: 30_000,
     keepAliveTimeout: 5_000,
     connectionTimeout: 60_000,
+    // #9 Observability: correlation id. Onora un X-Request-Id in ingresso (utile
+    // per tracciare una richiesta attraverso il reverse proxy / più servizi);
+    // altrimenti genera un UUID v4 (l'id incrementale di default non è unico tra
+    // processi/riavvii e non è propagabile). L'id finisce in ogni log via
+    // req.log e viene rimandato al client come header (vedi hook onSend sotto).
+    requestIdHeader: 'x-request-id',
+    genReqId: () => randomUUID(),
+  });
+
+  // #9: propaga il request-id al client così può essere correlato lato chiamante.
+  app.addHook('onSend', async (req, reply) => {
+    reply.header('x-request-id', req.id);
   });
 
   // M3: error handler globale. Le route usano sia .parse() (throw) sia
@@ -140,10 +154,26 @@ export async function createApp(): Promise<FastifyInstance> {
     /^\/\.github\//i,
     /^\/tests\//i,
   ];
+  // #10: le FOTO di candidati e commissari sono PII e non devono essere
+  // enumerabili anonimamente da /uploads/<tenant>/candidato|commissario/...
+  // Richiediamo una sessione valida qualsiasi (admin/commissario): le viste che
+  // le mostrano sono tutte autenticate e same-origin → il browser invia il
+  // cookie e l'<img> continua a funzionare. I LOGHI dei concorsi
+  // (/uploads/<tenant>/concorso/...) restano PUBBLICI perché compaiono su pagine
+  // pubbliche (iscrizione, privacy, calendario). Gli allegati delle iscrizioni
+  // sono già bloccati come statici da BLOCKED_STATIC. No sessione → 404,
+  // coerente con la risposta dei path bloccati (no info-leak sull'esistenza).
+  const PHOTO_GATED = /^\/uploads\/[^/]+\/(candidato|commissario)\//i;
   app.addHook('onRequest', async (req, reply) => {
     const path = req.url.split('?')[0]!;
     if (BLOCKED_STATIC.some((re) => re.test(path))) {
       return reply.code(404).send({ error: 'not found' });
+    }
+    if (PHOTO_GATED.test(path)) {
+      const token = req.cookies[env.SESSION_COOKIE_NAME];
+      if (!token) return reply.code(404).send({ error: 'not found' });
+      const { account } = await validateSessionToken(token);
+      if (!account) return reply.code(404).send({ error: 'not found' });
     }
   });
   // Frontend: la SPA React buildata (frontend/dist), servita con fallback SPA

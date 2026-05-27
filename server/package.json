@@ -53,6 +53,7 @@
     "nodemailer": "^8.0.7",
     "pg": "^8.13.0",
     "pino": "^9.5.0",
+    "sharp": "^0.34.5",
     "zod": "^4.4.1"
   },
   "devDependencies": {
