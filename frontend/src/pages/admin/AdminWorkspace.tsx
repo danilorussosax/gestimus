@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
@@ -37,8 +37,13 @@ import CommissioniTab from '@/components/admin/CommissioniTab';
 import SezioniTab from '@/components/admin/SezioniTab';
 import AdminDashboard from '@/pages/admin/Dashboard';
 import AdminUtenti from '@/pages/admin/Utenti';
-import AdminManuale from '@/pages/admin/Manuale';
 import { ImpostazioniConcorsoTab } from '@/components/admin/ImpostazioniConcorsoTab';
+
+// Manuale è lazy: trascina lo stack markdown pesante (react-markdown + remark +
+// rehype). Import statico qui lo issava nel chunk di AdminWorkspace (eager su
+// /admin) — vanificava il lazy di App.tsx e l'intento di chunking di
+// vite.config. Caricato solo all'apertura della tab "manuale".
+const AdminManuale = lazy(() => import('@/pages/admin/Manuale'));
 
 // ---------------------------------------------------------------------------
 // Tab definitions
@@ -465,8 +470,8 @@ function WorkspaceInner({
             </nav>
           </header>
 
-          {/* Tab content */}
-          <div>
+          {/* Tab content — Suspense per le tab lazy (Manuale). */}
+          <Suspense fallback={null}>
             {activeTab === 'dashboard'   && <AdminDashboard embedded />}
             {activeTab === 'sezioni'     && <SezioniTab     concorsoId={concorsoId} />}
             {activeTab === 'commissari'  && <CommissariTab  concorsoId={concorsoId} />}
@@ -480,7 +485,7 @@ function WorkspaceInner({
             {activeTab === 'impostazioni' && <ImpostazioniConcorsoTab concorsoId={concorsoId} />}
             {activeTab === 'utenti'      && <AdminUtenti />}
             {activeTab === 'manuale'     && <AdminManuale />}
-          </div>
+          </Suspense>
 
         </div>
       </div>
