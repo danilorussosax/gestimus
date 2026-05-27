@@ -215,7 +215,12 @@ fi
 sudo -u "$APP_USER" mkdir -p "${APP_DIR}/server/uploads" "${APP_DIR}/server/archive"
 
 # ── 8. Build server + frontend ──────────────────────────────────────────────--
-step "Build (server + frontend) — può richiedere qualche minuto"
+step "Build (package condiviso + server + frontend) — può richiedere qualche minuto"
+# #2: il package @gestimus/scoring (scoring/tiebreak condivisi) DEVE essere
+# buildato PRIMA: server e frontend lo linkano via file:../packages/scoring e ne
+# importano il dist/ compilato. Senza, le loro build falliscono (modulo assente).
+sudo -u "$APP_USER" bash -lc "cd '${APP_DIR}/packages/scoring' && npm install --no-audit --no-fund && npm run build"
+ok "package @gestimus/scoring compilato (dist/)"
 sudo -u "$APP_USER" bash -lc "cd '${APP_DIR}/server'   && npm ci --no-audit --no-fund && npm run build"
 ok "server compilato (dist/)"
 sudo -u "$APP_USER" bash -lc "cd '${APP_DIR}/frontend' && npm ci --no-audit --no-fund && npm run build"

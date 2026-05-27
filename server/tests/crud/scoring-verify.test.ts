@@ -3,8 +3,8 @@
 // produca la stessa matematica del frontend. Pure functions → niente DB/app.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mediaCandidato, criteriFromRecords, computeAggregate, type ValutazioneRaw } from '../../src/lib/scoring.js';
-import { rankWithTieBreak, computeAdmittedIds } from '../../src/lib/tiebreak.js';
+import { mediaCandidato, criteriFromRecords, computeAggregate, type ValutazioneRaw } from '@gestimus/scoring/scoring';
+import { rankWithTieBreak, computeAdmittedIds } from '@gestimus/scoring/tiebreak';
 
 const fase2 = {
   criteri: [

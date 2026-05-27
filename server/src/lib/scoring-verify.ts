@@ -8,8 +8,10 @@ import type { TxClient } from '../middleware/tenant.js';
 import {
   candidati, candidatiFase, candidatiMembri, commissioni, concorsi, criteri, valutazioni,
 } from '../db/schema.js';
-import { criteriFromRecords, mediaCandidato } from './scoring.js';
-import { rankWithTieBreak, effectiveStrategy, computeAdmittedIds } from './tiebreak.js';
+// #2: scoring/tiebreak ora dal package condiviso @gestimus/scoring (single
+// source of truth con il frontend) — niente più port duplicato lato server.
+import { criteriFromRecords, mediaCandidato } from '@gestimus/scoring/scoring';
+import { rankWithTieBreak, effectiveStrategy, computeAdmittedIds } from '@gestimus/scoring/tiebreak';
 
 /** Riga fase con i campi letti dal ricalcolo (subset di `fasi`). */
 export interface FaseForScoring {
