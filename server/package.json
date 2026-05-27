@@ -16,6 +16,7 @@
     "db:setup": "npm run db:push && npm run db:policies",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx scripts/seed-dev.ts",
+    "db:seed:prod": "tsx scripts/seed-prod.ts",
     "db:reset": "SEED_RESET=1 tsx scripts/seed-dev.ts",
     "db:sql:status": "tsx scripts/migrate.ts status",
     "db:sql:up": "tsx scripts/migrate.ts up",
