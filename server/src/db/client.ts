@@ -8,6 +8,8 @@ const { Pool } = pg;
 const appPool = new Pool({
   connectionString: env.DATABASE_URL_APP,
   max: env.DB_APP_POOL_MAX,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 5_000,
 });
 // superPool: query del ruolo super (platform, cleanup, DDL). Tutto
 // transaction-scoped → compatibile con PgBouncer transaction mode. Gli usi
@@ -16,6 +18,8 @@ const appPool = new Pool({
 export const superPool = new Pool({
   connectionString: env.DATABASE_URL_SUPER,
   max: env.DB_SUPER_POOL_MAX,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 5_000,
 });
 
 // Affidabilità: un errore su un client idle del pool (es. connessione chiusa
