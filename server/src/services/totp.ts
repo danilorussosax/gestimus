@@ -1,7 +1,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { sha256 } from '@oslojs/crypto/sha2';
 import { encodeHexLowerCase } from '@oslojs/encoding';
-import { env } from '../env.js';
+import { deriveKey } from './keys.js';
 
 // TOTP RFC 6238 (HMAC-SHA1, step 30s, 6 cifre) implementato con node:crypto —
 // nessuna dipendenza esterna. Compatibile con Google Authenticator/Authy/1Password.
@@ -115,8 +115,11 @@ export function hashRecoveryCode(code: string): string {
 
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 
+// HMAC del challenge MFA con sottochiave dedicata 'gestimus:mfa' (HKDF da
+// GESTIMUS_SECRET_KEY): separata dalle chiavi audit/SMTP/backup.
+const MFA_HMAC_KEY = deriveKey('gestimus:mfa');
 function challengeSig(payload: string): string {
-  return createHmac('sha256', env.GESTIMUS_SECRET_KEY).update('mfa-challenge:' + payload).digest('base64url');
+  return createHmac('sha256', MFA_HMAC_KEY).update('mfa-challenge:' + payload).digest('base64url');
 }
 
 export function createMfaChallenge(accountId: string): string {

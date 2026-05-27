@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import type { FastifyInstance } from 'fastify';
 import { readFile, stat, unlink, utimes, writeFile, readdir, mkdir } from 'node:fs/promises';
 import { gunzipSync } from 'node:zlib';
-import { createDecipheriv, createHash } from 'node:crypto';
+import { createDecipheriv } from 'node:crypto';
 import { resolve, join } from 'node:path';
 import { eq, like } from 'drizzle-orm';
 import { createApp } from '../../src/app.js';
@@ -12,6 +12,7 @@ import { dbSuper } from '../../src/db/client.js';
 import { accounts, concorsi, platformAuditLog, tenants } from '../../src/db/schema.js';
 import { backupTenant, listBackups, pruneOldBackups, restoreTenant } from '../../src/services/backup.js';
 import { runTenantCleanup } from '../../src/services/cleanup.js';
+import { deriveKey } from '../../src/services/keys.js';
 import { hashPassword } from '../../src/services/password.js';
 import { env } from '../../src/env.js';
 
@@ -108,10 +109,10 @@ describe('Cleanup tenant + backup pre-hard-delete (Fase 6 traccia B)', () => {
     assert.equal(result.tableCounts.concorsi, 1, 'backup contiene il singolo concorso');
 
     // Decifra: [1 byte version][12 IV][16 tag][ciphertext = gzip(json)].
-    const hex = process.env.GESTIMUS_SECRET_KEY!;
-    const key = /^[0-9a-fA-F]{64}$/.test(hex)
-      ? Buffer.from(hex, 'hex')
-      : createHash('sha256').update(hex).digest();
+    // La chiave AES dei backup è la sottochiave HKDF 'gestimus:backup' (32 byte),
+    // non più il master grezzo: riusiamo deriveKey per restare allineati alla
+    // derivazione di backup.ts.
+    const key = deriveKey('gestimus:backup', 32);
     const buf = await readFile(result.path);
     assert.equal(buf[0], 0x02, 'version byte = 2');
     const iv = buf.subarray(1, 13);

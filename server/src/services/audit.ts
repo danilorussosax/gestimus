@@ -4,7 +4,7 @@ import { createHmac } from 'node:crypto';
 import { auditLog, platformAuditLog } from '../db/schema.js';
 import type { TxClient } from '../middleware/tenant.js';
 import { dbSuper } from '../db/client.js';
-import { env } from '../env.js';
+import { deriveKey } from './keys.js';
 
 // L232: ip/userAgent arrivano da header arbitrari del client. Vengono salvati
 // in audit_log e poi resi nel viewer/log → newline o caratteri di controllo
@@ -34,11 +34,14 @@ function canonical(value: unknown): string {
   return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonical(obj[k])).join(',') + '}';
 }
 
-// HMAC-SHA256 con GESTIMUS_SECRET_KEY (NON nel DB): un insider con accesso al
-// solo database non può ricalcolare la firma di una riga manomessa. Firma il
-// CONTENUTO (non createdAt, che è DB-side).
+// HMAC-SHA256 con sottochiave dedicata derivata da GESTIMUS_SECRET_KEY (NON nel
+// DB): un insider con accesso al solo database non può ricalcolare la firma di
+// una riga manomessa. Firma il CONTENUTO (non createdAt, che è DB-side).
+// N: chiave domain-separated 'gestimus:audit' — un leak della chiave AES
+// SMTP/backup non permette di forgiare firme audit (e viceversa).
+const AUDIT_HMAC_KEY = deriveKey('gestimus:audit');
 function hmac(values: unknown[]): string {
-  return createHmac('sha256', env.GESTIMUS_SECRET_KEY).update(canonical(values)).digest('hex');
+  return createHmac('sha256', AUDIT_HMAC_KEY).update(canonical(values)).digest('hex');
 }
 
 type AuditLogRow = {

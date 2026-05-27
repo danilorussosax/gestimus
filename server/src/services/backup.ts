@@ -4,7 +4,7 @@ import { promisify } from 'node:util';
 import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { keyBuffer } from './crypto-smtp.js';
+import { deriveKey } from './keys.js';
 import { dbSuper } from '../db/client.js';
 import {
   accounts,
@@ -48,6 +48,13 @@ const gunzipP = promisify(gunzip);
 const BACKUP_FORMAT_VERSION = 2;
 const ENC_VERSION_BYTE = 0x02;
 const AES_ALGO = 'aes-256-gcm';
+
+// Chiave AES-256 dei backup, derivata via HKDF da GESTIMUS_SECRET_KEY con label
+// DEDICATA 'gestimus:backup' (distinta da quella SMTP 'gestimus:smtp'): un leak
+// di un backup cifrato non aiuta a decifrare i credenziali SMTP, e viceversa.
+function backupKey(): Buffer {
+  return deriveKey('gestimus:backup', 32);
+}
 
 /**
  * Tabelle che vivono dentro un tenant (tutte cascade-deleted con il tenant).
@@ -189,7 +196,7 @@ export async function backupTenant(tenantId: string): Promise<BackupResult> {
   const filename = `${tenantRow.slug}-${safeIsoStamp()}-${randomBytes(3).toString('hex')}.json.gz.enc`;
   const filepath = join(archiveDir(), filename);
   const iv = randomBytes(12);
-  const cipher = createCipheriv(AES_ALGO, keyBuffer(), iv);
+  const cipher = createCipheriv(AES_ALGO, backupKey(), iv);
   const ciphertext = Buffer.concat([cipher.update(compressed), cipher.final()]);
   const tag = cipher.getAuthTag();
   const fileBuffer = Buffer.concat([Buffer.from([ENC_VERSION_BYTE]), iv, tag, ciphertext]);
@@ -238,7 +245,7 @@ export async function restoreTenant(filepath: string): Promise<{
   const iv = fileBuffer.subarray(1, 13);
   const tag = fileBuffer.subarray(13, 29);
   const ciphertext = fileBuffer.subarray(29);
-  const decipher = createDecipheriv(AES_ALGO, keyBuffer(), iv);
+  const decipher = createDecipheriv(AES_ALGO, backupKey(), iv);
   decipher.setAuthTag(tag);
   const compressed = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
   const json = (await gunzipP(compressed)).toString('utf8');
