@@ -5,7 +5,7 @@ import { and, eq, inArray, like } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { createApp } from '../../src/app.js';
 import { dbSuper } from '../../src/db/client.js';
-import { auditLog, commissari, concorsi, tenants } from '../../src/db/schema.js';
+import { accounts, auditLog, commissari, concorsi, tenants } from '../../src/db/schema.js';
 import { computeAuditLogSig, verifyAuditIntegrity } from '../../src/services/audit.js';
 
 describe('GDPR privacy endpoints', () => {
@@ -94,6 +94,38 @@ describe('GDPR privacy endpoints', () => {
     assert.equal(row.email, null);
     assert.equal(row.telefono, null);
     assert.equal(row.stato, 'INATTIVO');
+  });
+
+  test('#3 self-service: GET /me/data espone i propri dati, POST /me/erase pseudonimizza', async () => {
+    // Account commissario isolato (email unica per run → niente collisioni con
+    // eventuali residui). NON l'admin del seed.
+    const selfEmail = `self-erase-${Date.now()}@test.local`;
+    const concorsoId = (await app.inject({ method: 'POST', url: '/api/concorsi', headers: hdrs(), payload: { nome: `Erase Test self ${Date.now()}`, anno: 2026 } })).json().id;
+    const comId = (await app.inject({ method: 'POST', url: '/api/commissari', headers: hdrs(), payload: { concorsoId, nome: 'Self', cognome: 'Service', email: selfEmail } })).json().id;
+    const accId = (await app.inject({ method: 'POST', url: '/api/accounts', headers: hdrs(), payload: { email: selfEmail, password: 'Selferase123!', role: 'commissario', commissarioId: comId } })).json().id;
+
+    try {
+      const login = await app.inject({ method: 'POST', url: '/auth/login', headers: { host: 'ente1.gestimus.local', 'content-type': 'application/json' }, payload: { email: selfEmail, password: 'Selferase123!' } });
+      const selfHdrs = { host: 'ente1.gestimus.local', 'content-type': 'application/json', cookie: `gestimus_session=${login.cookies.find((c) => c.name === 'gestimus_session')!.value}` };
+
+      const data = await app.inject({ method: 'GET', url: '/api/me/data', headers: selfHdrs });
+      assert.equal(data.statusCode, 200);
+      assert.equal(data.json().account.email, selfEmail);
+      assert.equal(data.json().commissario.id, comId);
+
+      // POST con payload {} (content-type json + body vuoto → Fastify 400).
+      const erase = await app.inject({ method: 'POST', url: '/api/me/erase', headers: selfHdrs, payload: {} });
+      assert.equal(erase.statusCode, 200);
+      const row = (await dbSuper.select().from(commissari).where(eq(commissari.id, comId)))[0]!;
+      assert.equal(row.nome, '[ERASED]');
+      assert.equal(row.stato, 'INATTIVO');
+      const acc = (await dbSuper.select().from(accounts).where(eq(accounts.id, accId)))[0]!;
+      assert.equal(acc.attivo, false);
+      assert.match(acc.email, /^erased\+/);
+    } finally {
+      // Rimuovi l'account (FK su commissari) prima del cascade del concorso in after().
+      await dbSuper.delete(accounts).where(eq(accounts.id, accId));
+    }
   });
 
   test('N183: erase per email redige la PII (email) dai payload storici dell audit_log', async () => {
