@@ -3,6 +3,7 @@ import { events } from '../db/schema.js';
 import { dbSuper } from '../db/client.js';
 import type { TxClient } from '../middleware/tenant.js';
 import { logger } from '../lib/logger.js';
+import { captureError } from '../observability/sentry.js';
 
 // #4 (architect) — Outbox dei domain events.
 //  - publishEvent(): scrive l'evento nella STESSA transazione della write di
@@ -61,6 +62,10 @@ export async function processEvents(batch = 10): Promise<{ processed: number; fa
           .set({ status: 'failed', attempts, lastError: `nessun handler per '${ev.type}'`, processedAt: new Date() })
           .where(eq(events.id, ev.id));
         failed += 1;
+        // Dead-letter: evento senza handler → perso silenziosamente. Alert.
+        captureError(new Error(`domain event senza handler: '${ev.type}'`), {
+          kind: 'event.dead_letter', reason: 'no_handler', eventId: ev.id, type: ev.type, tenantId: ev.tenantId,
+        });
         continue;
       }
       try {
@@ -79,6 +84,13 @@ export async function processEvents(batch = 10): Promise<{ processed: number; fa
           .where(eq(events.id, ev.id));
         failed += 1;
         logger.warn({ module: 'events', id: ev.id, type: ev.type, attempts, status, err: msg }, 'event handler fallito');
+        // Solo alla dead-letter (esauriti i retry): alert. Sui retry intermedi
+        // resta 'pending' → niente Sentry per non fare rumore a ogni tentativo.
+        if (status === 'failed') {
+          captureError(err, {
+            kind: 'event.dead_letter', reason: 'max_attempts', eventId: ev.id, type: ev.type, tenantId: ev.tenantId, attempts,
+          });
+        }
       }
     }
     return { processed, failed };

@@ -46,7 +46,10 @@ async function start() {
             app.log.info({ ...r }, 'events: batch processato');
           }
         })
-        .catch((err) => app.log.error({ err }, 'events: errore nel processor'))
+        .catch((err) => {
+          app.log.error({ err }, 'events: errore nel processor');
+          captureError(err, { kind: 'events.processor' });
+        })
         .finally(() => { eventsRunning = false; });
     }, EVENTS_INTERVAL_MS);
     eventsTimer.unref();
@@ -72,8 +75,17 @@ async function start() {
             try {
               const r = await runTenantCleanup();
               app.log.info({ result: r }, 'cron: cleanup completato');
+              // Failure per-tenant (backup/delete) finiscono in r.errors senza
+              // throware: backup fallito PRIMA di un DELETE schedulato = rischio
+              // dati → alert anche se il run nel complesso "riesce".
+              if (r.errors.length > 0) {
+                captureError(new Error(`cleanup: ${r.errors.length} tenant con errori (backup/delete)`), {
+                  kind: 'cron.cleanup.partial', errors: r.errors,
+                });
+              }
             } catch (err) {
               app.log.error({ err }, 'cron: errore durante cleanup');
+              captureError(err, { kind: 'cron.cleanup' });
             }
             // M217: purga le sessioni scadute (altrimenti la tabella cresce senza
             // limite — sono già invalide al lookup, ma vanno rimosse).
@@ -82,6 +94,7 @@ async function start() {
               if (purged > 0) app.log.info({ purged }, 'cron: sessioni scadute rimosse');
             } catch (err) {
               app.log.error({ err }, 'cron: errore pulizia sessioni');
+              captureError(err, { kind: 'cron.sessions' });
             }
             // R15: elimina le iscrizioni BOZZA non completate da >24h.
             try {
@@ -89,6 +102,7 @@ async function start() {
               if (removed > 0) app.log.info({ removed }, 'cron: bozze iscrizione scadute rimosse');
             } catch (err) {
               app.log.error({ err }, 'cron: errore pulizia bozze');
+              captureError(err, { kind: 'cron.bozze' });
             }
           } finally {
             cleanupRunning = false;

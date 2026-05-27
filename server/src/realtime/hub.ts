@@ -1,6 +1,7 @@
 import pg from 'pg';
 import { DATABASE_URL_DIRECT } from '../db/client.js';
 import { logger } from '../lib/logger.js';
+import { captureError } from '../observability/sentry.js';
 
 type Listener = (payload: unknown) => void;
 
@@ -20,6 +21,9 @@ let stopping = false;
 // M148: backoff esponenziale tra i tentativi di riconnessione (no thundering
 // herd a 2s fissi); resettato a INITIAL su connessione riuscita.
 let reconnectDelay = INITIAL_RECONNECT_MS;
+// Sentry: un solo alert per "streak" di disconnessione (l'error event può
+// rifirare ogni ≤5s durante un'outage). Resettato alla riconnessione riuscita.
+let realtimeAlerted = false;
 
 async function connect(): Promise<void> {
   // N126: si costruisce un client LOCALE e si assegna `client` SOLO dopo una
@@ -31,6 +35,10 @@ async function connect(): Promise<void> {
   const c = new pg.Client({ connectionString: DATABASE_URL_DIRECT });
   c.on('error', (err) => {
     logger.error({ module: 'realtime', err: err.message }, 'LISTEN client error');
+    if (!realtimeAlerted) {
+      realtimeAlerted = true;
+      captureError(err, { kind: 'realtime.listen' });
+    }
     scheduleReconnect();
   });
   c.on('end', () => {
@@ -66,6 +74,7 @@ async function connect(): Promise<void> {
   }
   client = c;
   reconnectDelay = INITIAL_RECONNECT_MS;
+  realtimeAlerted = false; // riconnesso → riarma l'alert per la prossima outage
   // Re-LISTEN ai canali esistenti (in caso di reconnect)
   for (const channel of subscribers.keys()) {
     await client.query(`LISTEN "${channel}"`);
