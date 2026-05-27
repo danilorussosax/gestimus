@@ -368,6 +368,11 @@ jobs:
             server/package-lock.json
             frontend/package-lock.json
 
+      # #2: build del package condiviso PRIMA di server/frontend (lo importano via file:).
+      - name: Build shared scoring package
+        working-directory: packages/scoring
+        run: npm install --no-audit --no-fund && npm run build
+
       - name: Install server deps
         working-directory: server
         run: npm ci
