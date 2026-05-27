@@ -1,6 +1,7 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import pg from 'pg';
 import { env } from '../env.js';
+import { logger } from '../lib/logger.js';
 import * as schema from './schema.js';
 
 const { Pool } = pg;
@@ -26,10 +27,10 @@ export const superPool = new Pool({
 // dal DB) emette 'error' sul Pool. Senza listener node-postgres rilancia e
 // CRASHA il processo. Logghiamo; il pool sostituisce il client compromesso.
 appPool.on('error', (err) => {
-  console.error('[db] errore client idle (app pool):', err.message);
+  logger.error({ module: 'db', pool: 'app', err: err.message }, 'errore client idle (app pool)');
 });
 superPool.on('error', (err) => {
-  console.error('[db] errore client idle (super pool):', err.message);
+  logger.error({ module: 'db', pool: 'super', err: err.message }, 'errore client idle (super pool)');
 });
 
 export const dbApp = drizzle(appPool, { schema });

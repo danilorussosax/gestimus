@@ -3,6 +3,7 @@ import { eq } from 'drizzle-orm';
 import { dbSuper } from '../db/client.js';
 import { tenants } from '../db/schema.js';
 import { env } from '../env.js';
+import { logger } from '../lib/logger.js';
 import { decryptSmtp, isEncryptedSmtp, type SmtpConfigPlain } from './crypto-smtp.js';
 
 type CachedTransporter = {
@@ -54,7 +55,7 @@ async function resolveTenantSmtp(tenantId: string): Promise<SmtpConfigPlain | nu
     try {
       return decryptSmtp(raw);
     } catch (err) {
-      console.error('[email] decrypt SMTP failed for tenant', tenantId, (err as Error).message);
+      logger.error({ module: 'email', tenantId, err: (err as Error).message }, 'decrypt SMTP fallita');
       return null;
     }
   }
@@ -62,7 +63,7 @@ async function resolveTenantSmtp(tenantId: string): Promise<SmtpConfigPlain | nu
   // cifrato {v:1, iv, tag, data} lo consideriamo non valido (un breach del DB
   // non deve esporre credenziali SMTP). Il config va riscritto via UI super-admin
   // (che cifra con encryptSmtp).
-  console.error('[email] SMTP config non cifrato per tenant', tenantId, '— ignorato (riconfigurare via UI)');
+  logger.error({ module: 'email', tenantId }, 'SMTP config non cifrato — ignorato (riconfigurare via UI super-admin)');
   return null;
 }
 

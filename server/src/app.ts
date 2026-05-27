@@ -13,7 +13,7 @@ import { randomUUID } from 'node:crypto';
 import { env } from './env.js';
 import { captureError } from './observability/sentry.js';
 import { pingDb } from './db/client.js';
-import { registerTenantMiddleware } from './middleware/tenant.js';
+import { registerTenantMiddleware, startTenantCacheInvalidationListener } from './middleware/tenant.js';
 import { registerAuthMiddleware } from './middleware/auth.js';
 import { validateSessionToken } from './services/session.js';
 import { registerRuntimeMetrics } from './middleware/runtime-metrics.js';
@@ -254,6 +254,9 @@ export async function createApp(): Promise<FastifyInstance> {
 
   // Avvia il realtime hub (Postgres LISTEN client dedicato)
   await startRealtimeHub();
+  // #1: ascolta le invalidazioni cross-istanza del tenant cache. DOPO
+  // startRealtimeHub() perché usa il client LISTEN dell'hub.
+  await startTenantCacheInvalidationListener();
 
   // /healthz: liveness (il processo risponde). /readyz: readiness — verifica
   // la connettività DB reale così un orchestratore non instrada traffico se il

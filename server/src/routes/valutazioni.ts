@@ -75,6 +75,29 @@ async function assertCanEvaluateCandidatoFase(
   // N108: FOR UPDATE su candidatiFase e fasi → un admin concorrente non può
   // cambiare fasi.commissioneId (o spostare il candidatoFase) tra questo check e
   // l'upsert valutazione, evitando valutazioni autorizzate su dati ormai stale.
+  //
+  // #8 (deadlock): l'ordine di acquisizione dei lock DEVE essere fase →
+  // candidatoFase, lo STESSO di /fasi/:id/conclude (FOR UPDATE su `fasi`, poi
+  // UPDATE di `candidati_fase`). Prima qui era invertito (candidatoFase poi
+  // fasi): un admin che concludeva una fase mentre un commissario votava poteva
+  // far incrociare i lock → 'deadlock detected' (500) al commissario. Per
+  // lockare la fase per prima leggiamo faseId SENZA lock (è immutabile: nessuna
+  // route aggiorna candidati_fase.fase_id), poi blocchiamo fase e candidatoFase
+  // nell'ordine corretto.
+  const cfFase = await tx
+    .select({ faseId: candidatiFase.faseId })
+    .from(candidatiFase)
+    .where(eq(candidatiFase.id, candidatoFaseId))
+    .limit(1);
+  if (cfFase.length === 0) { reply.notFound(); return false; }
+  const faseRows = await tx
+    .select({ commissioneId: fasi.commissioneId })
+    .from(fasi)
+    .where(eq(fasi.id, cfFase[0]!.faseId))
+    .limit(1)
+    .for('update');
+  // Ora blocca la riga candidatiFase (dopo la fase). Preserva la garanzia N108:
+  // se un admin concorrente l'ha eliminato/spostato nel frattempo → notFound.
   const cfRows = await tx
     .select({ faseId: candidatiFase.faseId })
     .from(candidatiFase)
@@ -82,12 +105,6 @@ async function assertCanEvaluateCandidatoFase(
     .limit(1)
     .for('update');
   if (cfRows.length === 0) { reply.notFound(); return false; }
-  const faseRows = await tx
-    .select({ commissioneId: fasi.commissioneId })
-    .from(fasi)
-    .where(eq(fasi.id, cfRows[0]!.faseId))
-    .limit(1)
-    .for('update');
   const commissioneId = faseRows[0]?.commissioneId;
   if (!commissioneId) {
     reply.code(403).send({ error: 'fase senza commissione assegnata' });

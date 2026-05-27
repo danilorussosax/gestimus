@@ -17,7 +17,13 @@ import type { TxClient } from '../middleware/tenant.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { generateToken } from '../lib/token.js';
+import { MAX_LIMIT } from '../lib/pagination.js';
 import { replyValidationError } from '../lib/validation.js';
+
+// #6: queste liste (sale/eventi/pubblicazioni) sono naturalmente limitate per
+// concorso e non hanno UI di paginazione → restano senza limit/offset. Aggiungiamo
+// però un cap difensivo a MAX_LIMIT per non rischiare un result set illimitato
+// (DoS/OOM) se i dati crescessero oltre l'atteso. Non tronca dati realistici.
 
 const uuid = z.string().uuid();
 const emptyToNull = <T>(v: T) => (v === '' ? null : v);
@@ -183,7 +189,7 @@ export const calendarioRoutes: FastifyPluginAsync = async (app) => {
     return req.dbTx(async (tx) => {
       const base = tx.select().from(sale).$dynamic();
       const filtered = q.concorsoId ? base.where(eq(sale.concorsoId, q.concorsoId)) : base;
-      return filtered.orderBy(asc(sale.ordine), asc(sale.nome));
+      return filtered.orderBy(asc(sale.ordine), asc(sale.nome)).limit(MAX_LIMIT);
     });
   });
 
@@ -234,7 +240,7 @@ export const calendarioRoutes: FastifyPluginAsync = async (app) => {
     return req.dbTx(async (tx) => {
       const base = tx.select().from(eventiCalendario).$dynamic();
       const filtered = q.concorsoId ? base.where(eq(eventiCalendario.concorsoId, q.concorsoId)) : base;
-      return filtered.orderBy(asc(eventiCalendario.data), asc(eventiCalendario.oraInizio), asc(eventiCalendario.ordine));
+      return filtered.orderBy(asc(eventiCalendario.data), asc(eventiCalendario.oraInizio), asc(eventiCalendario.ordine)).limit(MAX_LIMIT);
     });
   });
 
@@ -358,7 +364,7 @@ export const calendarioRoutes: FastifyPluginAsync = async (app) => {
     return req.dbTx(async (tx) => {
       const base = tx.select().from(calendarioPubblicazioni).$dynamic();
       const filtered = q.concorsoId ? base.where(eq(calendarioPubblicazioni.concorsoId, q.concorsoId)) : base;
-      return filtered.orderBy(asc(calendarioPubblicazioni.createdAt));
+      return filtered.orderBy(asc(calendarioPubblicazioni.createdAt)).limit(MAX_LIMIT);
     });
   });
 

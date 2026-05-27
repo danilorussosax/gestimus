@@ -18,6 +18,7 @@
  */
 
 import { http } from '@/lib/api';
+import { authApi } from '@/api/auth';
 import type { Fase, FaseRuntime } from '@/types';
 
 // ── Extended runtime record (as returned by GET /fasi/:id/runtime) ──────────
@@ -129,11 +130,21 @@ export function subscribeFaseRuntime(
     }
   };
 
-  // SSE errors (network drop, 401) — EventSource will auto-reconnect unless
-  // we explicitly close. We leave the auto-reconnect in place; consumers
-  // react to state derived from payloads rather than connection state.
+  // SSE errors. EventSource auto-riconnette da solo sugli errori TRANSITORI
+  // (drop di rete, 5xx): in quel caso readyState resta CONNECTING e non serve
+  // fare nulla. Ma su un errore PERMANENTE — tipicamente un 401 a sessione
+  // scaduta, su cui EventSource per spec NON ritenta — readyState diventa
+  // CLOSED e lo stream muore in silenzio: il commissario smette di ricevere
+  // gli aggiornamenti del timer/fase senza alcun avviso. In quel caso
+  // verifichiamo la sessione: authApi.me() su 401 fa emettere 'auth:expired'
+  // da lib/api (toast "sessione scaduta" + redirect a /login via ProtectedRoute,
+  // che preserva la pagina corrente in location.state.from).
   es.onerror = () => {
-    // intentionally silent — EventSource handles reconnect
+    if (es.readyState === EventSource.CLOSED) {
+      void authApi.me().catch(() => {
+        /* 401 → 'auth:expired' già emesso da api(); altri errori: no-op */
+      });
+    }
   };
 
   return () => {

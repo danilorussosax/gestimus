@@ -1,4 +1,4 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { and, desc, eq, gte, inArray, max, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { candidati, categorie, concorsi, iscrizioni, iscrizioniAllegati, sezioni } from '../db/schema.js';
@@ -101,6 +101,52 @@ const iscrizioneCreateBody = z.object({
   }).passthrough(),
   noteLibere: z.string().max(2000).optional(),
 });
+
+// #11: email di verifica bilingue. Il form pubblico è localizzato (it/en) ma il
+// server non aveva modo di sapere la lingua dell'utente → l'email era hardcoded
+// in italiano. Selezioniamo la lingua dall'header Accept-Language inviato dal
+// browser: 'en*' → inglese, qualsiasi altro → italiano (mercato primario).
+type EmailLang = 'it' | 'en';
+
+function pickEmailLang(acceptLanguage: string | undefined): EmailLang {
+  return acceptLanguage && /^\s*en\b/i.test(acceptLanguage) ? 'en' : 'it';
+}
+
+// Costruisce l'URL di verifica (frontend hash-route che esegue la POST /verify).
+// N27: base URL da env (non spoofabile) se configurata; altrimenti dagli header.
+function buildVerifyUrl(req: FastifyRequest, token: string): string {
+  let baseUrl: string;
+  if (env.PUBLIC_BASE_URL) {
+    baseUrl = env.PUBLIC_BASE_URL.replace(/\{tenant\}/g, req.tenant!.slug).replace(/\/$/, '');
+  } else {
+    const host = req.headers.host ?? '';
+    const proto = (req.headers['x-forwarded-proto'] as string) || 'https';
+    baseUrl = `${proto}://${host}`;
+  }
+  return `${baseUrl}/#/iscrizione/verify?t=${encodeURIComponent(token)}`;
+}
+
+function verifyEmailContent(lang: EmailLang, verifyUrl: string): { subject: string; text: string; html: string } {
+  if (lang === 'en') {
+    return {
+      subject: 'Confirm your registration',
+      text: `Thank you for registering.\n\nConfirm your email address by opening this link:\n${verifyUrl}\n\nIf you did not request this registration, please ignore this message.`,
+      html: `<p>Thank you for registering.</p><p>Confirm your email address by clicking the link below:</p><p><a href="${verifyUrl}">Confirm registration</a></p><p style="color:#888;font-size:12px">If you did not request this registration, please ignore this message.</p>`,
+    };
+  }
+  return {
+    subject: 'Conferma la tua iscrizione',
+    text: `Grazie per la tua iscrizione.\n\nConferma il tuo indirizzo email aprendo questo link:\n${verifyUrl}\n\nSe non hai richiesto questa iscrizione, ignora questo messaggio.`,
+    html: `<p>Grazie per la tua iscrizione.</p><p>Conferma il tuo indirizzo email cliccando il link qui sotto:</p><p><a href="${verifyUrl}">Conferma iscrizione</a></p><p style="color:#888;font-size:12px">Se non hai richiesto questa iscrizione, ignora questo messaggio.</p>`,
+  };
+}
+
+// Invia (best-effort) l'email di verifica. Usata sia alla creazione sia dal
+// resend. H10: il token non è MAI restituito nella risposta HTTP, solo via email.
+async function sendVerificationEmail(req: FastifyRequest, to: string, token: string): Promise<void> {
+  const c = verifyEmailContent(pickEmailLang(req.headers['accept-language']), buildVerifyUrl(req, token));
+  await sendMail({ tenantId: req.tenant!.id, to, subject: c.subject, text: c.text, html: c.html });
+}
 
 const MIN_TIME_ON_PAGE_MS = 3000;
 // R15: tutore obbligatorio per TUTTI i minori (< 18). In Italia la partecipazione
@@ -372,27 +418,11 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
 
       // H11: invia email di verifica DOPO il commit (niente SMTP I/O dentro la
       // transazione). Best-effort: un fallimento SMTP non annulla l'iscrizione,
-      // il record è salvato e l'admin può approvare manualmente. H10: il token
-      // NON viene mai restituito nella risposta HTTP, in nessun ambiente.
-      // N27: base URL da env (non spoofabile) se configurata; altrimenti
-      // fallback agli header. {tenant} → slug del tenant corrente.
-      let baseUrl: string;
-      if (env.PUBLIC_BASE_URL) {
-        baseUrl = env.PUBLIC_BASE_URL.replace(/\{tenant\}/g, req.tenant!.slug).replace(/\/$/, '');
-      } else {
-        const host = req.headers.host ?? '';
-        const proto = (req.headers['x-forwarded-proto'] as string) || 'https';
-        baseUrl = `${proto}://${host}`;
-      }
-      const verifyUrl = `${baseUrl}/#/iscrizione/verify?t=${encodeURIComponent(emailToken)}`;
+      // il record è salvato e l'utente può richiedere il re-invio via
+      // POST /public/iscrizioni/resend-verify (#2). H10: il token NON viene mai
+      // restituito nella risposta HTTP, in nessun ambiente.
       try {
-        await sendMail({
-          tenantId: req.tenant!.id,
-          to: created.email,
-          subject: 'Conferma la tua iscrizione',
-          text: `Grazie per la tua iscrizione.\n\nConferma il tuo indirizzo email aprendo questo link:\n${verifyUrl}\n\nSe non hai richiesto questa iscrizione, ignora questo messaggio.`,
-          html: `<p>Grazie per la tua iscrizione.</p><p>Conferma il tuo indirizzo email cliccando il link qui sotto:</p><p><a href="${verifyUrl}">Conferma iscrizione</a></p><p style="color:#888;font-size:12px">Se non hai richiesto questa iscrizione, ignora questo messaggio.</p>`,
-        });
+        await sendVerificationEmail(req, created.email, emailToken);
       } catch (e) {
         req.log.warn({ err: e, iscrizioneId: created.id }, 'email send failed (iscrizione verify)');
       }
@@ -401,6 +431,69 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(201).send({ ok: true, iscrizioneId: created.id, uploadToken });
     },
   );
+
+  /**
+   * POST /public/iscrizioni/resend-verify — re-invia l'email di verifica.
+   * #2: prima l'email di verifica era fire-and-forget — un fallimento SMTP
+   * (provider down, greylisting, ecc.) rendeva l'iscrizione irrecuperabile per
+   * l'utente, senza modo di rigenerare il link. Qui l'utente la richiede di
+   * nuovo identificandosi con i dati che conosce (concorso + email); il token
+   * viene rigenerato e re-inviato, mai esposto nella risposta. Anti-enumeration:
+   * risponde sempre 200 { ok:true }, anche se l'iscrizione non esiste o è già
+   * verificata. Rate-limit per IP contro abuso/scraping.
+   */
+  app.post('/iscrizioni/resend-verify', {
+    config: {
+      rateLimit: {
+        max: 5,
+        timeWindow: '1 hour',
+        errorResponseBuilder: () => ({ statusCode: 429, error: 'troppe richieste, riprova più tardi' }),
+      },
+    },
+  }, async (req, reply) => {
+    if (!req.tenant) return reply.code(400).send({ error: 'tenant context richiesto' });
+    const parsed = z.object({ concorsoId: uuid, email: z.string().email() }).safeParse(req.body);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
+    const emailLower = parsed.data.email.toLowerCase();
+
+    // Rigenera il token SOLO se esiste un'iscrizione non-RIFIUTATA e non ancora
+    // verificata per (concorso, email). FOR UPDATE serializza re-invii concorrenti.
+    const newToken = generateToken();
+    const target = await req.dbTx(async (tx) => {
+      const rows = await tx
+        .select({ id: iscrizioni.id, emailVerifiedAt: iscrizioni.emailVerifiedAt })
+        .from(iscrizioni)
+        .where(
+          and(
+            eq(iscrizioni.concorsoId, parsed.data.concorsoId),
+            sql`lower(${iscrizioni.email}) = ${emailLower}`,
+            sql`${iscrizioni.stato} <> 'RIFIUTATA'`,
+          ),
+        )
+        .limit(1)
+        .for('update');
+      if (rows.length === 0) return null;
+      const isc = rows[0]!;
+      if (isc.emailVerifiedAt) return null; // già verificata: niente da re-inviare
+      await tx
+        .update(iscrizioni)
+        .set({ emailVerificationToken: newToken, updatedAt: new Date() })
+        .where(eq(iscrizioni.id, isc.id));
+      return { id: isc.id };
+    });
+
+    // Invio fuori transazione (best-effort). Se non c'è target NON inviamo, ma
+    // rispondiamo comunque 200 (anti-enumeration). Il rate-limit (5/h) smorza
+    // qualsiasi side-channel di timing sull'esistenza dell'iscrizione.
+    if (target) {
+      try {
+        await sendVerificationEmail(req, emailLower, newToken);
+      } catch (e) {
+        req.log.warn({ err: e, iscrizioneId: target.id }, 'email send failed (resend verify)');
+      }
+    }
+    return { ok: true };
+  });
 
   /**
    * POST /public/iscrizioni/:uploadToken/allegati — upload allegato (no-auth).

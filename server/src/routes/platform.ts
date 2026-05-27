@@ -15,7 +15,7 @@ import {
   tenants,
 } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
-import { invalidateTenantCache } from '../middleware/tenant.js';
+import { broadcastTenantInvalidation } from '../middleware/tenant.js';
 import { hashPassword } from '../services/password.js';
 import { writePlatformAudit } from '../services/audit.js';
 import { listBackups } from '../services/backup.js';
@@ -26,6 +26,7 @@ import { getSystemHistory, SAMPLE_INTERVAL_MS } from '../services/system-metrics
 import { readdir, stat as fsStat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { env } from '../env.js';
+import { MAX_LIMIT } from '../lib/pagination.js';
 import { replyValidationError } from '../lib/validation.js';
 
 const TENANT_STATES = ['attivo', 'sospeso', 'archiviato'] as const;
@@ -218,8 +219,9 @@ async function auditChange(
 ): Promise<void> {
   // H7: ogni mutation su un tenant invalida la cache di risoluzione subdomain,
   // così sospensioni/archiviazioni/rinomine prendono effetto immediato senza
-  // attendere il TTL di 60s.
-  invalidateTenantCache(tenant.slug);
+  // attendere il TTL di 60s. #1: broadcast cross-istanza via LISTEN/NOTIFY così
+  // anche le altre istanze dietro il load balancer invalidano (non solo questa).
+  await broadcastTenantInvalidation(tenant.slug);
   await writePlatformAudit(req, action, {
     targetTenantId: tenant.id,
     targetTenantSlug: tenant.slug,
@@ -252,9 +254,12 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
       conditions.push(sql`${tenants.slug} <> ${PLATFORM_SLUG}` as unknown as ReturnType<typeof eq>);
     }
 
+    // #6: la lista tenant non è tenant-scoped (è l'intera tabella tenants della
+    // piattaforma) e non ha UI di paginazione. Cap difensivo a MAX_LIMIT per
+    // evitare un result set illimitato se il numero di tenant crescesse molto.
     const rows = conditions.length
-      ? await dbSuper.select().from(tenants).where(and(...conditions)).orderBy(asc(tenants.slug))
-      : await dbSuper.select().from(tenants).orderBy(asc(tenants.slug));
+      ? await dbSuper.select().from(tenants).where(and(...conditions)).orderBy(asc(tenants.slug)).limit(MAX_LIMIT)
+      : await dbSuper.select().from(tenants).orderBy(asc(tenants.slug)).limit(MAX_LIMIT);
     return rows.map(publicTenant);
   });
 
