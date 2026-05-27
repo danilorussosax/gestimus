@@ -448,6 +448,9 @@ export function ImpostazioniConcorsoTab({ concorsoId }: { concorsoId: string }) 
       if (pendingLogo) {
         patch.logo = pendingLogo.dataURL;
       }
+      // #4: invia la versione letta → il server risponde 409 STALE_VERSION se un
+      // altro admin ha modificato il concorso nel frattempo (niente overwrite cieco).
+      if (concorso.updatedAt) patch.expectedUpdatedAt = concorso.updatedAt;
 
       setIsSubmitting(true);
       try {

@@ -102,4 +102,18 @@ describe('Concorrenza (ente1)', () => {
     const rows = (list.json() as Array<{ criterio: string }>).filter((v) => v.criterio === 'Tecnica');
     assert.equal(rows.length, 1, 'deve esistere esattamente una valutazione per (cf,comm,criterio)');
   });
+
+  test('#4 optimistic lock: PATCH con expectedUpdatedAt stale → 409 STALE_VERSION', async () => {
+    const before = (await app.inject({ method: 'GET', url: `/api/concorsi/${concorsoId}`, headers: hdrs() })).json() as { updatedAt: string };
+    // PATCH con versione corretta → 200 (e updatedAt cambia).
+    const ok = await app.inject({ method: 'PATCH', url: `/api/concorsi/${concorsoId}`, headers: hdrs(), payload: { nome: 'Concurrency Test 2026 v2', expectedUpdatedAt: before.updatedAt } });
+    assert.equal(ok.statusCode, 200);
+    // Riusare la versione VECCHIA ora è stale → 409.
+    const stale = await app.inject({ method: 'PATCH', url: `/api/concorsi/${concorsoId}`, headers: hdrs(), payload: { nome: 'Concurrency Test 2026 v3', expectedUpdatedAt: before.updatedAt } });
+    assert.equal(stale.statusCode, 409);
+    assert.equal(stale.json().code, 'STALE_VERSION');
+    // Senza expectedUpdatedAt → opt-in: nessun controllo, passa.
+    const noVer = await app.inject({ method: 'PATCH', url: `/api/concorsi/${concorsoId}`, headers: hdrs(), payload: { nome: 'Concurrency Test 2026 v4' } });
+    assert.equal(noVer.statusCode, 200);
+  });
 });

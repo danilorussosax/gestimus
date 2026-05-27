@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import { and, count, eq, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { parsePagination } from '../lib/pagination.js';
+import { expectedVersionField, versionFresh, STALE_VERSION_BODY } from '../lib/optimistic.js';
 import { accounts, commissari } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import type { TxClient } from '../middleware/tenant.js';
@@ -50,6 +51,8 @@ function publicAccount(a: typeof accounts.$inferSelect) {
     totpEnabled: a.totpEnabled,
     lastLoginAt: a.lastLoginAt,
     createdAt: a.createdAt,
+    // #4: esposto per il controllo ottimistico (il client lo rimanda in PATCH).
+    updatedAt: a.updatedAt,
   };
 }
 
@@ -121,6 +124,8 @@ export const accountsRoutes: FastifyPluginAsync = async (app) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
     const parsed = updateBody.safeParse(req.body);
     if (!parsed.success) return replyValidationError(reply, req, parsed.error);
+    // #4: campo versione parsato a parte (updateBody scarta le chiavi sconosciute).
+    const { expectedUpdatedAt } = z.object(expectedVersionField).parse(req.body ?? {});
 
     // Anti self-demotion: l'admin non può togliere a sé stesso il ruolo admin
     if (req.account && req.account.id === id && parsed.data.role && parsed.data.role !== 'admin') {
@@ -149,11 +154,14 @@ export const accountsRoutes: FastifyPluginAsync = async (app) => {
       // binding residuo lascerebbe l'authz commissario-scoped incoerente. Calcola
       // il risultato del patch e correggi/rifiuta di conseguenza.
       const cur = await tx
-        .select({ role: accounts.role, commissarioId: accounts.commissarioId })
+        .select({ role: accounts.role, commissarioId: accounts.commissarioId, updatedAt: accounts.updatedAt })
         .from(accounts)
         .where(eq(accounts.id, id))
-        .limit(1);
+        .limit(1)
+        .for('update');
       if (cur.length === 0) return reply.notFound();
+      // #4: controllo ottimistico opt-in (sotto il FOR UPDATE → niente TOCTOU).
+      if (!versionFresh(cur[0]!.updatedAt, expectedUpdatedAt)) return reply.code(409).send(STALE_VERSION_BODY);
       const resultRole = parsed.data.role ?? cur[0]!.role;
       const resultCommissarioId =
         parsed.data.commissarioId !== undefined ? parsed.data.commissarioId : cur[0]!.commissarioId;

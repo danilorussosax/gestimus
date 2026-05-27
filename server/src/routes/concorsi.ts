@@ -6,6 +6,7 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { parsePagination } from '../lib/pagination.js';
 import { checkConcorsiLimit } from '../lib/plan-limits.js';
+import { expectedVersionField, versionFresh, STALE_VERSION_BODY } from '../lib/optimistic.js';
 import { replyValidationError } from '../lib/validation.js';
 
 const uuid = z.string().uuid();
@@ -99,19 +100,26 @@ export const concorsiRoutes: FastifyPluginAsync = async (app) => {
     { preHandler: [requireAuth, requireRole('admin')] },
     async (req, reply) => {
       const { id } = z.object({ id: uuid }).parse(req.params);
-      const parsed = updateBody.safeParse(req.body);
+      const parsed = updateBody.extend(expectedVersionField).safeParse(req.body);
       if (!parsed.success) return replyValidationError(reply, req, parsed.error);
+      const { expectedUpdatedAt, ...patch } = parsed.data;
       return req.dbTx(async (tx) => {
+        // #4: controllo ottimistico opt-in sotto lock (evita la TOCTOU sul check).
+        if (expectedUpdatedAt !== undefined) {
+          const [cur] = await tx.select({ updatedAt: concorsi.updatedAt }).from(concorsi).where(eq(concorsi.id, id)).limit(1).for('update');
+          if (!cur) return reply.notFound();
+          if (!versionFresh(cur.updatedAt, expectedUpdatedAt)) return reply.code(409).send(STALE_VERSION_BODY);
+        }
         const [updated] = await tx
           .update(concorsi)
-          .set({ ...parsed.data, updatedAt: new Date() })
+          .set({ ...patch, updatedAt: new Date() })
           .where(eq(concorsi.id, id))
           .returning();
         if (!updated) return reply.notFound();
         await writeAudit(tx, req, 'concorso.update', {
           targetType: 'concorso',
           targetId: id,
-          payload: parsed.data,
+          payload: patch,
         });
         return updated;
       });
