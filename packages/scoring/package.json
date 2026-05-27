@@ -13,8 +13,7 @@
   "files": ["dist"],
   "scripts": {
     "build": "tsc -p .",
-    "clean": "rm -rf dist",
-    "prepare": "tsc -p ."
+    "clean": "rm -rf dist"
   },
   "devDependencies": {
     "typescript": "^5.6.0"

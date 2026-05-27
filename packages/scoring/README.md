@@ -23,9 +23,11 @@ Il package compila in `dist/` (gitignored). I consumer lo linkano via
 prima** di server/frontend.
 
 ```bash
-cd packages/scoring && npm install   # installa tsc + build (script prepare)
-# oppure: npm run build
+cd packages/scoring && npm install && npm run build
 ```
 
+NB: niente script `prepare` di proposito — farebbe fallire `npm ci` di
+server/frontend (che esegue il `prepare` del file: dep prima che typescript sia
+installato nel package → `tsc: command not found`). La build è quindi esplicita.
 CI e `deploy/install.sh` eseguono questo step prima della build di server/frontend.
 Modificando `src/`, ricompilare (e rilanciare i test di entrambi i lati).
