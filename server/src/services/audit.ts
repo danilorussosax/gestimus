@@ -1,5 +1,5 @@
 import type { FastifyRequest } from 'fastify';
-import { eq } from 'drizzle-orm';
+import { and, asc, eq, gt, type SQL } from 'drizzle-orm';
 import { createHmac } from 'node:crypto';
 import { auditLog, platformAuditLog } from '../db/schema.js';
 import type { TxClient } from '../middleware/tenant.js';
@@ -146,18 +146,32 @@ export type AuditIntegrityReport = {
  * senza firma (legacy, pre-feature). Se `tenantId` è omesso verifica tutto.
  */
 export async function verifyAuditIntegrity(tenantId?: string): Promise<AuditIntegrityReport> {
-  const rows = tenantId
-    ? await dbSuper.select().from(auditLog).where(eq(auditLog.tenantId, tenantId))
-    : await dbSuper.select().from(auditLog);
   const report: AuditIntegrityReport = { checked: 0, unsigned: 0, tampered: [] };
-  for (const r of rows) {
-    if (!r.sig) {
-      report.unsigned += 1;
-      continue;
+  // Itera a chunk con keyset su `id` (uuidv7 monotonico): su tenant con audit_log
+  // molto grande non carichiamo l'intera tabella in memoria.
+  const CHUNK = 1000;
+  let cursor: string | null = null;
+  for (;;) {
+    const tenantFilter: SQL | undefined = tenantId ? eq(auditLog.tenantId, tenantId) : undefined;
+    const cursorFilter: SQL | undefined = cursor ? gt(auditLog.id, cursor) : undefined;
+    const rows = await dbSuper
+      .select()
+      .from(auditLog)
+      .where(and(tenantFilter, cursorFilter))
+      .orderBy(asc(auditLog.id))
+      .limit(CHUNK);
+    if (rows.length === 0) break;
+    for (const r of rows) {
+      if (!r.sig) {
+        report.unsigned += 1;
+        continue;
+      }
+      report.checked += 1;
+      const expected = computeAuditLogSig(r as AuditLogRow);
+      if (expected !== r.sig) report.tampered.push({ id: r.id, action: r.action });
     }
-    report.checked += 1;
-    const expected = computeAuditLogSig(r as AuditLogRow);
-    if (expected !== r.sig) report.tampered.push({ id: r.id, action: r.action });
+    cursor = rows[rows.length - 1]!.id;
+    if (rows.length < CHUNK) break;
   }
   return report;
 }
