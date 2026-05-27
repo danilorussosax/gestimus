@@ -57,7 +57,7 @@
     "zod": "^4.4.1"
   },
   "devDependencies": {
-    "@types/node": "^22.9.0",
+    "@types/node": "^25.9.1",
     "@types/node-cron": "^3.0.11",
     "@types/nodemailer": "^6.4.16",
     "@types/pg": "^8.11.10",
