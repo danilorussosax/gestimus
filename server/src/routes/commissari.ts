@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
 import { uuid, emptyToNull } from '../lib/zod-helpers.js';
 import { parsePagination } from '../lib/pagination.js';
-import { checkCommissariLimit } from '../lib/plan-limits.js';
+import { checkCommissariLimit, planExpiredError } from '../lib/plan-limits.js';
 import { commissari, concorsi } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
@@ -70,6 +70,9 @@ export const commissariRoutes: FastifyPluginAsync = async (app) => {
         .where(eq(concorsi.id, parsed.data.concorsoId))
         .limit(1);
       if (concOk.length === 0) return reply.badRequest('concorso non trovato');
+      // Durata piano: scaduto → niente nuove creazioni.
+      const expErr = planExpiredError(req.tenant);
+      if (expErr) return reply.code(403).send({ error: expErr });
       // N57: enforce limite di piano sul numero di commissari.
       const limitErr = await checkCommissariLimit(tx, req.tenant!.id);
       if (limitErr) return reply.code(403).send({ error: limitErr });

@@ -25,6 +25,23 @@ async function limits(tx: TxClient, tenantId: string): Promise<{
   return rows[0] ?? { maxConcorsi: null, maxCommissari: null, maxCandidatiPerConcorso: null };
 }
 
+/**
+ * Vincolo DURATA del piano: se `pianoScadenza` è passata, blocca la CREAZIONE di
+ * nuovi elementi billable (lettura consentita). `pianoScadenza` è date-only
+ * (YYYY-MM-DD); il piano è valido FINO a quel giorno incluso → scaduto se
+ * strettamente < oggi. `null` = nessuna scadenza (es. PPE/illimitato).
+ * Letto da `req.tenant` (caricato dal middleware via dbSuper) → niente query
+ * su `tenants` dal ruolo app, che non vi ha accesso.
+ */
+export function planExpiredError(tenant: { pianoScadenza?: string | null } | null | undefined): string | null {
+  const scad = tenant?.pianoScadenza;
+  if (!scad) return null;
+  const today = new Date().toISOString().slice(0, 10);
+  return String(scad).slice(0, 10) < today
+    ? 'piano scaduto: rinnova il piano per creare nuovi elementi'
+    : null;
+}
+
 /** Ritorna un messaggio di errore se il limite è raggiunto, altrimenti null. */
 export async function checkConcorsiLimit(tx: TxClient, tenantId: string): Promise<string | null> {
   const { maxConcorsi } = await limits(tx, tenantId);

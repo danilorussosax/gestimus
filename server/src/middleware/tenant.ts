@@ -12,6 +12,7 @@ export type TenantContext = {
   slug: string;
   nome: string;
   stato: string;
+  pianoScadenza: string | null;
 };
 
 declare module 'fastify' {
@@ -132,7 +133,7 @@ async function resolveTenantBySubdomain(subdomain: string): Promise<TenantContex
     try {
       const found = await dbSuper.query.tenants.findFirst({
         where: eq(tenants.slug, subdomain),
-        columns: { id: true, slug: true, nome: true, stato: true },
+        columns: { id: true, slug: true, nome: true, stato: true, pianoScadenza: true },
       });
       const row = found ?? null;
       if (tenantCache.size >= TENANT_CACHE_MAX) {

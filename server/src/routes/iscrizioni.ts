@@ -13,7 +13,7 @@ import { ISCRIZIONE_VERIFY_EMAIL } from '../services/event-handlers.js';
 import { env } from '../env.js';
 import { parsePagination } from '../lib/pagination.js';
 import { todayISODate, ageYears } from '../lib/date.js';
-import { checkCandidatiLimit } from '../lib/plan-limits.js';
+import { checkCandidatiLimit, planExpiredError } from '../lib/plan-limits.js';
 import { generateToken } from '../lib/token.js';
 import { replyValidationError } from '../lib/validation.js';
 
@@ -839,6 +839,9 @@ export const iscrizioniAdminRoutes: FastifyPluginAsync = async (app) => {
         // limite di piano per concorso, esattamente come il create diretto
         // (candidati.ts). Il check gira ORA sotto il lock → il conteggio non può
         // essere superato da una create/approve concorrente.
+        // Durata piano: scaduto → niente approvazione (crea un candidato billable).
+        const expErr = planExpiredError(req.tenant);
+        if (expErr) return reply.code(403).send({ error: expErr });
         const limitErr = await checkCandidatiLimit(tx, req.tenant!.id, isc.concorsoId);
         if (limitErr) return reply.code(403).send({ error: limitErr });
 

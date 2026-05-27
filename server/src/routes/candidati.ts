@@ -3,7 +3,7 @@ import { eq, inArray, max, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { uuid, emptyToNull } from '../lib/zod-helpers.js';
 import { parsePagination } from '../lib/pagination.js';
-import { checkCandidatiLimit } from '../lib/plan-limits.js';
+import { checkCandidatiLimit, planExpiredError } from '../lib/plan-limits.js';
 import { candidati, candidatiFase, categorie, sezioni, valutazioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import type { TxClient } from '../middleware/tenant.js';
@@ -126,6 +126,9 @@ export const candidatiRoutes: FastifyPluginAsync = async (app) => {
       // per concorso. È lo STESSO lock di iscrizioni.ts/approve
       // (hashtextextended a 64-bit) → create diretto e approve si serializzano.
       await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${parsed.data.concorsoId}::text, 0))`);
+      // Durata piano: scaduto → niente nuove creazioni.
+      const expErr = planExpiredError(req.tenant);
+      if (expErr) return reply.code(403).send({ error: expErr });
       // N57: enforce limite di piano sul numero di candidati per concorso (sotto
       // il lock → il conteggio non può essere superato da una create concorrente).
       const limitErr = await checkCandidatiLimit(tx, req.tenant!.id, parsed.data.concorsoId);

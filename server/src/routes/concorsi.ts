@@ -19,7 +19,7 @@ import {
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { parsePagination } from '../lib/pagination.js';
-import { checkConcorsiLimit } from '../lib/plan-limits.js';
+import { checkConcorsiLimit, planExpiredError } from '../lib/plan-limits.js';
 import { expectedVersionField, versionFresh, STALE_VERSION_BODY } from '../lib/optimistic.js';
 import { replyValidationError } from '../lib/validation.js';
 
@@ -91,6 +91,9 @@ export const concorsiRoutes: FastifyPluginAsync = async (app) => {
       const parsed = createBody.safeParse(req.body);
       if (!parsed.success) return replyValidationError(reply, req, parsed.error);
       return req.dbTx(async (tx) => {
+        // Durata piano: scaduto → niente nuove creazioni.
+        const expErr = planExpiredError(req.tenant);
+        if (expErr) return reply.code(403).send({ error: expErr });
         // N57: enforce limite di piano sul numero di concorsi.
         const limitErr = await checkConcorsiLimit(tx, req.tenant!.id);
         if (limitErr) return reply.code(403).send({ error: limitErr });
@@ -124,6 +127,9 @@ export const concorsiRoutes: FastifyPluginAsync = async (app) => {
       const { id } = z.object({ id: uuid }).parse(req.params);
       const tenantId = req.tenant!.id;
       return req.dbTx(async (tx) => {
+        // Durata piano: scaduto → niente duplica (è una nuova creazione).
+        const expErr = planExpiredError(req.tenant);
+        if (expErr) return reply.code(403).send({ error: expErr });
         // N57: il duplicato è un nuovo concorso → vale il limite di piano.
         const limitErr = await checkConcorsiLimit(tx, tenantId);
         if (limitErr) return reply.code(403).send({ error: limitErr });

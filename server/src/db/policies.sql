@@ -538,6 +538,21 @@ REVOKE ALL ON platform_config FROM gestimus_app;
 REVOKE ALL ON platform_audit_log FROM gestimus_app;
 
 -- =====================================================================
+-- 5.c Catalogo piani + limiti di piano: controllo BILLING del super-admin.
+--    `piani` (catalogo globale, no RLS) e i limiti in `tenant_config` sono
+--    decisi dal super-admin (route platform via dbSuper). Un admin di tenant
+--    NON deve poterseli alzare. Il blanket GRANT § 1 li aveva resi scrivibili
+--    da gestimus_app → un admin (o un bug/injection sul pool app) potrebbe
+--    scavalcare i limiti del piano (es. UPDATE tenant_config SET max_*).
+--    - `piani`: nessun accesso dal ruolo app (l'enforcement NON lo legge).
+--    - `tenant_config`: solo SELECT (plan-limits.ts legge i limiti); scrittura
+--      esclusiva del super-admin.
+-- =====================================================================
+
+REVOKE ALL ON piani FROM gestimus_app;
+REVOKE INSERT, UPDATE, DELETE ON tenant_config FROM gestimus_app;
+
+-- =====================================================================
 -- 6. Trigger DB: clamp voto e freeze fase CONCLUSA
 --    Sostituiscono la logica applicativa: anche un client che bypassa
 --    le route HTTP non può inserire voti fuori range o modificare
