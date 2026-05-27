@@ -7,6 +7,7 @@ import type { TxClient } from '../middleware/tenant.js';
 import { writeAudit } from '../services/audit.js';
 import { faseChannel } from '../realtime/hub.js';
 import { parsePagination } from '../lib/pagination.js';
+import { computeAdmittedFromTx, sameIdSet } from '../lib/scoring-verify.js';
 import { replyValidationError } from '../lib/validation.js';
 
 // Permission per start/conclude/sorteggio/timer di una fase:
@@ -487,7 +488,10 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     // atomico — niente più last-write-wins per-commissario. `admitted` = lista
     // dei candidatiFase ammessi. Se assente, si mantiene l'ammissione esistente
     // (retrocompatibilità per chiamanti che non la inviano).
-    const body = z.object({ admitted: z.array(uuid).optional() }).safeParse(req.body ?? {});
+    // #1: `override` consente di applicare una lista ammessi che DIVERGE dalla
+    // classifica ricalcolata dal server (discrezionalità admin), tracciandola
+    // nell'audit. Senza override una divergenza viene rifiutata (SCORING_MISMATCH).
+    const body = z.object({ admitted: z.array(uuid).optional(), override: z.boolean().optional() }).safeParse(req.body ?? {});
     if (!body.success) return replyValidationError(reply, req, body.error);
     return req.dbTx(async (tx) => {
       if (!await assertCanManageFase(tx, req, reply, id)) return;
@@ -497,11 +501,60 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
       // concorrenti potevano leggere lo stesso stato IN_CORSO e concludere due
       // volte (write-skew). Il FOR UPDATE qui serializza anche il path admin.
       // N21: conclude ammesso solo da IN_CORSO (non da PIANIFICATA/CONCLUSA).
-      const cur = await tx.select({ stato: fasi.stato }).from(fasi).where(eq(fasi.id, id)).limit(1).for('update');
+      const cur = await tx.select({
+        stato: fasi.stato, concorsoId: fasi.concorsoId, commissioneId: fasi.commissioneId,
+        ammessi: fasi.ammessi, metodoMedia: fasi.metodoMedia, scala: fasi.scala,
+        ordine: fasi.ordine, tiebreakStrategy: fasi.tiebreakStrategy, pesi: fasi.pesi,
+        dataPrevista: fasi.dataPrevista,
+      }).from(fasi).where(eq(fasi.id, id)).limit(1).for('update');
       if (cur.length === 0) return reply.notFound();
       if (cur[0]!.stato !== 'IN_CORSO') {
         return reply.code(409).send({ error: `fase in stato ${cur[0]!.stato}: concludibile solo da IN_CORSO` });
       }
+
+      // #1: ricalcolo server-side della classifica → verifica della lista
+      // `admitted` ricevuta dal client. Prima il server la salvava SENZA alcun
+      // controllo (classifica non verificabile: un client manomesso poteva
+      // promuovere chiunque). Ora il server ricalcola gli ammessi dal DB con lo
+      // STESSO motore (scoring + tiebreak del frontend):
+      //   • lista client == classifica server → applica (verified);
+      //   • diverge senza override → 409 SCORING_MISMATCH (ritorna la lista server);
+      //   • override:true → applica la lista client ma AUDITA la deviazione
+      //     (discrezionalità admin tracciata = requisito di verificabilità legale);
+      //   • fase senza soglia top-N (`ammessi`) → niente da verificare, mantiene
+      //     il comportamento precedente.
+      const faseRow = cur[0]!;
+      const serverAdmitted = await computeAdmittedFromTx(tx, { id, ...faseRow });
+      const clientAdmitted = body.data.admitted;
+      let effectiveAdmitted: string[] | undefined;
+      let scoring: Record<string, unknown>;
+      if (clientAdmitted !== undefined) {
+        if (serverAdmitted === null) {
+          effectiveAdmitted = clientAdmitted;
+          scoring = { verified: false, reason: 'no_threshold' };
+        } else if (sameIdSet(serverAdmitted, clientAdmitted)) {
+          effectiveAdmitted = clientAdmitted;
+          scoring = { verified: true };
+        } else if (body.data.override === true) {
+          effectiveAdmitted = clientAdmitted;
+          scoring = { verified: false, override: true, serverAdmitted, clientAdmitted };
+        } else {
+          return reply.code(409).send({
+            error: 'la lista ammessi non corrisponde alla classifica ricalcolata dal server',
+            code: 'SCORING_MISMATCH',
+            serverAdmitted,
+          });
+        }
+      } else if (serverAdmitted !== null) {
+        // Client non invia `admitted` ma la fase ha una soglia → il server è
+        // autoritativo e applica la propria classifica.
+        effectiveAdmitted = serverAdmitted;
+        scoring = { verified: true, source: 'server' };
+      } else {
+        effectiveAdmitted = undefined; // nessuna soglia → mantieni stato esistente
+        scoring = { verified: false, reason: 'no_threshold' };
+      }
+
       // N30: la conclusione resetta i campi timer (restavano stali → la UI
       // poteva mostrare un countdown attivo su una fase chiusa).
       const [updated] = await tx
@@ -522,21 +575,22 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
       // `cf.stato !== 'COMPLETATO'` e mostra "in attesa" per sempre, anche
       // dopo che la fase è chiusa e ammesso_prossima_fase è stato deciso.
       const concludedAt = new Date();
-      if (body.data.admitted) {
-        // N144: ammissione autoritativa dall'aggregato. Tutti i non-ELIMINATI a
-        // COMPLETATO + non ammessi di default, poi marca ammessi quelli in lista.
+      if (effectiveAdmitted !== undefined) {
+        // N144: ammissione autoritativa dalla classifica (verificata server-side,
+        // vedi #1). Tutti i non-ELIMINATI a COMPLETATO + non ammessi di default,
+        // poi marca ammessi quelli in lista.
         await tx
           .update(candidatiFase)
           .set({ stato: 'COMPLETATO', ammessoProssimaFase: false, updatedAt: concludedAt })
           .where(and(eq(candidatiFase.faseId, id), sql`${candidatiFase.stato} <> 'ELIMINATO'`));
-        if (body.data.admitted.length > 0) {
+        if (effectiveAdmitted.length > 0) {
           await tx
             .update(candidatiFase)
             .set({ ammessoProssimaFase: true, updatedAt: concludedAt })
             .where(
               and(
                 eq(candidatiFase.faseId, id),
-                inArray(candidatiFase.id, body.data.admitted),
+                inArray(candidatiFase.id, effectiveAdmitted),
                 sql`${candidatiFase.stato} <> 'ELIMINATO'`,
               ),
             );
@@ -559,9 +613,13 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
             ),
           );
       }
+      // #1: l'esito della verifica scoring è parte dell'audit (verified / override
+      // con le due liste / no_threshold) → ogni conclusione è verificabile e ogni
+      // deviazione dalla classifica algoritmica resta tracciata in modo immutabile.
       await writeAudit(tx, req, 'fase.conclude', {
         targetType: 'fase',
         targetId: id,
+        payload: { scoring, admittedCount: effectiveAdmitted?.length ?? null },
       });
       const payload = JSON.stringify({ action: 'conclude', faseId: id });
       await tx.execute(sql`SELECT pg_notify(${faseChannel(id)}, ${payload})`);
