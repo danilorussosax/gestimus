@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
-import { Route, Routes } from 'react-router-dom';
+import { Navigate, Route, Routes } from 'react-router-dom';
 import { LoaderCircle } from 'lucide-react';
+import { useAuth } from '@/contexts/AuthContext';
 import { ProtectedRoute, PublicOnlyRoute, RequireAdmin } from '@/components/ProtectedRoute';
 import { AppLayout } from '@/components/layout/AppLayout';
 import { RouteErrorBoundary } from '@/components/RouteErrorBoundary';
@@ -37,6 +38,16 @@ function PageFallback() {
 
 const adminPage = (node: ReactNode) => <RequireAdmin>{node}</RequireAdmin>;
 
+// Landing "/" : il super-admin NON gestisce concorsi come un admin di tenant →
+// su platform.<dominio> (dove l'utente è superadmin) va dritto al pannello
+// piattaforma invece della Home tenant. Home non monta affatto per il superadmin
+// (niente query tenant fuori contesto).
+function HomeIndex() {
+  const { user } = useAuth();
+  if (user?.role === 'superadmin') return <Navigate to="/superadmin" replace />;
+  return <Home />;
+}
+
 // Isola le rotte pesanti dietro un error boundary per-rotta: un throw in render
 // non deve abbattere l'intera app, solo la sezione interessata.
 const critical = (node: ReactNode) => <RouteErrorBoundary>{node}</RouteErrorBoundary>;
@@ -59,7 +70,7 @@ export default function App() {
         {/* Rotte autenticate sotto la shell condivisa */}
         <Route element={<ProtectedRoute />}>
           <Route element={<AppLayout />}>
-            <Route path="/" element={<Home />} />
+            <Route path="/" element={<HomeIndex />} />
             <Route path="/account/security" element={<AccountSecurity />} />
             <Route path="/commissario" element={critical(<Commissario />)} />
 
