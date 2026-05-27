@@ -1,23 +1,17 @@
-import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
-import { and, eq, getTableColumns, sql } from 'drizzle-orm';
+import type { FastifyPluginAsync } from 'fastify';
+import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import {
-  candidatiFase,
-  commissioniCommissari,
-  fasi,
-  valutazioni,
-} from '../db/schema.js';
+import { valutazioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
-import type { TxClient } from '../middleware/tenant.js';
 import { writeAudit } from '../services/audit.js';
 import { parsePagination } from '../lib/pagination.js';
 import { replyValidationError } from '../lib/validation.js';
+import { replyDomainError } from '../lib/domain-error.js';
+import { createValutazione, updateValutazione } from '../services/valutazioni-service.js';
 
 const uuid = z.string().uuid();
-// N15: bound applicativo su `voto`. Il trigger DB clamp_voto normalizza
-// comunque in [0, fase.scala], ma rifiutare a monte 999/-1 evita scoring
-// fuorviante prima del clamp e fornisce un errore chiaro. Upper bound generoso
-// (1000 = scala massima ammessa per le fasi); il clamp per-fase fa il resto.
+// N15: bound applicativo su `voto` (clamp DB in [0, scala] via trigger). Upper
+// bound generoso (1000 = scala massima ammessa); il clamp per-fase fa il resto.
 const VOTO_MAX = 1000;
 const upsertBody = z.object({
   candidatoFaseId: uuid,
@@ -32,104 +26,17 @@ const updateBody = z.object({
 });
 
 /**
- * Mappa errori Postgres dei trigger → risposta HTTP appropriata.
- * Il trigger `freeze_valutazione_fase_conclusa` solleva con SQLSTATE 23514.
+ * Mappa errori Postgres dei trigger → risposta HTTP. Il trigger
+ * `freeze_valutazione_fase_conclusa` solleva con SQLSTATE 23514.
  */
 function handlePgError(err: unknown): { code: number; body: { error: string } } | null {
   const e = err as { code?: string; message?: string; cause?: { code?: string; message?: string } };
   const pgCode = e.code ?? e.cause?.code;
-  // Drizzle ≥ 0.42 wrappa l'errore: e.message è "Failed query: ...", il msg
-  // Postgres reale è in e.cause.message. Concateniamo entrambi.
   const allMsgs = `${e.message ?? ''} ${e.cause?.message ?? ''}`;
   if (pgCode === '23514' && allMsgs.includes('CONCLUSA')) {
     return { code: 409, body: { error: 'fase CONCLUSA: valutazioni in sola lettura' } };
   }
   return null;
-}
-
-// C6: un commissario può inserire/modificare valutazioni SOLO se è membro della
-// commissione assegnata alla fase del candidatoFase. Admin/superadmin bypassano.
-// Esegue il check nella stessa transazione del caller (no TOCTOU).
-async function assertCanEvaluateCandidatoFase(
-  tx: TxClient,
-  req: FastifyRequest,
-  reply: FastifyReply,
-  candidatoFaseId: string,
-  commissarioIdParam: string,
-): Promise<boolean> {
-  const role = req.account?.role;
-  if (role === 'admin' || role === 'superadmin') return true;
-  if (role !== 'commissario') {
-    reply.code(403).send({ error: 'ruolo richiesto: admin o commissario membro della commissione' });
-    return false;
-  }
-  const accountCommissarioId = req.account?.commissarioId;
-  if (!accountCommissarioId) {
-    reply.code(403).send({ error: 'commissario senza profilo' });
-    return false;
-  }
-  if (accountCommissarioId !== commissarioIdParam) {
-    reply.code(403).send({ error: 'un commissario può inserire voti solo a proprio nome' });
-    return false;
-  }
-  // N108: FOR UPDATE su candidatiFase e fasi → un admin concorrente non può
-  // cambiare fasi.commissioneId (o spostare il candidatoFase) tra questo check e
-  // l'upsert valutazione, evitando valutazioni autorizzate su dati ormai stale.
-  //
-  // #8 (deadlock): l'ordine di acquisizione dei lock DEVE essere fase →
-  // candidatoFase, lo STESSO di /fasi/:id/conclude (FOR UPDATE su `fasi`, poi
-  // UPDATE di `candidati_fase`). Prima qui era invertito (candidatoFase poi
-  // fasi): un admin che concludeva una fase mentre un commissario votava poteva
-  // far incrociare i lock → 'deadlock detected' (500) al commissario. Per
-  // lockare la fase per prima leggiamo faseId SENZA lock (è immutabile: nessuna
-  // route aggiorna candidati_fase.fase_id), poi blocchiamo fase e candidatoFase
-  // nell'ordine corretto.
-  const cfFase = await tx
-    .select({ faseId: candidatiFase.faseId })
-    .from(candidatiFase)
-    .where(eq(candidatiFase.id, candidatoFaseId))
-    .limit(1);
-  if (cfFase.length === 0) { reply.notFound(); return false; }
-  const faseRows = await tx
-    .select({ commissioneId: fasi.commissioneId })
-    .from(fasi)
-    .where(eq(fasi.id, cfFase[0]!.faseId))
-    .limit(1)
-    .for('update');
-  // Ora blocca la riga candidatiFase (dopo la fase). Preserva la garanzia N108:
-  // se un admin concorrente l'ha eliminato/spostato nel frattempo → notFound.
-  const cfRows = await tx
-    .select({ faseId: candidatiFase.faseId })
-    .from(candidatiFase)
-    .where(eq(candidatiFase.id, candidatoFaseId))
-    .limit(1)
-    .for('update');
-  if (cfRows.length === 0) { reply.notFound(); return false; }
-  const commissioneId = faseRows[0]?.commissioneId;
-  if (!commissioneId) {
-    reply.code(403).send({ error: 'fase senza commissione assegnata' });
-    return false;
-  }
-  // N88: FOR UPDATE sulla riga di membership. Questo assert gira nella stessa
-  // transazione dell'upsert valutazione (vedi POST /); bloccando la riga, un
-  // admin concorrente non può rimuovere il commissario dalla commissione tra il
-  // check e l'INSERT/UPDATE → niente valutazioni "non più autorizzate".
-  const memberRows = await tx
-    .select({ id: commissioniCommissari.commissarioId })
-    .from(commissioniCommissari)
-    .where(
-      and(
-        eq(commissioniCommissari.commissioneId, commissioneId),
-        eq(commissioniCommissari.commissarioId, accountCommissarioId),
-      ),
-    )
-    .limit(1)
-    .for('update');
-  if (memberRows.length === 0) {
-    reply.code(403).send({ error: 'solo i membri della commissione assegnata possono valutare' });
-    return false;
-  }
-  return true;
 }
 
 export const valutazioniRoutes: FastifyPluginAsync = async (app) => {
@@ -159,112 +66,61 @@ export const valutazioniRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
-  // POST upsert: clamp voto e freeze fase CONCLUSA sono gestiti dai trigger DB.
-  // Concurrency: ON CONFLICT DO UPDATE sull'unique index `uniq_valutazioni`
-  // (candidato_fase, commissario, criterio) → niente TOCTOU su upsert concorrenti.
-  app.post(
-    '/',
-    { preHandler: [requireRole('admin', 'commissario')] },
-    async (req, reply) => {
-      const parsed = upsertBody.safeParse(req.body);
-      if (!parsed.success) return replyValidationError(reply, req, parsed.error);
-      try {
-        return await req.dbTx(async (tx) => {
-          if (!await assertCanEvaluateCandidatoFase(
-            tx, req, reply, parsed.data.candidatoFaseId, parsed.data.commissarioId,
-          )) return;
-          const now = new Date();
-          const [row] = await tx
-            .insert(valutazioni)
-            .values({
-              tenantId: req.tenant!.id,
-              candidatoFaseId: parsed.data.candidatoFaseId,
-              commissarioId: parsed.data.commissarioId,
-              criterio: parsed.data.criterio,
-              voto: parsed.data.voto,
-              note: parsed.data.note,
-            })
-            .onConflictDoUpdate({
-              target: [valutazioni.candidatoFaseId, valutazioni.commissarioId, valutazioni.criterio],
-              set: {
-                voto: parsed.data.voto,
-                note: parsed.data.note,
-                timestamp: now,
-                updatedAt: now,
-              },
-            })
-            // N31: distinzione insert/update affidabile via xmax. Per una riga
-            // appena inserita xmax=0; per una aggiornata xmax≠0. Prima si
-            // confrontava createdAt==updatedAt (millisecondo), fragile.
-            // N116 (falso positivo): verificato empiricamente su Postgres —
-            // ON CONFLICT insert → xmax=0 (true), conflict→update → xmax≠0
-            // (false). L'audit log distingue quindi correttamente create/update.
-            .returning({ ...getTableColumns(valutazioni), inserted: sql<boolean>`(xmax = 0)` });
-          const wasInsert = row!.inserted === true;
-          await writeAudit(tx, req, wasInsert ? 'valutazione.create' : 'valutazione.update', {
-            targetType: 'valutazione',
-            targetId: row!.id,
-            payload: { voto: row!.voto, criterio: parsed.data.criterio },
-          });
-          // Rimuovi il campo tecnico `inserted` dalla risposta al client.
-          const { inserted: _omit, ...rowOut } = row!;
-          if (wasInsert) return reply.code(201).send(rowOut);
-          return rowOut;
+  // POST upsert: la logica (authz + upsert) è in services/valutazioni-service.ts.
+  // La route è un thin adapter: parse → service → mappa Result/errori in HTTP.
+  app.post('/', { preHandler: [requireRole('admin', 'commissario')] }, async (req, reply) => {
+    const parsed = upsertBody.safeParse(req.body);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
+    try {
+      return await req.dbTx(async (tx) => {
+        const result = await createValutazione(
+          tx,
+          { role: req.account?.role, commissarioId: req.account?.commissarioId },
+          { tenantId: req.tenant!.id, ...parsed.data },
+        );
+        if (!result.ok) return replyDomainError(reply, result.error);
+        const { row, inserted } = result.value;
+        await writeAudit(tx, req, inserted ? 'valutazione.create' : 'valutazione.update', {
+          targetType: 'valutazione',
+          targetId: row.id,
+          payload: { voto: row.voto, criterio: parsed.data.criterio },
         });
-      } catch (err) {
-        const mapped = handlePgError(err);
-        if (mapped) return reply.code(mapped.code).send(mapped.body);
-        throw err;
-      }
-    },
-  );
+        if (inserted) return reply.code(201).send(row);
+        return row;
+      });
+    } catch (err) {
+      const mapped = handlePgError(err);
+      if (mapped) return reply.code(mapped.code).send(mapped.body);
+      throw err;
+    }
+  });
 
-  app.patch(
-    '/:id',
-    { preHandler: [requireRole('admin', 'commissario')] },
-    async (req, reply) => {
-      const { id } = z.object({ id: uuid }).parse(req.params);
-      const parsed = updateBody.safeParse(req.body);
-      if (!parsed.success) return replyValidationError(reply, req, parsed.error);
-      try {
-        return await req.dbTx(async (tx) => {
-          const existing = await tx
-            .select({ cfId: valutazioni.candidatoFaseId, commId: valutazioni.commissarioId })
-            .from(valutazioni)
-            .where(eq(valutazioni.id, id))
-            .for('update')
-            .limit(1);
-          if (existing.length === 0) return reply.notFound();
-          if (!await assertCanEvaluateCandidatoFase(
-            tx, req, reply, existing[0]!.cfId, existing[0]!.commId,
-          )) return;
-          const patch: Record<string, unknown> = {
-            ...parsed.data,
-            updatedAt: new Date(),
-          };
-          if (parsed.data.voto !== undefined) {
-            patch.timestamp = new Date();
-          }
-          const [updated] = await tx
-            .update(valutazioni)
-            .set(patch)
-            .where(eq(valutazioni.id, id))
-            .returning();
-          if (!updated) return reply.notFound();
-          await writeAudit(tx, req, 'valutazione.update', {
-            targetType: 'valutazione',
-            targetId: id,
-            payload: parsed.data,
-          });
-          return updated;
+  app.patch('/:id', { preHandler: [requireRole('admin', 'commissario')] }, async (req, reply) => {
+    const { id } = z.object({ id: uuid }).parse(req.params);
+    const parsed = updateBody.safeParse(req.body);
+    if (!parsed.success) return replyValidationError(reply, req, parsed.error);
+    try {
+      return await req.dbTx(async (tx) => {
+        const result = await updateValutazione(
+          tx,
+          { role: req.account?.role, commissarioId: req.account?.commissarioId },
+          id,
+          parsed.data,
+        );
+        if (!result.ok) return replyDomainError(reply, result.error);
+        await writeAudit(tx, req, 'valutazione.update', {
+          targetType: 'valutazione',
+          targetId: id,
+          payload: parsed.data,
         });
-      } catch (err) {
-        const mapped = handlePgError(err);
-        if (mapped) return reply.code(mapped.code).send(mapped.body);
-        throw err;
-      }
-    },
-  );
+        return result.value;
+      });
+    } catch (err) {
+      const mapped = handlePgError(err);
+      if (mapped) return reply.code(mapped.code).send(mapped.body);
+      throw err;
+    }
+  });
 
   app.delete('/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
