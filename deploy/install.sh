@@ -223,12 +223,27 @@ ok "frontend buildato (frontend/dist/)"
 
 # ── 9. Schema + RLS + migration ledger ("i dump sql") ───────────────────────--
 step "Schema DB + policies RLS"
-sudo -u "$APP_USER" bash -lc "cd '${APP_DIR}/server' && npx drizzle-kit push --force"
-ok "schema applicato (drizzle push)"
-sudo -u "$APP_USER" bash -lc "cd '${APP_DIR}/server' && npm run db:policies"
-ok "policies + RLS + grant applicati (policies.sql)"
-sudo -u "$APP_USER" bash -lc "cd '${APP_DIR}/server' && npm run db:sql:baseline" || warn "baseline migration ledger saltato"
-ok "migration ledger allineato (baseline)"
+# Fresh vs update: su un DB già provvisto, drizzle-kit push --force può DROPpare
+# colonne su schema-drift SENZA backup → pericoloso in prod. Rileviamo lo stato
+# guardando se la tabella core 'concorsi' esiste già (BYPASSRLS via postgres).
+DB_PROVISIONED="$(sudo -u postgres psql -d gestimus -tAc "SELECT to_regclass('public.concorsi') IS NOT NULL" 2>/dev/null | tr -d '[:space:]')"
+if [ "$DB_PROVISIONED" = "t" ]; then
+  # UPDATE: niente push (no DROP distruttivi). Migration versionate + RLS idempotenti.
+  ok "DB già provvisto (tabella 'concorsi' presente) → percorso UPDATE: migration versionate, NIENTE drizzle push"
+  sudo -u "$APP_USER" bash -lc "cd '${APP_DIR}/server' && npm run db:sql:up"
+  ok "migration versionate applicate (db:sql:up)"
+  sudo -u "$APP_USER" bash -lc "cd '${APP_DIR}/server' && npm run db:policies"
+  ok "policies + RLS + grant ri-applicati (policies.sql, idempotente)"
+else
+  # FRESH: nessuno schema → push completo + policies + baseline del ledger.
+  ok "DB vergine (tabella 'concorsi' assente) → percorso FRESH: drizzle push + baseline"
+  sudo -u "$APP_USER" bash -lc "cd '${APP_DIR}/server' && npx drizzle-kit push --force"
+  ok "schema applicato (drizzle push)"
+  sudo -u "$APP_USER" bash -lc "cd '${APP_DIR}/server' && npm run db:policies"
+  ok "policies + RLS + grant applicati (policies.sql)"
+  sudo -u "$APP_USER" bash -lc "cd '${APP_DIR}/server' && npm run db:sql:baseline" || warn "baseline migration ledger saltato"
+  ok "migration ledger allineato (baseline)"
+fi
 
 # ── 10. Super-admin iniziale ─────────────────────────────────────────────────
 # Seed solo se abbiamo una password: fresh install (NEW_ENV=1, generata) oppure
@@ -290,6 +305,21 @@ server {
     # Upload candidati/iscrizioni (file max 5MB + overhead multipart).
     client_max_body_size 12m;
 
+    # SSE realtime (GET /api/realtime/fase/:id): connessione long-lived,
+    # niente buffering, read-timeout lungo. SOLO qui serve 3600s.
+    location /api/realtime/ {
+        proxy_pass http://127.0.0.1:${APP_PORT};
+        proxy_http_version 1.1;
+        # CRITICO: il tenant è risolto dall'Host header → va preservato.
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+    }
+
     location / {
         proxy_pass http://127.0.0.1:${APP_PORT};
         proxy_http_version 1.1;
@@ -298,10 +328,8 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
-        # SSE realtime: niente buffering, connessione long-lived.
-        proxy_set_header Connection "";
-        proxy_buffering off;
-        proxy_read_timeout 3600s;
+        # Richieste normali: timeout breve (l'SSE ha la sua location dedicata).
+        proxy_read_timeout 30s;
     }
 }
 EOF
