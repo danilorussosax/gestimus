@@ -36,6 +36,12 @@ const schema = z.object({
   // un random per-sessione hashato in SHA-256 e salvato in `sessions.id`.
   SESSION_COOKIE_SECRET: z.string().min(32),
   GESTIMUS_SECRET_KEY: z.string().min(32),
+  // #2: chiave master PRECEDENTE, opzionale. Impostata durante una rotazione di
+  // GESTIMUS_SECRET_KEY: il decrypt (SMTP/backup) e la verifica firme (audit/MFA)
+  // ritentano con questa se la chiave corrente fallisce → i dati cifrati/firmati
+  // prima della rotazione restano leggibili/verificabili. Rimuovere dopo aver
+  // re-cifrato/re-firmato tutto con la chiave nuova.
+  GESTIMUS_SECRET_KEY_PREVIOUS: z.string().min(32).optional(),
   UPLOADS_DIR: z.string().default('./uploads'),
   UPLOADS_MAX_FILE_SIZE_MB: z.coerce.number().int().positive().default(5),
   // NB: il frontend vanilla è stato deprecato e rimosso. Fastify serve sempre la

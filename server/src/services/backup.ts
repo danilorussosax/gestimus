@@ -4,7 +4,7 @@ import { promisify } from 'node:util';
 import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
-import { deriveKey } from './keys.js';
+import { deriveKey, deriveKeysWithFallback } from './keys.js';
 import { dbSuper } from '../db/client.js';
 import {
   accounts,
@@ -54,6 +54,12 @@ const AES_ALGO = 'aes-256-gcm';
 // di un backup cifrato non aiuta a decifrare i credenziali SMTP, e viceversa.
 function backupKey(): Buffer {
   return deriveKey('gestimus:backup', 32);
+}
+
+// #2: chiavi da provare in restore — corrente + (in rotazione) precedente, così
+// un backup cifrato prima della rotazione di GESTIMUS_SECRET_KEY resta ripristinabile.
+function backupKeys(): Buffer[] {
+  return deriveKeysWithFallback('gestimus:backup', 32);
 }
 
 /**
@@ -245,9 +251,23 @@ export async function restoreTenant(filepath: string): Promise<{
   const iv = fileBuffer.subarray(1, 13);
   const tag = fileBuffer.subarray(13, 29);
   const ciphertext = fileBuffer.subarray(29);
-  const decipher = createDecipheriv(AES_ALGO, backupKey(), iv);
-  decipher.setAuthTag(tag);
-  const compressed = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+  // #2: prova la chiave corrente, poi (in rotazione) quella precedente. GCM
+  // fallisce con throw se la chiave è errata → si passa alla successiva.
+  let compressed: Buffer | null = null;
+  let lastErr: unknown;
+  for (const key of backupKeys()) {
+    try {
+      const decipher = createDecipheriv(AES_ALGO, key, iv);
+      decipher.setAuthTag(tag);
+      compressed = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
+      break;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  if (!compressed) {
+    throw lastErr instanceof Error ? lastErr : new Error('restore: decrypt fallito (nessuna chiave valida)');
+  }
   const json = (await gunzipP(compressed)).toString('utf8');
   const manifest = JSON.parse(json, (_k, v) =>
     typeof v === 'string' && ISO_DATETIME_RE.test(v) ? new Date(v) : v,

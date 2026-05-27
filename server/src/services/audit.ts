@@ -4,7 +4,7 @@ import { createHmac } from 'node:crypto';
 import { auditLog, platformAuditLog } from '../db/schema.js';
 import type { TxClient } from '../middleware/tenant.js';
 import { dbSuper } from '../db/client.js';
-import { deriveKey } from './keys.js';
+import { deriveKey, deriveKeysWithFallback } from './keys.js';
 
 // L232: ip/userAgent arrivano da header arbitrari del client. Vengono salvati
 // in audit_log e poi resi nel viewer/log → newline o caratteri di controllo
@@ -40,8 +40,14 @@ function canonical(value: unknown): string {
 // N: chiave domain-separated 'gestimus:audit' — un leak della chiave AES
 // SMTP/backup non permette di forgiare firme audit (e viceversa).
 const AUDIT_HMAC_KEY = deriveKey('gestimus:audit');
+// #2: chiavi per la VERIFICA (corrente + precedente in rotazione). Per FIRMARE le
+// righe nuove si usa sempre la corrente (AUDIT_HMAC_KEY).
+const AUDIT_HMAC_KEYS = deriveKeysWithFallback('gestimus:audit');
+function hmacWith(key: Buffer, values: unknown[]): string {
+  return createHmac('sha256', key).update(canonical(values)).digest('hex');
+}
 function hmac(values: unknown[]): string {
-  return createHmac('sha256', AUDIT_HMAC_KEY).update(canonical(values)).digest('hex');
+  return hmacWith(AUDIT_HMAC_KEY, values);
 }
 
 type AuditLogRow = {
@@ -75,13 +81,30 @@ function toIsoOrNull(d: Date | string | null | undefined): string | null {
 // è "legacy v1" — un DBA poteva retrodatare/postdatare una riga senza invalidare
 // l'HMAC, perché il timestamp non era coperto. Le righe nuove firmano sempre v2;
 // verifyAuditIntegrity accetta v2 e, in fallback, v1 (righe pre-fix).
-export function computeAuditLogSig(r: AuditLogRow, createdAt?: Date | string | null): string {
+function auditLogFields(r: AuditLogRow, createdAt?: Date | string | null): unknown[] {
   const fields: unknown[] = [
     r.tenantId ?? null, r.actorAccountId ?? null, r.action, r.targetType ?? null,
     r.targetId ?? null, r.payload ?? null, r.ip ?? null, r.userAgent ?? null,
   ];
   if (createdAt != null) fields.push(toIsoOrNull(createdAt));
-  return hmac(fields);
+  return fields;
+}
+export function computeAuditLogSig(r: AuditLogRow, createdAt?: Date | string | null): string {
+  return hmac(auditLogFields(r, createdAt));
+}
+
+// #2 + #8: una firma audit_log è valida se combacia con UNA combinazione di
+// (chiave corrente / precedente in rotazione) × (v2 con createdAt / v1 legacy
+// senza createdAt). Le righe nuove sono v2 firmate con la chiave corrente; le
+// vecchie possono essere v1 e/o firmate con la chiave precedente.
+function auditLogSigValid(r: AuditLogRow & { createdAt?: Date | string | null; sig: string | null }): boolean {
+  if (!r.sig) return false;
+  const f2 = auditLogFields(r, r.createdAt ?? null);
+  const f1 = auditLogFields(r);
+  for (const key of AUDIT_HMAC_KEYS) {
+    if (r.sig === hmacWith(key, f2) || r.sig === hmacWith(key, f1)) return true;
+  }
+  return false;
 }
 export function computePlatformAuditSig(r: PlatformAuditRow, createdAt?: Date | string | null): string {
   const fields: unknown[] = [
@@ -186,12 +209,10 @@ export async function verifyAuditIntegrity(tenantId?: string): Promise<AuditInte
         continue;
       }
       report.checked += 1;
-      // #8: accetta la firma v2 (createdAt incluso); fallback alla v1 legacy per
-      // le righe firmate prima del fix (createdAt non coperto). Tampered solo se
-      // nessuna delle due combacia.
-      const v2 = computeAuditLogSig(r as AuditLogRow, r.createdAt);
-      const v1 = computeAuditLogSig(r as AuditLogRow);
-      if (r.sig !== v2 && r.sig !== v1) report.tampered.push({ id: r.id, action: r.action });
+      // #2 + #8: valida su (chiave corrente/precedente) × (v2 con createdAt / v1
+      // legacy). Tampered solo se nessuna combinazione combacia.
+      if (!auditLogSigValid(r as AuditLogRow & { createdAt: Date; sig: string | null }))
+        report.tampered.push({ id: r.id, action: r.action });
     }
     cursor = rows[rows.length - 1]!.id;
     if (rows.length < CHUNK) break;
