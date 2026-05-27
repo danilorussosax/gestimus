@@ -3,6 +3,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { candidati, candidatiFase, commissioni, concorsi, fasi, fasiSezioni, sezioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
+import type { TxClient } from '../middleware/tenant.js';
 import { writeAudit } from '../services/audit.js';
 import { faseChannel } from '../realtime/hub.js';
 import { parsePagination } from '../lib/pagination.js';
@@ -14,8 +15,7 @@ import { replyValidationError } from '../lib/validation.js';
 // Esegue le SELECT nella stessa transazione del caller con SELECT … FOR UPDATE
 // sulla riga `fasi` per evitare TOCTOU (assegnazione commissione cambiata tra
 // check e write).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function assertCanManageFase(tx: any, req: FastifyRequest, reply: FastifyReply, faseId: string): Promise<boolean> {
+async function assertCanManageFase(tx: TxClient, req: FastifyRequest, reply: FastifyReply, faseId: string): Promise<boolean> {
   const role = req.account?.role;
   if (role === 'admin' || role === 'superadmin') return true;
   if (role !== 'commissario') {
@@ -60,8 +60,7 @@ async function assertCanManageFase(tx: any, req: FastifyRequest, reply: FastifyR
 
 // Estrae le sezioni_ids per un array di fasi via singola query batched.
 // Restituisce una mappa { faseId → [sezioneId, ...] }.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function loadFaseSezioniMap(tx: any, faseIds: string[]): Promise<Map<string, string[]>> {
+async function loadFaseSezioniMap(tx: TxClient, faseIds: string[]): Promise<Map<string, string[]>> {
   const map = new Map<string, string[]>();
   if (faseIds.length === 0) return map;
   const rows = await tx
@@ -79,8 +78,7 @@ async function loadFaseSezioniMap(tx: any, faseIds: string[]): Promise<Map<strin
 // N51: tutte le sezioni indicate devono appartenere al concorso della fase.
 // La FK garantisce solo l'esistenza, non la coerenza di concorso. Ritorna true
 // se ok. La query gira sotto RLS (solo sezioni del tenant visibili).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function sezioniAllInConcorso(tx: any, sezioniIds: string[], concorsoId: string): Promise<boolean> {
+async function sezioniAllInConcorso(tx: TxClient, sezioniIds: string[], concorsoId: string): Promise<boolean> {
   if (!sezioniIds || sezioniIds.length === 0) return true;
   const rows = await tx
     .select({ id: sezioni.id })
@@ -451,7 +449,13 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     });
   });
 
-  app.post('/:id/conclude', { preHandler: [requireAuth] }, async (req, reply) => {
+  app.post('/:id/conclude', {
+    preHandler: [requireAuth],
+    // R16: rate-limit (opt-in, plugin registrato global:false). Difesa contro
+    // raffiche di transizioni di stato sulla stessa fase (oltre al FOR UPDATE
+    // che ne garantisce la correttezza). Default per-IP come gli altri route.
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+  }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
     // N144: l'ammissione alla fase successiva è calcolata dall'AGGREGATO lato
     // client (stesso motore della classifica mostrata) e applicata QUI in modo
@@ -462,8 +466,13 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     if (!body.success) return replyValidationError(reply, req, body.error);
     return req.dbTx(async (tx) => {
       if (!await assertCanManageFase(tx, req, reply, id)) return;
+      // R16: lock pessimistico sulla riga `fasi` PRIMA del check di stato. Per il
+      // path commissario assertCanManageFase ha già acquisito il FOR UPDATE, ma
+      // per admin/superadmin ritornava prima di qualunque lock → due admin
+      // concorrenti potevano leggere lo stesso stato IN_CORSO e concludere due
+      // volte (write-skew). Il FOR UPDATE qui serializza anche il path admin.
       // N21: conclude ammesso solo da IN_CORSO (non da PIANIFICATA/CONCLUSA).
-      const cur = await tx.select({ stato: fasi.stato }).from(fasi).where(eq(fasi.id, id)).limit(1);
+      const cur = await tx.select({ stato: fasi.stato }).from(fasi).where(eq(fasi.id, id)).limit(1).for('update');
       if (cur.length === 0) return reply.notFound();
       if (cur[0]!.stato !== 'IN_CORSO') {
         return reply.code(409).send({ error: `fase in stato ${cur[0]!.stato}: concludibile solo da IN_CORSO` });
@@ -698,7 +707,11 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
 
   // --------- Sorteggio ordine candidati ---------
 
-  app.post('/:id/sorteggio', { preHandler: [requireAuth] }, async (req, reply) => {
+  app.post('/:id/sorteggio', {
+    preHandler: [requireAuth],
+    // R16: rate-limit (opt-in, plugin registrato global:false). Default per-IP.
+    config: { rateLimit: { max: 10, timeWindow: '1 minute' } },
+  }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
     // M158: seed limitato a int32 non negativo — un valore estremo passerebbe a
     // shuffleSeeded producendo aritmetica fuori range / comportamento anomalo.
@@ -706,9 +719,13 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     if (!body.success) return replyValidationError(reply, req, body.error);
     return req.dbTx(async (tx) => {
       if (!await assertCanManageFase(tx, req, reply, id)) return;
+      // R16: lock pessimistico sulla riga `fasi` PRIMA del check di stato (vedi
+      // /conclude). Per admin/superadmin assertCanManageFase non bloccava nulla →
+      // un sorteggio e un conclude concorrenti, o due sorteggi, potevano vedere lo
+      // stesso stato e correre. Il FOR UPDATE qui serializza anche il path admin.
       // N23: il sorteggio non ha senso su una fase conclusa (riordinare una
       // classifica chiusa). Ammesso su PIANIFICATA/IN_CORSO.
-      const cur = await tx.select({ stato: fasi.stato }).from(fasi).where(eq(fasi.id, id)).limit(1);
+      const cur = await tx.select({ stato: fasi.stato }).from(fasi).where(eq(fasi.id, id)).limit(1).for('update');
       if (cur.length === 0) return reply.notFound();
       if (cur[0]!.stato === 'CONCLUSA') {
         return reply.code(409).send({ error: 'fase CONCLUSA: sorteggio non consentito' });

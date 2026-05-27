@@ -3,12 +3,12 @@ import { and, eq, getTableColumns, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import {
   candidatiFase,
-  commissioni,
   commissioniCommissari,
   fasi,
   valutazioni,
 } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
+import type { TxClient } from '../middleware/tenant.js';
 import { writeAudit } from '../services/audit.js';
 import { parsePagination } from '../lib/pagination.js';
 import { replyValidationError } from '../lib/validation.js';
@@ -50,9 +50,8 @@ function handlePgError(err: unknown): { code: number; body: { error: string } } 
 // C6: un commissario può inserire/modificare valutazioni SOLO se è membro della
 // commissione assegnata alla fase del candidatoFase. Admin/superadmin bypassano.
 // Esegue il check nella stessa transazione del caller (no TOCTOU).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 async function assertCanEvaluateCandidatoFase(
-  tx: any,
+  tx: TxClient,
   req: FastifyRequest,
   reply: FastifyReply,
   candidatoFaseId: string,
@@ -113,7 +112,6 @@ async function assertCanEvaluateCandidatoFase(
     reply.code(403).send({ error: 'solo i membri della commissione assegnata possono valutare' });
     return false;
   }
-  void commissioni;
   return true;
 }
 

@@ -12,6 +12,7 @@ import {
   sezioni,
 } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
+import type { TxClient } from '../middleware/tenant.js';
 import { writeAudit } from '../services/audit.js';
 import { parsePagination } from '../lib/pagination.js';
 import { replyValidationError } from '../lib/validation.js';
@@ -26,8 +27,7 @@ const updateBody = createBody.partial().omit({ concorsoId: true });
 
 // Carica le join tables (commissari/sezioni/categorie) in batch per N
 // commissioni così l'endpoint list espone gli array senza N+1 query.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function loadCommissioniJoins(tx: any, ids: string[]) {
+async function loadCommissioniJoins(tx: TxClient, ids: string[]) {
   const cMap = new Map<string, string[]>();
   const sMap = new Map<string, string[]>();
   const catMap = new Map<string, string[]>();

@@ -1,5 +1,6 @@
 import { count, eq } from 'drizzle-orm';
 import { candidati, commissari, concorsi, tenantConfig } from '../db/schema.js';
+import type { TxClient } from '../middleware/tenant.js';
 
 /**
  * N57: enforcement dei limiti di piano (tenant_config). I limiti NULL = illimitato.
@@ -7,8 +8,7 @@ import { candidati, commissari, concorsi, tenantConfig } from '../db/schema.js';
  * le righe del tenant corrente.
  */
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function limits(tx: any, tenantId: string): Promise<{
+async function limits(tx: TxClient, tenantId: string): Promise<{
   maxConcorsi: number | null;
   maxCommissari: number | null;
   maxCandidatiPerConcorso: number | null;
@@ -26,34 +26,34 @@ async function limits(tx: any, tenantId: string): Promise<{
 }
 
 /** Ritorna un messaggio di errore se il limite è raggiunto, altrimenti null. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function checkConcorsiLimit(tx: any, tenantId: string): Promise<string | null> {
+export async function checkConcorsiLimit(tx: TxClient, tenantId: string): Promise<string | null> {
   const { maxConcorsi } = await limits(tx, tenantId);
   if (maxConcorsi == null) return null;
-  const [{ n }] = await tx.select({ n: count() }).from(concorsi);
+  const rows = await tx.select({ n: count() }).from(concorsi);
+  const n = rows[0]?.n ?? 0;
   return Number(n) >= maxConcorsi
     ? `limite del piano raggiunto: massimo ${maxConcorsi} concorsi`
     : null;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function checkCommissariLimit(tx: any, tenantId: string): Promise<string | null> {
+export async function checkCommissariLimit(tx: TxClient, tenantId: string): Promise<string | null> {
   const { maxCommissari } = await limits(tx, tenantId);
   if (maxCommissari == null) return null;
-  const [{ n }] = await tx.select({ n: count() }).from(commissari);
+  const rows = await tx.select({ n: count() }).from(commissari);
+  const n = rows[0]?.n ?? 0;
   return Number(n) >= maxCommissari
     ? `limite del piano raggiunto: massimo ${maxCommissari} commissari`
     : null;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function checkCandidatiLimit(tx: any, tenantId: string, concorsoId: string): Promise<string | null> {
+export async function checkCandidatiLimit(tx: TxClient, tenantId: string, concorsoId: string): Promise<string | null> {
   const { maxCandidatiPerConcorso } = await limits(tx, tenantId);
   if (maxCandidatiPerConcorso == null) return null;
-  const [{ n }] = await tx
+  const rows = await tx
     .select({ n: count() })
     .from(candidati)
     .where(eq(candidati.concorsoId, concorsoId));
+  const n = rows[0]?.n ?? 0;
   return Number(n) >= maxCandidatiPerConcorso
     ? `limite del piano raggiunto: massimo ${maxCandidatiPerConcorso} candidati per concorso`
     : null;
