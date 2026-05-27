@@ -107,6 +107,17 @@ export async function deleteConcorso(id: string, force = false): Promise<void> {
   await http.del(`concorsi/${id}${force ? '?force=true' : ''}`);
 }
 
+/**
+ * Duplica un concorso: copia la STRUTTURA (sezioni, categorie, commissioni,
+ * fasi, criteri + configurazioni) escludendo i dati runtime (candidati,
+ * valutazioni, iscrizioni, commissari). Ritorna il nuovo concorso (201).
+ * Endpoint: POST concorsi/:id/duplica.
+ */
+export async function duplicaConcorso(id: string): Promise<Concorso> {
+  const raw = await http.post<ConcorsoRaw>(`concorsi/${id}/duplica`);
+  return normalize(raw);
+}
+
 // ---------------------------------------------------------------------------
 // Summary — conteggi sintetici del concorso (badge/header workspace admin).
 // Una sola GET aggregata invece di scaricare candidati/commissari/commissioni/
@@ -189,6 +200,16 @@ export function useDeleteConcorso() {
   return useMutation({
     mutationFn: ({ id, force }: { id: string; force?: boolean }) =>
       deleteConcorso(id, force),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: CONCORSI_QUERY_KEY });
+    },
+  });
+}
+
+export function useDuplicaConcorso() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => duplicaConcorso(id),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: CONCORSI_QUERY_KEY });
     },

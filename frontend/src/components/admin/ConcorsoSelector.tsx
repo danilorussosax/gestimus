@@ -19,7 +19,7 @@ import { Link } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { ArrowRight, Pencil, Trash2, Plus } from 'lucide-react';
+import { ArrowRight, Pencil, Trash2, Plus, Copy } from 'lucide-react';
 
 import {
   Dialog,
@@ -45,6 +45,7 @@ import {
   useCreateConcorso,
   useUpdateConcorso,
   useDeleteConcorso,
+  useDuplicaConcorso,
 } from '@/api/concorsi';
 import type { Concorso } from '@/types';
 
@@ -436,9 +437,25 @@ export function ConcorsoSelector({ onPick, className }: ConcorsoSelectorProps) {
   const { data: candidati = [] } = useTenantRows('candidati', 'candidati');
   const { data: commissari = [] } = useTenantRows('commissari', 'commissari');
 
+  const duplicaMutation = useDuplicaConcorso();
+
   const [createOpen, setCreateOpen] = useState(false);
   const [editTarget, setEditTarget] = useState<Concorso | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Concorso | null>(null);
+  // id del concorso in fase di duplicazione → disabilita il bottone della riga.
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+
+  const handleDuplica = async (c: Concorso) => {
+    setDuplicatingId(c.id);
+    try {
+      await duplicaMutation.mutateAsync(c.id);
+      toast.success(t('admin.concorso.duplicated', 'Concorso duplicato'));
+    } catch (err) {
+      toast.error(httpErrorMessage(err));
+    } finally {
+      setDuplicatingId(null);
+    }
+  };
 
   // Group counts per concorso once (mirrors db.fasiByConcorso / candidatiByConcorso).
   const countsByConcorso = useMemo(() => {
@@ -524,6 +541,15 @@ export function ConcorsoSelector({ onPick, className }: ConcorsoSelectorProps) {
                     title={t('common.edit')}
                   >
                     <Pencil size={14} />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={(e) => { e.stopPropagation(); void handleDuplica(c); }}
+                    disabled={duplicatingId === c.id}
+                    className="c-btn c-btn--ghost c-btn--sm !px-2"
+                    title={t('admin.concorso.duplicate', 'Duplica')}
+                  >
+                    <Copy size={14} />
                   </button>
                   <button
                     type="button"

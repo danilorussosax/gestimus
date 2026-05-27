@@ -1,8 +1,21 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { eq, sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { uuid } from '../lib/zod-helpers.js';
-import { candidati, commissari, commissioni, concorsi, fasi, iscrizioni, sezioni } from '../db/schema.js';
+import {
+  candidati,
+  categorie,
+  commissari,
+  commissioni,
+  commissioniCategorie,
+  commissioniSezioni,
+  concorsi,
+  criteri,
+  fasi,
+  fasiSezioni,
+  iscrizioni,
+  sezioni,
+} from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { parsePagination } from '../lib/pagination.js';
@@ -91,6 +104,231 @@ export const concorsiRoutes: FastifyPluginAsync = async (app) => {
           payload: { nome: created!.nome, anno: created!.anno },
         });
         return reply.code(201).send(created);
+      });
+    },
+  );
+
+  // Feature #5 — Duplica concorso: copia la STRUTTURA di un concorso esistente
+  // (sezioni, categorie, commissioni, fasi, criteri + tutte le configurazioni)
+  // ESCLUDENDO i dati runtime (candidati, candidati_fase, valutazioni,
+  // iscrizioni, commissari e i join verso i commissari).
+  //
+  // Gli ID sono UUID generati dal DB: dobbiamo RIMAPPARE le foreign key interne.
+  // L'ordine di inserimento rispetta le dipendenze e ad ogni passo costruiamo
+  // una mappa vecchioId→nuovoId usata per tradurre i FK dei livelli successivi.
+  // Tutte le insert settano il tenantId corrente (richiesto dalla RLS).
+  app.post(
+    '/concorsi/:id/duplica',
+    { preHandler: [requireAuth, requireRole('admin')] },
+    async (req, reply) => {
+      const { id } = z.object({ id: uuid }).parse(req.params);
+      const tenantId = req.tenant!.id;
+      return req.dbTx(async (tx) => {
+        // N57: il duplicato è un nuovo concorso → vale il limite di piano.
+        const limitErr = await checkConcorsiLimit(tx, tenantId);
+        if (limitErr) return reply.code(403).send({ error: limitErr });
+
+        // Source: 404 se assente o di un altro tenant (RLS).
+        const [src] = await tx.select().from(concorsi).where(eq(concorsi.id, id)).limit(1);
+        if (!src) return reply.notFound();
+
+        // 1) Concorso (nuovo id, nome "<nome> (copia)", stessa config). Non
+        // copiamo created/updatedAt (default DB) né l'id (rigenerato).
+        const nome = `${src.nome} (copia)`;
+        const [nuovoConcorso] = await tx
+          .insert(concorsi)
+          .values({
+            tenantId,
+            nome,
+            anno: src.anno,
+            dataInizio: src.dataInizio,
+            stato: src.stato,
+            logo: src.logo,
+            anonimo: src.anonimo,
+            iscrizioniAperte: src.iscrizioniAperte,
+            iscrizioniScadenza: src.iscrizioniScadenza,
+            defaultTiebreakStrategy: src.defaultTiebreakStrategy,
+          })
+          .returning();
+        const nuovoConcorsoId = nuovoConcorso!.id;
+
+        // 2) Sezioni (FK concorsoId). Mappa vecchioId→nuovoId.
+        const sezioniMap = new Map<string, string>();
+        const srcSezioni = await tx.select().from(sezioni).where(eq(sezioni.concorsoId, id));
+        for (const s of srcSezioni) {
+          const [ns] = await tx
+            .insert(sezioni)
+            .values({
+              tenantId,
+              concorsoId: nuovoConcorsoId,
+              nome: s.nome,
+              descrizione: s.descrizione,
+              ordine: s.ordine,
+            })
+            .returning({ id: sezioni.id });
+          sezioniMap.set(s.id, ns!.id);
+        }
+
+        // 3) Categorie (FK sezioneId → mappa sezioni). Mappa vecchioId→nuovoId.
+        const categorieMap = new Map<string, string>();
+        if (sezioniMap.size > 0) {
+          const srcCategorie = await tx
+            .select()
+            .from(categorie)
+            .where(inArray(categorie.sezioneId, [...sezioniMap.keys()]));
+          for (const c of srcCategorie) {
+            const nuovaSezioneId = sezioniMap.get(c.sezioneId);
+            if (!nuovaSezioneId) continue; // sezione non mappata: skip difensivo
+            const [nc] = await tx
+              .insert(categorie)
+              .values({
+                tenantId,
+                sezioneId: nuovaSezioneId,
+                nome: c.nome,
+                descrizione: c.descrizione,
+                etaMin: c.etaMin,
+                etaMax: c.etaMax,
+                ordine: c.ordine,
+              })
+              .returning({ id: categorie.id });
+            categorieMap.set(c.id, nc!.id);
+          }
+        }
+
+        // 4) Commissioni (FK concorsoId). NON copiamo presidenteCommissarioId né
+        // i join verso i commissari (commissioni_commissari): i commissari sono
+        // dati runtime e non vengono duplicati. Mappa vecchioId→nuovoId.
+        const commissioniMap = new Map<string, string>();
+        const srcCommissioni = await tx
+          .select()
+          .from(commissioni)
+          .where(eq(commissioni.concorsoId, id));
+        for (const cm of srcCommissioni) {
+          const [ncm] = await tx
+            .insert(commissioni)
+            .values({
+              tenantId,
+              concorsoId: nuovoConcorsoId,
+              nome: cm.nome,
+              // presidenteCommissarioId omesso: i commissari non sono copiati.
+            })
+            .returning({ id: commissioni.id });
+          commissioniMap.set(cm.id, ncm!.id);
+        }
+
+        // 4b) Join commissioni↔sezioni (rimappa entrambe le FK).
+        if (commissioniMap.size > 0) {
+          const srcCommSez = await tx
+            .select()
+            .from(commissioniSezioni)
+            .where(inArray(commissioniSezioni.commissioneId, [...commissioniMap.keys()]));
+          for (const r of srcCommSez) {
+            const nuovaCommissioneId = commissioniMap.get(r.commissioneId);
+            const nuovaSezioneId = sezioniMap.get(r.sezioneId);
+            if (!nuovaCommissioneId || !nuovaSezioneId) continue;
+            await tx.insert(commissioniSezioni).values({
+              tenantId,
+              commissioneId: nuovaCommissioneId,
+              sezioneId: nuovaSezioneId,
+            });
+          }
+
+          // 4c) Join commissioni↔categorie (rimappa entrambe le FK).
+          const srcCommCat = await tx
+            .select()
+            .from(commissioniCategorie)
+            .where(inArray(commissioniCategorie.commissioneId, [...commissioniMap.keys()]));
+          for (const r of srcCommCat) {
+            const nuovaCommissioneId = commissioniMap.get(r.commissioneId);
+            const nuovaCategoriaId = categorieMap.get(r.categoriaId);
+            if (!nuovaCommissioneId || !nuovaCategoriaId) continue;
+            await tx.insert(commissioniCategorie).values({
+              tenantId,
+              commissioneId: nuovaCommissioneId,
+              categoriaId: nuovaCategoriaId,
+            });
+          }
+        }
+
+        // 5) Fasi (FK concorsoId, commissioneId→mappa commissioni). Copiamo
+        // tutta la config (scala, pesi, metodoMedia, tiebreak, modoValutazione,
+        // tempoMinuti, label esito, ammessi, ordine, dataPrevista) ma NON lo
+        // stato runtime del timer/avanzamento → la fase nasce PIANIFICATA
+        // (default DB). Mappa vecchioId→nuovoId.
+        const fasiMap = new Map<string, string>();
+        const srcFasi = await tx.select().from(fasi).where(eq(fasi.concorsoId, id));
+        for (const f of srcFasi) {
+          const nuovaCommissioneId = f.commissioneId
+            ? (commissioniMap.get(f.commissioneId) ?? null)
+            : null;
+          const [nf] = await tx
+            .insert(fasi)
+            .values({
+              tenantId,
+              concorsoId: nuovoConcorsoId,
+              commissioneId: nuovaCommissioneId,
+              ordine: f.ordine,
+              nome: f.nome,
+              ammessi: f.ammessi,
+              dataPrevista: f.dataPrevista,
+              scala: f.scala,
+              modoValutazione: f.modoValutazione,
+              pesi: f.pesi,
+              metodoMedia: f.metodoMedia,
+              tempoMinuti: f.tempoMinuti,
+              tiebreakStrategy: f.tiebreakStrategy,
+              testoEsitoPromosso: f.testoEsitoPromosso,
+              testoEsitoEliminato: f.testoEsitoEliminato,
+              // stato/timer* omessi → default DB (PIANIFICATA, timer azzerato).
+            })
+            .returning({ id: fasi.id });
+          fasiMap.set(f.id, nf!.id);
+        }
+
+        // 5b) Join fasi↔sezioni (rimappa entrambe le FK).
+        if (fasiMap.size > 0) {
+          const srcFasiSez = await tx
+            .select()
+            .from(fasiSezioni)
+            .where(inArray(fasiSezioni.faseId, [...fasiMap.keys()]));
+          for (const r of srcFasiSez) {
+            const nuovaFaseId = fasiMap.get(r.faseId);
+            const nuovaSezioneId = sezioniMap.get(r.sezioneId);
+            if (!nuovaFaseId || !nuovaSezioneId) continue;
+            await tx.insert(fasiSezioni).values({
+              tenantId,
+              faseId: nuovaFaseId,
+              sezioneId: nuovaSezioneId,
+            });
+          }
+        }
+
+        // 6) Criteri (FK faseId→mappa fasi).
+        if (fasiMap.size > 0) {
+          const srcCriteri = await tx
+            .select()
+            .from(criteri)
+            .where(inArray(criteri.faseId, [...fasiMap.keys()]));
+          for (const cr of srcCriteri) {
+            const nuovaFaseId = fasiMap.get(cr.faseId);
+            if (!nuovaFaseId) continue;
+            await tx.insert(criteri).values({
+              tenantId,
+              faseId: nuovaFaseId,
+              nome: cr.nome,
+              descrizione: cr.descrizione,
+              peso: cr.peso,
+              ordine: cr.ordine,
+            });
+          }
+        }
+
+        await writeAudit(tx, req, 'concorso.duplicate', {
+          targetType: 'concorso',
+          targetId: nuovoConcorsoId,
+          payload: { sourceId: id, nome },
+        });
+        return reply.code(201).send(nuovoConcorso);
       });
     },
   );

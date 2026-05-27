@@ -81,9 +81,25 @@ function deriveTimer(record: FaseRuntimeRecord | null, skewOffset: number): Time
   };
 }
 
+// ── Hook options ─────────────────────────────────────────────────────────────
+
+export interface UseFaseRuntimeOptions {
+  /**
+   * Callback opzionale invocato a ogni evento SSE rilevante (`start`,
+   * `conclude`, `timer.*`) con l'`action` ricevuta. Permette ai consumer di
+   * reagire all'evento (es. mostrare un toast) senza interferire con il
+   * re-fetch interno. La firma del hook resta retro-compatibile: l'argomento è
+   * opzionale.
+   */
+  onEvent?: (action: FaseSSEPayload['action']) => void;
+}
+
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
-export function useFaseRuntime(faseId: string | null | undefined): UseFaseRuntimeResult {
+export function useFaseRuntime(
+  faseId: string | null | undefined,
+  opts?: UseFaseRuntimeOptions,
+): UseFaseRuntimeResult {
   const [runtime, setRuntime] = useState<FaseRuntimeRecord | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -100,6 +116,11 @@ export function useFaseRuntime(faseId: string | null | undefined): UseFaseRuntim
   // Ref to the latest runtime — used inside the tick interval without
   // needing it as a dependency (avoids tearing down/re-creating interval).
   const runtimeRef = useRef<FaseRuntimeRecord | null>(null);
+  // Ref all'ultimo callback onEvent: lo leggiamo dentro la subscription senza
+  // metterlo fra le dipendenze dell'effect, così l'EventSource non viene
+  // ricreato a ogni render se il chiamante passa una funzione inline.
+  const onEventRef = useRef<UseFaseRuntimeOptions['onEvent']>(opts?.onEvent);
+  onEventRef.current = opts?.onEvent;
 
   // ── Fetch ──────────────────────────────────────────────────────────────────
 
@@ -148,6 +169,8 @@ export function useFaseRuntime(faseId: string | null | undefined): UseFaseRuntim
         payload.action === 'conclude'
       ) {
         void doFetch(faseId);
+        // Notifica il consumer (es. toast) — non blocca il re-fetch sopra.
+        onEventRef.current?.(payload.action);
       }
     });
 

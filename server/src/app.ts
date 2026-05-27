@@ -37,6 +37,7 @@ import { accountsRoutes } from './routes/accounts.js';
 import { auditRoutes } from './routes/audit.js';
 import { membriGruppoRoutes } from './routes/membri-gruppo.js';
 import { enteRoutes } from './routes/ente.js';
+import { documentiAdminRoutes, documentiPublicRoutes } from './routes/documenti.js';
 import { iscrizioniAdminRoutes, iscrizioniPublicRoutes } from './routes/iscrizioni.js';
 import { calendarioRoutes } from './routes/calendario.js';
 import { calendarioPublicRoutes } from './routes/calendario-public.js';
@@ -164,6 +165,10 @@ export async function createApp(): Promise<FastifyInstance> {
   // pubbliche (iscrizione, privacy, calendario). Gli allegati delle iscrizioni
   // sono già bloccati come statici da BLOCKED_STATIC. No sessione → 404,
   // coerente con la risposta dei path bloccati (no info-leak sull'esistenza).
+  // #9: i documenti dell'ente (/uploads/<tenant>/documento/...) NON sono gated né
+  // bloccati → serviti pubblicamente come i loghi concorso (regolamenti/moduli
+  // sono materiale destinato al pubblico). Il filename è random/non enumerabile;
+  // la lista pubblica espone solo i documenti `pubblicato` (GET /api/public/documenti).
   const PHOTO_GATED = /^\/uploads\/[^/]+\/(candidato|commissario)\//i;
   app.addHook('onRequest', async (req, reply) => {
     const path = req.url.split('?')[0]!;
@@ -299,6 +304,10 @@ export async function createApp(): Promise<FastifyInstance> {
   await app.register(auditRoutes, { prefix: '/api/audit-log' });
   await app.register(membriGruppoRoutes, { prefix: '/api/membri-gruppo' });
   await app.register(enteRoutes, { prefix: '/api/ente' });
+
+  // #9: documenti dell'ente — admin (CRUD) + pubblico (lista/download dei pubblicati)
+  await app.register(documentiAdminRoutes, { prefix: '/api/documenti' });
+  await app.register(documentiPublicRoutes, { prefix: '/api/public' });
 
   // Fase 5c: iscrizioni pubbliche + admin
   await app.register(iscrizioniPublicRoutes, { prefix: '/api/public' });

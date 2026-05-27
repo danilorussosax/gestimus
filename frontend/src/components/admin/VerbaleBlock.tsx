@@ -596,6 +596,32 @@ export function VerbaleBlock({
     }
   };
 
+  // Anteprima PDF — genera lo STESSO PDF coi dati attuali, a prescindere dallo
+  // stato della fase, senza alcun side-effect (è tutto client-side: solo
+  // download). Riusa exportVerbalePdf con il flag `preview`.
+  const handlePreviewPdf = async () => {
+    if (!selectedFase) {
+      toast.warning('Seleziona una fase prima di generare l\'anteprima.');
+      return;
+    }
+    try {
+      await exportVerbalePdf(
+        concorso,
+        selectedFase,
+        template,
+        fasi,
+        candidati,
+        rankedByFase,
+        commissioni,
+        commissari,
+        true,
+      );
+    } catch (err) {
+      console.error('Verbale PDF preview error', err);
+      toast.error('Errore nella generazione dell\'anteprima del verbale.');
+    }
+  };
+
   return (
     <div className="bg-white border border-slate-200 rounded-2xl p-5 space-y-4">
       {/* Header */}
@@ -617,6 +643,14 @@ export function VerbaleBlock({
           >
             <RefreshCw className="h-3 w-3" aria-hidden />
             {t('admin.risultati.verbale.reset')}
+          </button>
+          <button
+            type="button"
+            className="c-btn c-btn--outline c-btn--sm"
+            disabled={fasi.length === 0}
+            onClick={() => { void handlePreviewPdf(); }}
+          >
+            {t('admin.risultati.verbale.preview_pdf')}
           </button>
           <button
             type="button"
@@ -761,6 +795,10 @@ async function exportVerbalePdf(
   rankedByFase: Map<string, RankedRow[]>,
   commissioni: CommissioneRecord[],
   commissari: CommissarioRecord[],
+  // In modalità anteprima cambia solo il prefisso del nome file e il toast
+  // finale: la generazione è identica (tutta client-side, nessun side-effect su
+  // DB), così l'anteprima rispecchia esattamente il verbale ufficiale.
+  preview = false,
 ): Promise<void> {
   const ctx = buildVerbaleContext(
     concorso,
@@ -909,8 +947,11 @@ async function exportVerbalePdf(
 
   const safeName = concorso.nome.replace(/[^\w-]+/g, '_');
   const safeFase = `_F${fase.ordine}_${(fase.nome || '').replace(/[^\w-]+/g, '_')}`;
-  doc.save(`Verbale_${safeName}${safeFase}_${concorso.anno ?? 'nd'}.pdf`);
-  toast.success(i18n.t('admin.risultati.verbale.pdf_done'));
+  const prefix = preview ? 'Anteprima_Verbale' : 'Verbale';
+  doc.save(`${prefix}_${safeName}${safeFase}_${concorso.anno ?? 'nd'}.pdf`);
+  toast.success(
+    i18n.t(preview ? 'admin.risultati.verbale.preview_done' : 'admin.risultati.verbale.pdf_done'),
+  );
 }
 
 export default VerbaleBlock;

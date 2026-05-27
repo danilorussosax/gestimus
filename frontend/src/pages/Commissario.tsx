@@ -244,6 +244,39 @@ function FloatingTimer({ faseId, isPresidente, candidatoFaseId }: FloatingTimerP
   );
 }
 
+// ── FaseEventToaster ──────────────────────────────────────────────────────────
+// Mostra un toast ai commissari quando il presidente avvia o conclude una fase
+// (eventi SSE `start`/`conclude`). Componente "headless": non renderizza nulla,
+// si limita a sottoscrivere il runtime della fase tramite useFaseRuntime e a
+// inoltrare l'evento a un toast. Va montato SOLO per i commissari NON presidenti
+// (il presidente ha già il proprio toast.success quando clicca Avvia/Concludi),
+// così evitiamo il doppio avviso.
+
+function FaseEventToaster({ faseId }: { faseId: string }) {
+  const { t } = useTranslation();
+  // Guard per dedup: alcuni stream possono riemettere lo stesso evento → mostra
+  // il toast una sola volta per (faseId + action).
+  const lastActionRef = useRef<string | null>(null);
+
+  const onEvent = useCallback(
+    (action: string) => {
+      if (action !== 'start' && action !== 'conclude') return;
+      const key = `${faseId}:${action}`;
+      if (lastActionRef.current === key) return;
+      lastActionRef.current = key;
+      if (action === 'start') {
+        toast.info(t('com.event.phase_started'));
+      } else {
+        toast.info(t('com.event.phase_concluded'));
+      }
+    },
+    [faseId, t],
+  );
+
+  useFaseRuntime(faseId, { onEvent });
+  return null;
+}
+
 // ── PresidentePanel component ─────────────────────────────────────────────────
 
 interface PresidentePanelProps {
@@ -1180,12 +1213,30 @@ export default function Commissario() {
     (f) => getPresidenteForFase(f, commissioniLike, commissariSelf)?.id === commissarioId,
   );
   const isPresidenteFase = fasiPresidente.length > 0;
+  const fasiPresidenteIds = new Set(fasiPresidente.map((f) => f.id));
+
+  // ── Toast SSE start/conclude ────────────────────────────────────────────────
+  // Sottoscriviamo gli eventi runtime delle fasi NON ancora concluse cui questo
+  // commissario è assegnato, ESCLUSE quelle che presiede (il presidente vede già
+  // il proprio toast.success cliccando Avvia/Concludi → niente doppione). Così
+  // quando il presidente avvia/conclude una fase, gli altri commissari ricevono
+  // un avviso visivo. Montiamo un FaseEventToaster (headless) per ciascuna fase.
+  const fasiDaNotificare = fasiList.filter((f) => {
+    if (f.stato === 'CONCLUSA') return false;
+    if (fasiPresidenteIds.has(f.id)) return false;
+    const comm = commissioniList.find((c) => c.id === f.commissioneId);
+    return getCommissariIds(comm).includes(commissarioId);
+  });
+  const eventToasters = fasiDaNotificare.map((f) => (
+    <FaseEventToaster key={f.id} faseId={f.id} />
+  ));
 
   // ── No active fase ─────────────────────────────────────────────────────────
 
   if (!faseAttiva) {
     return (
       <section className="view-fade c-page max-w-7xl mx-auto" data-pres-fullpage="1">
+        {eventToasters}
         {isPresidenteFase ? (
           <PresidentePanel
             concorso={concorso}
@@ -1234,6 +1285,7 @@ export default function Commissario() {
     if (isPresidenteFase) {
       return (
         <section className="view-fade c-page max-w-7xl mx-auto" data-pres-fullpage="1">
+          {eventToasters}
           <PresidentePanel
             concorso={concorso}
             fasi={fasiPresidente}
@@ -1250,6 +1302,7 @@ export default function Commissario() {
     }
     return (
       <section className="view-fade max-w-2xl mx-auto text-center py-16">
+        {eventToasters}
         <div className="text-6xl mb-4">🚫</div>
         <h2 className="text-xl font-bold text-slate-900">{t('com.not_assigned.title')}</h2>
         <p className="text-slate-600 mt-2">
@@ -1313,30 +1366,33 @@ export default function Commissario() {
     const eta = ageFromDate(wCand?.dataNascita);
 
     return (
-      <WaitingPanel
-        fase={fase}
-        concorso={concorso}
-        isPresidenteFase={isPresidenteFase}
-        wCand={wCand}
-        commInFase={commInFase}
-        votedSet={votedSet}
-        votedCount={votedCount}
-        totalCount={totalCount}
-        eta={eta}
-        commissarioId={commissarioId}
-        commById={commById}
-        invalidateAll={invalidateAll}
-        presidentePanelSlot={
-          <PresidentePanel
-            concorso={concorso}
-            fasi={fasiPresidente}
-            commissioni={commissioniList}
-            candidatiFase={cfList}
-            valutazioni={valsAll}
-            onFaseChanged={invalidateAll}
-          />
-        }
-      />
+      <>
+        {eventToasters}
+        <WaitingPanel
+          fase={fase}
+          concorso={concorso}
+          isPresidenteFase={isPresidenteFase}
+          wCand={wCand}
+          commInFase={commInFase}
+          votedSet={votedSet}
+          votedCount={votedCount}
+          totalCount={totalCount}
+          eta={eta}
+          commissarioId={commissarioId}
+          commById={commById}
+          invalidateAll={invalidateAll}
+          presidentePanelSlot={
+            <PresidentePanel
+              concorso={concorso}
+              fasi={fasiPresidente}
+              commissioni={commissioniList}
+              candidatiFase={cfList}
+              valutazioni={valsAll}
+              onFaseChanged={invalidateAll}
+            />
+          }
+        />
+      </>
     );
   }
 
@@ -1344,21 +1400,24 @@ export default function Commissario() {
 
   if (!currentCf) {
     return (
-      <AllDonePanel
-        isPresidenteFase={isPresidenteFase}
-        evaluatedCount={myEvaluated.length}
-        faseNome={fase.nome}
-        presidentePanelSlot={
-          <PresidentePanel
-            concorso={concorso}
-            fasi={fasiPresidente}
-            commissioni={commissioniList}
-            candidatiFase={cfList}
-            valutazioni={valsAll}
-            onFaseChanged={invalidateAll}
-          />
-        }
-      />
+      <>
+        {eventToasters}
+        <AllDonePanel
+          isPresidenteFase={isPresidenteFase}
+          evaluatedCount={myEvaluated.length}
+          faseNome={fase.nome}
+          presidentePanelSlot={
+            <PresidentePanel
+              concorso={concorso}
+              fasi={fasiPresidente}
+              commissioni={commissioniList}
+              candidatiFase={cfList}
+              valutazioni={valsAll}
+              onFaseChanged={invalidateAll}
+            />
+          }
+        />
+      </>
     );
   }
 
@@ -1379,6 +1438,7 @@ export default function Commissario() {
 
   return (
     <div className="max-w-7xl mx-auto">
+      {eventToasters}
       {isPresidenteFase && (
         <PresidentePanel
           concorso={concorso}

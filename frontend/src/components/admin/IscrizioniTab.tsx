@@ -10,6 +10,7 @@
 
 import { useState, useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { getConcorso } from '@/api/concorsi';
 import {
@@ -559,6 +560,7 @@ function IscrizioneDetailDialog({
 // ---------------------------------------------------------------------------
 
 export function IscrizioniTab({ concorsoId }: { concorsoId: string }) {
+  const { t } = useTranslation();
   const {
     iscrizioni,
     isLoading,
@@ -580,6 +582,7 @@ export function IscrizioniTab({ concorsoId }: { concorsoId: string }) {
   const [detail, setDetail] = useState<IscrizioneFull | null>(null);
   const [rejectDialog, setRejectDialog] = useState<IscrizioneFull | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isExporting, setIsExporting] = useState(false);
 
   // Counts per filter pills
   const counts = useMemo(() => ({
@@ -622,50 +625,30 @@ export function IscrizioniTab({ concorsoId }: { concorsoId: string }) {
     }
   };
 
-  // CSV export
-  const handleExportCsv = () => {
-    const csvField = (v: unknown): string => {
-      let s = String(v ?? '');
-      if (s.length && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
-      return `"${s.replaceAll('"', '""')}"`;
-    };
-    const headers = [
-      'Data', 'Stato', 'Nome', 'Cognome', 'Email', 'Telefono',
-      'Data nascita', 'Luogo nascita', 'Nazionalità', 'Sesso', 'Strumento', 'Tipo',
-      'Gruppo', 'Anni studio', 'Scuola', 'Brani', 'Durata tot',
-      'Indirizzo', 'Città', 'CAP', 'Provincia',
-    ];
-    const lines = [headers.map(csvField).join(',')];
-    for (const i of filtered) {
-      const programma = Array.isArray(i.programma)
-        ? (i.programma as { titolo?: string; autore?: string; durata_min?: number }[])
-        : [];
-      const briefBrani = programma.map((p) => `${p.titolo ?? ''} — ${p.autore ?? ''}`).join(' | ');
-      const durataTot = programma.reduce((acc, p) => acc + (Number(p.durata_min) || 0), 0);
-      lines.push([
-        new Date(i.createdAt).toLocaleString('it-IT'),
-        i.stato,
-        i.nome, i.cognome, i.email, i.telefono,
-        i.dataNascita, i.luogoNascita, i.nazionalita, i.sesso, i.strumento,
-        i.isGruppo ? (i.tipoGruppo ?? 'gruppo') : 'individuale',
-        i.gruppoNome,
-        i.anniStudio, i.scuolaProvenienza,
-        briefBrani, durataTot,
-        i.indirizzo, i.citta, i.cap, i.provincia,
-      ].map(csvField).join(','));
+  // Export CSV — generato lato SERVER (admin-only, tracciato in audit per PII).
+  // Esporta TUTTE le iscrizioni del concorso (non solo quelle filtrate/caricate
+  // in pagina): la sorgente di verità è il DB, non lo stato della tabella.
+  const handleExportCsv = async () => {
+    if (isExporting) return;
+    setIsExporting(true);
+    try {
+      const blob = await iscrizioniApi.exportCsv(concorsoId);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const safeName = ((concorso?.nome ?? '') || 'iscrizioni')
+        // eslint-disable-next-line no-control-regex -- sanitizzazione nome file CSV
+        .replace(/[\\/\x00-\x1f]+/g, '_')
+        .replaceAll(' ', '_') || 'iscrizioni';
+      a.download = `iscrizioni-${safeName}.csv`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(t('iscrizioni.exportSuccess'));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : httpErrorMessage(e));
+    } finally {
+      setIsExporting(false);
     }
-    const blob = new Blob(['﻿' + lines.join('\n')], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    const safeName = ((concorso?.nome ?? '') || 'iscrizioni')
-      // eslint-disable-next-line no-control-regex -- sanitizzazione nome file CSV
-      .replace(/[\\/\x00-\x1f]+/g, '_')
-      .replaceAll(' ', '_') || 'iscrizioni';
-    a.download = `${safeName}_iscrizioni.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    toast.success(`${filtered.length} iscrizioni esportate`);
   };
 
   // -------------------------------------------------------------------------
@@ -745,10 +728,11 @@ export function IscrizioniTab({ concorsoId }: { concorsoId: string }) {
           <button
             type="button"
             className="c-btn c-btn--ghost c-btn--sm !gap-1"
-            onClick={handleExportCsv}
+            onClick={() => void handleExportCsv()}
+            disabled={isExporting}
           >
             <Download size={14} />
-            <span>Esporta CSV</span>
+            <span>{isExporting ? t('iscrizioni.exporting') : t('iscrizioni.exportCsv')}</span>
           </button>
         </div>
       </div>

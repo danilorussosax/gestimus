@@ -927,3 +927,40 @@ export const events = pgTable(
     index('idx_events_pending').on(t.createdAt).where(sql`${t.status} = 'pending'`),
   ],
 );
+
+// ============================================================================
+// DOCUMENTI ENTE (#9): regolamenti, moduli, template caricati dall'admin a
+// livello di ENTE (tenant), non legati a un concorso. I documenti `pubblicato`
+// sono scaricabili senza auth tramite un endpoint pubblico (risoluzione tenant
+// dal subdomain) e serviti staticamente come i loghi concorso. RLS per tenant
+// come le altre tabelle tenant-scoped (apply_tenant_rls).
+export const documentiEnte = pgTable(
+  'documenti_ente',
+  {
+    id: uuid('id').primaryKey().default(sql`uuidv7()`),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    titolo: text('titolo').notNull(),
+    descrizione: text('descrizione'),
+    // nomeFile: nome originale (per il download "amichevole"); storageKey: path
+    // filesystem assoluto dove il file è salvato da services/storage.ts; publicUrl:
+    // path relativo servito staticamente (/uploads/<tenant>/documento/<id>/<file>).
+    nomeFile: text('nome_file').notNull(),
+    storageKey: text('storage_key').notNull(),
+    publicUrl: text('public_url').notNull(),
+    mimeType: text('mime_type'),
+    sizeBytes: bigint('size_bytes', { mode: 'number' }),
+    versione: integer('versione').notNull().default(1),
+    pubblicato: boolean('pubblicato').notNull().default(true),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index('idx_documenti_ente_tenant').on(t.tenantId),
+    // Lista pubblica: solo i documenti pubblicati di un tenant. Indice parziale.
+    index('idx_documenti_ente_pubblicato')
+      .on(t.tenantId)
+      .where(sql`${t.pubblicato} = true`),
+  ],
+);

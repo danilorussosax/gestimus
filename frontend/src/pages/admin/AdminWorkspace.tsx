@@ -21,6 +21,7 @@ import {
   TriangleAlert,
   EyeOff,
   BookOpen,
+  FileText,
 } from 'lucide-react';
 
 import { useActiveConcorso, useConcorso, useConcorsoSummary } from '@/api/concorsi';
@@ -35,6 +36,7 @@ import { AuditTab } from '@/components/admin/AuditTab';
 import CommissariTab from '@/components/admin/CommissariTab';
 import CommissioniTab from '@/components/admin/CommissioniTab';
 import SezioniTab from '@/components/admin/SezioniTab';
+import DocumentiTab from '@/components/admin/DocumentiTab';
 import AdminDashboard from '@/pages/admin/Dashboard';
 import AdminUtenti from '@/pages/admin/Utenti';
 import { ImpostazioniConcorsoTab } from '@/components/admin/ImpostazioniConcorsoTab';
@@ -61,12 +63,13 @@ type TabId =
   | 'risultati'
   | 'audit'
   | 'impostazioni'
+  | 'documenti'
   | 'utenti'
   | 'manuale';
 
 // Tab del gruppo "Amministrazione" (tenant-level): non in TABS (sezione
 // Concorso), ma validi come ?tab= così rendono DENTRO il workspace (sidebar).
-const ADMIN_TAB_IDS = ['utenti', 'manuale'] as const;
+const ADMIN_TAB_IDS = ['utenti', 'manuale', 'documenti'] as const;
 
 interface TabDef {
   id: TabId;
@@ -330,6 +333,7 @@ function WorkspaceInner({
               {([
                 { id: 'utenti' as const, Icon: User, label: lbl('admin.nav.utenti', 'Utenti') },
                 { id: 'manuale' as const, Icon: BookOpen, label: lbl('admin.nav.manuale', 'Manuale') },
+                { id: 'documenti' as const, Icon: FileText, label: lbl('admin.nav.documenti', 'Documenti') },
               ]).map(({ id, Icon, label }) => {
                 const active = activeTab === id;
                 return (
@@ -483,6 +487,7 @@ function WorkspaceInner({
             {activeTab === 'risultati'   && <RisultatiTab   concorsoId={concorsoId} />}
             {activeTab === 'audit'       && <AuditTab       concorsoId={concorsoId} />}
             {activeTab === 'impostazioni' && <ImpostazioniConcorsoTab concorsoId={concorsoId} />}
+            {activeTab === 'documenti'   && <DocumentiTab />}
             {activeTab === 'utenti'      && <AdminUtenti />}
             {activeTab === 'manuale'     && <AdminManuale />}
           </Suspense>

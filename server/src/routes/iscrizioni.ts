@@ -105,6 +105,34 @@ const iscrizioneCreateBody = z.object({
 });
 
 
+// =====================================================================
+// CSV — generazione pura lato server (niente dipendenze esterne).
+// =====================================================================
+
+// RFC 4180: un campo va racchiuso tra doppi apici se contiene virgola, doppi
+// apici o newline; i doppi apici interni vanno raddoppiati. Per sicurezza
+// racchiudiamo SEMPRE tra apici (semplice e robusto). In più anteponiamo un
+// apice ai valori che iniziano con =, +, -, @ (CSV/formula injection: Excel
+// interpreterebbe quei campi come formule eseguibili).
+function csvField(v: unknown): string {
+  let s = v == null ? '' : String(v);
+  if (s.length && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  return `"${s.replaceAll('"', '""')}"`;
+}
+
+function csvRow(cells: unknown[]): string {
+  return cells.map(csvField).join(',');
+}
+
+// Riassunto del programma musicale (jsonb) in una singola cella: "titolo — autore | …".
+function programmaBrief(programma: unknown): { brani: string; durataTot: number } {
+  if (!Array.isArray(programma)) return { brani: '', durataTot: 0 };
+  const rows = programma as { titolo?: string; autore?: string; durata_min?: number }[];
+  const brani = rows.map((p) => `${p.titolo ?? ''} — ${p.autore ?? ''}`).join(' | ');
+  const durataTot = rows.reduce((acc, p) => acc + (Number(p.durata_min) || 0), 0);
+  return { brani, durataTot };
+}
+
 const MIN_TIME_ON_PAGE_MS = 3000;
 // R15: tutore obbligatorio per TUTTI i minori (< 18). In Italia la partecipazione
 // a un concorso e il relativo trattamento dati di un minore richiedono il consenso
@@ -652,6 +680,103 @@ export const iscrizioniAdminRoutes: FastifyPluginAsync = async (app) => {
       const base = tx.select().from(iscrizioni).$dynamic();
       const withWhere = where ? base.where(where) : base;
       return withWhere.orderBy(desc(iscrizioni.createdAt)).limit(limit).offset(offset);
+    });
+  });
+
+  // Export CSV di TUTTE le iscrizioni di un concorso (admin-only).
+  // ATTENZIONE PII: l'export contiene dati personali (anagrafica, contatti,
+  // residenza, consensi) → endpoint admin-only + audit log. Fastify dà priorità
+  // alle route statiche su quelle parametriche, quindi '/export' non collide con
+  // '/:id'. Filtro per concorsoId dentro req.dbTx → RLS limita al solo tenant.
+  app.get('/export', async (req, reply) => {
+    const { concorsoId } = z.object({ concorsoId: uuid }).parse(req.query);
+    return req.dbTx(async (tx) => {
+      // Verifica esistenza del concorso (RLS → solo tenant) per nome file + 404.
+      const crows = await tx
+        .select({ nome: concorsi.nome })
+        .from(concorsi)
+        .where(eq(concorsi.id, concorsoId))
+        .limit(1);
+      if (crows.length === 0) return reply.notFound();
+      const concorsoNome = crows[0]!.nome;
+
+      const rows = await tx
+        .select()
+        .from(iscrizioni)
+        .where(eq(iscrizioni.concorsoId, concorsoId))
+        .orderBy(desc(iscrizioni.createdAt));
+
+      // Intestazioni colonne (IT). Una riga per iscrizione.
+      const header = [
+        'Data invio', 'Stato', 'Nome', 'Cognome', 'Email', 'Telefono',
+        'Data nascita', 'Luogo nascita', 'Nazionalità', 'Sesso', 'Codice fiscale',
+        'Indirizzo', 'Città', 'CAP', 'Provincia', 'Paese',
+        'Tipo', 'Nome gruppo', 'Strumento', 'Anni studio', 'Scuola/Conservatorio',
+        'Brani', 'Durata totale (min)',
+        'Consenso privacy', 'Consenso immagini', 'Consenso regolamento',
+        'Tutore nome', 'Tutore email', 'Tutore telefono',
+        'N. allegati', 'Email verificata il', 'Approvata il', 'Note',
+      ];
+
+      // Conteggio allegati per iscrizione (una query aggregata, niente N+1).
+      const ids = rows.map((r) => r.id);
+      const allegCounts = new Map<string, number>();
+      if (ids.length) {
+        const counts = await tx
+          .select({
+            iscrizioneId: iscrizioniAllegati.iscrizioneId,
+            n: sql<number>`count(*)::int`,
+          })
+          .from(iscrizioniAllegati)
+          .where(inArray(iscrizioniAllegati.iscrizioneId, ids))
+          .groupBy(iscrizioniAllegati.iscrizioneId);
+        for (const c of counts) allegCounts.set(c.iscrizioneId, c.n);
+      }
+
+      const lines = [csvRow(header)];
+      for (const r of rows) {
+        const { brani, durataTot } = programmaBrief(r.programma);
+        const gdpr = (r.consensiGdpr ?? {}) as { privacy?: boolean; immagini?: boolean; regolamento?: boolean };
+        const tutore = (r.tutore ?? {}) as { nome?: string; cognome?: string; email?: string; telefono?: string };
+        const tutoreNome = [tutore.nome, tutore.cognome].filter(Boolean).join(' ');
+        lines.push(csvRow([
+          r.createdAt instanceof Date ? r.createdAt.toISOString() : r.createdAt,
+          r.stato,
+          r.nome, r.cognome, r.email, r.telefono,
+          r.dataNascita, r.luogoNascita, r.nazionalita, r.sesso, r.codiceFiscale,
+          r.indirizzo, r.citta, r.cap, r.provincia, r.paese,
+          r.isGruppo ? (r.tipoGruppo ?? 'gruppo') : 'individuale',
+          r.gruppoNome, r.strumento, r.anniStudio, r.scuolaProvenienza,
+          brani, durataTot,
+          gdpr.privacy ? 'sì' : 'no',
+          gdpr.immagini ? 'sì' : 'no',
+          gdpr.regolamento ? 'sì' : 'no',
+          tutoreNome, tutore.email, tutore.telefono,
+          allegCounts.get(r.id) ?? 0,
+          r.emailVerifiedAt instanceof Date ? r.emailVerifiedAt.toISOString() : r.emailVerifiedAt,
+          r.approvataAt instanceof Date ? r.approvataAt.toISOString() : r.approvataAt,
+          r.note,
+        ]));
+      }
+      // BOM UTF-8 (﻿): Excel su Windows riconosce così la codifica e non
+      // sgarbuglia gli accenti. CRLF come line separator (RFC 4180).
+      const csv = '﻿' + lines.join('\r\n') + '\r\n';
+
+      // PII export → audit obbligatorio (admin-only, GDPR accountability).
+      await writeAudit(tx, req, 'iscrizioni.export', {
+        targetType: 'concorso',
+        targetId: concorsoId,
+        payload: { concorsoId, rows: rows.length },
+      });
+
+      // Nome file sicuro: solo [\w.-], niente separatori path / caratteri di controllo.
+      const safeName = (concorsoNome || 'iscrizioni')
+        .replace(/[^\w.-]+/g, '_')
+        .replace(/^_+|_+$/g, '') || 'iscrizioni';
+      reply.header('Content-Type', 'text/csv; charset=utf-8');
+      reply.header('X-Content-Type-Options', 'nosniff');
+      reply.header('Content-Disposition', `attachment; filename="iscrizioni-${safeName}.csv"`);
+      return reply.send(csv);
     });
   });
 

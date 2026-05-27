@@ -105,6 +105,28 @@ export const iscrizioniApi = {
 
   /** URL diretto per il download (aperto in nuova scheda). */
   downloadAllegatoUrl: (allegatoId: string) => `/api/iscrizioni/allegati/${allegatoId}/download`,
+
+  /**
+   * Scarica il CSV delle iscrizioni del concorso (generato lato server, admin-only,
+   * tracciato in audit per PII). Usa fetch+blob (non un semplice <a href>) perché
+   * il cookie di sessione viaggia con credentials:'include' e così possiamo
+   * intercettare gli errori (401/403/404) invece di scaricare una pagina di errore.
+   */
+  exportCsv: async (concorsoId: string): Promise<Blob> => {
+    const res = await fetch(`/api/iscrizioni/export?concorsoId=${encodeURIComponent(concorsoId)}`, {
+      credentials: 'include',
+      headers: { Accept: 'text/csv' },
+    });
+    if (!res.ok) {
+      let msg = `Errore HTTP ${res.status}`;
+      try {
+        const j = (await res.json()) as { error?: string; message?: string };
+        msg = j.error ?? j.message ?? msg;
+      } catch { /* risposta non-JSON: tieni il messaggio di default */ }
+      throw new Error(msg);
+    }
+    return res.blob();
+  },
 };
 
 // ── React Query hook ──────────────────────────────────────────────────────────

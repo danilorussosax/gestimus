@@ -5,7 +5,7 @@ import { randomBytes } from 'node:crypto';
 import sharp from 'sharp';
 import { env } from '../env.js';
 
-export type ResourceKind = 'concorso' | 'commissario' | 'candidato' | 'iscrizione';
+export type ResourceKind = 'concorso' | 'commissario' | 'candidato' | 'iscrizione' | 'documento';
 
 const ALLOWED_MIME = new Set([
   'image/jpeg',
