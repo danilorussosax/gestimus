@@ -62,26 +62,38 @@ A fine run vengono stampati URL platform, credenziali super-admin e i prossimi p
 
 ## TLS wildcard per i tenant (DNS-01) — necessario
 
-`certbot --nginx` (http-01) copre solo i nomi noti (apex/platform/www). I
-sottodomini tenant sono dinamici → serve un **certificato wildcard**, ottenibile
-solo via challenge **DNS-01**:
+I sottodomini tenant (`<ente>.gestimus.it`) sono creati dal super-admin nel
+tempo → `certbot --nginx` (http-01, solo nomi noti) non basta: serve un
+**certificato wildcard `*.gestimus.it`**, ottenibile solo via challenge
+**DNS-01**. Con DNS su IONOS è automatizzato da `install.sh`.
+
+### Automatico (consigliato) — via install.sh
+Procurati la **API key IONOS** dal Developer portal
+(https://developer.hosting.ionos.com → formato `prefix.secret`), poi:
 
 ```bash
-# Manuale (one-shot, rinnovo manuale):
-sudo certbot certonly --manual --preferred-challenges dns \
-  -d '*.gestimus.it' -d 'gestimus.it'
-
-# Automatico con IONOS (rinnovo automatico): installa il plugin DNS IONOS
-sudo apt install -y python3-pip && sudo pip install certbot-dns-ionos
-# crea /etc/letsencrypt/ionos.ini con le API key IONOS (chmod 600), poi:
-sudo certbot certonly --authenticator dns-ionos \
-  --dns-ionos-credentials /etc/letsencrypt/ionos.ini \
-  -d '*.gestimus.it' -d 'gestimus.it'
+sudo GESTIMUS_DOMAIN=gestimus.it LE_EMAIL=tu@example.com \
+     TLS_MODE=wildcard IONOS_API_KEY='prefix.secret' \
+     ./deploy/install.sh
 ```
 
-Poi punta il server-block Nginx (`/etc/nginx/sites-available/gestimus`) al cert
-wildcard (`ssl_certificate .../fullchain.pem`) su un blocco `listen 443 ssl;` e
-`nginx -t && systemctl reload nginx`.
+Lo script: installa `certbot-dns-ionos`, scrive `/etc/letsencrypt/ionos.ini`
+(chmod 600), emette `*.gestimus.it` + apex via DNS-01, riscrive il server-block
+Nginx con `listen 443 ssl` sul cert wildcard + redirect 80→443, e imposta il
+**rinnovo automatico** (timer certbot + deploy-hook `systemctl reload nginx`).
+Prerequisito: i DNS di `gestimus.it` devono essere **delegati a IONOS** (record
+`A` apex + `A *.gestimus.it` verso l'IP del server).
+
+### Manuale (fallback)
+```bash
+sudo apt install -y python3-pip && sudo pip install --break-system-packages certbot-dns-ionos
+# /etc/letsencrypt/ionos.ini (chmod 600): dns_ionos_prefix / dns_ionos_secret
+sudo certbot certonly --authenticator dns-ionos \
+  --dns-ionos-credentials /etc/letsencrypt/ionos.ini \
+  --cert-name gestimus.it -d '*.gestimus.it' -d 'gestimus.it'
+```
+Poi punta il server-block Nginx al cert wildcard (`ssl_certificate
+.../fullchain.pem`) su `listen 443 ssl;` e `nginx -t && systemctl reload nginx`.
 
 ## Aggiornamenti
 

@@ -28,7 +28,11 @@
 #   GESTIMUS_ADMIN_EMAIL     admin@<dominio>   super-admin iniziale
 #   GESTIMUS_ADMIN_PASSWORD  (auto-generata)   password super-admin iniziale
 #   APP_PORT           4000
-#   TLS_MODE           http  (http = certbot http-01 su apex+platform+www | skip)
+#   TLS_MODE           http  (http = certbot http-01 apex+platform+www
+#                              | wildcard = certbot DNS-01 IONOS, cert *.<dominio>
+#                                (necessario per i sottodomini tenant) | skip)
+#   IONOS_API_KEY      (per TLS_MODE=wildcard) API key IONOS "prefix.secret"
+#                      dal Developer portal (https://developer.hosting.ionos.com)
 #   SETUP_FIREWALL     1     (1 = configura ufw | 0 = salta)
 #   SETUP_BACKUP       1     (1 = timer backup giornaliero | 0 = salta)
 # =============================================================================
@@ -43,6 +47,7 @@ REPO_URL="${REPO_URL:-}"
 REPO_BRANCH="${REPO_BRANCH:-main}"
 APP_PORT="${APP_PORT:-4000}"
 TLS_MODE="${TLS_MODE:-http}"
+IONOS_API_KEY="${IONOS_API_KEY:-}"
 SETUP_FIREWALL="${SETUP_FIREWALL:-1}"
 SETUP_BACKUP="${SETUP_BACKUP:-1}"
 NODE_MAJOR=22
@@ -373,17 +378,107 @@ systemctl reload nginx
 ok "nginx configurato"
 
 # ── 13. TLS (Let's Encrypt) ──────────────────────────────────────────────────
-if [ "$TLS_MODE" = "http" ] && [ -n "$LE_EMAIL" ]; then
+if [ "$TLS_MODE" = "wildcard" ] && [ -n "$LE_EMAIL" ] && [ -n "$IONOS_API_KEY" ]; then
+  # DNS-01 IONOS → certificato WILDCARD *.<dominio> (+ apex): copre TUTTI i
+  # sottodomini tenant, presenti e futuri, senza riemettere quando il superadmin
+  # crea un nuovo ente. Rinnovo automatico (timer certbot, deploy-hook reload).
+  step "TLS wildcard DNS-01 (IONOS): *.${GESTIMUS_DOMAIN}"
+  apt-get install -y -qq certbot python3-pip >/dev/null
+  # plugin certbot IONOS via pip (PEP 668: --break-system-packages su distro recenti).
+  pip install --quiet --break-system-packages certbot-dns-ionos 2>/dev/null \
+    || pip install --quiet certbot-dns-ionos 2>/dev/null \
+    || die "installazione plugin certbot-dns-ionos fallita (verifica pip/rete)."
+  # Credenziali IONOS: la API key ha forma 'prefix.secret'. File ini chmod 600.
+  cat > /etc/letsencrypt/ionos.ini <<EOF
+dns_ionos_prefix = ${IONOS_API_KEY%%.*}
+dns_ionos_secret = ${IONOS_API_KEY#*.}
+dns_ionos_endpoint = https://api.hosting.ionos.com
+EOF
+  chmod 600 /etc/letsencrypt/ionos.ini
+  if certbot certonly --authenticator dns-ionos \
+       --dns-ionos-credentials /etc/letsencrypt/ionos.ini \
+       --dns-ionos-propagation-seconds 120 \
+       --cert-name "$GESTIMUS_DOMAIN" \
+       --non-interactive --agree-tos -m "$LE_EMAIL" \
+       --deploy-hook "systemctl reload nginx" \
+       -d "*.${GESTIMUS_DOMAIN}" -d "$GESTIMUS_DOMAIN"; then
+    ok "certificato wildcard emesso (*.${GESTIMUS_DOMAIN} + apex)"
+    # Riscrive il site: redirect 80→443 + server TLS che usa il wildcard.
+    cat > /etc/nginx/sites-available/gestimus <<EOF
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${GESTIMUS_DOMAIN} *.${GESTIMUS_DOMAIN};
+    return 301 https://\$host\$request_uri;
+}
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name ${GESTIMUS_DOMAIN} *.${GESTIMUS_DOMAIN};
+
+    ssl_certificate     /etc/letsencrypt/live/${GESTIMUS_DOMAIN}/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/${GESTIMUS_DOMAIN}/privkey.pem;
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    client_max_body_size 12m;
+
+    location /api/realtime/ {
+        proxy_pass http://127.0.0.1:${APP_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header Connection "";
+        proxy_buffering off;
+        proxy_read_timeout 3600s;
+    }
+    location /auth/ {
+        limit_req zone=auth_rl burst=10 nodelay;
+        proxy_pass http://127.0.0.1:${APP_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 30s;
+    }
+    location /api/public/iscrizioni {
+        limit_req zone=iscrizioni_rl burst=5 nodelay;
+        proxy_pass http://127.0.0.1:${APP_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 30s;
+    }
+    location / {
+        proxy_pass http://127.0.0.1:${APP_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 30s;
+    }
+}
+EOF
+    nginx -t >/dev/null 2>&1 && systemctl reload nginx && ok "nginx HTTPS wildcard attivo (redirect 80→443)" \
+      || die "config nginx HTTPS non valida (nginx -t) — controlla il blocco TLS."
+  else
+    warn "certbot wildcard fallito: API key IONOS errata, o i DNS di ${GESTIMUS_DOMAIN} non sono delegati a IONOS. Sito su HTTP, riprova."
+  fi
+elif [ "$TLS_MODE" = "http" ] && [ -n "$LE_EMAIL" ]; then
   step "TLS http-01 (apex + platform + www)"
   certbot --nginx --non-interactive --agree-tos --redirect -m "$LE_EMAIL" \
     -d "$GESTIMUS_DOMAIN" -d "www.${GESTIMUS_DOMAIN}" -d "platform.${GESTIMUS_DOMAIN}" \
     && ok "certificato emesso per apex/platform/www" \
     || warn "certbot fallito (DNS non puntato? riprova dopo aver puntato i record A)."
-  warn "I sottodomini TENANT (*.${GESTIMUS_DOMAIN}) richiedono un certificato WILDCARD via DNS-01."
-  warn "  certbot certonly --manual --preferred-challenges dns -d '*.${GESTIMUS_DOMAIN}' -d '${GESTIMUS_DOMAIN}'"
-  warn "  (o plugin certbot-dns-ionos con API key) — vedi docs/DEPLOY-IONOS.md."
+  warn "ATTENZIONE: i sottodomini TENANT (*.${GESTIMUS_DOMAIN}) NON sono coperti da http-01."
+  warn "  Per i tenant per-sottodominio usa TLS_MODE=wildcard + IONOS_API_KEY (DNS-01)."
 else
-  warn "TLS saltato (TLS_MODE=${TLS_MODE}${LE_EMAIL:+, LE_EMAIL set}). Configura HTTPS prima del lancio pubblico."
+  warn "TLS saltato (TLS_MODE=${TLS_MODE}${LE_EMAIL:+, LE_EMAIL set}${IONOS_API_KEY:+, IONOS_API_KEY set}). Configura HTTPS prima del lancio pubblico."
 fi
 
 # ── 14. Backup giornaliero (systemd timer) ───────────────────────────────────
