@@ -1,10 +1,10 @@
 import type { FastifyRequest } from 'fastify';
-import { eq } from 'drizzle-orm';
+import { and, asc, eq, gt, type SQL } from 'drizzle-orm';
 import { createHmac } from 'node:crypto';
 import { auditLog, platformAuditLog } from '../db/schema.js';
 import type { TxClient } from '../middleware/tenant.js';
 import { dbSuper } from '../db/client.js';
-import { env } from '../env.js';
+import { deriveKey } from './keys.js';
 
 // L232: ip/userAgent arrivano da header arbitrari del client. Vengono salvati
 // in audit_log e poi resi nel viewer/log → newline o caratteri di controllo
@@ -34,11 +34,14 @@ function canonical(value: unknown): string {
   return '{' + keys.map((k) => JSON.stringify(k) + ':' + canonical(obj[k])).join(',') + '}';
 }
 
-// HMAC-SHA256 con GESTIMUS_SECRET_KEY (NON nel DB): un insider con accesso al
-// solo database non può ricalcolare la firma di una riga manomessa. Firma il
-// CONTENUTO (non createdAt, che è DB-side).
+// HMAC-SHA256 con sottochiave dedicata derivata da GESTIMUS_SECRET_KEY (NON nel
+// DB): un insider con accesso al solo database non può ricalcolare la firma di
+// una riga manomessa. Firma il CONTENUTO (non createdAt, che è DB-side).
+// N: chiave domain-separated 'gestimus:audit' — un leak della chiave AES
+// SMTP/backup non permette di forgiare firme audit (e viceversa).
+const AUDIT_HMAC_KEY = deriveKey('gestimus:audit');
 function hmac(values: unknown[]): string {
-  return createHmac('sha256', env.GESTIMUS_SECRET_KEY).update(canonical(values)).digest('hex');
+  return createHmac('sha256', AUDIT_HMAC_KEY).update(canonical(values)).digest('hex');
 }
 
 type AuditLogRow = {
@@ -143,18 +146,32 @@ export type AuditIntegrityReport = {
  * senza firma (legacy, pre-feature). Se `tenantId` è omesso verifica tutto.
  */
 export async function verifyAuditIntegrity(tenantId?: string): Promise<AuditIntegrityReport> {
-  const rows = tenantId
-    ? await dbSuper.select().from(auditLog).where(eq(auditLog.tenantId, tenantId))
-    : await dbSuper.select().from(auditLog);
   const report: AuditIntegrityReport = { checked: 0, unsigned: 0, tampered: [] };
-  for (const r of rows) {
-    if (!r.sig) {
-      report.unsigned += 1;
-      continue;
+  // Itera a chunk con keyset su `id` (uuidv7 monotonico): su tenant con audit_log
+  // molto grande non carichiamo l'intera tabella in memoria.
+  const CHUNK = 1000;
+  let cursor: string | null = null;
+  for (;;) {
+    const tenantFilter: SQL | undefined = tenantId ? eq(auditLog.tenantId, tenantId) : undefined;
+    const cursorFilter: SQL | undefined = cursor ? gt(auditLog.id, cursor) : undefined;
+    const rows = await dbSuper
+      .select()
+      .from(auditLog)
+      .where(and(tenantFilter, cursorFilter))
+      .orderBy(asc(auditLog.id))
+      .limit(CHUNK);
+    if (rows.length === 0) break;
+    for (const r of rows) {
+      if (!r.sig) {
+        report.unsigned += 1;
+        continue;
+      }
+      report.checked += 1;
+      const expected = computeAuditLogSig(r as AuditLogRow);
+      if (expected !== r.sig) report.tampered.push({ id: r.id, action: r.action });
     }
-    report.checked += 1;
-    const expected = computeAuditLogSig(r as AuditLogRow);
-    if (expected !== r.sig) report.tampered.push({ id: r.id, action: r.action });
+    cursor = rows[rows.length - 1]!.id;
+    if (rows.length < CHUNK) break;
   }
   return report;
 }

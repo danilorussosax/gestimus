@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { parsePagination } from '../lib/pagination.js';
 import { accounts, commissari } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
+import type { TxClient } from '../middleware/tenant.js';
 import { writeAudit } from '../services/audit.js';
 import { hashPassword } from '../services/password.js';
 import { invalidateAllSessionsForAccount } from '../services/session.js';
@@ -14,8 +15,7 @@ const uuid = z.string().uuid();
 // L16: conta gli admin attivi del tenant DIVERSI da `excludeId`. Serve a
 // impedire la rimozione/disattivazione/demozione dell'ultimo admin (lockout
 // del tenant). La query gira sotto RLS quindi è già ristretta al tenant.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function otherActiveAdminsCount(tx: any, excludeId: string): Promise<number> {
+async function otherActiveAdminsCount(tx: TxClient, excludeId: string): Promise<number> {
   const rows = await tx
     .select({ n: count() })
     .from(accounts)

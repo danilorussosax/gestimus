@@ -1,19 +1,15 @@
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
-import { env } from '../env.js';
+import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
+import { deriveKey } from './keys.js';
 
 const ALGO = 'aes-256-gcm';
 
-// N130: unica derivazione della chiave AES da GESTIMUS_SECRET_KEY, condivisa da
-// crypto-smtp e backup (importata da backup.ts). Avere due copie rischiava la
-// divergenza → backup illeggibili o SMTP indecifrabili.
-export function keyBuffer(): Buffer {
-  // GESTIMUS_SECRET_KEY è atteso come 32-byte hex string (64 char).
-  // Se più lungo o non hex valido, deriviamo via SHA-256 della stringa.
-  const hex = env.GESTIMUS_SECRET_KEY;
-  if (/^[0-9a-fA-F]{64}$/.test(hex)) {
-    return Buffer.from(hex, 'hex');
-  }
-  return createHash('sha256').update(env.GESTIMUS_SECRET_KEY).digest();
+// N130 / separazione di dominio: chiave AES-256 per i credenziali SMTP derivata
+// via HKDF da GESTIMUS_SECRET_KEY con label dedicata 'gestimus:smtp'. Prima era
+// la stessa chiave del backup (keyBuffer condiviso); ora sono DISTINTE
+// ('gestimus:smtp' vs 'gestimus:backup') → un leak del cifrato SMTP non aiuta a
+// decifrare i backup, e viceversa. 32 byte = AES-256.
+export function smtpKey(): Buffer {
+  return deriveKey('gestimus:smtp', 32);
 }
 
 export type SmtpConfigPlain = {
@@ -33,7 +29,7 @@ export type SmtpConfigEncrypted = {
 };
 
 export function encryptSmtp(config: SmtpConfigPlain): SmtpConfigEncrypted {
-  const key = keyBuffer();
+  const key = smtpKey();
   const iv = randomBytes(12); // 96-bit IV raccomandato per GCM
   const cipher = createCipheriv(ALGO, key, iv);
   const json = Buffer.from(JSON.stringify(config), 'utf8');
@@ -52,7 +48,7 @@ export function decryptSmtp(encrypted: SmtpConfigEncrypted | unknown): SmtpConfi
   if (!e || e.v !== 1) {
     throw new Error('formato cifrato SMTP non valido');
   }
-  const key = keyBuffer();
+  const key = smtpKey();
   const iv = Buffer.from(e.iv, 'base64');
   const tag = Buffer.from(e.tag, 'base64');
   const data = Buffer.from(e.data, 'base64');

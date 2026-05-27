@@ -1,8 +1,9 @@
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { candidati, candidatiFase, commissioni, commissioniCommissari, fasi } from '../db/schema.js';
+import { candidati, candidatiFase, commissioniCommissari, fasi } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
+import type { TxClient } from '../middleware/tenant.js';
 import { writeAudit } from '../services/audit.js';
 import { parsePagination } from '../lib/pagination.js';
 import { replyValidationError } from '../lib/validation.js';
@@ -16,8 +17,7 @@ import { replyValidationError } from '../lib/validation.js';
 // Esegue tutte le SELECT nella stessa transazione del caller con SELECT … FOR
 // UPDATE sulla riga candidatiFase per evitare TOCTOU (cambio assegnazione
 // commissione tra check e write).
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function assertCanEditCandidatoFase(tx: any, req: FastifyRequest, reply: FastifyReply, cfId: string): Promise<boolean> {
+async function assertCanEditCandidatoFase(tx: TxClient, req: FastifyRequest, reply: FastifyReply, cfId: string): Promise<boolean> {
   const role = req.account?.role;
   if (role === 'admin' || role === 'superadmin') return true;
   if (role !== 'commissario') {
@@ -68,7 +68,6 @@ async function assertCanEditCandidatoFase(tx: any, req: FastifyRequest, reply: F
     reply.code(403).send({ error: 'solo i membri della commissione assegnata possono modificare questo candidato' });
     return false;
   }
-  void commissioni;
   return true;
 }
 

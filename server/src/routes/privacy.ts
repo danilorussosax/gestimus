@@ -12,6 +12,7 @@ import {
 } from '../db/schema.js';
 import { deleteFile } from '../services/storage.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
+import type { TxClient } from '../middleware/tenant.js';
 import { writeAudit, computeAuditLogSig } from '../services/audit.js';
 import { dbSuper } from '../db/client.js';
 import { replyValidationError } from '../lib/validation.js';
@@ -190,7 +191,7 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
 
     // GDPR: l'erase di un'iscrizione deve cancellare anche i file allegati
     // (documenti sensibili) dal disco + le righe. Best-effort sul filesystem.
-    const purgeAllegati = async (tx: any, iscrizioneIds: string[]) => {
+    const purgeAllegati = async (tx: TxClient, iscrizioneIds: string[]) => {
       if (iscrizioneIds.length === 0) return;
       const rows = await tx
         .select({ id: iscrizioniAllegati.id, path: iscrizioniAllegati.path })

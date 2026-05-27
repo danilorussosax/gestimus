@@ -5,6 +5,7 @@ import { parsePagination } from '../lib/pagination.js';
 import { checkCandidatiLimit } from '../lib/plan-limits.js';
 import { candidati, categorie, sezioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
+import type { TxClient } from '../middleware/tenant.js';
 import { writeAudit } from '../services/audit.js';
 import { replyValidationError } from '../lib/validation.js';
 
@@ -12,24 +13,26 @@ import { replyValidationError } from '../lib/validation.js';
 // candidato (e che la categoria appartenga alla sezione). Senza FK al DB
 // queste relazioni potrebbero andare in incoerenza; rifiutiamo qui.
 // Ritorna { ok: true } oppure { ok: false, error: '...' }.
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function validateScope(tx: any, concorsoId: string, sezioneId: string | null | undefined, categoriaId: string | null | undefined): Promise<{ ok: true } | { ok: false; error: string }> {
+async function validateScope(tx: TxClient, concorsoId: string, sezioneId: string | null | undefined, categoriaId: string | null | undefined): Promise<{ ok: true } | { ok: false; error: string }> {
   if (sezioneId) {
     const sez = await tx.select({ concorsoId: sezioni.concorsoId }).from(sezioni).where(eq(sezioni.id, sezioneId)).limit(1);
-    if (sez.length === 0) return { ok: false, error: 'sezione non trovata' };
-    if (sez[0].concorsoId !== concorsoId) return { ok: false, error: 'la sezione non appartiene al concorso del candidato' };
+    const sezRow = sez[0];
+    if (!sezRow) return { ok: false, error: 'sezione non trovata' };
+    if (sezRow.concorsoId !== concorsoId) return { ok: false, error: 'la sezione non appartiene al concorso del candidato' };
   }
   if (categoriaId) {
     const cat = await tx.select({ sezioneId: categorie.sezioneId }).from(categorie).where(eq(categorie.id, categoriaId)).limit(1);
-    if (cat.length === 0) return { ok: false, error: 'categoria non trovata' };
-    if (sezioneId && cat[0].sezioneId !== sezioneId) {
+    const catRow = cat[0];
+    if (!catRow) return { ok: false, error: 'categoria non trovata' };
+    if (sezioneId && catRow.sezioneId !== sezioneId) {
       return { ok: false, error: 'la categoria non appartiene alla sezione scelta' };
     }
     // Caso PATCH solo-categoria senza nuova sezione: verifica che la sezione
     // della categoria appartenga al concorso del candidato.
     if (!sezioneId) {
-      const catSez = await tx.select({ concorsoId: sezioni.concorsoId }).from(sezioni).where(eq(sezioni.id, cat[0].sezioneId)).limit(1);
-      if (catSez.length === 0 || catSez[0].concorsoId !== concorsoId) {
+      const catSez = await tx.select({ concorsoId: sezioni.concorsoId }).from(sezioni).where(eq(sezioni.id, catRow.sezioneId)).limit(1);
+      const catSezRow = catSez[0];
+      if (!catSezRow || catSezRow.concorsoId !== concorsoId) {
         return { ok: false, error: 'la categoria non appartiene al concorso del candidato' };
       }
     }

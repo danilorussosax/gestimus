@@ -4,7 +4,10 @@ import { DATABASE_URL_DIRECT } from '../db/client.js';
 type Listener = (payload: unknown) => void;
 
 const INITIAL_RECONNECT_MS = 1000;
-const MAX_RECONNECT_MS = 30_000;
+// Cap basso: durante una gara live il realtime non deve restare giù a lungo.
+// Le notifiche emesse durante il gap sono comunque perse (LISTEN/NOTIFY è
+// fire-and-forget), quindi conviene riconnettere in fretta (≤5s).
+const MAX_RECONNECT_MS = 5_000;
 
 let client: pg.Client | null = null;
 const subscribers = new Map<string, Set<Listener>>();
