@@ -23,7 +23,7 @@ import { runTenantCleanup } from '../services/cleanup.js';
 import { encryptSmtp, isEncryptedSmtp } from '../services/crypto-smtp.js';
 import { invalidateTransporter } from '../services/email.js';
 import { getSystemHistory, SAMPLE_INTERVAL_MS } from '../services/system-metrics.js';
-import { readdir, stat as fsStat } from 'node:fs/promises';
+import { readdir, rm, stat as fsStat } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { env } from '../env.js';
 import { MAX_LIMIT } from '../lib/pagination.js';
@@ -551,6 +551,11 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
       nome: current.nome,
     });
     await dbSuper.delete(tenants).where(eq(tenants.id, id));
+    // #10: rimuovi i file caricati del tenant (uploads/<slug>/) dopo il CASCADE
+    // del DB — altrimenti la directory resta orfana sul disco. Best-effort.
+    await rm(resolve(env.UPLOADS_DIR, current.slug), { recursive: true, force: true }).catch((err) => {
+      req.log.warn({ err, slug: current.slug }, 'rm uploads dir tenant (hard_delete) fallito');
+    });
     return reply.code(204).send();
   });
 

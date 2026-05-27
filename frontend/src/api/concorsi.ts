@@ -51,6 +51,7 @@ function normalize(raw: ConcorsoRaw): Concorso {
     iscrizioniChiusura: raw.iscrizioniScadenza,
     logoUrl: raw.logo ?? null,
     defaultTiebreakStrategy: raw.defaultTiebreakStrategy ?? null,
+    updatedAt: raw.updatedAt ?? null,
   };
 }
 
@@ -69,7 +70,9 @@ export interface CreateConcorsoBody {
   defaultTiebreakStrategy?: { key: string; enabled: boolean }[];
 }
 
-export type UpdateConcorsoBody = Partial<CreateConcorsoBody>;
+// #4: expectedUpdatedAt opt-in per il controllo di concorrenza ottimistico.
+// Il server risponde 409 STALE_VERSION se la riga è cambiata dopo la lettura.
+export type UpdateConcorsoBody = Partial<CreateConcorsoBody> & { expectedUpdatedAt?: string };
 
 // ---------------------------------------------------------------------------
 // Plain async API functions — importable by non-hook code

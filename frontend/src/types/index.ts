@@ -57,6 +57,8 @@ export interface Concorso {
   iscrizioniChiusura: string | null;
   logoUrl: string | null;
   defaultTiebreakStrategy?: { key: string; enabled: boolean }[] | null;
+  /** #4: versione per il controllo ottimistico (rimandata come expectedUpdatedAt in PATCH). */
+  updatedAt?: string | null;
 }
 
 export type FaseStato = 'PIANIFICATA' | 'IN_CORSO' | 'CONCLUSA';

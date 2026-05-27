@@ -1,10 +1,11 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { dbSuper } from '../db/client.js';
 import { tenants } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
+import { expectedVersionField, STALE_VERSION_BODY } from '../lib/optimistic.js';
 import { replyValidationError } from '../lib/validation.js';
 
 // M167: "" (campo svuotato nel form) → undefined, così non finisce come stringa
@@ -50,6 +51,8 @@ export const enteRoutes: FastifyPluginAsync = async (app) => {
         piano: tenants.piano,
         enteSettings: tenants.enteSettings,
         brandingPublic: tenants.brandingPublic,
+        // #4: esposto per il controllo ottimistico delle PATCH /ente[/branding].
+        updatedAt: tenants.updatedAt,
       })
       .from(tenants)
       .where(eq(tenants.id, req.tenant!.id))
@@ -64,17 +67,25 @@ export const enteRoutes: FastifyPluginAsync = async (app) => {
   app.patch('/', { preHandler: [requireAuth, requireRole('admin')] }, async (req, reply) => {
     const parsed = enteBody.safeParse(req.body);
     if (!parsed.success) return replyValidationError(reply, req, parsed.error);
+    // #4: campo versione opt-in (enteBody scarta le chiavi sconosciute).
+    const { expectedUpdatedAt } = z.object(expectedVersionField).parse(req.body ?? {});
     // Merge JSONB lato server con `||`: atomico vs read-merge-write applicativo.
     // Due PATCH concorrenti producono il merge sequenziale corretto (last-write
     // wins per chiave, mai dropout cieco di campi).
     const patch = JSON.stringify(parsed.data);
-    await dbSuper
+    // #4: se richiesto, UPDATE condizionale su updated_at → 0 righe = versione
+    // stale (la riga tenant esiste sempre). Atomico, niente read-then-write.
+    const where = expectedUpdatedAt !== undefined
+      ? and(eq(tenants.id, req.tenant!.id), eq(tenants.updatedAt, new Date(expectedUpdatedAt)))
+      : eq(tenants.id, req.tenant!.id);
+    const res = await dbSuper
       .update(tenants)
       .set({
         enteSettings: sql`COALESCE(${tenants.enteSettings}, '{}'::jsonb) || ${patch}::jsonb`,
         updatedAt: new Date(),
       })
-      .where(eq(tenants.id, req.tenant!.id));
+      .where(where);
+    if (expectedUpdatedAt !== undefined && (res.rowCount ?? 0) === 0) return reply.code(409).send(STALE_VERSION_BODY);
     await req.dbTx(async (tx) => {
       await writeAudit(tx, req, 'ente.update', { targetType: 'tenant', targetId: req.tenant!.id });
     });
@@ -104,14 +115,19 @@ export const enteRoutes: FastifyPluginAsync = async (app) => {
   app.patch('/branding', { preHandler: [requireAuth, requireRole('admin')] }, async (req, reply) => {
     const parsed = brandingBody.safeParse(req.body);
     if (!parsed.success) return replyValidationError(reply, req, parsed.error);
+    const { expectedUpdatedAt } = z.object(expectedVersionField).parse(req.body ?? {});
     const patch = JSON.stringify(parsed.data);
-    await dbSuper
+    const where = expectedUpdatedAt !== undefined
+      ? and(eq(tenants.id, req.tenant!.id), eq(tenants.updatedAt, new Date(expectedUpdatedAt)))
+      : eq(tenants.id, req.tenant!.id);
+    const res = await dbSuper
       .update(tenants)
       .set({
         brandingPublic: sql`COALESCE(${tenants.brandingPublic}, '{}'::jsonb) || ${patch}::jsonb`,
         updatedAt: new Date(),
       })
-      .where(eq(tenants.id, req.tenant!.id));
+      .where(where);
+    if (expectedUpdatedAt !== undefined && (res.rowCount ?? 0) === 0) return reply.code(409).send(STALE_VERSION_BODY);
     await req.dbTx(async (tx) => {
       await writeAudit(tx, req, 'branding.update', {
         targetType: 'tenant',

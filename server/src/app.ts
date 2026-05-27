@@ -29,6 +29,7 @@ import { criteriRoutes } from './routes/criteri.js';
 import { candidatiFaseRoutes } from './routes/candidati-fase.js';
 import { valutazioniRoutes } from './routes/valutazioni.js';
 import { privacyRoutes } from './routes/privacy.js';
+import { meRoutes } from './routes/me.js';
 import { realtimeRoutes } from './routes/realtime.js';
 import { uploadRoutes } from './routes/upload.js';
 import { smtpRoutes } from './routes/smtp.js';
@@ -286,6 +287,7 @@ export async function createApp(): Promise<FastifyInstance> {
   await app.register(candidatiFaseRoutes, { prefix: '/api/candidati-fase' });
   await app.register(valutazioniRoutes, { prefix: '/api/valutazioni' });
   await app.register(privacyRoutes, { prefix: '/api/privacy' });
+  await app.register(meRoutes, { prefix: '/api/me' });
 
   // Fase 4: realtime + upload + smtp
   await app.register(realtimeRoutes, { prefix: '/api/realtime' });

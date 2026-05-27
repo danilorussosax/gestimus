@@ -723,6 +723,18 @@ export const iscrizioniAdminRoutes: FastifyPluginAsync = async (app) => {
         if (isc.stato === 'APPROVATA' && isc.candidatoId) {
           return { ok: true, alreadyApproved: true, candidatoId: isc.candidatoId };
         }
+        // #6: l'approvazione CREA un candidato → ammessa solo da uno stato
+        // legittimo pre-approvazione. Senza questo guard una BOZZA (mai inviata),
+        // una RIFIUTATA (già respinta) o una APPROVATA senza candidatoId potevano
+        // diventare candidato da dati non verificati/respinti. Stati validi:
+        // INVIATA (admin può approvare anche senza verifica email, è anti-spam) e
+        // EMAIL_VERIFICATA.
+        if (isc.stato !== 'INVIATA' && isc.stato !== 'EMAIL_VERIFICATA') {
+          return reply.code(409).send({
+            error: `iscrizione in stato ${isc.stato}: approvabile solo da INVIATA o EMAIL_VERIFICATA`,
+            code: 'INVALID_STATE',
+          });
+        }
 
         // #5 TOCTOU + N112: il lock advisory per-concorso DEVE precedere il check
         // del limite di piano. Altrimenti due approve (o un approve + un create

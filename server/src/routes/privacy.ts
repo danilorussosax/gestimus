@@ -396,6 +396,8 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
           }
           const ip = isOwnAction ? null : r.ip;
           const userAgent = isOwnAction ? null : r.userAgent;
+          // #8: ri-firma includendo createdAt (invariato) → la riga scrubata
+          // resta protetta v2 sul timestamp originale.
           const sig = computeAuditLogSig({
             tenantId: r.tenantId,
             actorAccountId: r.actorAccountId,
@@ -405,7 +407,7 @@ export const privacyRoutes: FastifyPluginAsync = async (app) => {
             payload,
             ip,
             userAgent,
-          });
+          }, r.createdAt);
           return { id: r.id, payload, ip, userAgent, sig };
         });
         if (updates.length > 0) {

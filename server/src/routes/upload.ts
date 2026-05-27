@@ -81,39 +81,55 @@ export const uploadRoutes: FastifyPluginAsync = async (app) => {
     // N49: il file è già su disco. Se l'update DB fallisce (risorsa non
     // trovata, RLS, eccezione), va rimosso per non lasciare un orfano che
     // consuma storage. Cleanup best-effort su entrambi i percorsi di errore.
+    // #10: cattura l'URL del file PRECEDENTE per cancellarlo dopo il commit
+    // (re-upload). Senza, il vecchio file resta orfano sul disco: saveFile genera
+    // sempre un nome random nuovo nella stessa dir → i file si accumulano.
+    // Holder (non `let`): la CFA esterna restringerebbe un `let` assegnato solo
+    // nella callback al tipo dell'inizializzatore; una proprietà d'oggetto viene
+    // invece letta al suo tipo dichiarato.
+    const prev: { url: string | null } = { url: null };
     try {
-      return await req.dbTx(async (tx) => {
+      const sent = await req.dbTx(async (tx) => {
+        // Leggi l'URL corrente PRIMA dell'update (RETURNING su UPDATE darebbe il
+        // valore NUOVO), poi sovrascrivi con il nuovo file.
         let updated;
         switch (resource) {
           case 'concorso': {
+            const sel = await tx.select({ url: concorsi.logo }).from(concorsi).where(eq(concorsi.id, id)).limit(1);
+            prev.url = sel[0]?.url ?? null;
             const rows = await tx
               .update(concorsi)
               .set({ logo: stored.publicUrl, updatedAt: new Date() })
               .where(eq(concorsi.id, id))
-              .returning();
+              .returning({ id: concorsi.id });
             updated = rows[0];
             break;
           }
           case 'commissario': {
+            const sel = await tx.select({ url: commissari.foto }).from(commissari).where(eq(commissari.id, id)).limit(1);
+            prev.url = sel[0]?.url ?? null;
             const rows = await tx
               .update(commissari)
               .set({ foto: stored.publicUrl, updatedAt: new Date() })
               .where(eq(commissari.id, id))
-              .returning();
+              .returning({ id: commissari.id });
             updated = rows[0];
             break;
           }
           case 'candidato': {
+            const sel = await tx.select({ url: candidati.foto }).from(candidati).where(eq(candidati.id, id)).limit(1);
+            prev.url = sel[0]?.url ?? null;
             const rows = await tx
               .update(candidati)
               .set({ foto: stored.publicUrl, updatedAt: new Date() })
               .where(eq(candidati.id, id))
-              .returning();
+              .returning({ id: candidati.id });
             updated = rows[0];
             break;
           }
         }
         if (!updated) {
+          prev.url = null; // risorsa inesistente: nessun vecchio file da rimuovere
           await deleteFile(stored.path).catch(() => {});
           return reply.notFound();
         }
@@ -131,6 +147,17 @@ export const uploadRoutes: FastifyPluginAsync = async (app) => {
           mimeType: stored.mimeType,
         });
       });
+      // #10: dopo il commit, elimina il file precedente se era un upload gestito
+      // (path sotto /uploads/) e diverso dal nuovo. Best-effort.
+      const previousUrl = prev.url;
+      if (previousUrl && previousUrl !== stored.publicUrl && previousUrl.startsWith('/uploads/')) {
+        const fn = previousUrl.split('/').pop();
+        if (fn) {
+          const dir = tenantUploadDir(req.tenant!.slug, resource as ResourceKind, id);
+          await deleteFile(join(dir, fn)).catch(() => {});
+        }
+      }
+      return sent;
     } catch (err) {
       await deleteFile(stored.path).catch(() => {});
       throw err;
