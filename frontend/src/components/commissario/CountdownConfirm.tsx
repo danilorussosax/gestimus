@@ -15,7 +15,6 @@ import type { Candidato } from '@/types';
 export interface CountdownConfirmProps {
   candidato: Candidato | null | undefined;
   anonimo: boolean;
-  ammesso: boolean;
   totale: number;
   scala: number;
   fmtVoto: (v: number, scala: number) => string;
@@ -26,7 +25,6 @@ export interface CountdownConfirmProps {
 export function CountdownConfirm({
   candidato,
   anonimo,
-  ammesso,
   totale,
   scala,
   fmtVoto,
@@ -71,12 +69,11 @@ export function CountdownConfirm({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const headerCls = ammesso
-    ? 'bg-gradient-to-br from-emerald-500 to-emerald-700'
-    : 'bg-gradient-to-br from-rose-500 to-rose-700';
-  const numCls = ammesso ? 'text-emerald-600' : 'text-rose-600';
-  const barCls = ammesso ? 'bg-emerald-500' : 'bg-rose-500';
-  const verdictText = ammesso ? t('com.confirm.approved') : t('com.confirm.rejected');
+  // Nessun verdetto di merito qui: mostrare "ammesso/respinto" durante il voto
+  // condizionerebbe il commissario. Colori neutri, solo il punteggio inserito.
+  const headerCls = 'bg-gradient-to-br from-brand-500 to-brand-700';
+  const numCls = 'text-brand-600';
+  const barCls = 'bg-brand-500';
   const numLabel = `#${String(candidato?.numeroCandidato ?? '').padStart(3, '0')}`;
   const nameLabel = anonimo ? '' : ` ${displayName(candidato)}`;
 
@@ -92,7 +89,7 @@ export function CountdownConfirm({
             {numLabel}{nameLabel}
           </h3>
           <div className="mt-3 inline-flex items-center gap-2 bg-white/20 rounded-full px-3 py-1 text-xs font-bold">
-            {ammesso ? '✓' : '✕'} {verdictText} · {fmtVoto(totale, scala)}/{scala}
+            {fmtVoto(totale, scala)}/{scala}
           </div>
         </div>
         <div className="p-6 text-center">

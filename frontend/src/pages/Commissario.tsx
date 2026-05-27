@@ -48,7 +48,6 @@ import {
   ageFromDate,
   formatTime,
   resolveSyncCurrentCf,
-  isAmmesso,
   type DraftState,
 } from './commissario-utils';
 
@@ -818,10 +817,9 @@ function ScoringSheet({
   }
 
   const totale = scoring.pesato(draft.voti, fase);
-  const norm = scala ? totale / scala : 0;
-  const totaleCls = norm >= 0.8 ? 'text-emerald-600' : norm >= 0.65 ? 'text-slate-900' : 'text-rose-600';
-
-  const ammesso = isAmmesso(norm, fase.ordine);
+  // Colore neutro sul totale: niente verde/rosso "merito" che condizionerebbe il
+  // commissario. Nessun verdetto di ammissione mostrato durante il voto.
+  const totaleCls = 'text-slate-900';
 
   async function doSave() {
     setSaving(true);
@@ -833,8 +831,7 @@ function ScoringSheet({
         voti: draft.voti,
         note: draft.note || undefined,
       });
-      const verdict = ammesso ? t('com.confirm.approved') : t('com.confirm.rejected');
-      toast.success(t('com.save.success', { verdict }));
+      toast.success(t('com.save.success'));
       onSaved();
     } catch (err) {
       toast.error(t('com.save.error', { msg: err instanceof Error ? err.message : '?' }));
@@ -864,7 +861,6 @@ function ScoringSheet({
         <CountdownConfirm
           candidato={candidato ?? null}
           anonimo={concorso.anonimo}
-          ammesso={ammesso}
           totale={totale}
           scala={scala}
           fmtVoto={scoring.fmtVoto}
@@ -1104,9 +1100,6 @@ function ScoringSheet({
                   {t('com.save_next')}
                 </button>
               </div>
-            </div>
-            <div className="mt-3 text-xs text-slate-500">
-              {t('com.auto_promote_help')}
             </div>
           </div>
         </div>

@@ -128,11 +128,3 @@ export function resolveSyncCurrentCf<T extends { id: string; candidatoId: string
 
   return { currentCf, waitingFor };
 }
-
-// ── isAmmesso — threshold logic (ordine 1 → 65%, others → 70%) ───────────────
-//
-// norm: normalised score (0-1), ordine: fase ordine (1-based integer).
-
-export function isAmmesso(norm: number, ordine: number): boolean {
-  return ordine === 1 ? norm >= 0.65 : norm >= 0.70;
-}
