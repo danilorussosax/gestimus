@@ -158,6 +158,8 @@ SELECT apply_tenant_rls('iscrizioni_allegati');
 SELECT apply_tenant_rls('sale');
 SELECT apply_tenant_rls('eventi_calendario');
 SELECT apply_tenant_rls('calendario_pubblicazioni');
+-- #4 (architect): outbox eventi — scritto in req.dbTx (gestimus_app) → RLS per tenant.
+SELECT apply_tenant_rls('events');
 
 -- N133: guardia anti-regressione. Le default privileges (sopra) concedono CRUD
 -- a gestimus_app su OGNI tabella futura in `public`. Se una nuova tabella con

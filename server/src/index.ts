@@ -7,6 +7,8 @@ import { stopRealtimeHub } from './realtime/hub.js';
 import { runTenantCleanup, cleanupStaleBozze } from './services/cleanup.js';
 import { cleanupExpiredSessions } from './services/session.js';
 import { startSystemMetricsSampler } from './services/system-metrics.js';
+import { processEvents } from './services/events.js';
+import { registerDomainEventHandlers } from './services/event-handlers.js';
 
 // Error tracking: init prima di tutto (no-op se SENTRY_DSN assente).
 if (initSentry()) {
@@ -19,6 +21,12 @@ const app = await createApp();
 let cleanupTask: ReturnType<typeof cron.schedule> | null = null;
 let cleanupRunning = false;
 
+// #4: processor dell'outbox eventi. Intervallo breve (consegna email tempestiva)
+// con guard di re-entrancy; unref() così non blocca lo shutdown.
+const EVENTS_INTERVAL_MS = 15_000;
+let eventsTimer: ReturnType<typeof setInterval> | null = null;
+let eventsRunning = false;
+
 async function start() {
   try {
     await app.listen({ port: env.PORT, host: env.HOST });
@@ -26,6 +34,22 @@ async function start() {
 
     // Campionamento risorse processo (RAM/CPU) per le card 24h del super-admin.
     startSystemMetricsSampler();
+
+    // #4: handler dei domain events + processor dell'outbox (retry email, ecc.).
+    registerDomainEventHandlers();
+    eventsTimer = setInterval(() => {
+      if (eventsRunning) return; // tick saltato se il precedente è ancora in corso
+      eventsRunning = true;
+      void processEvents()
+        .then((r) => {
+          if (r.processed > 0 || r.failed > 0) {
+            app.log.info({ ...r }, 'events: batch processato');
+          }
+        })
+        .catch((err) => app.log.error({ err }, 'events: errore nel processor'))
+        .finally(() => { eventsRunning = false; });
+    }, EVENTS_INTERVAL_MS);
+    eventsTimer.unref();
 
     if (env.CLEANUP_ENABLED) {
       if (!cron.validate(env.CLEANUP_CRON_SCHEDULE)) {
@@ -99,6 +123,7 @@ async function shutdown(signal: string) {
   forceExit.unref();
   try {
     if (cleanupTask) cleanupTask.stop();
+    if (eventsTimer) clearInterval(eventsTimer);
     await app.close();
     await stopRealtimeHub();
     await shutdownPools();

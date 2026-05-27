@@ -898,3 +898,32 @@ export const calendarioPubblicazioni = pgTable(
     index('idx_calpub_sezione').on(t.sezioneId),
   ],
 );
+
+// #4 (architect) — Outbox dei domain events. I side-effect (es. invio email
+// verifica iscrizione) non sono più chiamati inline nella route: si pubblica un
+// evento nella STESSA transazione della scrittura di business (outbox
+// transazionale → niente evento orfano / niente write persa), e un processor in
+// background lo gestisce con retry. status: pending → done | failed (dopo
+// MAX_ATTEMPTS). RLS per tenant come le altre tabelle (apply_tenant_rls).
+export const events = pgTable(
+  'events',
+  {
+    id: uuid('id').primaryKey().default(sql`uuidv7()`),
+    tenantId: uuid('tenant_id')
+      .notNull()
+      .references(() => tenants.id, { onDelete: 'cascade' }),
+    type: text('type').notNull(),
+    payload: jsonb('payload').notNull().default({}),
+    status: text('status').notNull().default('pending'),
+    attempts: integer('attempts').notNull().default(0),
+    lastError: text('last_error'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    processedAt: timestamp('processed_at', { withTimezone: true }),
+  },
+  (t) => [
+    check('events_status_check', sql`${t.status} IN ('pending','processing','done','failed')`),
+    index('idx_events_tenant').on(t.tenantId),
+    // Coda di lavoro: i pending in ordine di creazione. Indice parziale piccolo.
+    index('idx_events_pending').on(t.createdAt).where(sql`${t.status} = 'pending'`),
+  ],
+);
