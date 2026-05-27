@@ -243,6 +243,9 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
       // Token capability per l'upload allegati: torna nella risposta 201 e
       // autorizza SOLO il caricamento di file su questa iscrizione.
       const uploadToken = generateToken();
+      // #6: il token di upload scade dopo 72h → un token leakato non dà accesso
+      // permanente. Verificata nell'endpoint di upload (now > expiry → 404).
+      const uploadTokenExpiresAt = new Date(Date.now() + 72 * 60 * 60 * 1000);
       const todayStr = todayISODate();
       const outcome = await req.dbTx(async (tx) => {
         const crows = await tx
@@ -345,6 +348,7 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
             noteLibere: data.noteLibere,
             emailVerificationToken: emailToken,
             uploadToken,
+            uploadTokenExpiresAt,
             ipAddress: req.ip,
             userAgent: req.headers['user-agent'] ?? null,
           })
@@ -417,11 +421,16 @@ export const iscrizioniPublicRoutes: FastifyPluginAsync = async (app) => {
       const { tipo } = z.object({ tipo: z.enum(['foto', 'documento', 'ricevuta', 'altro']) }).parse(req.query);
       return req.dbTx(async (tx) => {
         const isc = await tx
-          .select({ id: iscrizioni.id })
+          .select({ id: iscrizioni.id, uploadTokenExpiresAt: iscrizioni.uploadTokenExpiresAt })
           .from(iscrizioni)
           .where(eq(iscrizioni.uploadToken, uploadToken))
           .limit(1);
         if (isc.length === 0) return reply.notFound();
+        // #6: rifiuta token scaduto o senza scadenza registrata (now > expiry).
+        // 404 (non 401): non riveliamo l'esistenza dell'iscrizione a chi presenta
+        // un token non più valido — stesso comportamento del token inesistente.
+        const expiresAt = isc[0]!.uploadTokenExpiresAt;
+        if (!expiresAt || Date.now() > expiresAt.getTime()) return reply.notFound();
         const iscId = isc[0]!.id;
         const existing = await tx
           .select({ id: iscrizioniAllegati.id })
@@ -622,20 +631,22 @@ export const iscrizioniAdminRoutes: FastifyPluginAsync = async (app) => {
           return { ok: true, alreadyApproved: true, candidatoId: isc.candidatoId };
         }
 
-        // R15: approvare un'iscrizione CREA un candidato → deve rispettare il
-        // limite di piano per concorso, esattamente come il create diretto
-        // (candidati.ts). Senza questo, un tenant capped poteva sforare il tetto
-        // approvando iscrizioni pubbliche.
-        const limitErr = await checkCandidatiLimit(tx, req.tenant!.id, isc.concorsoId);
-        if (limitErr) return reply.code(403).send({ error: limitErr });
-
-        // N112: hashtextextended (64-bit) invece di hashtext (32-bit) per
-        // azzerare la probabilità di collisione del lock advisory tra concorsi
-        // diversi. DEVE restare identico a candidati.ts (stesso lock condiviso
-        // per serializzare numeroCandidato tra create diretto e approve).
+        // #5 TOCTOU + N112: il lock advisory per-concorso DEVE precedere il check
+        // del limite di piano. Altrimenti due approve (o un approve + un create
+        // diretto) leggono entrambi count<limit prima dell'INSERT e sforano il
+        // tetto. hashtextextended (64-bit) — DEVE restare identico a candidati.ts
+        // (stesso lock condiviso: serializza sia numeroCandidato sia il
+        // conteggio→insert tra create diretto e approve sul concorso).
         await tx.execute(
           sql`SELECT pg_advisory_xact_lock(hashtextextended(${isc.concorsoId}::text, 0))`,
         );
+
+        // R15: approvare un'iscrizione CREA un candidato → deve rispettare il
+        // limite di piano per concorso, esattamente come il create diretto
+        // (candidati.ts). Il check gira ORA sotto il lock → il conteggio non può
+        // essere superato da una create/approve concorrente.
+        const limitErr = await checkCandidatiLimit(tx, req.tenant!.id, isc.concorsoId);
+        if (limitErr) return reply.code(403).send({ error: limitErr });
 
         // Calcola numero candidato successivo per il concorso (sotto lock)
         const next = await tx

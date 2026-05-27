@@ -714,6 +714,10 @@ export const iscrizioni = pgTable(
     // Token capability per l'upload degli allegati (no-auth): consente di
     // caricare file SOLO su questa iscrizione, finestra limitata + cap + RL.
     uploadToken: text('upload_token'),
+    // #6: scadenza del token di upload (now()+72h alla creazione). Oltre questa
+    // l'endpoint di upload rifiuta (404). Senza scadenza un token leakato dava
+    // accesso permanente all'upload sull'iscrizione.
+    uploadTokenExpiresAt: timestamp('upload_token_expires_at', { withTimezone: true }),
     emailVerifiedAt: timestamp('email_verified_at', { withTimezone: true }),
     approvataAt: timestamp('approvata_at', { withTimezone: true }),
     candidatoId: uuid('candidato_id').references(() => candidati.id, { onDelete: 'set null' }),
