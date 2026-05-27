@@ -9,6 +9,15 @@ export const SESSION_TTL_DAYS = 30;
 const SESSION_TTL_MS = SESSION_TTL_DAYS * 24 * 60 * 60 * 1000;
 const REFRESH_THRESHOLD_MS = SESSION_TTL_MS / 2;
 
+// #4: cap di vita ASSOLUTO. Il refresh rolling (sotto) estende expiresAt a ogni
+// uso, quindi senza un tetto una sessione vivrebbe all'infinito. Fissiamo il
+// massimo a 60 giorni dalla CREAZIONE (sessions.createdAt): il rolling 30d
+// mantiene comodo l'uso quotidiano, ma dopo 60d dall'emissione si deve fare
+// re-login a prescindere. La sessione oltre il cap è trattata come scaduta
+// (cancellata + invalid), coerente con la gestione di expiresAt scaduto.
+export const ABSOLUTE_SESSION_MAX_DAYS = 60;
+const ABSOLUTE_SESSION_MAX_MS = ABSOLUTE_SESSION_MAX_DAYS * 24 * 60 * 60 * 1000;
+
 export type AccountRecord = typeof accounts.$inferSelect;
 export type SessionRecord = typeof sessions.$inferSelect;
 
@@ -72,8 +81,20 @@ export async function validateSessionToken(token: string): Promise<SessionValida
 
   const { session, account } = row[0]!;
 
-  // Scadenza
-  if (session.expiresAt.getTime() < Date.now()) {
+  const now = Date.now();
+
+  // #4: cap di vita assoluto. Anche se expiresAt è ancora futuro (per via dei
+  // refresh rolling), una sessione più vecchia di createdAt + cap è considerata
+  // scaduta e cancellata: forza il re-login dopo ABSOLUTE_SESSION_MAX_DAYS dalla
+  // creazione. Multi-device intatto: cancelliamo SOLO questa sessione.
+  const absoluteDeadline = session.createdAt.getTime() + ABSOLUTE_SESSION_MAX_MS;
+  if (now > absoluteDeadline) {
+    await dbSuper.delete(sessions).where(eq(sessions.id, sessionId));
+    return { account: null, session: null, refreshed: false };
+  }
+
+  // Scadenza (rolling)
+  if (session.expiresAt.getTime() < now) {
     await dbSuper.delete(sessions).where(eq(sessions.id, sessionId));
     return { account: null, session: null, refreshed: false };
   }
@@ -84,13 +105,20 @@ export async function validateSessionToken(token: string): Promise<SessionValida
     return { account: null, session: null, refreshed: false };
   }
 
-  // Refresh se entro la seconda metà della TTL
+  // Refresh se entro la seconda metà della TTL. #4: il nuovo expiresAt è
+  // clampato al cap assoluto (createdAt + ABSOLUTE_SESSION_MAX_MS) → il rolling
+  // non può mai spingere la sessione oltre il tetto.
   let refreshed = false;
-  if (Date.now() >= session.expiresAt.getTime() - REFRESH_THRESHOLD_MS) {
-    const newExpiresAt = new Date(Date.now() + SESSION_TTL_MS);
-    await dbSuper.update(sessions).set({ expiresAt: newExpiresAt }).where(eq(sessions.id, sessionId));
-    session.expiresAt = newExpiresAt;
-    refreshed = true;
+  if (now >= session.expiresAt.getTime() - REFRESH_THRESHOLD_MS) {
+    const rollingTarget = now + SESSION_TTL_MS;
+    const clamped = Math.min(rollingTarget, absoluteDeadline);
+    const newExpiresAt = new Date(clamped);
+    // Evita una UPDATE inutile se il clamp non sposta in avanti la scadenza.
+    if (newExpiresAt.getTime() > session.expiresAt.getTime()) {
+      await dbSuper.update(sessions).set({ expiresAt: newExpiresAt }).where(eq(sessions.id, sessionId));
+      session.expiresAt = newExpiresAt;
+      refreshed = true;
+    }
   }
 
   return { account, session, refreshed };

@@ -134,7 +134,11 @@ export async function registerTenantMiddleware(app: FastifyInstance): Promise<vo
         req.isSuperadmin = true;
       } else if (subdomain) {
         const found = await resolveTenantBySubdomain(subdomain);
-        if (found && found.stato === 'attivo') req.tenant = found;
+        if (found && found.stato === 'attivo') {
+          req.tenant = found;
+          // #9: arricchisci il logger così ogni log successivo porta il tenantId.
+          req.log = req.log.child({ tenantId: found.id });
+        }
       }
       return;
     }
@@ -164,6 +168,8 @@ export async function registerTenantMiddleware(app: FastifyInstance): Promise<vo
     }
 
     req.tenant = found;
+    // #9: arricchisci il logger così ogni log successivo porta il tenantId.
+    req.log = req.log.child({ tenantId: found.id });
   });
 
   // dbTx helper: apre transaction con SET LOCAL app.current_tenant

@@ -1,7 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { candidati, candidatiFase, commissioni, concorsi, fasi, fasiSezioni, sezioni } from '../db/schema.js';
+import { candidati, candidatiFase, commissioni, concorsi, criteri, fasi, fasiSezioni, sezioni, valutazioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import type { TxClient } from '../middleware/tenant.js';
 import { writeAudit } from '../services/audit.js';
@@ -348,12 +348,37 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
   app.delete('/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
     return req.dbTx(async (tx) => {
+      // #2: il DELETE cascada e distrugge candidati_fase + valutazioni (i voti) +
+      // criteri, senza recupero possibile. PRIMA del delete (che resta
+      // hard-delete) ne facciamo uno snapshot COMPLETO nel payload (jsonb)
+      // dell'audit log tamper-evident → i voti restano ricostruibili dall'audit.
+      const curRows = await tx.select().from(fasi).where(eq(fasi.id, id)).limit(1);
+      if (curRows.length === 0) return reply.notFound();
+      const fase = curRows[0]!;
+      const cfRows = await tx.select().from(candidatiFase).where(eq(candidatiFase.faseId, id));
+      const criteriRows = await tx.select().from(criteri).where(eq(criteri.faseId, id));
+      const cfIds = cfRows.map((r) => r.id);
+      const valRows = cfIds.length
+        ? await tx.select().from(valutazioni).where(inArray(valutazioni.candidatoFaseId, cfIds))
+        : [];
+      const valByCf = new Map<string, typeof valRows>();
+      for (const v of valRows) {
+        const arr = valByCf.get(v.candidatoFaseId) ?? [];
+        arr.push(v);
+        valByCf.set(v.candidatoFaseId, arr);
+      }
+      const snapshot = {
+        fase,
+        criteri: criteriRows,
+        candidatiFase: cfRows.map((cf) => ({ candidatoFase: cf, valutazioni: valByCf.get(cf.id) ?? [] })),
+      };
+
       const [deleted] = await tx.delete(fasi).where(eq(fasi.id, id)).returning();
       if (!deleted) return reply.notFound();
       await writeAudit(tx, req, 'fase.delete', {
         targetType: 'fase',
         targetId: id,
-        payload: { ordine: deleted.ordine, nome: deleted.nome },
+        payload: { ordine: deleted.ordine, nome: deleted.nome, snapshot },
       });
       return reply.code(204).send();
     });

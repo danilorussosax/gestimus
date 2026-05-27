@@ -1,9 +1,9 @@
 import type { FastifyPluginAsync } from 'fastify';
-import { eq, max, sql } from 'drizzle-orm';
+import { eq, inArray, max, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { parsePagination } from '../lib/pagination.js';
 import { checkCandidatiLimit } from '../lib/plan-limits.js';
-import { candidati, categorie, sezioni } from '../db/schema.js';
+import { candidati, candidatiFase, categorie, sezioni, valutazioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import type { TxClient } from '../middleware/tenant.js';
 import { writeAudit } from '../services/audit.js';
@@ -120,7 +120,15 @@ export const candidatiRoutes: FastifyPluginAsync = async (app) => {
     const parsed = createBody.safeParse(req.body);
     if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     return req.dbTx(async (tx) => {
-      // N57: enforce limite di piano sul numero di candidati per concorso.
+      // #5 TOCTOU: il lock advisory per-concorso DEVE precedere il check del
+      // limite di piano, altrimenti due create concorrenti contano entrambe
+      // count<limit e sforano il tetto. Lo acquisiamo INCONDIZIONATAMENTE (non
+      // più solo quando numeroCandidato è null) così count→insert è serializzato
+      // per concorso. È lo STESSO lock di iscrizioni.ts/approve
+      // (hashtextextended a 64-bit) → create diretto e approve si serializzano.
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${parsed.data.concorsoId}::text, 0))`);
+      // N57: enforce limite di piano sul numero di candidati per concorso (sotto
+      // il lock → il conteggio non può essere superato da una create concorrente).
       const limitErr = await checkCandidatiLimit(tx, req.tenant!.id, parsed.data.concorsoId);
       if (limitErr) return reply.code(403).send({ error: limitErr });
       const scope = await validateScope(tx, parsed.data.concorsoId, parsed.data.sezioneId, parsed.data.categoriaId);
@@ -133,18 +141,12 @@ export const candidatiRoutes: FastifyPluginAsync = async (app) => {
         const cat = await tx.select({ sezioneId: categorie.sezioneId }).from(categorie).where(eq(categorie.id, data.categoriaId)).limit(1);
         if (cat.length > 0) data.sezioneId = cat[0]!.sezioneId;
       }
-      // M6 + N24: numero candidato calcolato server-side se non fornito.
-      // Usa lo STESSO advisory lock di iscrizioni.ts/approve
-      // (pg_advisory_xact_lock(hashtext(concorsoId))) così create diretto e
-      // approve iscrizione si serializzano fra loro sullo stesso lock — prima
-      // usavano meccanismi indipendenti (FOR UPDATE vs advisory) che non si
-      // bloccavano a vicenda → stesso numeroCandidato. L'unique index resta
-      // come rete di sicurezza (23505).
+      // M6 + N24: numero candidato calcolato server-side se non fornito. Il lock
+      // advisory per-concorso è già stato acquisito sopra (#5) — lo STESSO lock di
+      // iscrizioni.ts/approve (hashtextextended 64-bit) serializza create diretto e
+      // approve sul concorso, evitando duplicati di numeroCandidato. L'unique index
+      // resta come rete di sicurezza (23505).
       if (data.numeroCandidato == null) {
-        // N112: hashtextextended (64-bit, no collisioni) — identico a
-        // iscrizioni.ts/approve: lo STESSO lock serializza create diretto e
-        // approve iscrizione sul concorso.
-        await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${data.concorsoId}::text, 0))`);
         const next = await tx
           .select({ m: max(candidati.numeroCandidato) })
           .from(candidati)
@@ -221,12 +223,36 @@ export const candidatiRoutes: FastifyPluginAsync = async (app) => {
   app.delete('/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
     return req.dbTx(async (tx) => {
+      // #2: il DELETE cascada e distrugge candidati_fase + valutazioni (i voti),
+      // senza recupero possibile. PRIMA del delete (che resta hard-delete) ne
+      // facciamo uno snapshot COMPLETO nel payload (jsonb) dell'audit log
+      // tamper-evident → i voti restano ricostruibili dall'audit immutabile.
+      const curRows = await tx.select().from(candidati).where(eq(candidati.id, id)).limit(1);
+      if (curRows.length === 0) return reply.notFound();
+      const candidato = curRows[0]!;
+      const cfRows = await tx.select().from(candidatiFase).where(eq(candidatiFase.candidatoId, id));
+      const cfIds = cfRows.map((r) => r.id);
+      const valRows = cfIds.length
+        ? await tx.select().from(valutazioni).where(inArray(valutazioni.candidatoFaseId, cfIds))
+        : [];
+      // Raggruppa le valutazioni per candidato_fase per uno snapshot strutturato.
+      const valByCf = new Map<string, typeof valRows>();
+      for (const v of valRows) {
+        const arr = valByCf.get(v.candidatoFaseId) ?? [];
+        arr.push(v);
+        valByCf.set(v.candidatoFaseId, arr);
+      }
+      const snapshot = {
+        candidato,
+        candidatiFase: cfRows.map((cf) => ({ candidatoFase: cf, valutazioni: valByCf.get(cf.id) ?? [] })),
+      };
+
       const [deleted] = await tx.delete(candidati).where(eq(candidati.id, id)).returning();
       if (!deleted) return reply.notFound();
       await writeAudit(tx, req, 'candidato.delete', {
         targetType: 'candidato',
         targetId: id,
-        payload: { numero: deleted.numeroCandidato, nome: deleted.nome },
+        payload: { numero: deleted.numeroCandidato, nome: deleted.nome, snapshot },
       });
       return reply.code(204).send();
     });
