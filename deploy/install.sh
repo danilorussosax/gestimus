@@ -320,6 +320,34 @@ server {
         proxy_read_timeout 3600s;
     }
 
+    # Auth (login / TOTP / logout): rate-limit zona auth_rl (10r/m, definita
+    # in conf.d/gestimus-rl.conf). Difesa in profondità: l'app limita già.
+    location /auth/ {
+        limit_req zone=auth_rl burst=10 nodelay;
+        proxy_pass http://127.0.0.1:${APP_PORT};
+        proxy_http_version 1.1;
+        # CRITICO: il tenant è risolto dall'Host header → va preservato.
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 30s;
+    }
+
+    # Submit iscrizione pubblica (POST /api/public/iscrizioni): rate-limit
+    # zona iscrizioni_rl (5r/m). Anti-spam edge oltre a quello applicativo.
+    location /api/public/iscrizioni {
+        limit_req zone=iscrizioni_rl burst=5 nodelay;
+        proxy_pass http://127.0.0.1:${APP_PORT};
+        proxy_http_version 1.1;
+        # CRITICO: il tenant è risolto dall'Host header → va preservato.
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 30s;
+    }
+
     location / {
         proxy_pass http://127.0.0.1:${APP_PORT};
         proxy_http_version 1.1;

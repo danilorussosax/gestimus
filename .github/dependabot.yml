@@ -15,9 +15,51 @@ updates:
     commit-message:
       prefix: 'ci'
 
-  # npm: poche dipendenze (playwright per i test), ma comunque tenute aggiornate
+  # npm (root): poche dipendenze (playwright per i test E2E), ma tenute aggiornate
   - package-ecosystem: npm
     directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Europe/Rome
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - npm
+    commit-message:
+      prefix: 'deps'
+    # Raggruppa minor/patch in un'unica PR per ridurre il rumore
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # npm (server): dipendenze dell'app backend Fastify (/server)
+  - package-ecosystem: npm
+    directory: /server
+    schedule:
+      interval: weekly
+      day: monday
+      time: '09:00'
+      timezone: Europe/Rome
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - npm
+    commit-message:
+      prefix: 'deps'
+    # Raggruppa minor/patch in un'unica PR per ridurre il rumore
+    groups:
+      minor-and-patch:
+        update-types:
+          - minor
+          - patch
+
+  # npm (frontend): dipendenze della SPA React (/frontend)
+  - package-ecosystem: npm
+    directory: /frontend
     schedule:
       interval: weekly
       day: monday

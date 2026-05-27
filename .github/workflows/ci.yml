@@ -49,6 +49,29 @@ jobs:
           shellcheck --severity=warning --exclude=SC1091,SC2086,SC2034 "${FILES[@]}" || exit 1
 
   # ---------------------------------------------------------------------------
+  # 2b) Audit vulnerabilità dipendenze (npm) per server/ e frontend/.
+  #     Legge il package-lock.json (niente install pesante: --ignore-scripts).
+  #     Soglia 'high' → falliscono solo high/critical; moderate/low non rompono
+  #     la CI. Job leggero e separato dal pesante server-tests.
+  # ---------------------------------------------------------------------------
+  dependency-audit:
+    name: Dependency audit (npm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - name: npm audit — server
+        working-directory: server
+        run: npm audit --audit-level=high
+
+      - name: npm audit — frontend
+        working-directory: frontend
+        run: npm audit --audit-level=high
+
+  # ---------------------------------------------------------------------------
   # 3) Server TypeScript: typecheck (Drizzle ORM + Fastify routes)
   # ---------------------------------------------------------------------------
   lint-server:
