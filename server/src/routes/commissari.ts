@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { uuid, emptyToNull } from '../lib/zod-helpers.js';
 import { parsePagination } from '../lib/pagination.js';
 import { checkCommissariLimit } from '../lib/plan-limits.js';
 import { commissari, concorsi } from '../db/schema.js';
@@ -8,11 +9,9 @@ import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { replyValidationError } from '../lib/validation.js';
 
-const uuid = z.string().uuid();
 // Helper: il form admin manda "" quando l'utente svuota un campo; gli stessi
 // validator strict (z.string().email(), z.string().date()) rifiutano "" → 400.
 // Trasformiamo "" in null così "campo svuotato" è esplicitamente un clear.
-const emptyToNull = <T>(v: T) => (v === '' ? null : v);
 const createBody = z.object({
   concorsoId: uuid,
   nome: z.string().min(1).max(255),

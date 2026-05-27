@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
+import { uuid } from '../lib/zod-helpers.js';
 import {
   categorie,
   commissari,
@@ -17,7 +18,6 @@ import { writeAudit } from '../services/audit.js';
 import { parsePagination } from '../lib/pagination.js';
 import { replyValidationError } from '../lib/validation.js';
 
-const uuid = z.string().uuid();
 const createBody = z.object({
   concorsoId: uuid,
   nome: z.string().min(1).max(255),

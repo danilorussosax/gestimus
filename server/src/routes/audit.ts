@@ -1,11 +1,11 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { and, desc, eq, gte, lt, sql } from 'drizzle-orm';
 import { z } from 'zod';
+import { uuid } from '../lib/zod-helpers.js';
 import { auditLog } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { replyValidationError } from '../lib/validation.js';
 
-const uuid = z.string().uuid();
 const querySchema = z.object({
   limit: z.coerce.number().int().min(1).max(1000).default(200),
   offset: z.coerce.number().int().nonnegative().default(0),

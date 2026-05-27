@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { uuid } from '../lib/zod-helpers.js';
 import { valutazioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
@@ -9,7 +10,6 @@ import { replyValidationError } from '../lib/validation.js';
 import { replyDomainError } from '../lib/domain-error.js';
 import { createValutazione, updateValutazione } from '../services/valutazioni-service.js';
 
-const uuid = z.string().uuid();
 // N15: bound applicativo su `voto` (clamp DB in [0, scala] via trigger). Upper
 // bound generoso (1000 = scala massima ammessa); il clamp per-fase fa il resto.
 const VOTO_MAX = 1000;

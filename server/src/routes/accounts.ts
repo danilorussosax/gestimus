@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { and, count, eq, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
+import { uuid } from '../lib/zod-helpers.js';
 import { parsePagination } from '../lib/pagination.js';
 import { expectedVersionField, versionFresh, STALE_VERSION_BODY } from '../lib/optimistic.js';
 import { accounts, commissari } from '../db/schema.js';
@@ -11,7 +12,6 @@ import { hashPassword } from '../services/password.js';
 import { invalidateAllSessionsForAccount } from '../services/session.js';
 import { replyValidationError } from '../lib/validation.js';
 
-const uuid = z.string().uuid();
 
 // L16: conta gli admin attivi del tenant DIVERSI da `excludeId`. Serve a
 // impedire la rimozione/disattivazione/demozione dell'ultimo admin (lockout

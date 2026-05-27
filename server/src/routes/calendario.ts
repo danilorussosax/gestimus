@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 import { and, asc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
+import { uuid, emptyToNull } from '../lib/zod-helpers.js';
 import {
   calendarioPubblicazioni,
   candidati,
@@ -25,8 +26,6 @@ import { replyValidationError } from '../lib/validation.js';
 // però un cap difensivo a MAX_LIMIT per non rischiare un result set illimitato
 // (DoS/OOM) se i dati crescessero oltre l'atteso. Non tronca dati realistici.
 
-const uuid = z.string().uuid();
-const emptyToNull = <T>(v: T) => (v === '' ? null : v);
 // time HH:MM o HH:MM:SS
 const timeStr = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/);
 

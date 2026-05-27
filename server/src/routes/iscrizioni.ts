@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { and, desc, eq, gte, inArray, max, sql } from 'drizzle-orm';
 import { z } from 'zod';
+import { uuid } from '../lib/zod-helpers.js';
 import { candidati, categorie, concorsi, iscrizioni, iscrizioniAllegati, sezioni } from '../db/schema.js';
 import { saveFile } from '../services/storage.js';
 import { readFile } from 'node:fs/promises';
@@ -16,7 +17,6 @@ import { checkCandidatiLimit } from '../lib/plan-limits.js';
 import { generateToken } from '../lib/token.js';
 import { replyValidationError } from '../lib/validation.js';
 
-const uuid = z.string().uuid();
 
 const iscrizioneCreateBody = z.object({
   concorsoId: uuid,

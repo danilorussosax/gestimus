@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { eq, inArray, max, sql } from 'drizzle-orm';
 import { z } from 'zod';
+import { uuid, emptyToNull } from '../lib/zod-helpers.js';
 import { parsePagination } from '../lib/pagination.js';
 import { checkCandidatiLimit } from '../lib/plan-limits.js';
 import { candidati, candidatiFase, categorie, sezioni, valutazioni } from '../db/schema.js';
@@ -40,11 +41,9 @@ async function validateScope(tx: TxClient, concorsoId: string, sezioneId: string
   return { ok: true };
 }
 
-const uuid = z.string().uuid();
 // Helper: il frontend manda "" o null per i campi vuoti del form (es. la radio
 // "Nessuna sezione" del candidato). Trasformiamo "" in null così le zod sotto
 // possono accettare il valore "non impostato" uniformemente.
-const emptyToNull = <T>(v: T) => (v === '' ? null : v);
 const createBody = z.object({
   concorsoId: uuid,
   // M6: opzionale. Se omesso, il server calcola MAX(numero)+1 nella transazione

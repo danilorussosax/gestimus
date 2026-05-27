@@ -1,13 +1,13 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
+import { uuid } from '../lib/zod-helpers.js';
 import { candidati, categorie, sezioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { parsePagination } from '../lib/pagination.js';
 import { replyValidationError } from '../lib/validation.js';
 
-const uuid = z.string().uuid();
 const baseBody = z.object({
   sezioneId: uuid,
   nome: z.string().min(1).max(255),

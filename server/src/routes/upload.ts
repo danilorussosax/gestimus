@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { uuid } from '../lib/zod-helpers.js';
 import { candidati, commissari, concorsi } from '../db/schema.js';
 import { requireAuth } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
@@ -9,7 +10,6 @@ import { deleteFile, saveFile, tenantUploadDir, type ResourceKind } from '../ser
 import { env } from '../env.js';
 import { replyValidationError } from '../lib/validation.js';
 
-const uuid = z.string().uuid();
 
 // L222: admin/superadmin gestiscono tutti gli upload; un commissario può gestire
 // SOLO la propria foto (resource 'commissario' con id === proprio commissarioId).

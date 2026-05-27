@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { and, eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { uuid, emptyToNull } from '../lib/zod-helpers.js';
 import { candidati, candidatiFase, commissioniCommissari, fasi } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import type { TxClient } from '../middleware/tenant.js';
@@ -71,13 +72,11 @@ async function assertCanEditCandidatoFase(tx: TxClient, req: FastifyRequest, rep
   return true;
 }
 
-const uuid = z.string().uuid();
 const assignBody = z.object({
   faseId: uuid,
   candidatoId: uuid,
   posizione: z.number().int().positive().optional(),
 });
-const emptyToNull = <T>(v: T) => (v === '' ? null : v);
 const timeStr = z.string().regex(/^([01]\d|2[0-3]):[0-5]\d(:[0-5]\d)?$/);
 const updateBody = z.object({
   posizione: z.number().int().positive().optional(),

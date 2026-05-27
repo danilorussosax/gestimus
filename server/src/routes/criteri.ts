@@ -1,13 +1,13 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { uuid } from '../lib/zod-helpers.js';
 import { criteri, fasi } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
 import { parsePagination } from '../lib/pagination.js';
 import { replyValidationError } from '../lib/validation.js';
 
-const uuid = z.string().uuid();
 
 // R15 (M208): stessa derivazione chiave del client (js/scoring.js slugifyKey).
 // Lo scoring mappa i voti per chiave-da-nome: due criteri il cui nome produce la

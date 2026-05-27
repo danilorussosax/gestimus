@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
+import { uuid, emptyToNull } from '../lib/zod-helpers.js';
 import { candidati, candidatiFase, commissioni, concorsi, criteri, fasi, fasiSezioni, sezioni, valutazioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import type { TxClient } from '../middleware/tenant.js';
@@ -108,12 +109,10 @@ function shuffleSeeded<T>(arr: T[], seed: number): T[] {
   return out;
 }
 
-const uuid = z.string().uuid();
 // Helper: il frontend tipicamente invia "" per i campi vuoti del form (es.
 // commissioneId="" quando "Nessuna commissione" è selezionato). Convertiamo
 // "" in null così le zod sotto possono accettare il valore "non impostato"
 // uniformemente, sia come undefined sia come null.
-const emptyToNull = <T>(v: T) => (v === '' ? null : v);
 
 const createBody = z.object({
   concorsoId: uuid,
