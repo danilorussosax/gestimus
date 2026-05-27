@@ -10,7 +10,7 @@
  *   POST /api/fasi/:id/timer/resume
  *   POST /api/fasi/:id/timer/bonus
  *   POST /api/fasi/:id/timer/reset
- *   SSE  GET /realtime/fase/:id
+ *   SSE  GET /api/realtime/fase/:id
  *
  * The `FaseRuntimeRecord` returned by `getFaseRuntime` extends the shared
  * `FaseRuntime` type with `tempoMinuti` and `serverNow` (used for clock-skew
@@ -119,7 +119,11 @@ export function subscribeFaseRuntime(
   onChange: (payload: FaseSSEPayload) => void,
 ): () => void {
   // EventSource uses GET, credentials are attached via cookies (same-origin).
-  const es = new EventSource(`/realtime/fase/${faseId}`, { withCredentials: true });
+  // NB: path /api/realtime — il backend monta realtimeRoutes sotto /api/realtime
+  // e SOLO /api (+/auth,/uploads) è proxato da vite/nginx verso :4000. Senza il
+  // prefisso /api l'EventSource cadeva nel fallback SPA (text/html) → realtime
+  // (timer live, eventi fase, toast) muto.
+  const es = new EventSource(`/api/realtime/fase/${faseId}`, { withCredentials: true });
 
   es.onmessage = (ev) => {
     try {
