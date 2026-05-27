@@ -55,6 +55,11 @@ export async function createApp(): Promise<FastifyInstance> {
     // rate-limit per-IP e URL di verifica). Se il deploy aggiunge altri hop
     // (es. CDN proxy) aumentare il numero di conseguenza.
     trustProxy: 1,
+    // Timeout di rete: tempo massimo per RICEVERE la richiesta (non la risposta:
+    // sicuro per SSE, che è un GET veloce con risposta a lungo termine).
+    requestTimeout: 30_000,
+    keepAliveTimeout: 5_000,
+    connectionTimeout: 60_000,
   });
 
   // M3: error handler globale. Le route usano sia .parse() (throw) sia
@@ -85,10 +90,17 @@ export async function createApp(): Promise<FastifyInstance> {
 
   await app.register(sensible);
   await app.register(cookie, { secret: env.SESSION_COOKIE_SECRET });
+  // Rate-limit globale (opt-in-with-default): protegge OGNI rotta per default.
+  // `max` env-aware come per la rotta auth: in prod un default conservativo,
+  // in dev/test effettivamente illimitato (la suite d'integrazione martella
+  // molte rotte e NON deve mai prendere 429). Le rotte con `config.rateLimit`
+  // dedicato (auth/iscrizioni/fasi/calendario-public) OVERRIDANO questo default.
+  // Le probe liveness/readiness sono in allowList → mai 429.
   await app.register(rateLimit, {
-    global: false,
-    max: 600,
+    global: true,
+    max: env.NODE_ENV === 'production' ? 120 : 100_000,
     timeWindow: '1 minute',
+    allowList: ['/healthz', '/readyz'],
   });
   await app.register(multipart, {
     limits: {

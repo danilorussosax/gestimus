@@ -3,6 +3,7 @@ import { Route, Routes } from 'react-router-dom';
 import { LoaderCircle } from 'lucide-react';
 import { ProtectedRoute, PublicOnlyRoute, RequireAdmin } from '@/components/ProtectedRoute';
 import { AppLayout } from '@/components/layout/AppLayout';
+import { RouteErrorBoundary } from '@/components/RouteErrorBoundary';
 import type { ReactNode } from 'react';
 
 // Eager: Home (landing autenticata) + NotFound (catch-all). Tutto il resto lazy.
@@ -36,6 +37,10 @@ function PageFallback() {
 
 const adminPage = (node: ReactNode) => <RequireAdmin>{node}</RequireAdmin>;
 
+// Isola le rotte pesanti dietro un error boundary per-rotta: un throw in render
+// non deve abbattere l'intera app, solo la sezione interessata.
+const critical = (node: ReactNode) => <RouteErrorBoundary>{node}</RouteErrorBoundary>;
+
 export default function App() {
   return (
     <Suspense fallback={<PageFallback />}>
@@ -56,13 +61,13 @@ export default function App() {
           <Route element={<AppLayout />}>
             <Route path="/" element={<Home />} />
             <Route path="/account/security" element={<AccountSecurity />} />
-            <Route path="/commissario" element={<Commissario />} />
+            <Route path="/commissario" element={critical(<Commissario />)} />
 
             {/* Admin (≥ admin) */}
             <Route path="/admin">
-              <Route index element={adminPage(<AdminWorkspace />)} />
+              <Route index element={adminPage(critical(<AdminWorkspace />))} />
               <Route path="dashboard" element={adminPage(<AdminDashboard />)} />
-              <Route path="statistiche" element={adminPage(<AdminStatistiche />)} />
+              <Route path="statistiche" element={adminPage(critical(<AdminStatistiche />))} />
               <Route path="impostazioni" element={adminPage(<AdminImpostazioni />)} />
               <Route path="utenti" element={adminPage(<AdminUtenti />)} />
               <Route path="manuale" element={adminPage(<AdminManuale />)} />
