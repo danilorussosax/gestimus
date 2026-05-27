@@ -2,6 +2,7 @@ import 'dotenv/config';
 import { dbSuper, shutdownPools } from '../src/db/client.js';
 import { accounts, platformConfig, tenants } from '../src/db/schema.js';
 import { hashPassword } from '../src/services/password.js';
+import { ensureDefaultPiani } from './seed-piani.js';
 
 /**
  * Seed di PRODUZIONE: crea il minimo per partire — `platform_config`, il tenant
@@ -37,6 +38,10 @@ async function main() {
     await dbSuper.insert(platformConfig).values({ id: 1 });
     console.log('✓ platform_config inizializzato');
   }
+
+  // Catalogo piani di default (necessario: la create-tenant valida il piano
+  // contro questa tabella). Idempotente.
+  await ensureDefaultPiani();
 
   // Tenant platform (host del super-admin)
   let platform = await dbSuper.query.tenants.findFirst({

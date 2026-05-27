@@ -11,6 +11,7 @@ import {
   tenants,
 } from '../src/db/schema.js';
 import { hashPassword } from '../src/services/password.js';
+import { ensureDefaultPiani } from './seed-piani.js';
 
 /**
  * Seed di sviluppo: 2 tenant (ente1, ente2) + super-admin platform.
@@ -48,6 +49,9 @@ async function main() {
     await dbSuper.insert(platformConfig).values({ id: 1 });
     console.log('  ✓ platform_config inizializzato');
   }
+
+  // Catalogo piani di default (reference data; idempotente).
+  await ensureDefaultPiani();
 
   // Tenant platform (super-admin)
   const platform = await upsertTenant({
