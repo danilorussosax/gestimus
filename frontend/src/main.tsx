@@ -12,6 +12,7 @@ import { OfflineBanner } from '@/components/OfflineBanner';
 import { AppErrorBoundary } from '@/components/AppErrorBoundary';
 import { initSentry } from '@/lib/sentry';
 import { bumpVisitCount, setupPwa } from '@/lib/pwa';
+import i18n from '@/i18n';
 import '@/i18n';
 import './index.css';
 // Design system vanilla portato (classi c-*, sidebar-nav-active, login-hero,
@@ -23,10 +24,10 @@ initSentry();
 
 // PWA: registra SW + listener install prompt. In dev è no-op.
 setupPwa((reload) => {
-  toast.message('Aggiornamento disponibile', {
-    description: 'Ricarica per applicare la nuova versione.',
+  toast.message(i18n.t('pwa.update.title', { defaultValue: 'Aggiornamento disponibile' }), {
+    description: i18n.t('pwa.update.description', { defaultValue: 'Ricarica per applicare la nuova versione.' }),
     duration: Infinity,
-    action: { label: 'Ricarica', onClick: reload },
+    action: { label: i18n.t('pwa.update.action', { defaultValue: 'Ricarica' }), onClick: reload },
   });
 });
 

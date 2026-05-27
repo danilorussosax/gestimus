@@ -13,12 +13,13 @@
  * (sistema legacy.css), palette brand/ink/amber/emerald/rose.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useForm, useFieldArray, Controller, type Resolver } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
+import type { TFunction } from 'i18next';
 import { toast } from 'sonner';
 import { publicApi, type ConcorsoDetailPublic } from '@/api/public';
 import { httpErrorMessage } from '@/lib/api';
@@ -57,76 +58,83 @@ function clearDraft() {
   try { localStorage.removeItem(DRAFT_KEY); } catch { /* noop */ }
 }
 
-// ─── Zod schema ───────────────────────────────────────────────────────────────
+// ─── Zod schema (i18n-aware) ────────────────────────────────────────────────
+//
+// Lo schema è costruito da una factory che cattura `t`, così i messaggi di
+// validazione vengono dal sistema i18n e si ri-localizzano al cambio lingua
+// (lo schema è ricostruito via useMemo su `t`). I default italiani sono passati
+// come defaultValue a t(): se una chiave manca, il testo non regredisce.
 
-const programmaRow = z.object({
-  titolo: z.string().min(1, 'Titolo obbligatorio'),
-  autore: z.string().optional(),
-  durata_min: z.coerce.number().min(0).max(120).optional(),
-});
+function buildSchema(t: TFunction) {
+  const programmaRow = z.object({
+    titolo: z.string().min(1, t('iscr.val.brano_titolo_required', { defaultValue: 'Titolo obbligatorio' })),
+    autore: z.string().optional(),
+    durata_min: z.coerce.number().min(0).max(120).optional(),
+  });
 
-const membroRow = z.object({
-  nome: z.string().min(1),
-  cognome: z.string().optional(),
-  strumento: z.string().optional(),
-  data_nascita: z.string().optional(),
-});
+  const membroRow = z.object({
+    nome: z.string().min(1),
+    cognome: z.string().optional(),
+    strumento: z.string().optional(),
+    data_nascita: z.string().optional(),
+  });
 
-const schema = z.object({
-  tipo: z.enum(['individuale', 'gruppo', 'orchestra']),
-  // Anagrafica
-  nome: z.string().min(1, 'Nome obbligatorio'),
-  cognome: z.string().min(1, 'Cognome obbligatorio'),
-  sesso: z.string().optional(),
-  data_nascita: z.string().min(1, 'Data di nascita obbligatoria'),
-  luogo_nascita: z.string().optional(),
-  nazionalita: z.string().min(1, 'Nazionalità obbligatoria'),
-  codice_fiscale: z.string().optional(),
-  // Tutore (opzionale a livello schema — validato runtime)
-  tutore_nome: z.string().optional(),
-  tutore_cognome: z.string().optional(),
-  tutore_email: z.string().optional(),
-  tutore_telefono: z.string().optional(),
-  // Contatti
-  email: z.email('Email non valida'),
-  telefono: z.string().optional(),
-  indirizzo: z.string().optional(),
-  citta: z.string().optional(),
-  cap: z.string().optional(),
-  provincia: z.string().optional(),
-  paese: z.string().optional(),
-  // Artistici
-  strumento: z.string().min(1, 'Strumento obbligatorio'),
-  anni_studio: z.coerce.number().min(0).max(99).optional(),
-  sezione: z.string().optional(),
-  categoria: z.string().optional(),
-  scuola_provenienza: z.string().optional(),
-  docenti_preparatori_text: z.string().optional(),
-  // Gruppo
-  gruppo_nome: z.string().optional(),
-  membri: z.array(membroRow).optional(),
-  // Programma
-  programma: z.array(programmaRow).min(1, 'Almeno un brano obbligatorio'),
-  note_libere: z.string().optional(),
-  // Privacy
-  consenso_privacy: z.literal(true, { error: 'Consenso privacy obbligatorio' }),
-  consenso_immagini: z.boolean().optional(),
-  consenso_regolamento: z.literal(true, { error: 'Consenso regolamento obbligatorio' }),
-  // Anti-spam (non visibili/validati dall'utente)
-  website: z.string().optional(),   // honeypot
-  startedAt: z.number().optional(), // timestamp apertura form
-});
+  return z.object({
+    tipo: z.enum(['individuale', 'gruppo', 'orchestra']),
+    // Anagrafica
+    nome: z.string().min(1, t('iscr.val.nome_required', { defaultValue: 'Nome obbligatorio' })),
+    cognome: z.string().min(1, t('iscr.val.cognome_required', { defaultValue: 'Cognome obbligatorio' })),
+    sesso: z.string().optional(),
+    data_nascita: z.string().min(1, t('iscr.val.data_nascita_required', { defaultValue: 'Data di nascita obbligatoria' })),
+    luogo_nascita: z.string().optional(),
+    nazionalita: z.string().min(1, t('iscr.val.nazionalita_required', { defaultValue: 'Nazionalità obbligatoria' })),
+    codice_fiscale: z.string().optional(),
+    // Tutore (opzionale a livello schema — validato runtime)
+    tutore_nome: z.string().optional(),
+    tutore_cognome: z.string().optional(),
+    tutore_email: z.string().optional(),
+    tutore_telefono: z.string().optional(),
+    // Contatti
+    email: z.email(t('iscr.val.email_invalid', { defaultValue: 'Email non valida' })),
+    telefono: z.string().optional(),
+    indirizzo: z.string().optional(),
+    citta: z.string().optional(),
+    cap: z.string().optional(),
+    provincia: z.string().optional(),
+    paese: z.string().optional(),
+    // Artistici
+    strumento: z.string().min(1, t('iscr.val.strumento_required', { defaultValue: 'Strumento obbligatorio' })),
+    anni_studio: z.coerce.number().min(0).max(99).optional(),
+    sezione: z.string().optional(),
+    categoria: z.string().optional(),
+    scuola_provenienza: z.string().optional(),
+    docenti_preparatori_text: z.string().optional(),
+    // Gruppo
+    gruppo_nome: z.string().optional(),
+    membri: z.array(membroRow).optional(),
+    // Programma
+    programma: z.array(programmaRow).min(1, t('iscr.val.programma_required', { defaultValue: 'Almeno un brano obbligatorio' })),
+    note_libere: z.string().optional(),
+    // Privacy
+    consenso_privacy: z.literal(true, { error: t('iscr.val.consenso_privacy_required', { defaultValue: 'Consenso privacy obbligatorio' }) }),
+    consenso_immagini: z.boolean().optional(),
+    consenso_regolamento: z.literal(true, { error: t('iscr.val.consenso_regolamento_required', { defaultValue: 'Consenso regolamento obbligatorio' }) }),
+    // Anti-spam (non visibili/validati dall'utente)
+    website: z.string().optional(),   // honeypot
+    startedAt: z.number().optional(), // timestamp apertura form
+  });
+}
 
-type FormValues = z.infer<typeof schema>;
+type FormValues = z.infer<ReturnType<typeof buildSchema>>;
 
 // ─── Section header (stile vanilla) ──────────────────────────────────────────
 
-function SectionHeader({ num, title, subtitle }: { num: string; title: string; subtitle: string }) {
+function SectionHeader({ num, title, subtitle, headingId }: { num: string; title: string; subtitle: string; headingId?: string }) {
   return (
     <header className="flex items-center gap-3 mb-1">
       <span className="w-7 h-7 rounded-full bg-brand-100 text-brand-700 text-sm font-bold inline-flex items-center justify-center shrink-0">{num}</span>
       <div>
-        <h2 className="font-semibold text-ink-900">{title}</h2>
+        <h2 id={headingId} className="font-semibold text-ink-900">{title}</h2>
         <p className="text-xs text-slate-600">{subtitle}</p>
       </div>
     </header>
@@ -172,6 +180,9 @@ const ALLEGATO_TIPI: Record<string, 'foto' | 'documento' | 'ricevuta' | 'altro'>
 export default function Iscrizione() {
   const { t } = useTranslation();
   const startedAtRef = useRef<number>(Date.now());
+
+  // Schema ricostruito quando `t` cambia (cambio lingua) → messaggi ri-localizzati.
+  const schema = useMemo(() => buildSchema(t), [t]);
 
   // Carica draft
   const savedDraft = loadDraft();
@@ -268,7 +279,7 @@ export default function Iscrizione() {
 
   const submitMut = useMutation({
     mutationFn: async (vals: FormValues) => {
-      if (!concorso) throw new Error('Nessun concorso disponibile');
+      if (!concorso) throw new Error(t('iscr.errors.no_concorso', { defaultValue: 'Nessun concorso disponibile' }));
       const docentiArr = (vals.docenti_preparatori_text ?? '').split('\n').map((s) => s.trim()).filter(Boolean);
       const validBrani = vals.programma.filter((p) => p.titolo);
       const payload = {
@@ -363,20 +374,20 @@ export default function Iscrizione() {
       <section className="view-fade c-page max-w-2xl mx-auto py-10 text-center">
         <div className="bg-white border border-emerald-200 rounded-3xl shadow-soft p-10">
           <div className="text-6xl mb-4">🎉</div>
-          <h1 className="text-2xl font-black text-ink-900 mb-2">Iscrizione inviata</h1>
+          <h1 className="text-2xl font-black text-ink-900 mb-2">{t('iscr.success.title', { defaultValue: 'Iscrizione inviata' })}</h1>
           <p className="text-slate-700 leading-relaxed mb-3">
-            La tua iscrizione a <strong>{concorso?.nome}</strong> è stata ricevuta correttamente.
+            {t('iscr.success.received_pre', { defaultValue: 'La tua iscrizione a' })} <strong>{concorso?.nome}</strong> {t('iscr.success.received_post', { defaultValue: 'è stata ricevuta correttamente.' })}
           </p>
-          <p className="text-sm text-slate-600 mb-1">Riceverai una mail di conferma a:</p>
+          <p className="text-sm text-slate-600 mb-1">{t('iscr.success.email_label', { defaultValue: 'Riceverai una mail di conferma a:' })}</p>
           <p className="font-mono text-brand-700 font-semibold mb-4">{success.email}</p>
           <p className="text-xs text-slate-500">
-            Numero pratica:{' '}
+            {t('iscr.success.ticket_label', { defaultValue: 'Numero pratica:' })}{' '}
             <code className="bg-slate-100 px-2 py-0.5 rounded font-mono text-[11px]">{success.id}</code>
           </p>
           <p className="text-sm text-slate-600 mt-6 leading-relaxed">
-            L'organizzazione esaminerà la tua candidatura e ti contatterà con l'esito.
+            {t('iscr.success.followup', { defaultValue: "L'organizzazione esaminerà la tua candidatura e ti contatterà con l'esito." })}
           </p>
-          <a href="/" className="c-btn c-btn--outline c-btn--sm mt-6">Chiudi</a>
+          <a href="/" className="c-btn c-btn--outline c-btn--sm mt-6">{t('iscr.success.close', { defaultValue: 'Chiudi' })}</a>
         </div>
       </section>
     );
@@ -440,7 +451,7 @@ export default function Iscrizione() {
             </p>
           )}
         </div>
-        <a href="/privacy" target="_blank" rel="noreferrer" className="hidden sm:block shrink-0" title="Informativa privacy (Regolamento UE 2016/679)">
+        <a href="/privacy" target="_blank" rel="noreferrer" className="hidden sm:block shrink-0" title={t('iscr.privacy.badge_title', { defaultValue: 'Informativa privacy (Regolamento UE 2016/679)' })}>
           <GdprBadge />
         </a>
       </header>
@@ -488,66 +499,67 @@ export default function Iscrizione() {
       >
         {/* Honeypot anti-spam (invisibile per utenti) */}
         <div aria-hidden="true" style={{ position: 'absolute', left: '-10000px', top: 'auto', width: '1px', height: '1px', overflow: 'hidden' }}>
-          <label>Lascia vuoto questo campo<input type="text" tabIndex={-1} autoComplete="off" {...register('website')} /></label>
+          <label>{t('iscr.honeypot', { defaultValue: 'Lascia vuoto questo campo' })}<input type="text" tabIndex={-1} autoComplete="off" {...register('website')} /></label>
         </div>
         <input type="hidden" {...register('startedAt', { value: startedAtRef.current })} />
 
         {/* ── Sezione 1: Anagrafica ── */}
-        <SectionHeader num="1" title={t('iscr.section.1.title')} subtitle={t('iscr.section.1.subtitle')} />
-        <div className="bg-white border border-slate-200 rounded-3xl shadow-soft p-6">
+        <SectionHeader num="1" headingId="iscr-sec-1-h" title={t('iscr.section.1.title')} subtitle={t('iscr.section.1.subtitle')} />
+        <fieldset className="bg-white border border-slate-200 rounded-3xl shadow-soft p-6" style={{ minInlineSize: 'auto' }} aria-labelledby="iscr-sec-1-h">
+          <legend className="sr-only">{t('iscr.section.1.title')}</legend>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
 
             <label className="c-field">
-              <span className="c-field__label">Tipo iscrizione *</span>
+              <span className="c-field__label">{t('iscr.field.tipo', { defaultValue: 'Tipo iscrizione *' })}</span>
               <select className="c-input" {...register('tipo')}>
-                <option value="individuale">Individuale</option>
-                <option value="gruppo">Gruppo / Ensemble</option>
-                <option value="orchestra">Orchestra</option>
+                <option value="individuale">{t('iscr.opt.tipo.individuale', { defaultValue: 'Individuale' })}</option>
+                <option value="gruppo">{t('iscr.opt.tipo.gruppo', { defaultValue: 'Gruppo / Ensemble' })}</option>
+                <option value="orchestra">{t('iscr.opt.tipo.orchestra', { defaultValue: 'Orchestra' })}</option>
               </select>
             </label>
 
             <label className="c-field">
-              <span className="c-field__label">Sesso</span>
+              <span className="c-field__label">{t('iscr.field.sesso', { defaultValue: 'Sesso' })}</span>
               <select className="c-input" {...register('sesso')}>
-                <option value="">— Seleziona —</option>
-                <option value="M">Maschio</option>
-                <option value="F">Femmina</option>
-                <option value="altro">Altro / preferisco non specificare</option>
+                <option value="">{t('iscr.opt.select', { defaultValue: '— Seleziona —' })}</option>
+                <option value="M">{t('iscr.opt.sesso.m', { defaultValue: 'Maschio' })}</option>
+                <option value="F">{t('iscr.opt.sesso.f', { defaultValue: 'Femmina' })}</option>
+                <option value="altro">{t('iscr.opt.sesso.altro', { defaultValue: 'Altro / preferisco non specificare' })}</option>
               </select>
             </label>
 
             <label className="c-field">
-              <span className="c-field__label">Nome *</span>
+              <span className="c-field__label">{t('iscr.field.nome', { defaultValue: 'Nome *' })}</span>
               <input className="c-input" {...register('nome')} />
-              {errors.nome && <p className="text-xs text-rose-600 mt-0.5">{errors.nome.message}</p>}
+              {errors.nome && <p role="alert" className="text-xs text-rose-600 mt-0.5">{errors.nome.message}</p>}
             </label>
 
             <label className="c-field">
-              <span className="c-field__label">Cognome *</span>
+              <span className="c-field__label">{t('iscr.field.cognome', { defaultValue: 'Cognome *' })}</span>
               <input className="c-input" {...register('cognome')} />
-              {errors.cognome && <p className="text-xs text-rose-600 mt-0.5">{errors.cognome.message}</p>}
+              {errors.cognome && <p role="alert" className="text-xs text-rose-600 mt-0.5">{errors.cognome.message}</p>}
             </label>
 
             <label className="c-field">
-              <span className="c-field__label">Data di nascita *</span>
+              <span className="c-field__label">{t('iscr.field.data_nascita', { defaultValue: 'Data di nascita *' })}</span>
               <input type="date" className="c-input" {...register('data_nascita')} />
-              {errors.data_nascita && <p className="text-xs text-rose-600 mt-0.5">{errors.data_nascita.message}</p>}
+              {errors.data_nascita && <p role="alert" className="text-xs text-rose-600 mt-0.5">{errors.data_nascita.message}</p>}
             </label>
 
             <label className="c-field">
-              <span className="c-field__label">Luogo di nascita</span>
-              <input className="c-input" placeholder="Città (Provincia)" {...register('luogo_nascita')} />
+              <span className="c-field__label">{t('iscr.field.luogo_nascita', { defaultValue: 'Luogo di nascita' })}</span>
+              <input className="c-input" placeholder={t('iscr.ph.luogo_nascita', { defaultValue: 'Città (Provincia)' })} {...register('luogo_nascita')} />
             </label>
 
             <label className="c-field">
-              <span className="c-field__label">Nazionalità *</span>
-              <input className="c-input" list="naz-list" placeholder="es. Italiana" {...register('nazionalita')} />
+              <span className="c-field__label">{t('iscr.field.nazionalita', { defaultValue: 'Nazionalità *' })}</span>
+              <input className="c-input" list="naz-list" placeholder={t('iscr.ph.nazionalita', { defaultValue: 'es. Italiana' })} {...register('nazionalita')} />
               <datalist id="naz-list">{NATIONALITIES.map((n) => <option key={n} value={n} />)}</datalist>
-              {errors.nazionalita && <p className="text-xs text-rose-600 mt-0.5">{errors.nazionalita.message}</p>}
+              {errors.nazionalita && <p role="alert" className="text-xs text-rose-600 mt-0.5">{errors.nazionalita.message}</p>}
             </label>
 
             <label className="c-field">
-              <span className="c-field__label">Codice fiscale</span>
+              <span className="c-field__label">{t('iscr.field.codice_fiscale', { defaultValue: 'Codice fiscale' })}</span>
               <input className="c-input font-mono uppercase" maxLength={16} placeholder="RSSMRA80A01H501U" {...register('codice_fiscale')} />
             </label>
 
@@ -556,112 +568,114 @@ export default function Iscrizione() {
           {/* Tutore (se minorenne) */}
           {isMinore && (
             <div className="mt-5 bg-amber-50 border border-amber-200 rounded-2xl p-4">
-              <p className="font-bold text-amber-900 flex items-center gap-1.5">⚠ Candidato minorenne</p>
-              <p className="text-xs text-amber-800 mt-1 mb-3">Inserisci i dati di un genitore/tutore (obbligatori).</p>
+              <p className="font-bold text-amber-900 flex items-center gap-1.5">{t('iscr.tutore.heading', { defaultValue: '⚠ Candidato minorenne' })}</p>
+              <p className="text-xs text-amber-800 mt-1 mb-3">{t('iscr.tutore.hint', { defaultValue: 'Inserisci i dati di un genitore/tutore (obbligatori).' })}</p>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <label className="c-field">
-                  <span className="c-field__label">Nome tutore *</span>
+                  <span className="c-field__label">{t('iscr.field.tutore_nome', { defaultValue: 'Nome tutore *' })}</span>
                   <input className="c-input" {...register('tutore_nome')} />
                 </label>
                 <label className="c-field">
-                  <span className="c-field__label">Cognome tutore *</span>
+                  <span className="c-field__label">{t('iscr.field.tutore_cognome', { defaultValue: 'Cognome tutore *' })}</span>
                   <input className="c-input" {...register('tutore_cognome')} />
                 </label>
                 <label className="c-field">
-                  <span className="c-field__label">Email tutore *</span>
+                  <span className="c-field__label">{t('iscr.field.tutore_email', { defaultValue: 'Email tutore *' })}</span>
                   <input type="email" className="c-input" {...register('tutore_email')} />
                 </label>
                 <label className="c-field">
-                  <span className="c-field__label">Telefono tutore</span>
+                  <span className="c-field__label">{t('iscr.field.tutore_telefono', { defaultValue: 'Telefono tutore' })}</span>
                   <input type="tel" className="c-input" {...register('tutore_telefono')} />
                 </label>
               </div>
             </div>
           )}
-        </div>
+        </fieldset>
 
         {/* ── Sezione 2: Contatti ── */}
-        <SectionHeader num="2" title={t('iscr.section.2.title')} subtitle={t('iscr.section.2.subtitle')} />
-        <div className="bg-white border border-slate-200 rounded-3xl shadow-soft p-6">
+        <SectionHeader num="2" headingId="iscr-sec-2-h" title={t('iscr.section.2.title')} subtitle={t('iscr.section.2.subtitle')} />
+        <fieldset className="bg-white border border-slate-200 rounded-3xl shadow-soft p-6" style={{ minInlineSize: 'auto' }} aria-labelledby="iscr-sec-2-h">
+          <legend className="sr-only">{t('iscr.section.2.title')}</legend>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
 
             <label className="c-field sm:col-span-2">
-              <span className="c-field__label">Email *</span>
+              <span className="c-field__label">{t('iscr.field.email', { defaultValue: 'Email *' })}</span>
               <input type="email" className="c-input" placeholder="nome@esempio.it" {...register('email')} />
-              {errors.email && <p className="text-xs text-rose-600 mt-0.5">{errors.email.message}</p>}
+              {errors.email && <p role="alert" className="text-xs text-rose-600 mt-0.5">{errors.email.message}</p>}
             </label>
 
             <label className="c-field">
-              <span className="c-field__label">Telefono</span>
+              <span className="c-field__label">{t('iscr.field.telefono', { defaultValue: 'Telefono' })}</span>
               <input type="tel" className="c-input" placeholder="+39 ..." {...register('telefono')} />
             </label>
 
             <label className="c-field">
-              <span className="c-field__label">CAP</span>
+              <span className="c-field__label">{t('iscr.field.cap', { defaultValue: 'CAP' })}</span>
               <input className="c-input" maxLength={10} {...register('cap')} />
             </label>
 
             <label className="c-field sm:col-span-2">
-              <span className="c-field__label">Indirizzo</span>
-              <input className="c-input" placeholder="Via, civico" {...register('indirizzo')} />
+              <span className="c-field__label">{t('iscr.field.indirizzo', { defaultValue: 'Indirizzo' })}</span>
+              <input className="c-input" placeholder={t('iscr.ph.indirizzo', { defaultValue: 'Via, civico' })} {...register('indirizzo')} />
             </label>
 
             <label className="c-field">
-              <span className="c-field__label">Città</span>
+              <span className="c-field__label">{t('iscr.field.citta', { defaultValue: 'Città' })}</span>
               <input className="c-input" {...register('citta')} />
             </label>
 
             <label className="c-field">
-              <span className="c-field__label">Provincia</span>
+              <span className="c-field__label">{t('iscr.field.provincia', { defaultValue: 'Provincia' })}</span>
               <input className="c-input" maxLength={3} placeholder="MI" {...register('provincia')} />
             </label>
 
             <label className="c-field">
-              <span className="c-field__label">Paese</span>
+              <span className="c-field__label">{t('iscr.field.paese', { defaultValue: 'Paese' })}</span>
               <input className="c-input" {...register('paese')} />
             </label>
 
           </div>
-        </div>
+        </fieldset>
 
         {/* ── Sezione 3: Dati artistici ── */}
-        <SectionHeader num="3" title={t('iscr.section.3.title')} subtitle={t('iscr.section.3.subtitle')} />
-        <div className="bg-white border border-slate-200 rounded-3xl shadow-soft p-6">
+        <SectionHeader num="3" headingId="iscr-sec-3-h" title={t('iscr.section.3.title')} subtitle={t('iscr.section.3.subtitle')} />
+        <fieldset className="bg-white border border-slate-200 rounded-3xl shadow-soft p-6" style={{ minInlineSize: 'auto' }} aria-labelledby="iscr-sec-3-h">
+          <legend className="sr-only">{t('iscr.section.3.title')}</legend>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
 
             <label className="c-field">
-              <span className="c-field__label">Strumento *</span>
-              <input className="c-input" placeholder="es. Pianoforte" {...register('strumento')} />
-              {errors.strumento && <p className="text-xs text-rose-600 mt-0.5">{errors.strumento.message}</p>}
+              <span className="c-field__label">{t('iscr.field.strumento', { defaultValue: 'Strumento *' })}</span>
+              <input className="c-input" placeholder={t('iscr.ph.strumento', { defaultValue: 'es. Pianoforte' })} {...register('strumento')} />
+              {errors.strumento && <p role="alert" className="text-xs text-rose-600 mt-0.5">{errors.strumento.message}</p>}
             </label>
 
             <label className="c-field">
-              <span className="c-field__label">Anni di studio</span>
+              <span className="c-field__label">{t('iscr.field.anni_studio', { defaultValue: 'Anni di studio' })}</span>
               <input type="number" min={0} max={80} className="c-input" {...register('anni_studio')} />
             </label>
 
             {sezioni.length > 0 && (
               <>
                 <label className="c-field">
-                  <span className="c-field__label">Sezione</span>
+                  <span className="c-field__label">{t('iscr.field.sezione', { defaultValue: 'Sezione' })}</span>
                   <select
                     className="c-input"
                     {...register('sezione')}
                     onChange={(e) => { setValue('sezione', e.target.value); setValue('categoria', ''); }}
                   >
-                    <option value="">— Nessuna —</option>
+                    <option value="">{t('iscr.opt.sezione.none', { defaultValue: '— Nessuna —' })}</option>
                     {sezioni.map((s) => <option key={s.id} value={s.id}>{s.nome}</option>)}
                   </select>
                 </label>
 
                 <label className="c-field">
-                  <span className="c-field__label">Categoria{categorieDellaSezione.length > 0 ? ' *' : ''}</span>
+                  <span className="c-field__label">{t('iscr.field.categoria', { defaultValue: 'Categoria' })}{categorieDellaSezione.length > 0 ? ' *' : ''}</span>
                   <select
                     className="c-input"
                     disabled={categorieDellaSezione.length === 0}
                     {...register('categoria')}
                   >
-                    <option value="">{categorieDellaSezione.length === 0 ? '— Seleziona prima una sezione —' : '— Scegli categoria —'}</option>
+                    <option value="">{categorieDellaSezione.length === 0 ? t('iscr.opt.categoria.pick_sezione_first', { defaultValue: '— Seleziona prima una sezione —' }) : t('iscr.opt.categoria.pick', { defaultValue: '— Scegli categoria —' })}</option>
                     {categorieDellaSezione.map((c) => <option key={c.id} value={c.id}>{c.nome}</option>)}
                   </select>
                 </label>
@@ -669,57 +683,69 @@ export default function Iscrizione() {
             )}
 
             <label className="c-field sm:col-span-2">
-              <span className="c-field__label">Scuola/Conservatorio di provenienza</span>
+              <span className="c-field__label">{t('iscr.field.scuola_provenienza', { defaultValue: 'Scuola/Conservatorio di provenienza' })}</span>
               <input className="c-input" {...register('scuola_provenienza')} />
             </label>
 
             <label className="c-field sm:col-span-2">
-              <span className="c-field__label">Docenti preparatori</span>
+              <span className="c-field__label">{t('iscr.field.docenti_preparatori', { defaultValue: 'Docenti preparatori' })}</span>
               <textarea
                 className="c-textarea"
                 rows={3}
-                placeholder="Un docente per riga (es. Mario Bianchi — Conservatorio di Milano)"
+                placeholder={t('iscr.ph.docenti_preparatori', { defaultValue: 'Un docente per riga (es. Mario Bianchi — Conservatorio di Milano)' })}
                 {...register('docenti_preparatori_text')}
               />
             </label>
 
           </div>
-        </div>
+        </fieldset>
 
         {/* ── Sezione 3b: Composizione gruppo (condizionale) ── */}
         {isGruppo && (
           <>
             <SectionHeader
               num="3b"
-              title={tipo === 'orchestra' ? "Composizione dell'orchestra" : 'Composizione del gruppo'}
-              subtitle={tipo === 'orchestra' ? "Nome dell'orchestra e membri." : "Nome dell'ensemble e membri."}
+              headingId="iscr-sec-3b-h"
+              title={tipo === 'orchestra'
+                ? t('iscr.gruppo.title_orchestra', { defaultValue: "Composizione dell'orchestra" })
+                : t('iscr.gruppo.title_gruppo', { defaultValue: 'Composizione del gruppo' })}
+              subtitle={tipo === 'orchestra'
+                ? t('iscr.gruppo.subtitle_orchestra', { defaultValue: "Nome dell'orchestra e membri." })
+                : t('iscr.gruppo.subtitle_gruppo', { defaultValue: "Nome dell'ensemble e membri." })}
             />
-            <div className="bg-white border border-brand-200 rounded-3xl shadow-soft p-6">
+            <fieldset className="bg-white border border-brand-200 rounded-3xl shadow-soft p-6" style={{ minInlineSize: 'auto' }} aria-labelledby="iscr-sec-3b-h">
+              <legend className="sr-only">{tipo === 'orchestra'
+                ? t('iscr.gruppo.title_orchestra', { defaultValue: "Composizione dell'orchestra" })
+                : t('iscr.gruppo.title_gruppo', { defaultValue: 'Composizione del gruppo' })}</legend>
               <label className="c-field">
                 <span className="c-field__label">
-                  {tipo === 'orchestra' ? "Nome dell'orchestra" : 'Nome del gruppo / ensemble'}
+                  {tipo === 'orchestra'
+                    ? t('iscr.field.gruppo_nome_orchestra', { defaultValue: "Nome dell'orchestra" })
+                    : t('iscr.field.gruppo_nome_gruppo', { defaultValue: 'Nome del gruppo / ensemble' })}
                 </span>
                 <input
                   className="c-input"
-                  placeholder={tipo === 'orchestra' ? 'es. Orchestra Giovanile di Milano' : 'es. Quartetto Brillante'}
+                  placeholder={tipo === 'orchestra'
+                    ? t('iscr.ph.gruppo_nome_orchestra', { defaultValue: 'es. Orchestra Giovanile di Milano' })
+                    : t('iscr.ph.gruppo_nome_gruppo', { defaultValue: 'es. Quartetto Brillante' })}
                   {...register('gruppo_nome')}
                 />
               </label>
 
-              <p className="text-xs text-slate-600 mt-3 mb-2">Membri (oltre al referente compilato sopra):</p>
+              <p className="text-xs text-slate-600 mt-3 mb-2">{t('iscr.gruppo.membri_hint', { defaultValue: 'Membri (oltre al referente compilato sopra):' })}</p>
               <div className="space-y-2">
                 {membriArray.fields.map((field, idx) => (
                   <div key={field.id} className="grid grid-cols-12 gap-2">
-                    <input placeholder="Nome" className="c-input col-span-3" {...register(`membri.${idx}.nome`)} />
-                    <input placeholder="Cognome" className="c-input col-span-3" {...register(`membri.${idx}.cognome`)} />
-                    <input placeholder="Strumento" className="c-input col-span-4" {...register(`membri.${idx}.strumento`)} />
-                    <input type="date" className="c-input col-span-2 text-xs" {...register(`membri.${idx}.data_nascita`)} />
+                    <input placeholder={t('iscr.ph.membro_nome', { defaultValue: 'Nome' })} aria-label={t('iscr.aria.membro_nome', { defaultValue: 'Nome membro' })} className="c-input col-span-3" {...register(`membri.${idx}.nome`)} />
+                    <input placeholder={t('iscr.ph.membro_cognome', { defaultValue: 'Cognome' })} aria-label={t('iscr.aria.membro_cognome', { defaultValue: 'Cognome membro' })} className="c-input col-span-3" {...register(`membri.${idx}.cognome`)} />
+                    <input placeholder={t('iscr.ph.membro_strumento', { defaultValue: 'Strumento' })} aria-label={t('iscr.aria.membro_strumento', { defaultValue: 'Strumento membro' })} className="c-input col-span-4" {...register(`membri.${idx}.strumento`)} />
+                    <input type="date" aria-label={t('iscr.aria.membro_data_nascita', { defaultValue: 'Data di nascita membro' })} className="c-input col-span-2 text-xs" {...register(`membri.${idx}.data_nascita`)} />
                     <button
                       type="button"
                       className="col-span-12 text-xs text-rose-600 hover:text-rose-800 self-start text-left"
                       onClick={() => membriArray.remove(idx)}
                     >
-                      − rimuovi
+                      {t('iscr.gruppo.remove_membro', { defaultValue: '− rimuovi' })}
                     </button>
                   </div>
                 ))}
@@ -729,30 +755,32 @@ export default function Iscrizione() {
                 className="mt-2 text-xs font-medium text-brand-700 hover:text-brand-900"
                 onClick={() => membriArray.append({ nome: '', cognome: '', strumento: '', data_nascita: '' })}
               >
-                + Aggiungi membro
+                {t('iscr.gruppo.add_membro', { defaultValue: '+ Aggiungi membro' })}
               </button>
-            </div>
+            </fieldset>
           </>
         )}
 
         {/* ── Sezione 4: Programma ── */}
-        <SectionHeader num="4" title={t('iscr.section.4.title')} subtitle={t('iscr.section.4.subtitle')} />
-        <div className="bg-white border border-slate-200 rounded-3xl shadow-soft p-6">
+        <SectionHeader num="4" headingId="iscr-sec-4-h" title={t('iscr.section.4.title')} subtitle={t('iscr.section.4.subtitle')} />
+        <fieldset className="bg-white border border-slate-200 rounded-3xl shadow-soft p-6" style={{ minInlineSize: 'auto' }} aria-labelledby="iscr-sec-4-h">
+          <legend className="sr-only">{t('iscr.section.4.title')}</legend>
           {errors.programma?.root?.message && (
-            <p className="text-xs text-rose-600 mb-2">{errors.programma.root.message}</p>
+            <p role="alert" className="text-xs text-rose-600 mb-2">{errors.programma.root.message}</p>
           )}
           <div className="space-y-2">
             {programmaArray.fields.map((field, idx) => (
               <div key={field.id} className="grid grid-cols-12 gap-2">
                 <div className="col-span-5">
-                  <input placeholder="Titolo brano" className="c-input" {...register(`programma.${idx}.titolo`)} />
+                  <input placeholder={t('iscr.ph.brano_titolo', { defaultValue: 'Titolo brano' })} aria-label={t('iscr.aria.brano_titolo', { defaultValue: 'Titolo brano' })} className="c-input" {...register(`programma.${idx}.titolo`)} />
                   {errors.programma?.[idx]?.titolo && (
-                    <p className="text-xs text-rose-600 mt-0.5">{errors.programma[idx].titolo.message}</p>
+                    <p role="alert" className="text-xs text-rose-600 mt-0.5">{errors.programma[idx].titolo.message}</p>
                   )}
                 </div>
-                <input placeholder="Autore/Compositore" className="c-input col-span-5" {...register(`programma.${idx}.autore`)} />
+                <input placeholder={t('iscr.ph.brano_autore', { defaultValue: 'Autore/Compositore' })} aria-label={t('iscr.aria.brano_autore', { defaultValue: 'Autore o compositore' })} className="c-input col-span-5" {...register(`programma.${idx}.autore`)} />
                 <input
-                  type="number" min={0} max={120} step={0.5} placeholder="min"
+                  type="number" min={0} max={120} step={0.5} placeholder={t('iscr.ph.brano_durata', { defaultValue: 'min' })}
+                  aria-label={t('iscr.aria.brano_durata', { defaultValue: 'Durata in minuti' })}
                   className="c-input col-span-2"
                   {...register(`programma.${idx}.durata_min`)}
                 />
@@ -761,7 +789,7 @@ export default function Iscrizione() {
                   className="col-span-12 text-xs text-rose-600 hover:text-rose-800 self-start text-left"
                   onClick={() => programmaArray.remove(idx)}
                 >
-                  − rimuovi
+                  {t('iscr.programma.remove_brano', { defaultValue: '− rimuovi' })}
                 </button>
               </div>
             ))}
@@ -771,56 +799,58 @@ export default function Iscrizione() {
             className="mt-2 text-xs font-medium text-brand-700 hover:text-brand-900"
             onClick={() => programmaArray.append({ titolo: '', autore: '', durata_min: undefined })}
           >
-            + Aggiungi brano
+            {t('iscr.programma.add_brano', { defaultValue: '+ Aggiungi brano' })}
           </button>
           <label className="c-field mt-4">
-            <span className="c-field__label">Note libere (opzionale)</span>
+            <span className="c-field__label">{t('iscr.field.note_libere', { defaultValue: 'Note libere (opzionale)' })}</span>
             <textarea
               className="c-textarea"
               rows={2}
-              placeholder="Qualsiasi informazione utile all'organizzazione"
+              placeholder={t('iscr.ph.note_libere', { defaultValue: "Qualsiasi informazione utile all'organizzazione" })}
               {...register('note_libere')}
             />
           </label>
-        </div>
+        </fieldset>
 
         {/* ── Sezione 5: Allegati ── */}
-        <SectionHeader num="5" title={t('iscr.section.5.title')} subtitle={t('iscr.section.5.subtitle')} />
-        <div className="bg-white border border-slate-200 rounded-3xl shadow-soft p-6">
+        <SectionHeader num="5" headingId="iscr-sec-5-h" title={t('iscr.section.5.title')} subtitle={t('iscr.section.5.subtitle')} />
+        <fieldset className="bg-white border border-slate-200 rounded-3xl shadow-soft p-6" style={{ minInlineSize: 'auto' }} aria-labelledby="iscr-sec-5-h">
+          <legend className="sr-only">{t('iscr.section.5.title')}</legend>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
 
-            <div className="c-field">
-              <span className="c-field__label">📷 Foto candidato</span>
-              <input ref={fileRefs.foto} type="file" accept="image/*" className="c-input" />
-              <p className="text-[11px] text-slate-500 mt-1">JPG/PNG/WebP, max 2 MB. Ridimensionata automaticamente.</p>
-            </div>
+            <label className="c-field">
+              <span className="c-field__label">{t('iscr.allegato.foto', { defaultValue: '📷 Foto candidato' })}</span>
+              <input ref={fileRefs.foto} type="file" accept="image/*" className="c-input" aria-label={t('iscr.allegato.foto_aria', { defaultValue: 'Foto candidato' })} />
+              <p className="text-[11px] text-slate-500 mt-1">{t('iscr.allegato.foto_hint', { defaultValue: 'JPG/PNG/WebP, max 2 MB. Ridimensionata automaticamente.' })}</p>
+            </label>
 
-            <div className="c-field">
-              <span className="c-field__label">📄 Documento d'identità</span>
-              <input ref={fileRefs.documento_identita} type="file" accept=".pdf,image/*" className="c-input" />
-              <p className="text-[11px] text-slate-500 mt-1">PDF/JPG/PNG, max 2 MB.</p>
-            </div>
+            <label className="c-field">
+              <span className="c-field__label">{t('iscr.allegato.documento', { defaultValue: "📄 Documento d'identità" })}</span>
+              <input ref={fileRefs.documento_identita} type="file" accept=".pdf,image/*" className="c-input" aria-label={t('iscr.allegato.documento_aria', { defaultValue: "Documento d'identità" })} />
+              <p className="text-[11px] text-slate-500 mt-1">{t('iscr.allegato.pdf_jpg_png_hint', { defaultValue: 'PDF/JPG/PNG, max 2 MB.' })}</p>
+            </label>
 
-            <div className="c-field">
-              <span className="c-field__label">💳 Ricevuta pagamento quota</span>
-              <input ref={fileRefs.ricevuta_pagamento} type="file" accept=".pdf,image/*" className="c-input" />
-              <p className="text-[11px] text-slate-500 mt-1">PDF/JPG/PNG, max 2 MB.</p>
-            </div>
+            <label className="c-field">
+              <span className="c-field__label">{t('iscr.allegato.ricevuta', { defaultValue: '💳 Ricevuta pagamento quota' })}</span>
+              <input ref={fileRefs.ricevuta_pagamento} type="file" accept=".pdf,image/*" className="c-input" aria-label={t('iscr.allegato.ricevuta_aria', { defaultValue: 'Ricevuta pagamento quota' })} />
+              <p className="text-[11px] text-slate-500 mt-1">{t('iscr.allegato.pdf_jpg_png_hint', { defaultValue: 'PDF/JPG/PNG, max 2 MB.' })}</p>
+            </label>
 
             {isMinore && (
-              <div className="c-field">
-                <span className="c-field__label">✍ Autorizzazione minore</span>
-                <input ref={fileRefs.autorizzazione_minore} type="file" accept=".pdf,image/*" className="c-input" />
-                <p className="text-[11px] text-slate-500 mt-1">Modulo firmato dal tutore. PDF/JPG/PNG, max 2 MB.</p>
-              </div>
+              <label className="c-field">
+                <span className="c-field__label">{t('iscr.allegato.autorizzazione', { defaultValue: '✍ Autorizzazione minore' })}</span>
+                <input ref={fileRefs.autorizzazione_minore} type="file" accept=".pdf,image/*" className="c-input" aria-label={t('iscr.allegato.autorizzazione_aria', { defaultValue: 'Autorizzazione minore' })} />
+                <p className="text-[11px] text-slate-500 mt-1">{t('iscr.allegato.autorizzazione_hint', { defaultValue: 'Modulo firmato dal tutore. PDF/JPG/PNG, max 2 MB.' })}</p>
+              </label>
             )}
 
           </div>
-        </div>
+        </fieldset>
 
         {/* ── Sezione 6: Privacy ── */}
-        <SectionHeader num="6" title={t('iscr.section.6.title')} subtitle={t('iscr.section.6.subtitle')} />
-        <div className="bg-white border border-slate-200 rounded-3xl shadow-soft p-6">
+        <SectionHeader num="6" headingId="iscr-sec-6-h" title={t('iscr.section.6.title')} subtitle={t('iscr.section.6.subtitle')} />
+        <fieldset className="bg-white border border-slate-200 rounded-3xl shadow-soft p-6" style={{ minInlineSize: 'auto' }} aria-labelledby="iscr-sec-6-h">
+          <legend className="sr-only">{t('iscr.section.6.title')}</legend>
           <div className="space-y-3">
 
             <label className="flex items-start gap-3 text-sm text-ink-800">
@@ -837,16 +867,16 @@ export default function Iscrizione() {
                 )}
               />
               <span>
-                <strong>Privacy *</strong> — Acconsento al trattamento dei dati personali secondo l'
-                <a href="/privacy" target="_blank" rel="noreferrer" className="text-brand-700 underline">informativa GDPR</a>
-                {' '}per le finalità di gestione del concorso.
+                <strong>{t('iscr.consenso.privacy_label', { defaultValue: 'Privacy *' })}</strong> {t('iscr.consenso.privacy_pre', { defaultValue: "— Acconsento al trattamento dei dati personali secondo l'" })}
+                <a href="/privacy" target="_blank" rel="noreferrer" className="text-brand-700 underline">{t('iscr.consenso.privacy_link', { defaultValue: 'informativa GDPR' })}</a>
+                {' '}{t('iscr.consenso.privacy_post', { defaultValue: 'per le finalità di gestione del concorso.' })}
               </span>
             </label>
-            {errors.consenso_privacy && <p className="text-xs text-rose-600">{errors.consenso_privacy.message}</p>}
+            {errors.consenso_privacy && <p role="alert" className="text-xs text-rose-600">{errors.consenso_privacy.message}</p>}
 
             <label className="flex items-start gap-3 text-sm text-ink-800">
               <input type="checkbox" className="mt-1 rounded border-slate-300" {...register('consenso_immagini')} />
-              <span>Autorizzo l'uso delle immagini (foto/video) realizzate durante il concorso per i materiali promozionali dell'ente.</span>
+              <span>{t('iscr.consenso.immagini', { defaultValue: "Autorizzo l'uso delle immagini (foto/video) realizzate durante il concorso per i materiali promozionali dell'ente." })}</span>
             </label>
 
             <label className="flex items-start gap-3 text-sm text-ink-800">
@@ -862,12 +892,12 @@ export default function Iscrizione() {
                   />
                 )}
               />
-              <span><strong>Regolamento *</strong> — Dichiaro di aver letto e accettato il regolamento del concorso.</span>
+              <span><strong>{t('iscr.consenso.regolamento_label', { defaultValue: 'Regolamento *' })}</strong> {t('iscr.consenso.regolamento_text', { defaultValue: '— Dichiaro di aver letto e accettato il regolamento del concorso.' })}</span>
             </label>
-            {errors.consenso_regolamento && <p className="text-xs text-rose-600">{errors.consenso_regolamento.message}</p>}
+            {errors.consenso_regolamento && <p role="alert" className="text-xs text-rose-600">{errors.consenso_regolamento.message}</p>}
 
           </div>
-        </div>
+        </fieldset>
 
         {/* Submit sticky */}
         <div className="sticky bottom-0 bg-gradient-to-t from-white via-white to-transparent pt-4 pb-2 -mx-2 px-2">
