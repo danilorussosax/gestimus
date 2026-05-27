@@ -7,6 +7,8 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { authApi } from '@/api/auth';
 import { setSentryUser } from '@/lib/sentry';
 import type { Role, User } from '@/types';
@@ -36,6 +38,7 @@ export const AuthContext = createContext<AuthContextValue | undefined>(undefined
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<AuthState>({ user: null, loading: true });
+  const { t } = useTranslation();
 
   // Bootstrap: la sessione vive in un cookie HttpOnly, quindi proviamo sempre
   // GET /auth/me al mount. 401 → nessuna sessione (utente anonimo).
@@ -91,13 +94,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // logout locale senza chiamata di rete, l'utente viene rediretto a /login.
   useEffect(() => {
     const handler = () => {
-      setState({ user: null, loading: false });
+      setState((prev) => {
+        // Notifica solo se c'era davvero una sessione attiva: evita toast
+        // duplicati se l'evento viene emesso più volte (es. richieste 401
+        // in parallelo) o quando l'utente è già anonimo.
+        if (prev.user) {
+          toast.error(
+            t('auth.session_expired', {
+              defaultValue: 'Sessione scaduta. Effettua di nuovo il login.',
+            }),
+          );
+        }
+        return { user: null, loading: false };
+      });
     };
     window.addEventListener('auth:expired', handler);
     return () => {
       window.removeEventListener('auth:expired', handler);
     };
-  }, []);
+  }, [t]);
 
   // Sentry user scope (id anonimizzato via SHA-256 in setSentryUser). No-op senza DSN.
   useEffect(() => {
