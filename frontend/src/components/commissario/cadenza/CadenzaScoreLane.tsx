@@ -70,7 +70,7 @@ export function CadenzaScoreLane({
 
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (disabled) return;
-    let next = value;
+    let next: number;
     if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') next = value - step;
     else if (e.key === 'ArrowRight' || e.key === 'ArrowUp') next = value + step;
     else if (e.key === 'Home') next = min;

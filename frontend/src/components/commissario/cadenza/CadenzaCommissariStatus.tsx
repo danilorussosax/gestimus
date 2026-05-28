@@ -82,8 +82,8 @@ export function CadenzaCommissariStatus({ fase, commissione, allCfs, valutazioni
                   )}
                 </div>
                 <div className="h-1 mt-1 bg-secondary rounded-full overflow-hidden flex">
-                  <div className="h-full bg-emerald-600" style={{ width: completiPct + '%' }} />
-                  <div className="h-full bg-amber-500" style={{ width: parzialiPct + '%' }} />
+                  <div className="h-full bg-emerald-600" style={{ width: `${completiPct}%` }} />
+                  <div className="h-full bg-amber-500" style={{ width: `${parzialiPct}%` }} />
                 </div>
               </div>
               <span className="font-mono text-[10.5px] text-muted-foreground tabular-nums shrink-0">

@@ -81,7 +81,7 @@ export function CadenzaRailTimer({ faseId, isPresidente, candidatoFaseId, tempoM
         beepedRef.current = null;
       }
       void qc.invalidateQueries({ queryKey: ['fase-runtime', faseId] });
-      void refetch();
+      refetch();
     } catch (err) {
       toast.error(t('com.timer.action_error', {
         defaultValue: 'Azione timer fallita',
