@@ -174,7 +174,7 @@ export default function Login() {
             <img
               src="./logo.png"
               alt=""
-              className="w-20 h-20 rounded-3xl shadow-2xl ring-4 ring-white/40 object-contain bg-white/10"
+              className="w-20 h-20 rounded-3xl shadow-2xl ring-4 ring-white/40 object-contain bg-white p-2"
             />
             <h2
               style={{ color: '#fff' }}
@@ -223,7 +223,7 @@ export default function Login() {
             <img
               src="./logo.png"
               alt=""
-              className="w-14 h-14 rounded-2xl shadow-soft ring-2 ring-brand-100 object-contain"
+              className="w-14 h-14 rounded-2xl shadow-soft ring-2 ring-brand-100 object-contain bg-white p-1.5"
             />
             <div>
               <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-brand-700 font-bold">
