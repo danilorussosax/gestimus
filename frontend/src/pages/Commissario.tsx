@@ -70,6 +70,10 @@ import { HistoryCard } from '@/components/commissario/HistoryCard';
 import { CountdownConfirm } from '@/components/commissario/CountdownConfirm';
 import { WaitingPanel } from '@/components/commissario/WaitingPanel';
 import { AllDonePanel } from '@/components/commissario/AllDonePanel';
+import {
+  CadenzaScoringSheet,
+  CadenzaPresidentePanel,
+} from '@/components/commissario/cadenza';
 
 // ── Scoring helpers (modulo @/lib/scoring) ──────────────────────────────────
 // Adapter tipato direttamente dal modulo reale via `typeof import(...)`: niente
@@ -1231,7 +1235,7 @@ export default function Commissario() {
       <section className="view-fade c-page max-w-7xl mx-auto" data-pres-fullpage="1">
         {eventToasters}
         {isPresidenteFase ? (
-          <PresidentePanel
+          <CadenzaPresidentePanel
             concorso={concorso}
             fasi={fasiPresidente}
             commissioni={commissioniList}
@@ -1279,7 +1283,7 @@ export default function Commissario() {
       return (
         <section className="view-fade c-page max-w-7xl mx-auto" data-pres-fullpage="1">
           {eventToasters}
-          <PresidentePanel
+          <CadenzaPresidentePanel
             concorso={concorso}
             fasi={fasiPresidente}
             commissioni={commissioniList}
@@ -1375,7 +1379,7 @@ export default function Commissario() {
           commById={commById}
           invalidateAll={invalidateAll}
           presidentePanelSlot={
-            <PresidentePanel
+            <CadenzaPresidentePanel
               concorso={concorso}
               fasi={fasiPresidente}
               commissioni={commissioniList}
@@ -1400,7 +1404,7 @@ export default function Commissario() {
           evaluatedCount={myEvaluated.length}
           faseNome={fase.nome}
           presidentePanelSlot={
-            <PresidentePanel
+            <CadenzaPresidentePanel
               concorso={concorso}
               fasi={fasiPresidente}
               commissioni={commissioniList}
@@ -1433,7 +1437,7 @@ export default function Commissario() {
     <div className="max-w-7xl mx-auto">
       {eventToasters}
       {isPresidenteFase && (
-        <PresidentePanel
+        <CadenzaPresidentePanel
           concorso={concorso}
           fasi={fasiPresidente}
           commissioni={commissioniList}
@@ -1442,13 +1446,13 @@ export default function Commissario() {
           onFaseChanged={invalidateAll}
         />
       )}
-      <ScoringSheet
+      <CadenzaScoringSheet
         key={`${fase.id}-${currentCf.id}`}
         concorso={concorso}
         fase={faseWithCriteri}
         commissario={commissario}
         cf={currentCf}
-        candidato={candidato}
+        candidato={candidato ?? null}
         isPresidente={isPresidenteFase}
         myEvaluated={myEvaluated}
         allCfs={faseCfList}
