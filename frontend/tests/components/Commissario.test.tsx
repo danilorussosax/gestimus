@@ -240,15 +240,34 @@ class FakeEventSource {
   close() { /* noop */ }
 }
 
-// TODO: questi test interrogano la vecchia UI inline di Commissario
-// (selettori "Valutazione rapida", "salva e prossimo candidato", range slider).
-// Dopo il porting Cadenza (CadenzaScoringSheet con score-lane custom) i
-// selettori non matchano più. Rewrite pending: aggiornare i query a:
-// - "Salva e prossimo" (button) + CountdownConfirm overlay (immutato);
-// - CadenzaScoreLane (no input[type=range], usa click/drag su barra);
-// - testi context-strip al posto del banner "Valutazione rapida".
-// La logica di save/POST/payload è invariata; il dominio è coperto dai test
-// integration server (api/valutazioni). Skip dichiarato, non perdita silente.
+// =============================================================================
+// TODO REWRITE: questi 6 test esercitano la vecchia UI inline di Commissario
+// (rimossa nel porting Cadenza, commit 7638c13). Dopo lo swap a
+// CadenzaScoringSheet / CadenzaPresidentePanel i selettori non matchano più.
+//
+// Roadmap per il rewrite (mappa OLD → NEW):
+//   • range input «<input type="range">»  →  CadenzaScoreLane con role="slider":
+//       const lanes = screen.getAllByRole('slider');   // 1 per criterio
+//       fireEvent.keyDown(lanes[0], { key: 'End' });   // valore = scala (max)
+//       fireEvent.keyDown(lanes[0], { key: 'Home' });  // valore = min
+//       fireEvent.keyDown(lanes[0], { key: 'ArrowRight' }); // +1 step
+//       (CadenzaScoreLane.tsx onKeyDown: Arrow/Home/End/PageUp/PageDown)
+//   • "Valutazione rapida"            →  context-strip header (rimosso il banner).
+//   • "salva e prossimo candidato"    →  "Salva e prossimo" (Button).
+//   • "reset valori"                  →  manca un reset esplicito in Cadenza
+//                                         (Reset valori non è più nel layout;
+//                                          verificare prop onReset).
+//   • CountdownConfirm overlay        →  invariato (il porting wrappa il save
+//                                         con CountdownConfirm: stessa shape,
+//                                         "Conferma valutazione" + countdown).
+//   • POST payload                    →  invariato {candidatoFaseId, commissarioId,
+//                                         voti{key:n}, note?} via saveValutazione.
+//
+// Setup: i mock React Query/useCommissarioData già rendono il path scoring.
+// I 6 test sotto sono solo polish UI: la logica save/POST/freeze è coperta
+// dai test integration server (tests/crud/valutazioni.test.ts, triggers.test.ts).
+// Skip dichiarato (non perdita silente). Rewrite when needed.
+// =============================================================================
 describe.skip('Commissario (scoring page) — porting Cadenza, UI selectors da riallineare', () => {
   beforeEach(() => {
     toastSuccess.mockClear();
