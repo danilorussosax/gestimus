@@ -1,8 +1,8 @@
 # Gestimus — Backend (Postgres + Fastify + Drizzle)
 
-Backend di produzione. Per il contesto strategico e il piano di migrazione storico, vedi [`../docs/MIGRATION_POSTGRES.md`](../docs/MIGRATION_POSTGRES.md).
+Backend di produzione. Per il quadro complessivo vedi [`../README.md`](../README.md); per l'onboarding dev locale [`../ONBOARDING.md`](../ONBOARDING.md); per il provisioning IONOS [`../docs/DEPLOY-IONOS.md`](../docs/DEPLOY-IONOS.md).
 
-**Status:** stack stabilizzato sul nuovo backend Postgres + Fastify + Drizzle. UI super-admin con metriche realtime. Schema iscrizioni esteso. Permessi per-fase granulari (admin + presidente di commissione). 2FA TOTP, calendario/scheduling con board drag-and-drop, audit-log tamper-evident (HMAC per riga).
+**Status:** stack stabilizzato su Postgres + Fastify + Drizzle. UI super-admin con metriche realtime e **piani SaaS configurabili da UI** (non più hard-coded). Schema iscrizioni esteso. Permessi per-fase granulari (admin + presidente di commissione). 2FA TOTP, calendario/scheduling con board drag-and-drop, audit-log tamper-evident (HMAC per riga). Service layer su valutazioni + transactional outbox; pacchetto condiviso `@gestimus/scoring` come single source of truth client+server.
 
 ## Stack
 
@@ -91,9 +91,11 @@ npm run dev
 
 ### 7. Accesso al frontend
 
-Il backend serve anche i file statici della root del progetto (`index.html`, `js/`, `css/`, `/uploads/*`). Apri il browser su:
+In **dev** la SPA React gira su Vite (`:5173`) con proxy verso il backend (`:4000`); apri il browser su `http://ente1.gestimus.local:5173/` (vedi `../ONBOARDING.md` per i sottodomini + dev-proxy nginx+dnsmasq).
 
-- **`http://ente1.gestimus.local:4000/`** → app di un ente
+In **produzione** il backend serve la SPA buildata direttamente da `frontend/dist/` insieme a `/uploads/*` via `@fastify/static`:
+
+- **`http://ente1.gestimus.local:4000/`** → app di un ente (build statica)
 - `http://ente2.gestimus.local:4000/` → altro ente (isolato via RLS)
 - `http://platform.gestimus.local:4000/` → super-admin
 
@@ -184,10 +186,11 @@ Tutti i path sono sotto `/api/`. Richiedono cookie di sessione. Mutazioni (POST/
 | Fase runtime | `GET /api/fasi/:id/runtime`, `POST /api/fasi/:id/timer/{start,pause,resume,reset,bonus}`, `POST /api/fasi/:id/sorteggio`, `PATCH /api/fasi/reorder` | Timer fase con stato server-side + NOTIFY SSE. Sorteggio mulberry32 seedato per ordine candidati. Reorder PATCH multi-fase. |
 | Membri gruppo | `/api/membri-gruppo?candidatoId=...` | CRUD membri di candidato gruppo (richiede `candidati.isGruppo=true`). |
 | Ente | `GET /api/ente`, `PATCH /api/ente`, `GET /api/ente/public`, `PATCH /api/ente/branding` | Settings ente del tenant + branding pubblico accessibile pre-login. |
-| Iscrizioni (pubblico) | `GET /api/public/concorsi`, `GET /api/public/concorsi/:id`, `POST /api/public/iscrizioni`, `POST /api/public/iscrizioni/:token/verify` | Form auto-service **senza auth**. Anti-spam: honeypot + min-time-on-page (3s) + rate-limit (3/h per IP). GDPR Art. 8: tutore obbligatorio sotto i 16 anni. Schema esteso: `luogoNascita`, `sesso`, `codiceFiscale`, `indirizzo`, `citta`, `cap`, `provincia`, `paese`, `anniStudio`, `scuolaProvenienza`, `gruppoNome`, `noteLibere`. Validazione cross-concorso + auto-derive sezione dalla categoria. **Email di verifica inviata** (best-effort post-commit) via SMTP del tenant con link `#/iscrizione/verify?t=…`; il token non è mai restituito in risposta. La verifica è una **POST** (non GET → niente attivazione passiva da prefetch/scanner). |
+| Iscrizioni (pubblico) | `GET /api/public/concorsi`, `GET /api/public/concorsi/:id`, `POST /api/public/iscrizioni`, `POST /api/public/iscrizioni/:token/verify` | Form auto-service **senza auth**. Anti-spam: honeypot + min-time-on-page (3s) + rate-limit (3/h per IP). GDPR Art. 8: tutore obbligatorio sotto i 16 anni. Schema esteso: `luogoNascita`, `sesso`, `codiceFiscale`, `indirizzo`, `citta`, `cap`, `provincia`, `paese`, `anniStudio`, `scuolaProvenienza`, `gruppoNome`, `noteLibere`. Validazione cross-concorso + auto-derive sezione dalla categoria. **Email di verifica inviata** (best-effort post-commit) via SMTP del tenant con link path `/iscrizione/verify?t=…` (BrowserRouter, niente hash); il token non è mai restituito in risposta. La verifica è una **POST** (non GET → niente attivazione passiva da prefetch/scanner). |
 | Iscrizioni (admin) | `GET /api/iscrizioni`, `POST /api/iscrizioni/:id/approve`, `POST /api/iscrizioni/:id/reject`, `GET /api/iscrizioni/:id/allegati`, `GET /api/iscrizioni/allegati/:id/download` | Lista filtrabile per concorso/stato. **Approve crea automaticamente il candidato** con numero progressivo. Allegati: lista metadata + **download solo admin** (documenti privati, non statici). |
 | Allegati iscrizione (pubblico) | `POST /api/public/iscrizioni/:uploadToken/allegati?tipo=foto\|documento\|ricevuta\|altro` (multipart, field `file`) | Upload no-auth autorizzato dal `uploadToken` (capability ritornato dalla submit). Rate-limit + cap 6/iscrizione + validazione mime/magic-byte/size (`saveFile`). File **privati** sotto `uploads/<tenant>/iscrizione/<id>/` (esclusi dallo static). GDPR: export metadata, erase cancella file+righe. |
 | Platform metrics | `GET /api/platform/system`, `GET /api/platform/runtime` | Solo super-admin. `system` campiona `process.cpuUsage()` su 200ms per restituire CPU% del processo + RSS/heap + uptime. `runtime` aggrega req/min, latency p50/p95, error rate per tenant su sliding window 60s (in memoria, niente persistence). |
+| Piani SaaS | `GET/POST/PATCH/DELETE /api/platform/piani`, `POST /api/platform/tenants/:id/applica-piano` | **Solo super-admin**. CRUD sui piani (`max_concorsi`, `max_iscritti_annui`, `ppe_setup_per_concorso`, `ppe_per_iscritto`); applicando un piano a un tenant i limiti vengono copiati in `tenant_config`. Non scavalcabili dagli admin di tenant. Seed iniziale via `npm run db:seed` / CI (script `seed-piani.ts`). |
 | Calendario (admin) | `/api/calendario/sale`, `/api/calendario/eventi` (+ `:id/genera-slot`, `:id/riordina-slot`), `/api/calendario/pubblicazioni` | Scheduling a due livelli (eventi × sale) + generazione/riordino slot. CRUD solo `role=admin`. `pubblicazioni` controlla cosa è esposto nella pagina pubblica. |
 | Calendario (pubblico) | `GET /api/public/calendario/:token` | Board di pianificazione consultabile **senza auth** via token di pubblicazione (rate-limit 60/min). |
 
@@ -198,8 +201,11 @@ Ogni mutazione produce automaticamente una entry in `audit_log` con `actor_accou
 - **Clamp voto**: trigger `trg_clamp_voto` su `valutazioni` forza `voto ∈ [0, fase.scala]` anche se il client bypassa la route. La colonna `voto` è `numeric(5,2)` per supportare mezzi punti su scale ≤ 10.
 - **Freeze fase CONCLUSA**: trigger `trg_freeze_valutazioni` solleva su INSERT/UPDATE/DELETE quando la fase è in stato `CONCLUSA`.
 - **No-resurrection fase**: trigger `trg_fase_no_resurrection` impedisce transizioni `CONCLUSA → IN_CORSO/PIANIFICATA`.
+- **Hardening avvio fase**: le precondizioni del presidente (commissione presente, criteri, fase precedente conclusa, candidati attesi) sono verificate server-side nella stessa transazione del cambio stato — niente "drift" tra pre-flight UI e stato reale.
 - **Audit append-only**: `REVOKE UPDATE, DELETE ON audit_log, platform_audit_log FROM gestimus_app` → solo super-admin può cancellare (per finalità GDPR).
 - **Audit tamper-evident**: ogni riga di `audit_log` porta un HMAC (catena per-tenant) calcolato server-side; lo scrub GDPR (`/api/privacy/erase`) redige le PII storiche e **ri-firma** le righe per mantenere la catena verificabile.
+- **Scoring server-side autoritativo**: il calcolo medie/spareggi gira nel pacchetto condiviso `@gestimus/scoring` invocato lato server come "fonte di verità"; il client lo importa per UX ma non può imporre un risultato.
+- **Optimistic locking**: tabelle a rischio race (iscrizioni con `approveAt`, transizioni fase) sono protette da version/`updated_at` check per evitare scritture concorrenti che si sovrascrivono.
 
 ### Permessi granulari per-fase
 
@@ -305,9 +311,14 @@ npm run db:push
 - ✅ **Fase 6**: super-admin UI (gestione enti, soft-delete + cleanup, SMTP, stats, 2FA TOTP)
 - ✅ **Fase 7**: stabilizzazione — permessi per-fase granulari, schema iscrizioni esteso, candidato N:1 sezione/categoria, finalizzazione candidati_fase al conclude, doppia conferma type-to-delete, branding merge JSONB, validazioni cross-concorso, CSV import con tipo gruppo
 - ✅ **Fase 8**: metriche realtime — endpoint `/api/platform/system` (CPU sampling 200ms), `/api/platform/runtime` (sliding window 60s per-tenant), sparkline client + KPI per-tenant
-- ✅ **Fase 9**: hardening + GDPR — 2FA TOTP (`/auth/totp/*`), audit-log tamper-evident (HMAC per riga + ri-firma sullo scrub), export/erase GDPR, backup tenant in streaming + restore disaster-recovery
+- ✅ **Fase 9**: hardening + GDPR — 2FA TOTP (`/auth/totp/*`), audit-log tamper-evident (HMAC per riga + ri-firma sullo scrub), export/erase GDPR self-service, backup tenant in streaming + restore disaster-recovery, key rotation sessione
 - ✅ **Fase 10**: calendario / scheduling — board drag-and-drop a due livelli (eventi × sale), generazione slot, pagina pubblica via token, export PDF
-- ✅ **Email verifica iscrizioni**: invio reale (best-effort post-commit) via SMTP tenant-aware + `services/email.ts`, link `#/iscrizione/verify?t=…`, verifica via POST.
+- ✅ **Email verifica iscrizioni**: invio reale (best-effort post-commit) via SMTP tenant-aware + `services/email.ts`, link path `/iscrizione/verify?t=…`, verifica via POST
+- ✅ **Refactor architettura**: pacchetto condiviso `@gestimus/scoring`, service layer su valutazioni, transactional outbox + domain events, zod-helpers condivisi, cattura Sentry dei failure silenziosi
+- ✅ **Piani SaaS configurabili**: tabella `piani` (CRUD super-admin) + endpoint `applica-piano`, seed CI/fresh-prod via `seed-piani.ts`, vincoli enforced server-side
+- ✅ **Commissario UI rewrite**: porting Cadenza (slider/preset scoring + pannello presidente + riepilogo fasi CONCLUSA con esiti, no verdetto soglia durante voto)
+- ✅ **Realtime SSE**: path corretto a `/api/realtime/...` (era `/realtime/...` muto)
+- ✅ **TLS wildcard**: `deploy/install.sh` con `TLS_MODE=wildcard` (DNS-01 IONOS) per `*.gestimus.it`
 
 ## Smoke checklist manuale (Fase 5c)
 
@@ -317,7 +328,7 @@ Dopo `npm run dev`, apri `http://ente1.gestimus.local:4000/` e verifica i flussi
 - [ ] Login `admin@ente1.test` / `Admin123!`
 - [ ] Crea concorso → sezione → categoria → commissario → candidato → fase → criterio
 - [ ] Apri iscrizioni del concorso (toggle dall'UI)
-- [ ] Apri (in altra finestra/incognito) `http://ente1.gestimus.local:4000/#/iscrizione?concorso_id=…` e compila un'iscrizione di prova
+- [ ] Apri (in altra finestra/incognito) `http://ente1.gestimus.local:4000/iscrizione?concorso_id=…` e compila un'iscrizione di prova
 - [ ] Torna come admin → vedi l'iscrizione in lista, clicca "Approva" → candidato creato automaticamente
 - [ ] Avvia una fase, avvia timer → in un'altra tab dello stesso ente lo stato si aggiorna via SSE
 

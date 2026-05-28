@@ -1,12 +1,12 @@
 # Manuale Amministratore — Gestimus
 
-> **Versione manuale**: 2.2
-> **Data**: 26 maggio 2026
+> **Versione manuale**: 2.3
+> **Data**: 28 maggio 2026
 > **Destinatari**: Amministratori di tenant Gestimus (conservatori, accademie, festival, enti che organizzano concorsi musicali).
 > **Lingua interfaccia**: italiano, inglese, francese, spagnolo (vedi cap. 14).
-> **Stack attuale**: Fastify 5 + PostgreSQL 18 + Drizzle ORM (migrato da PocketBase a maggio 2026).
+> **Stack attuale**: Fastify 5 + PostgreSQL 18 + Drizzle ORM + React 19/Vite/Tailwind 4 (migrato da PocketBase a maggio 2026, vanilla JS dismessa).
 
-Questo manuale spiega come configurare e condurre un concorso musicale completo con Gestimus dal punto di vista dell'**amministratore di tenant** (ruolo `admin`). Non è un manuale di installazione: per setup e deploy fare riferimento a `README.md`, `server/README.md` e `docs/DEPLOY-IONOS.md`.
+Questo manuale spiega come configurare e condurre un concorso musicale completo con Gestimus dal punto di vista dell'**amministratore di tenant** (ruolo `admin`). Non è un manuale di installazione: per setup e deploy fare riferimento a `README.md`, `ONBOARDING.md`, `server/README.md` e `docs/DEPLOY-IONOS.md`.
 
 > **Novità v2.0** (rispetto a v1.0 PocketBase):
 > - **Presidente per-commissione**, non più per-concorso. Ogni commissione ha il proprio presidente, che può avviare/concludere/sortire le SUE fasi (oltre all'admin).
@@ -26,6 +26,14 @@ Questo manuale spiega come configurare e condurre un concorso musicale completo 
 > - Screenshot rigenerati dal frontend **React** (Vite + Tailwind, BrowserRouter), che ha sostituito la vecchia SPA vanilla JS.
 > - Allineamento testo allo stack attuale: routing a path (`/admin`, `/iscrizione`…), stati iscrizione (`INVIATA`/`EMAIL_VERIFICATA`/`APPROVATA`/`RIFIUTATA`), i18n via react-i18next, riferimenti di codice aggiornati.
 
+> **Novità v2.3** (28 maggio 2026):
+> - **Piani SaaS configurabili da super-admin** (cap. 12.7): non più hard-coded — tabella `piani`, CRUD da UI piattaforma, assegnazione tenant via `applica-piano`. Limiti enforced server-side, non scavalcabili dagli admin di tenant.
+> - **Commissario UI riscritta** (cap. 5/7/22): porting Cadenza. Scoring con slider + preset chip + barra criteri + autosave. **Niente verdetto soglia % durante il voto** (no bias). Pannello presidente con pre-flight check + timer + sorteggio + conclusione fase.
+> - **Riepilogo fasi CONCLUSA con esiti** visibile a commissario e presidente (read-only, fase chiusa).
+> - **Hardening avvio fase**: precondizioni del presidente verificate server-side nella stessa transazione del cambio stato (niente drift tra UI pre-flight e stato reale).
+> - **Sicurezza**: scoring server-side autoritativo via `@gestimus/scoring`, GDPR export/erase self-service, key rotation sessione, transactional outbox sulle valutazioni.
+> - **SSE** ora su path `/api/realtime/...` (era `/realtime/...` muto; impatto: zero per gli admin, ma chi consulta i log lo nota).
+
 ## Indice
 
 1. [Introduzione](#1-introduzione)
@@ -44,7 +52,8 @@ Questo manuale spiega come configurare e condurre un concorso musicale completo 
 14. [Multi-lingua](#14-multi-lingua)
 15. [Sicurezza e integrità dati](#15-sicurezza-e-integrita-dati)
 16. [Calendario e scheduling](#16-calendario-e-scheduling)
-17. [FAQ e troubleshooting](#17-faq-e-troubleshooting)
+17. [Vista commissario e pannello presidente](#17-vista-commissario-e-pannello-presidente)
+18. [FAQ e troubleshooting](#18-faq-e-troubleshooting)
 
 <!-- page-break -->
 
@@ -72,7 +81,7 @@ Gestimus distingue tre ruoli nella tabella `accounts`:
 
 - **Frontend**: SPA React 19 (Vite + Tailwind), routing a path con BrowserRouter (`/`, `/admin`, `/commissario`, `/iscrizione`), servita da Fastify da `frontend/dist`. Service worker per PWA e fallback offline; aggiornamenti realtime via Server-Sent Events.
 - **Backend**: singolo processo Node.js 22 + Fastify 5 + Drizzle ORM su PostgreSQL 18. Integrità garantita da middleware (`assertCanManageFase`, `requireAdmin`), trigger DB (`clamp_voto`, freeze fase CONCLUSA) e validazione Zod sulle route REST.
-- **Multitenant**: un solo processo Node + un solo database Postgres condiviso, con isolamento per `tenant_id` via Row-Level Security. Provisioning/sospensione/archiviazione dei tenant interamente dalla UI super-admin (vedi `docs/MIGRATION_POSTGRES.md` per i dettagli).
+- **Multitenant**: un solo processo Node + un solo database Postgres condiviso, con isolamento per `tenant_id` via Row-Level Security. Provisioning/sospensione/archiviazione dei tenant interamente dalla UI super-admin (vedi `server/README.md` per i dettagli tecnici).
 
 ![Schermata di login](./screenshots/01-login.png)
 
@@ -546,6 +555,8 @@ Il pannello mostra per ogni fase PIANIFICATA una lista di check con icone ✓ / 
 
 Se ci sono blocchi (✗) il pulsante *Avvia* è disabilitato con tooltip esplicativo. Warning (⚠) non bloccano ma vengono segnalati.
 
+> **v2.3 — Hardening avvio fase**: dalla v2.3 le stesse precondizioni sono verificate **server-side nella stessa transazione** del cambio stato `PIANIFICATA → IN_CORSO`. Anche se l'UI mostrasse pre-flight verde per un istante "stale" (es. commissione appena svuotata da un altro admin), il server rifiuta l'avvio. Risultato: niente fase avviata su precondizioni rotte.
+
 ### 7.10 Modalità autonoma vs sincrona
 
 **Autonoma** (default consigliato):
@@ -989,20 +1000,24 @@ La tab *Impostazioni concorso* (sotto la sidebar del concorso, non delle Imposta
 
 ### 12.7 Piano SaaS
 
-Il piano è impostato dal superadmin di piattaforma (non dall'admin di tenant). L'admin lo vede tramite il record singleton `tenant_config` che contiene:
+Il piano è impostato dal **super-admin di piattaforma** (non dall'admin di tenant). Dalla v2.3 i piani **non sono più hard-coded**: vivono nella tabella `piani` ed esistono solo perché il super-admin li ha creati dalla UI piattaforma (tab *Piani*). Assegnando un piano a un tenant, i limiti del piano vengono **copiati** nel record `tenant_config`.
 
-- `piano` (trial, starter, pro, ultra, ppe);
+`tenant_config` contiene:
+
+- `piano` (slug del piano, es. `trial`, `starter`, `pro`, `ultra`, `ppe`);
 - `piano_inizio`, `piano_scadenza`, `grace_giorni`;
 - `limit_concorsi`, `limit_iscritti_annui`;
-- `ppe_setup_per_concorso`, `ppe_per_iscritto` (per il piano pay-per-event).
+- `ppe_setup_per_concorso`, `ppe_per_iscritto` (pay-per-event).
 
-Le quote sono **applicate server-side**:
+Le quote sono **applicate server-side e non scavalcabili dagli admin** del tenant:
 
 - `limit_concorsi`: blocco alla creazione di un nuovo concorso se i concorsi non `CONCLUSO` raggiungono il limite;
 - `limit_iscritti_annui`: blocco alla creazione di una nuova iscrizione se il ciclo annuale (dall'anniversario di `piano_inizio`) supera il limite. Un'iscrizione gruppo conta come N persone (i `gruppo_membri`);
 - `piano_scadenza + grace_giorni`: bloccate tutte le creazioni di concorsi e iscrizioni.
 
-I messaggi di errore sono espliciti: "Limite del piano raggiunto: 50/50 iscritti..." / "Piano scaduto il 15/03/2026...".
+I messaggi di errore sono espliciti: `Limite del piano raggiunto: 50/50 iscritti...` / `Piano scaduto il 15/03/2026...`.
+
+> **Cambio piano**: il super-admin modifica i limiti del piano (o assegna un piano diverso al tenant) dalla UI piattaforma. Le quote in `tenant_config` vengono aggiornate immediatamente. Se le quote sembrano stantie: logout/login (la sessione admin può aver letto un valore cached).
 
 ### 12.8 SMTP *(v2.0)*
 
@@ -1128,7 +1143,52 @@ Dalla board si esporta il calendario in **PDF** (giorni × sale, con gli slot de
 
 <!-- page-break -->
 
-## 17. FAQ e troubleshooting
+## 17. Vista commissario e pannello presidente *(v2.3)*
+
+La UI commissario e il pannello presidente sono stati riscritti sul pattern Cadenza (porting completato 27 maggio 2026). Questo capitolo riassume cosa vedono i commissari e i presidenti, così l'admin sa cosa aspettarsi e può rispondere alle domande.
+
+### 17.1 Vista commissario
+
+![Vista commissario — scoring](./screenshots/22-commissario-eval.png)
+
+- **Sidebar**: lista candidati della fase in corso, con stato per candidato (da valutare / completato / saltato in modalità sincrona).
+- **Pannello voto**: per ogni criterio una riga con **slider** + **chip preset** (es. 6 · 7 · 8 · 9 · 10, dipende dalla scala). La barra in alto mostra il totale pesato live.
+- **Autosave**: ogni cambio di voto viene salvato automaticamente con debounce; lo stato di salvataggio (Salvato · Salvataggio · Errore) è visibile sopra il pannello.
+- **Niente verdetto soglia % durante il voto**: la pillola "Promosso/Eliminato" basata su una soglia % non viene mostrata mentre si vota — è una scelta deliberata per evitare bias. Il verdetto compare solo nel **riepilogo fase CONCLUSA** (sotto).
+- **Modalità sincrona**: il commissario vede solo il candidato che sta valutando la commissione; "il prossimo" viene avanzato dal presidente.
+- **Modalità autonoma**: il commissario procede al proprio ritmo, può tornare indietro su candidati già votati finché la fase è IN_CORSO.
+
+### 17.2 Pannello presidente
+
+![Pannello presidente con controllo sessione](./screenshots/23-presidente-panel.png)
+
+Visibile solo ai commissari che sono presidente di almeno una commissione. Per ogni fase che assegna la sua commissione:
+
+- **Pre-flight check** (cap. 7.9) — semafori ✓/⚠/✗ per commissione, criteri, fase precedente, candidati attesi.
+- **Avvia fase** — disabilitato se ci sono blocchi; alla pressione, server verifica le precondizioni nella **stessa transazione** del cambio stato (hardening v2.3).
+- **Timer** — durante IN_CORSO: start automatico al cambio candidato, pulsanti *Pausa / Riprendi / +1 min / Reset* (solo presidente; gli altri commissari vedono solo il countdown).
+- **Sorteggio** — bottone *🎲 Sorteggio* riassegna l'ordine `candidati_fase` con seed riproducibile (mulberry32).
+- **Cambia candidato** (modalità sincrona) — avanza al prossimo, propaga via SSE a tutta la commissione.
+- **Concludi fase** — modale di conferma con statistiche di completamento + checkbox di responsabilità. Al conferma: stato → CONCLUSA, timer reset, voti freezati lato DB.
+
+### 17.3 Riepilogo fasi CONCLUSA con esiti
+
+Una volta che una fase passa a `CONCLUSA`, sia il commissario sia il presidente vedono il **riepilogo read-only** della fase:
+
+- Classifica ordinata per media discendente, con esito **PROMOSSO / ELIMINATO** per candidato (calcolato server-side dal pacchetto `@gestimus/scoring`, non dal client).
+- Eventuali spareggi (cap. 7.15) mostrati con icona ⚖ e tooltip motivazione.
+- Ex aequo evidenziati in viola.
+- **Nessuna possibilità di alterare i voti**: trigger DB `freeze_valutazioni_on_fase_conclusa`.
+
+### 17.4 Cosa cambia per l'admin
+
+- **Nessuna** modifica al flusso admin: avvio/conclusione/sorteggio fasi da pannello admin restano identici (con la stessa garanzia di hardening server-side).
+- I commissari che chiedono "perché non vedo più la pillola Promosso/Eliminato durante il voto" hanno la risposta sopra: la pillola compare solo dopo la chiusura della fase.
+- I presidenti che chiedono "il timer parte da solo" hanno ragione: in modalità sincrona, cambiare candidato fa partire il timer automaticamente (era così anche prima, ma ora è più visibile).
+
+<!-- page-break -->
+
+## 18. FAQ e troubleshooting
 
 ### Il presidente non vede il pulsante "Avvia"
 
@@ -1207,11 +1267,12 @@ Non c'è un cestino. L'eliminazione è cascata sul database. Soluzioni:
 
 ### Il superadmin ha cambiato piano ma le quote non si aggiornano
 
-Il piano è memorizzato direttamente nella riga `tenants.piano` (JSONB): le modifiche del super-admin sono immediatamente visibili al middleware di plan gating (nessuna propagazione asincrona). Se le quote sembrano stantie:
+Dalla v2.3 i piani vivono in tabella `piani` e i limiti vengono **copiati** nel record `tenant_config` quando il super-admin esegue *applica-piano*. Se le quote sembrano stantie:
 
-- il super-admin ha effettivamente salvato dal pannello (controlla in `tenants` il valore di `piano`);
-- la sessione admin del tenant ha letto il piano cached (logout/login risolve);
-- log del server: cerca `plan-gating: quota exceeded` o errori di scrittura su `tenants`.
+- verifica che il super-admin abbia effettivamente eseguito *applica piano* dopo aver modificato i limiti (la sola modifica di `piani` non si propaga finché non riassegni il piano al tenant);
+- controlla in `tenant_config` i valori effettivi (`limit_concorsi`, `limit_iscritti_annui`, ecc.);
+- la sessione admin del tenant ha letto il piano cached: logout/login risolve;
+- log del server: cerca `plan-gating: quota exceeded` o errori su `tenant_config`.
 
 ### Dove trovo il manuale dentro l'app?
 

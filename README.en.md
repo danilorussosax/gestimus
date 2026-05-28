@@ -30,6 +30,7 @@ The architecture is **multitenant native**: a single backend hosts N independent
 - Manage tenants from a UI (create, edit, suspend, archive with configurable cleanup)
 - SMTP configuration **per tenant** (different providers per institution), credentials encrypted at-rest
 - Create tenant admins without server shell access
+- **SaaS plans configured from the UI** (`piani` table, super-admin CRUD): limits `max_concorsi`, `max_iscritti_annui`, `ppe_*`; assigning a plan to a tenant copies the limits into `tenant_config`. Enforced server-side and not bypassable by tenant admins.
 - Aggregated stats (competitions, judges, candidates per tenant)
 - **Real-time metrics**: gradient KPI cards with Node process RSS/CPU plus 5-min sparkline (5s polling); per-tenant `req/min`, `latency p50/p95`, `error rate` from global Fastify hooks
 - Platform audit log separated from per-tenant audit
@@ -49,10 +50,13 @@ The architecture is **multitenant native**: a single backend hosts N independent
 - **Tenant branding**: logo + colors + contact data in JSONB
 - **Append-only tamper-evident audit log** (per-row HMAC chain)
 
-### 🎼 Judge
+### 🎼 Judge / Chair
 - **Autonomous** judging or **synchronous** (piloted by the chair)
 - **Phase timer** shared in real time via Postgres `LISTEN/NOTIFY` + SSE
 - Score per criterion with configurable weights (sum = 100%), decimal scores (`numeric(5,2)`)
+- Scoring UI rewritten following the Cadenza pattern (slider/preset chips + criteria bar + autosave); no threshold % verdict shown during voting (avoids bias)
+- **Chair panel**: start phase with pre-flight check, timer control (start/pause/resume/+1 min), candidate shuffle, end-phase with double confirmation
+- **Read-only summary of closed phases with verdicts** visible to both the judge and the chair (no way to alter votes once the phase is `CONCLUSA`)
 
 ### 📝 Public registration
 - Single-page self-service form, no login required
@@ -62,10 +66,13 @@ The architecture is **multitenant native**: a single backend hosts N independent
 
 ### 🔒 Hardening
 - **Tenant isolation via Row-Level Security** at the database layer
-- **SMTP passwords** encrypted at-rest (AES-GCM)
-- **Auth**: `HttpOnly` `SameSite=Strict` session cookie, Argon2id, no JWT in localStorage
-- **Optional TOTP 2FA** self-service (QR enrollment + recovery codes)
-- **GDPR export/erase** endpoints per tenant with audit trail
+- **SMTP passwords** encrypted at-rest (AES-GCM, `enc:v1:` envelope, `GESTIMUS_SECRET_KEY` 32-byte hex)
+- **Auth**: `HttpOnly` `SameSite=Strict` session cookie, Argon2id, no JWT in localStorage; session key rotation supported
+- **Optional TOTP 2FA** self-service (QR enrollment + recovery codes), enforced via `/auth/login/verify-totp`
+- **GDPR export/erase** endpoints per tenant with audit trail (HMAC chain re-signed on PII scrub)
+- **Authoritative server-side scoring**: the shared `@gestimus/scoring` package (single source of truth) runs on both client (UX) and server (truth) — clients cannot force a ranking
+- **Optimistic locking** on race-prone entities (e.g. registrations, phases) to prevent destructive concurrent writes
+- **Service layer + domain events / transactional outbox** on evaluations: invariant "vote persisted ⟺ event emitted" preserved even on mid-flow failures (silent failures captured by Sentry)
 
 ### 🌐 Internationalization
 Italian (master), English, French, Spanish. Flat keys (`keySeparator: false`), automatic fallback to Italian.
@@ -116,7 +123,7 @@ A **single Node/Fastify process** + a **single Postgres database**. Tenant separ
 | **Tests** | Vitest (jsdom) + Playwright (E2E Chromium) |
 | **Auth** | HttpOnly cookie-session (no token in localStorage) |
 
-> The legacy vanilla frontend (`js/`, `css/`, `index.html` at the repo root) is **superseded** by the React frontend in `frontend/`. The vanilla code is preserved but no longer actively developed.
+> The legacy vanilla frontend (`js/`, `css/`, `index.html` at the repo root) was **removed in May 2026**: the React app in `frontend/` is the only frontend, always served by Fastify from `frontend/dist`. The legacy PocketBase instance is gone too — the backend runs **only** on Postgres + Fastify + Drizzle.
 
 ### Backend
 
@@ -126,9 +133,11 @@ A **single Node/Fastify process** + a **single Postgres database**. Tenant separ
 | **ORM** | Drizzle + drizzle-kit migrations |
 | **Database** | PostgreSQL 18 (logical multitenancy via RLS, native `uuidv7()` for PKs) |
 | **Auth** | HttpOnly session cookie + Argon2id (`@node-rs/argon2`) |
-| **Realtime** | Postgres `LISTEN/NOTIFY` + Fastify SSE plugin |
-| **Storage** | Local filesystem partitioned per tenant |
-| **Email** | Nodemailer + AES-GCM credential encryption |
+| **Realtime** | Postgres `LISTEN/NOTIFY` + Fastify SSE plugin (path `/api/realtime/...`) |
+| **Storage** | Local filesystem partitioned per tenant (`uploads/<tenant_slug>/...`) |
+| **Email** | Nodemailer + AES-GCM credential encryption (`enc:v1:`) |
+| **Architecture** | Service layer on evaluations · domain events / transactional outbox · shared `@gestimus/scoring` package (server + frontend) |
+| **Errors** | Sentry Node (silent failures included) |
 
 ---
 
@@ -164,7 +173,7 @@ npm install
 npm run dev                 # Vite on :5173, proxy → :4000
 ```
 
-Add the subdomains to `/etc/hosts`:
+Add the subdomains to `/etc/hosts` (simple fallback):
 
 ```
 127.0.0.1  platform.gestimus.local
@@ -176,7 +185,9 @@ After boot:
 - `http://ente1.gestimus.local:5173/` → React app (admin/judge)
 - `http://platform.gestimus.local:5173/` → super-admin
 - `http://ente1.gestimus.local:4000/` → backend directly (no Vite proxy)
-- Demo credentials: see `npm run db:seed` output
+- Demo credentials: see `npm run db:seed` output (also summarised in [`ONBOARDING.md`](ONBOARDING.md))
+
+> **Do not use `localhost`**: the backend resolves the tenant from the subdomain — `/api/*` returns 400 without a `*.gestimus.local` host. To skip `/etc/hosts` and get clean URLs (no port) use the built-in dev-proxy: `./scripts/dev-proxy.sh up` (details in [`ONBOARDING.md`](ONBOARDING.md)).
 
 To reset the dev database: `cd server && npm run db:reset`.
 
@@ -200,12 +211,12 @@ The Fastify server serves static files from `frontend/dist/` in production (via 
 
 ```
 gestimus/
-├── frontend/                    # React frontend (current stack)
+├── frontend/                    # React frontend (the only frontend)
 │   ├── src/
 │   │   ├── api/                 # fetch modules per entity (auth, concorsi, fasi, …)
 │   │   ├── components/
 │   │   │   ├── ui/              # shadcn-style primitives (Button, Dialog, Select, …)
-│   │   │   ├── admin/           # admin tabs (FasiTab, CandidatiTab, RisultatiTab, …)
+│   │   │   ├── admin/           # admin tabs (FasiTab, CandidatiTab, RisultatiTab, CalendarioTab, …)
 │   │   │   └── layout/          # AppLayout (authenticated shell)
 │   │   ├── contexts/            # AuthContext · ThemeContext
 │   │   ├── hooks/               # useFaseRuntime · useOnline · useDirtyDialogClose · …
@@ -214,29 +225,30 @@ gestimus/
 │   │   ├── pages/               # Home · Login · Commissario · Superadmin · admin/ · public/
 │   │   ├── types/               # API contract (User, Concorso, Fase, …)
 │   │   ├── index.css            # Tailwind 4 + custom tokens (brand/ink palette)
-│   │   ├── legacy.css           # shadcn/ui HSL tokens ported from vanilla
+│   │   ├── legacy.css           # shadcn/ui HSL tokens (design heritage)
 │   │   └── main.tsx             # entry point (BrowserRouter + QueryClient + AuthProvider)
 │   ├── tests/e2e/               # Playwright smoke spec
-│   ├── vite.config.ts           # Vite + PWA + Sentry + dev proxy
+│   ├── vite.config.ts           # Vite + PWA + Sentry + dev proxy (manualChunks tuned for rolldown)
 │   ├── playwright.config.ts     # E2E config (base: ente1.gestimus.local:5173)
 │   └── package.json
+├── packages/
+│   └── scoring/                 # Shared @gestimus/scoring package (single source of truth: means, tiebreak)
 ├── server/                      # Fastify + Drizzle backend
 │   ├── src/
 │   │   ├── db/                  # Drizzle schema + RLS policies (policies.sql)
-│   │   ├── routes/              # REST endpoints for domain entities
-│   │   ├── services/            # auth · session · storage · email · SMTP crypto
-│   │   ├── middleware/          # tenant resolver (subdomain → tenant_id) + auth guard
+│   │   ├── routes/              # REST endpoints for domain entities + super-admin
+│   │   ├── services/            # auth · session · storage · email · SMTP crypto · scoring · outbox · audit (HMAC)
+│   │   ├── middleware/          # tenant resolver (subdomain → tenant_id) + auth guard + runtime-metrics
 │   │   └── realtime/            # SSE hub + LISTEN/NOTIFY bridge
-│   ├── scripts/                 # bootstrap-db · apply-policies · seed-dev · reset-dev
-│   ├── tests/                   # rls/ · auth/ · crud/ · realtime/ (~154 tests)
+│   ├── scripts/                 # bootstrap-db · apply-policies · seed-dev · seed-prod · seed-piani · backup · migrate
+│   ├── tests/                   # rls/ · auth/ · crud/ · realtime/
 │   └── package.json
 ├── tests/
-│   ├── unit/                    # node --test (scoring, tiebreak, rng) — no DB
-│   └── e2e/                     # legacy Playwright (client + super-admin smoke)
-├── js/                          # [SUPERSEDED] Vanilla frontend (preserved, not developed)
-├── css/                         # [SUPERSEDED] Vanilla styles
-├── deploy/                      # nginx/systemd config templates
-├── docs/                        # Documentation (architecture, deploy, manuals)
+│   └── load/                    # autocannon load tests (hot paths) — perf
+├── deploy/                      # install.sh (bare-metal IONOS provisioning) + nginx rate-limit snippet
+├── scripts/
+│   └── dev-proxy.sh             # local nginx+dnsmasq reverse-proxy (clean *.gestimus.local URLs)
+├── docs/                        # Documentation (deploy, HA Postgres, admin manual)
 └── .github/                     # CI + Dependabot + issue/PR templates
 ```
 
@@ -250,14 +262,23 @@ gestimus/
 npm run dev              # tsx watch on :4000
 npm run build            # compile TypeScript
 npm run start            # run production build
-npm run db:bootstrap     # create gestimus_app / gestimus_super roles
+npm run db:bootstrap     # create gestimus_app / gestimus_super roles + DB gestimus
 npm run db:setup         # db:push + apply RLS policies
-npm run db:seed          # demo data
+npm run db:seed          # demo data (tenants + accounts)
+npm run db:seed:prod     # bootstrap production super-admin
 npm run db:reset         # drop + rebuild + seed (dev only)
 npm run db:studio        # Drizzle Studio (table inspection UI)
+npm run db:sql:status    # incremental migration ledger status
+npm run db:sql:up        # apply pending migrations
+npm run db:sql:down      # rollback last migration
+npm run db:sql:baseline  # mark existing DB as aligned
+npm run db:backup        # streaming PG dump (used by systemd timer in prod)
 npm run test             # all suites (rls + auth + crud + realtime)
 npm run test:rls         # cross-tenant isolation only
-npm run lint             # tsc --noEmit
+npm run test:auth        # login/logout/me + cross-tenant guard + TOTP
+npm run test:crud        # CRUD + triggers + privacy + calendar + cleanup + platform
+npm run test:realtime    # LISTEN/NOTIFY → SSE
+npm run lint             # tsc --noEmit (tsconfig.lint.json)
 ```
 
 ### Frontend (`frontend/`)
@@ -276,8 +297,8 @@ npm run e2e              # Playwright E2E (requires backend :4000 + dev server :
 ### Root
 
 ```bash
-npm run test:unit        # tests/unit (scoring + rng) — no DB
-npm run test:e2e         # legacy Playwright (requires running server)
+# Load tests (autocannon) — backend must be running
+node tests/load/<scenario>.js
 ```
 
 ---
@@ -286,15 +307,12 @@ npm run test:e2e         # legacy Playwright (requires running server)
 
 | File | Content |
 |------|---------|
-| [`docs/FRONTEND.md`](docs/FRONTEND.md) | **React frontend guide** — stack, src/ layout, conventions, how to add a page, build/lint/test |
-| [`docs/MIGRATION_POSTGRES.md`](docs/MIGRATION_POSTGRES.md) | **Full technical architecture** — DB schema, RLS policies, backend module layout, tenant soft-delete, TOTP 2FA, roadmap milestones (Italian) |
-| [`docs/AUDIT.md`](docs/AUDIT.md) | **Security/hardening status** (Italian) — current snapshot + audit-round history |
-| [`docs/TEST.md`](docs/TEST.md) | **Testing & verification** (Italian) — test pyramid (unit/server/E2E frontend+legacy/type-check/load), commands, prerequisites, load-test reference results, CI gates |
-| [`docs/LISTINO.md`](docs/LISTINO.md) | **Commercial plan listing** (Italian) |
-| [`docs/DEPLOY-IONOS.md`](docs/DEPLOY-IONOS.md) | **IONOS VPS deploy guide** (Italian) — single systemd unit, certbot DNS-01, PG backups, PgBouncer |
-| [`docs/HA-POSTGRES.md`](docs/HA-POSTGRES.md) | **High availability** (Italian) — streaming replication + automatic failover, PITR, ops runbook |
+| [`ONBOARDING.md`](ONBOARDING.md) | **Local dev setup** (Italian) — env vars, db:bootstrap/setup/seed, nginx+dnsmasq dev-proxy, demo credentials |
 | [`docs/manuale-admin.md`](docs/manuale-admin.md) | **Tenant-admin operational manual** (Italian) — also reachable in-app from *Admin → Manuale* |
-| [`server/README.md`](server/README.md) | **Backend reference** — Drizzle schema, REST endpoints, middleware, migrations, runtime metrics |
+| [`docs/DEPLOY-IONOS.md`](docs/DEPLOY-IONOS.md) | **IONOS deploy guide** (Italian) — `deploy/install.sh` (Node + PG18 + nginx + systemd + ufw), DNS-01 wildcard certbot, daily backup, TLS renewal |
+| [`docs/HA-POSTGRES.md`](docs/HA-POSTGRES.md) | **Postgres high availability** (Italian) — streaming replication, Patroni + etcd, HAProxy, PITR, failover runbook |
+| [`server/README.md`](server/README.md) | **Backend reference** — REST endpoints, RLS, DB triggers, scoring + outbox, 2FA TOTP, runtime metrics |
+| [`deploy/README.md`](deploy/README.md) | **Provisioning script** (Italian) — `install.sh` flags, `TLS_MODE`, main env vars |
 
 ---
 

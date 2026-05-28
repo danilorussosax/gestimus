@@ -16,12 +16,18 @@ Copia `server/.env.example` → `server/.env` e compila almeno:
 ## 3. Database
 ```bash
 cd server
-npm run db:bootstrap   # crea ruoli gestimus_app/gestimus_super + db (una volta)
-npm run db:setup       # db:push (schema) + db:policies (RLS)
-npm run db:seed        # dati demo (2 tenant + superadmin)
+npm run db:bootstrap     # crea ruoli gestimus_app/gestimus_super + db (una volta)
+npm run db:setup         # db:push (schema) + db:policies (RLS)
+npm run db:seed          # dati demo (2 tenant + superadmin + seed piani)
 npm run db:sql:baseline  # allinea il ledger migrazioni su un DB esistente
 ```
-Migrazioni incrementali e rollback: vedi **`docs/MIGRATIONS.md`** (`db:sql:status|up|down`, `db:backup`).
+Migrazioni incrementali (`server/scripts/migrations/*.sql`) e rollback:
+```bash
+npm run db:sql:status    # cosa è applicato / pending
+npm run db:sql:up        # applica le nuove
+npm run db:sql:down      # rollback ultima (usa il `.down.sql` corrispondente)
+npm run db:backup        # snapshot pg_dump (lo stesso del timer systemd in prod)
+```
 
 ## 4. Avvio dev server
 ```bash

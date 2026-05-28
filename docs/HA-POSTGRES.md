@@ -167,7 +167,7 @@ lettura subito dopo una scrittura potrebbe non vedere il dato). Per il carico at
 ### Comportamento già presente nell'app durante un failover
 - **Pool node-postgres**: listener `error` su client idle (`db/client.ts`) → il client compromesso viene sostituito; le nuove connessioni vanno al nuovo primary via HAProxy.
 - **Hub realtime LISTEN** (`realtime/hub.ts`): riconnessione con backoff esponenziale → si riaggancia al nuovo primary e ri-esegue i `LISTEN`.
-- **Retry idempotente** lato client (`js/api.js`): GET/PUT/DELETE ritentati su errore transitorio (rete/timeout) → assorbe la finestra di failover per le richieste in volo.
+- **Retry idempotente** lato client (`frontend/src/lib/api.ts` + TanStack Query): GET/PUT/DELETE ritentati su errore transitorio (rete/timeout) → assorbe la finestra di failover per le richieste in volo.
 - **Cleanup** (cron): advisory lock di sessione su connessione diretta; se cade durante il failover, il run salta e ritenta al prossimo cron (transazionale, niente stato inconsistente).
 
 **Limite noto**: le scritture *in volo* esattamente durante la promozione possono
@@ -181,7 +181,7 @@ by design (no doppi invii): l'utente ripete l'azione.
 
 La replica **non sostituisce** i backup: una `DELETE` errata si propaga a tutte le repliche.
 - **pgBackRest** (o wal-g): full+incrementali + WAL archiving su S3/B2 → **Point-In-Time Recovery**.
-- Conservare la retention pre-hard-delete dei tenant (vedi soft-delete in `MIGRATION_POSTGRES.md` §17).
+- Conservare la retention pre-hard-delete dei tenant (super-admin → archiviazione → cleanup configurabile).
 - Testare il restore periodicamente (un backup non testato non è un backup).
 
 ---
