@@ -47,6 +47,7 @@ import { useFaseRuntime } from '@/hooks/useFaseRuntime';
 import { useCommissarioData } from '@/hooks/useCommissarioData';
 import { WaitingPanel } from '@/components/commissario/WaitingPanel';
 import { AllDonePanel } from '@/components/commissario/AllDonePanel';
+import { FasiConcluseSummary } from '@/components/commissario/FasiConcluseSummary';
 import {
   CadenzaScoringSheet,
   CadenzaPresidentePanel,
@@ -209,6 +210,16 @@ export default function Commissario() {
     <FaseEventToaster key={f.id} faseId={f.id} />
   ));
 
+  // Fasi CONCLUSA cui questo commissario era assegnato (presidente o membro):
+  // mostrate come riepilogo con classifica + esito finale (PROMOSSO/ELIMINATO
+  // da `cf.ammessoProssimaFase`). Senza questo il commissario non vedeva mai
+  // le fasi già concluse.
+  const fasiConcluseAssegnate = fasiList.filter((f) => {
+    if (f.stato !== 'CONCLUSA') return false;
+    const comm = commissioniList.find((c) => c.id === f.commissioneId);
+    return getCommissariIds(comm).includes(commissarioId);
+  });
+
   // ── No active fase ─────────────────────────────────────────────────────────
 
   if (!faseAttiva) {
@@ -235,6 +246,13 @@ export default function Commissario() {
             </p>
           </div>
         )}
+        <FasiConcluseSummary
+          concorso={concorso}
+          fasi={fasiConcluseAssegnate}
+          cfList={cfList}
+          valutazioni={valsAll}
+          candidati={candidatiList}
+        />
         <div className="mt-5 flex items-center justify-center gap-2">
           <Link to="/" className="c-btn c-btn--outline c-btn--sm">{t('app.dashboard')}</Link>
         </div>
