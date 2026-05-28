@@ -1,5 +1,5 @@
 /**
- * CadenzaScoringSheet.tsx — drop-in replacement per ScoringSheet (Commissario.tsx).
+ * ScoringSheet.tsx — drop-in replacement per ScoringSheet (Commissario.tsx).
  *
  * Stessi props del ScoringSheet attualmente inline in Commissario.tsx. Tutta
  * la logica (draft state + persistDraft, save mutation, countdown confirm,
@@ -35,11 +35,11 @@ import type {
   Valutazione, Commissione,
 } from '@/types';
 
-import { CadenzaScoreLane } from './CadenzaScoreLane';
-import { CadenzaQueueRail } from './CadenzaQueueRail';
-import { CadenzaRailTimer } from './CadenzaRailTimer';
-import { CadenzaProgramma } from './CadenzaProgramma';
-import { CadenzaCommissariStatus } from './CadenzaCommissariStatus';
+import { ScoreLane } from './ScoreLane';
+import { QueueRail } from './QueueRail';
+import { RailTimer } from './RailTimer';
+import { Programma } from './Programma';
+import { CommissariStatus } from './CommissariStatus';
 
 // Tipo del modulo @gestimus/scoring — coerente con Commissario.tsx attuale.
 interface ScoringModule {
@@ -51,7 +51,7 @@ interface ScoringModule {
   voteStep: (scala: number) => number;
 }
 
-export interface CadenzaScoringSheetProps {
+export interface ScoringSheetProps {
   concorso: Concorso;
   fase: Fase;
   commissario: CommissarioT;
@@ -68,7 +68,7 @@ export interface CadenzaScoringSheetProps {
   scoring: ScoringModule;
 }
 
-export function CadenzaScoringSheet(props: CadenzaScoringSheetProps) {
+export function ScoringSheet(props: ScoringSheetProps) {
   const {
     concorso, fase, commissario, cf, candidato, isPresidente,
     myEvaluated, allCfs, candidati, valutazioni, commissioni,
@@ -208,7 +208,7 @@ export function CadenzaScoringSheet(props: CadenzaScoringSheetProps) {
 
         {/* LEFT rail: queue + timer */}
         <aside className="flex flex-col gap-3 md:sticky md:top-[68px]">
-          <CadenzaQueueRail
+          <QueueRail
             allCfs={allCfs}
             candidati={candidati}
             myEvaluated={myEvaluated}
@@ -219,7 +219,7 @@ export function CadenzaScoringSheet(props: CadenzaScoringSheetProps) {
             scoring={scoring}
             canNavigate={modo === 'autonoma'}
           />
-          <CadenzaRailTimer
+          <RailTimer
             faseId={fase.id}
             isPresidente={isPresidente}
             candidatoFaseId={cf.id}
@@ -267,7 +267,7 @@ export function CadenzaScoringSheet(props: CadenzaScoringSheetProps) {
               <span className="font-mono text-[10.5px] uppercase tracking-[0.14em] text-muted-foreground font-medium block">
                 Totale pesato
               </span>
-              <div className="flex items-baseline gap-1 justify-end mt-0.5">
+              <div id="totale" className="flex items-baseline gap-1 justify-end mt-0.5">
                 <span className="font-bold tabular-nums tracking-tight text-[34px] leading-none">
                   {scoring.fmtVoto(totale, scala)}
                 </span>
@@ -281,7 +281,7 @@ export function CadenzaScoringSheet(props: CadenzaScoringSheetProps) {
           </header>
 
           {/* Programma (da iscrizione) */}
-          <CadenzaProgramma concorsoId={concorso.id} candidatoId={candidato?.id ?? null} />
+          <Programma concorsoId={concorso.id} candidatoId={candidato?.id ?? null} />
 
           {/* Quick set bar */}
           <div className="px-5 py-2.5 border-b border-border flex items-center justify-between bg-amber-50/40 dark:bg-amber-950/20">
@@ -327,7 +327,7 @@ export function CadenzaScoringSheet(props: CadenzaScoringSheetProps) {
                       <span className="font-mono text-[10px] text-muted-foreground">{Math.round(c.peso)}%</span>
                     </div>
                   </div>
-                  <CadenzaScoreLane
+                  <ScoreLane
                     value={v}
                     scala={scala}
                     step={step}
@@ -399,7 +399,7 @@ export function CadenzaScoringSheet(props: CadenzaScoringSheetProps) {
                 disabled={!allSet || saving}
                 className="min-w-[180px]"
               >
-                {saving ? 'Salvataggio…' : savedFlash ? <><Check /> Salvato</> : <><Check /> Salva e prossimo <ChevronRight /></>}
+                {saving ? 'Salvataggio…' : savedFlash ? <><Check /> Salvato</> : <><Check /> Salva e prossimo candidato <ChevronRight /></>}
               </Button>
             </div>
           </footer>
@@ -407,7 +407,7 @@ export function CadenzaScoringSheet(props: CadenzaScoringSheetProps) {
 
         {/* RIGHT rail: commissari status + modalità */}
         <aside className="hidden xl:flex flex-col gap-3 sticky top-[68px]">
-          <CadenzaCommissariStatus
+          <CommissariStatus
             fase={fase}
             commissione={commissioni.find((c) => c.id === fase.commissioneId) ?? null}
             allCfs={allCfs}

@@ -1,5 +1,5 @@
 /**
- * CadenzaQueueRail.tsx — card "Coda / Storico" (rail sinistro).
+ * QueueRail.tsx — card "Coda / Storico" (rail sinistro).
  *
  * Coda: tutti i CandidatoFase della fase corrente, ordinati per posizione,
  *       con highlight sul cf attivo (`currentCfId`) e check su quelli già
@@ -31,7 +31,7 @@ interface Props {
   onPick?: (cfId: string) => void;
 }
 
-export function CadenzaQueueRail({
+export function QueueRail({
   allCfs, candidati, myEvaluated, myValutazioni, currentCfId, fase, anonimo,
   scoring, canNavigate = false, onPick,
 }: Props) {

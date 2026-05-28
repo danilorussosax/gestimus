@@ -1,5 +1,5 @@
 /**
- * CadenzaProgramma.tsx — sezione "Programma in esecuzione" del ScoringSheet.
+ * Programma.tsx — sezione "Programma in esecuzione" del ScoringSheet.
  *
  * Risale dal candidato attivo all'iscrizione che lo ha generato (campo
  * `iscrizione.candidatoId`) e mostra il programma nello stesso formato in cui
@@ -32,7 +32,7 @@ function isBranoArray(x: unknown): x is Brano[] {
   return Array.isArray(x) && x.every((b) => b && typeof b === 'object' && typeof (b as Brano).titolo === 'string');
 }
 
-export function CadenzaProgramma({ concorsoId, candidatoId, hideIfMissing = false }: Props) {
+export function Programma({ concorsoId, candidatoId, hideIfMissing = false }: Props) {
   const { data, isLoading } = useQuery({
     queryKey: ISCRIZIONI_KEY(concorsoId),
     queryFn: () => iscrizioniApi.list(concorsoId),

@@ -1,5 +1,5 @@
 /**
- * CadenzaRailTimer.tsx — timer del candidato corrente come card nel rail.
+ * RailTimer.tsx — timer del candidato corrente come card nel rail.
  *
  * Drop-in replacement per FloatingTimer (vecchia .fixed bottom-6 right-6).
  * Logica invariata:
@@ -49,7 +49,7 @@ function beep() {
   } catch { /* no audio */ }
 }
 
-export function CadenzaRailTimer({ faseId, isPresidente, candidatoFaseId, tempoMinuti }: Props) {
+export function RailTimer({ faseId, isPresidente, candidatoFaseId, tempoMinuti }: Props) {
   const { t } = useTranslation();
   const { timer, refetch } = useFaseRuntime(faseId);
   const beepedRef = useRef<string | null>(null);

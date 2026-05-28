@@ -1,5 +1,5 @@
 /**
- * CadenzaScoreLane.tsx — score input compatto, single-row.
+ * ScoreLane.tsx — score input compatto, single-row.
  *
  * Track graduata con drag/click che imposta il voto step-by-step
  * (scoring.voteStep(scala)). Sostituisce il vecchio <input type="range" .vote-range>
@@ -22,7 +22,7 @@ interface Props {
   disabled?: boolean;
 }
 
-export function CadenzaScoreLane({
+export function ScoreLane({
   value, scala, step, min = 1, onChange, ariaLabel, disabled,
 }: Props) {
   const trackRef = useRef<HTMLDivElement>(null);

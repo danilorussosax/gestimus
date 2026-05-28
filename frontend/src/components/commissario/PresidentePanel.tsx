@@ -1,5 +1,5 @@
 /**
- * CadenzaPresidentePanel.tsx — drop-in per PresidentePanel (Commissario.tsx).
+ * PresidentePanel.tsx — drop-in per PresidentePanel (Commissario.tsx).
  *
  * Stessi props della funzione PresidentePanel attualmente inline in
  * Commissario.tsx. Tutta la logica (handleStart, handleEnd con resolveAdmittedIds,
@@ -25,7 +25,7 @@ import type {
   Concorso, Fase, Commissione, CandidatoFase, Candidato, Valutazione,
 } from '@/types';
 
-export interface CadenzaPresidentePanelProps {
+export interface PresidentePanelProps {
   concorso: Concorso;
   fasi: Fase[];
   commissioni: Commissione[];
@@ -41,9 +41,9 @@ export interface CadenzaPresidentePanelProps {
   onFaseChanged: () => void;
 }
 
-export function CadenzaPresidentePanel({
+export function PresidentePanel({
   concorso, fasi, commissioni, candidatiFase, candidati, valutazioni, onFaseChanged,
-}: CadenzaPresidentePanelProps) {
+}: PresidentePanelProps) {
   const { t } = useTranslation();
   const [confirmEndFaseId, setConfirmEndFaseId] = useState<string | null>(null);
   const [endChecked, setEndChecked] = useState(false);

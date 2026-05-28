@@ -1,5 +1,5 @@
 /**
- * CadenzaCommissariStatus.tsx — sidebar card "Stato commissari".
+ * CommissariStatus.tsx — sidebar card "Stato commissari".
  *
  * Per ogni membro della commissione della fase, calcola da `valutazioni`:
  *   - completi: # cf con voto in TUTTI i criteri della fase
@@ -20,7 +20,7 @@ interface Props {
   commissari?: Commissario[];
 }
 
-export function CadenzaCommissariStatus({ fase, commissione, allCfs, valutazioni, commissari }: Props) {
+export function CommissariStatus({ fase, commissione, allCfs, valutazioni, commissari }: Props) {
   const commIds = useMemo(() => commissione?.commissari ?? [], [commissione]);
   const criteriKeys = useMemo(
     () => (Array.isArray(fase.criteri) ? fase.criteri.map((c) => c.key) : []),
