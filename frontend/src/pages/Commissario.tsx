@@ -232,6 +232,7 @@ export default function Commissario() {
             fasi={fasiPresidente}
             commissioni={commissioniList}
             candidatiFase={cfList}
+            candidati={candidatiList}
             valutazioni={valsAll}
             onFaseChanged={invalidateAll}
           />
@@ -287,6 +288,7 @@ export default function Commissario() {
             fasi={fasiPresidente}
             commissioni={commissioniList}
             candidatiFase={cfList}
+            candidati={candidatiList}
             valutazioni={valsAll}
             onFaseChanged={invalidateAll}
           />
@@ -383,6 +385,7 @@ export default function Commissario() {
               fasi={fasiPresidente}
               commissioni={commissioniList}
               candidatiFase={cfList}
+              candidati={candidatiList}
               valutazioni={valsAll}
               onFaseChanged={invalidateAll}
             />
@@ -408,6 +411,7 @@ export default function Commissario() {
               fasi={fasiPresidente}
               commissioni={commissioniList}
               candidatiFase={cfList}
+              candidati={candidatiList}
               valutazioni={valsAll}
               onFaseChanged={invalidateAll}
             />
@@ -441,6 +445,7 @@ export default function Commissario() {
           fasi={fasiPresidente}
           commissioni={commissioniList}
           candidatiFase={cfList}
+          candidati={candidatiList}
           valutazioni={valsAll}
           onFaseChanged={invalidateAll}
         />

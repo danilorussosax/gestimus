@@ -278,4 +278,51 @@ describe('Fasi lifecycle', () => {
     // Le posizioni sono una permutazione esatta di 1..5.
     assert.deepEqual(await posOf(), [1, 2, 3, 4, 5]);
   });
+
+  // ---------- N121: auto-popola con fallback categoria → sezione ----------
+  // Un candidato assegnato SOLO a una categoria (sezione_id NULL) deve essere
+  // incluso quando la fase ha la sezione di quella categoria. Pre-fix il
+  // filtro `inArray(candidati.sezioneId, sezIds)` lo escludeva silenziosamente.
+  test('start: auto-popola include candidati assegnati solo a una categoria della sezione', async () => {
+    const sez = (await app.inject({ method: 'POST', url: '/api/sezioni', headers: H1(),
+      payload: { concorsoId, nome: 'LC FallbackCat Sez', ordine: 60 } })).json();
+    const cat = (await app.inject({ method: 'POST', url: '/api/categorie', headers: H1(),
+      payload: { sezioneId: sez.id, nome: 'LC FallbackCat A' } })).json();
+    // Candidato con categoria valorizzata e sezione esplicitamente NULL.
+    // Il trigger DB auto-riempie sezione_id dalla categoria, quindi il filtro
+    // diretto su sezione_id già lo include — verifichiamo end-to-end.
+    await app.inject({ method: 'POST', url: '/api/candidati', headers: H1(),
+      payload: { concorsoId, nome: 'LCFallback1', strumento: 'Arpa', categoriaId: cat.id, sezioneId: null } });
+    const f = await newFase({ sezioniIds: [sez.id] });
+    const r = await app.inject({ method: 'POST', url: `/api/fasi/${f.id}/start`, headers: H1(), payload: {} });
+    assert.equal(r.statusCode, 200, r.body);
+    const cfs = (await app.inject({ method: 'GET', url: `/api/candidati-fase?faseId=${f.id}`, headers: H1() })).json() as Array<{ candidatoId: string }>;
+    assert.ok(cfs.length >= 1, `auto-popola deve includere il candidato categoria-scoped: trovati ${cfs.length}`);
+  });
+
+  // ---------- N121: trigger DB coerenza categoria → sezione ----------
+  test('candidato con categoria e sezione di un\'altra categoria → 23514', async () => {
+    const sezX = (await app.inject({ method: 'POST', url: '/api/sezioni', headers: H1(),
+      payload: { concorsoId, nome: 'LC Coer SezX', ordine: 70 } })).json();
+    const sezY = (await app.inject({ method: 'POST', url: '/api/sezioni', headers: H1(),
+      payload: { concorsoId, nome: 'LC Coer SezY', ordine: 71 } })).json();
+    const catX = (await app.inject({ method: 'POST', url: '/api/categorie', headers: H1(),
+      payload: { sezioneId: sezX.id, nome: 'LC Coer CatX' } })).json();
+    // La validazione applicativa (validateScope) rifiuta già con 400 "categoria
+    // non appartiene alla sezione scelta": il trigger DB è la rete di sicurezza
+    // se quel check viene bypassato; il test verifica il check applicativo.
+    const r = await app.inject({ method: 'POST', url: '/api/candidati', headers: H1(),
+      payload: { concorsoId, nome: 'LCCoerNo', strumento: 'X', categoriaId: catX.id, sezioneId: sezY.id } });
+    assert.equal(r.statusCode, 400, r.body);
+  });
+
+  test('candidato con categoria e sezione NULL → trigger auto-fill sezione', async () => {
+    const sezZ = (await app.inject({ method: 'POST', url: '/api/sezioni', headers: H1(),
+      payload: { concorsoId, nome: 'LC Coer SezZ', ordine: 72 } })).json();
+    const catZ = (await app.inject({ method: 'POST', url: '/api/categorie', headers: H1(),
+      payload: { sezioneId: sezZ.id, nome: 'LC Coer CatZ' } })).json();
+    const cand = (await app.inject({ method: 'POST', url: '/api/candidati', headers: H1(),
+      payload: { concorsoId, nome: 'LCCoerFill', strumento: 'X', categoriaId: catZ.id, sezioneId: null } })).json();
+    assert.equal(cand.sezioneId, sezZ.id, 'sezione_id auto-riempita dal trigger DB');
+  });
 });

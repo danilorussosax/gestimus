@@ -22,7 +22,7 @@ import type { FaseRecord } from '@/api/fasi';
 import { resolveAdmittedIds } from '@/lib/admitted';
 import { getCommissariIds } from '@/pages/commissario-utils';
 import type {
-  Concorso, Fase, Commissione, CandidatoFase, Valutazione,
+  Concorso, Fase, Commissione, CandidatoFase, Candidato, Valutazione,
 } from '@/types';
 
 export interface CadenzaPresidentePanelProps {
@@ -30,12 +30,19 @@ export interface CadenzaPresidentePanelProps {
   fasi: Fase[];
   commissioni: Commissione[];
   candidatiFase: CandidatoFase[];
+  /**
+   * N121: candidati del concorso. Necessari per pre-calcolare il count
+   * "disponibili" da assegnare al /start: prima dell'avvio `candidatiFase` è
+   * vuoto (i record vengono creati dal server in auto-popola), quindi senza
+   * questo prop il bottone "Avvia fase" resterebbe sempre disabilitato.
+   */
+  candidati: Candidato[];
   valutazioni: Valutazione[];
   onFaseChanged: () => void;
 }
 
 export function CadenzaPresidentePanel({
-  concorso, fasi, commissioni, candidatiFase, valutazioni, onFaseChanged,
+  concorso, fasi, commissioni, candidatiFase, candidati, valutazioni, onFaseChanged,
 }: CadenzaPresidentePanelProps) {
   const { t } = useTranslation();
   const [confirmEndFaseId, setConfirmEndFaseId] = useState<string | null>(null);
@@ -137,6 +144,7 @@ export function CadenzaPresidentePanel({
             concorsoAnonimo={concorso.anonimo}
             commissione={commissioni.find((c) => c.id === f.commissioneId) ?? null}
             candidatiFase={candidatiFase.filter((cf) => cf.faseId === f.id)}
+            candidatiConcorso={candidati}
             valutazioni={valutazioni}
             confirmingEnd={confirmEndFaseId === f.id}
             endChecked={endChecked}
@@ -184,6 +192,7 @@ interface FaseCardProps {
   concorsoAnonimo: boolean;
   commissione: Commissione | null;
   candidatiFase: CandidatoFase[];
+  candidatiConcorso: Candidato[];
   valutazioni: Valutazione[];
   confirmingEnd: boolean;
   endChecked: boolean;
@@ -196,7 +205,7 @@ interface FaseCardProps {
 }
 
 function FaseCard({
-  fase, commissione, candidatiFase, valutazioni,
+  fase, commissione, candidatiFase, candidatiConcorso, valutazioni,
   confirmingEnd, endChecked, saving,
   onStart, onAskEnd, onConfirmEnd, onCancelEnd, onToggleChecked,
 }: FaseCardProps) {
@@ -205,7 +214,23 @@ function FaseCard({
   const isDone = fase.stato === 'CONCLUSA';
 
   const commIds = useMemo(() => commissione?.commissari ?? [], [commissione]);
-  const total = candidatiFase.length;
+  // N121: pre-start `candidatiFase` è vuoto (popolato dal server in /start) →
+  // come proxy del "ci saranno candidati su cui votare" usiamo i candidati del
+  // concorso filtrati per le sezioni della fase (lo stesso filtro che il
+  // server applica in auto-popola, sezioneId IN fase.sezioniIds, con
+  // fallback all-concorso quando la fase è globale).
+  const availablePreStart = useMemo(() => {
+    if (fase.sezioniIds && fase.sezioniIds.length > 0) {
+      const set = new Set(fase.sezioniIds);
+      return candidatiConcorso.filter((c) => c.sezioneId != null && set.has(c.sezioneId)).length;
+    }
+    return candidatiConcorso.length;
+  }, [candidatiConcorso, fase.sezioniIds]);
+  // Per i KPI/avanzamento usiamo i `candidati_fase` reali (solo dopo lo start),
+  // mentre per `canStart` ci serve la stima pre-start. `total` rappresenta il
+  // numero "atteso" sulla card: pre-start = pool disponibile, post-start = pool
+  // effettivo.
+  const total = isPlanned ? availablePreStart : candidatiFase.length;
 
   const fullyVoted = useMemo(() => candidatiFase.filter((cf) =>
     commIds.every((cid) => valutazioni.some((v) => v.candidatoFaseId === cf.id && v.commissarioId === cid)),

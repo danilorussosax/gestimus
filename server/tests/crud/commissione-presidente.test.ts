@@ -66,6 +66,10 @@ describe('Commissione / presidente fase', () => {
     fasePresidente = (await app.inject({ method: 'POST', url: '/api/fasi', headers: H1(),
       payload: { concorsoId: seedConcorsoId, ordine: 910001, nome: 'CP Fase Pres', scala: 100, commissioneId: commissione } })).json().id;
     createdFasi.push(fasePresidente);
+    // N121: precondizioni presidente — il server richiede criteri > 0 per le
+    // fasi che il commissario avvia. Allestiamo almeno un criterio.
+    await app.inject({ method: 'POST', url: '/api/criteri', headers: H1(),
+      payload: { faseId: fasePresidente, nome: 'Esecuzione', peso: 100 } });
 
     // ---- Commissione con il commissario seed solo MEMBRO (presidente = altro) ----
     altroPresidenteId = (await app.inject({ method: 'POST', url: '/api/commissari', headers: H1(),
@@ -170,6 +174,81 @@ describe('Commissione / presidente fase', () => {
     const r = await app.inject({ method: 'PATCH', url: `/api/commissioni/${commissione}`, headers: H1(),
       payload: { presidenteCommissarioId: commAltro.id } });
     assert.equal(r.statusCode, 400);
+  });
+
+  // ---------- N121: precondizioni server-side per il flow PRESIDENTE ----------
+  // Il `canStart` del pannello presidente disabilita Avvia se mancano criteri,
+  // commissari o candidati. Le tre 422 sotto verificano che lo STESSO gate sia
+  // applicato server-side per il ruolo commissario (chi bypassasse la UI via
+  // chiamata diretta REST non può avviare una fase incompleta).
+
+  test('precondizione: commissario non può avviare fase senza criteri → 422', async () => {
+    // Allestiamo: commissione → commissario seed presidente + membro, fase
+    // associata SENZA criteri. Il presidente prova ad avviare.
+    const com = (await app.inject({ method: 'POST', url: '/api/commissioni', headers: H1(),
+      payload: { concorsoId: seedConcorsoId, nome: 'CP Precond NoCrit', presidenteCommissarioId: seedCommissarioId } })).json().id;
+    createdCommissioni.push(com);
+    await app.inject({ method: 'POST', url: `/api/commissioni/${com}/commissari/${seedCommissarioId}`, headers: H1(), payload: {} });
+    const f = (await app.inject({ method: 'POST', url: '/api/fasi', headers: H1(),
+      payload: { concorsoId: seedConcorsoId, ordine: 910100, nome: 'CP Precond NoCrit Fase', scala: 100, commissioneId: com } })).json();
+    createdFasi.push(f.id);
+    const r = await app.inject({ method: 'POST', url: `/api/fasi/${f.id}/start`, headers: HC(), payload: {} });
+    assert.equal(r.statusCode, 422, r.body);
+    assert.match(JSON.stringify(r.json()), /criter/i);
+  });
+
+  test('precondizione: commissario non può avviare se la commissione è senza commissari → 422', async () => {
+    // Allestiamo: commissione → commissario seed presidente ma NESSUN membro
+    // assegnato (lista commissioni_commissari vuota). Fase con criteri.
+    const com = (await app.inject({ method: 'POST', url: '/api/commissioni', headers: H1(),
+      payload: { concorsoId: seedConcorsoId, nome: 'CP Precond NoMembri', presidenteCommissarioId: seedCommissarioId } })).json().id;
+    createdCommissioni.push(com);
+    // NB: NON aggiungiamo seedCommissarioId tra i commissari della commissione
+    // (presidenteCommissarioId è un FK separato; commissari membri è la tabella
+    // commissioni_commissari, qui lasciata vuota). assertCanManageFase
+    // controlla SOLO il FK presidenteCommissarioId → il presidente entra ma
+    // viene fermato dalla precondizione 422.
+    const f = (await app.inject({ method: 'POST', url: '/api/fasi', headers: H1(),
+      payload: { concorsoId: seedConcorsoId, ordine: 910101, nome: 'CP Precond NoMembri Fase', scala: 100, commissioneId: com } })).json();
+    createdFasi.push(f.id);
+    await app.inject({ method: 'POST', url: '/api/criteri', headers: H1(),
+      payload: { faseId: f.id, nome: 'Tecnica', peso: 100 } });
+    const r = await app.inject({ method: 'POST', url: `/api/fasi/${f.id}/start`, headers: HC(), payload: {} });
+    assert.equal(r.statusCode, 422, r.body);
+    assert.match(JSON.stringify(r.json()), /commissari/i);
+  });
+
+  test('precondizione: commissario non può avviare se nessun candidato è disponibile per le sezioni → 422', async () => {
+    // Sezione vuota (nessun candidato assegnato), fase commissione-bound che
+    // la include come scope. Auto-popola troverebbe 0 candidati → 422.
+    const sez = (await app.inject({ method: 'POST', url: '/api/sezioni', headers: H1(),
+      payload: { concorsoId: seedConcorsoId, nome: 'CP Precond Sez Vuota', ordine: 999 } })).json();
+    const com = (await app.inject({ method: 'POST', url: '/api/commissioni', headers: H1(),
+      payload: { concorsoId: seedConcorsoId, nome: 'CP Precond NoCand', presidenteCommissarioId: seedCommissarioId } })).json().id;
+    createdCommissioni.push(com);
+    await app.inject({ method: 'POST', url: `/api/commissioni/${com}/commissari/${seedCommissarioId}`, headers: H1(), payload: {} });
+    const f = (await app.inject({ method: 'POST', url: '/api/fasi', headers: H1(),
+      payload: { concorsoId: seedConcorsoId, ordine: 910102, nome: 'CP Precond NoCand Fase', scala: 100, commissioneId: com, sezioniIds: [sez.id] } })).json();
+    createdFasi.push(f.id);
+    await app.inject({ method: 'POST', url: '/api/criteri', headers: H1(),
+      payload: { faseId: f.id, nome: 'Espressione', peso: 100 } });
+    const r = await app.inject({ method: 'POST', url: `/api/fasi/${f.id}/start`, headers: HC(), payload: {} });
+    assert.equal(r.statusCode, 422, r.body);
+    assert.match(JSON.stringify(r.json()), /candidat/i);
+  });
+
+  test('precondizione: admin può comunque avviare fase senza criteri (bypassa)', async () => {
+    // Stessa configurazione del primo precondizione-test ma chiamata da H1:
+    // l'admin resta libero di avviare anche fasi "incomplete" (può completare
+    // a step in più sessioni). Il gate 422 vale SOLO per ruolo commissario.
+    const com = (await app.inject({ method: 'POST', url: '/api/commissioni', headers: H1(),
+      payload: { concorsoId: seedConcorsoId, nome: 'CP Precond AdminBypass', presidenteCommissarioId: seedCommissarioId } })).json().id;
+    createdCommissioni.push(com);
+    const f = (await app.inject({ method: 'POST', url: '/api/fasi', headers: H1(),
+      payload: { concorsoId: seedConcorsoId, ordine: 910103, nome: 'CP Precond AdminBypass Fase', scala: 100, commissioneId: com } })).json();
+    createdFasi.push(f.id);
+    const r = await app.inject({ method: 'POST', url: `/api/fasi/${f.id}/start`, headers: H1(), payload: {} });
+    assert.equal(r.statusCode, 200, r.body);
   });
 
   test('add commissario di un altro concorso alla commissione → 400', async () => {

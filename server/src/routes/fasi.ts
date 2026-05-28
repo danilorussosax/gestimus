@@ -1,8 +1,8 @@
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
-import { and, eq, inArray, sql } from 'drizzle-orm';
+import { and, eq, inArray, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { uuid, emptyToNull } from '../lib/zod-helpers.js';
-import { candidati, candidatiFase, commissioni, concorsi, criteri, fasi, fasiSezioni, sezioni, valutazioni } from '../db/schema.js';
+import { candidati, candidatiFase, categorie, commissioni, commissioniCommissari, concorsi, criteri, fasi, fasiSezioni, sezioni, valutazioni } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import type { TxClient } from '../middleware/tenant.js';
 import { writeAudit } from '../services/audit.js';
@@ -392,11 +392,102 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     return req.dbTx(async (tx) => {
       if (!await assertCanManageFase(tx, req, reply, id)) return;
       // N21: valida la transizione di stato. start ammesso solo da PIANIFICATA.
-      const cur = await tx.select({ stato: fasi.stato }).from(fasi).where(eq(fasi.id, id)).limit(1);
+      const cur = await tx
+        .select({ stato: fasi.stato, commissioneId: fasi.commissioneId, concorsoId: fasi.concorsoId })
+        .from(fasi)
+        .where(eq(fasi.id, id))
+        .limit(1);
       if (cur.length === 0) return reply.notFound();
       if (cur[0]!.stato !== 'PIANIFICATA') {
         return reply.code(409).send({ error: `fase in stato ${cur[0]!.stato}: avviabile solo da PIANIFICATA` });
       }
+
+      // N121: precondizioni server-side per il flow PRESIDENTE. Allinea il
+      // server al `canStart` del pannello (criteri > 0, commissari > 0, candidati
+      // > 0) così un commissario non può bypassare via API REST quello che la UI
+      // disabilita. L'admin resta libero di avviare anche fasi "incomplete"
+      // (può preparare la fase per step in più sessioni).
+      const commissioneId = cur[0]!.commissioneId;
+      const enforcePresidentePrecond = req.account?.role === 'commissario';
+      if (enforcePresidentePrecond && commissioneId) {
+        const critRows = await tx
+          .select({ n: sql<number>`count(*)::int` })
+          .from(criteri)
+          .where(eq(criteri.faseId, id));
+        if ((critRows[0]?.n ?? 0) === 0) {
+          return reply
+            .code(422)
+            .send({ error: 'fase senza criteri di valutazione: aggiungi almeno un criterio prima di avviare' });
+        }
+        const commRows = await tx
+          .select({ n: sql<number>`count(*)::int` })
+          .from(commissioniCommissari)
+          .where(eq(commissioniCommissari.commissioneId, commissioneId));
+        if ((commRows[0]?.n ?? 0) === 0) {
+          return reply
+            .code(422)
+            .send({ error: 'commissione senza commissari: assegna almeno un commissario prima di avviare' });
+        }
+      }
+
+      // N109: lock fasi_sezioni PRIMA di ogni calcolo dipendente dalle sezioni
+      // (TOCTOU: una PATCH concorrente che svuota/cambia sezioniIds tra il check
+      // e il filtro auto-popola farebbe popolare con scope diverso).
+      await tx
+        .select({ faseId: fasiSezioni.faseId })
+        .from(fasiSezioni)
+        .where(eq(fasiSezioni.faseId, id))
+        .for('update');
+      const sezMapPre = await loadFaseSezioniMap(tx, [id]);
+      const sezIds = sezMapPre.get(id) ?? [];
+
+      // Pre-calcola il set candidati che entrerebbe in candidati_fase: serve sia
+      // per la validazione "no candidati" sia per l'INSERT. Filtro: candidati
+      // del concorso con sezioneId IN sezIds OPPURE categoriaId IN (categorie
+      // delle sezioni). Il fallback su categoria copre i candidati assegnati
+      // solo a una categoria di quelle sezioni (es. import esterno) che
+      // altrimenti restavano esclusi silenziosamente.
+      const existing = await tx
+        .select({ id: candidatiFase.id })
+        .from(candidatiFase)
+        .where(eq(candidatiFase.faseId, id));
+      let candRows: Array<{ id: string }> = [];
+      if (existing.length === 0) {
+        if (sezIds.length > 0) {
+          const catRows = await tx
+            .select({ id: categorie.id })
+            .from(categorie)
+            .where(inArray(categorie.sezioneId, sezIds));
+          const catIds = catRows.map((c) => c.id);
+          candRows = await tx
+            .select({ id: candidati.id })
+            .from(candidati)
+            .where(
+              and(
+                eq(candidati.concorsoId, cur[0]!.concorsoId),
+                catIds.length > 0
+                  ? or(inArray(candidati.sezioneId, sezIds), inArray(candidati.categoriaId, catIds))
+                  : inArray(candidati.sezioneId, sezIds),
+              ),
+            );
+        } else {
+          candRows = await tx
+            .select({ id: candidati.id })
+            .from(candidati)
+            .where(eq(candidati.concorsoId, cur[0]!.concorsoId));
+        }
+        if (candRows.length === 0 && enforcePresidentePrecond && commissioneId) {
+          // Solo per il flow presidente: rifiuta avvio senza candidati (il
+          // presidente non avrebbe nulla da valutare). L'admin può avviare
+          // anche "vuoto" e popolare candidati_fase a mano in seguito.
+          return reply.code(422).send({
+            error: sezIds.length > 0
+              ? 'nessun candidato nelle sezioni della fase: assegna candidati a quelle sezioni prima di avviare'
+              : 'nessun candidato nel concorso: assegna almeno un candidato prima di avviare',
+          });
+        }
+      }
+
       const startedAt = new Date();
       const [updated] = await tx
         .update(fasi)
@@ -409,49 +500,21 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
         .returning();
       if (!updated) return reply.notFound();
 
-      // Auto-popola candidati_fase se la fase è ancora vuota.
-      // - se la fase ha sezioni associate, prende i candidati del concorso
-      //   filtrati per quelle sezioni; altrimenti tutti i candidati del concorso.
-      // L'INSERT è idempotente sia rispetto a chiamate ripetute (uniq_candidati_fase
-      // su (fase_id, candidato_id) + ON CONFLICT DO NOTHING) sia rispetto a chiamate
-      // concorrenti che potrebbero entrambe trovare existing.length === 0.
-      const existing = await tx
-        .select({ id: candidatiFase.id })
-        .from(candidatiFase)
-        .where(eq(candidatiFase.faseId, id));
-      if (existing.length === 0) {
-        // N109: blocca le associazioni sezione della fase per la durata della tx
-        // così una PATCH concorrente delle sezioni non fa popolare candidati
-        // incoerenti (il lock sulla riga `fasi` non copre fasi_sezioni).
+      // Auto-popola candidati_fase (idempotente: uniq (fase_id, candidato_id)
+      // + ON CONFLICT DO NOTHING copre chiamate concorrenti che trovassero
+      // entrambe existing.length === 0).
+      if (existing.length === 0 && candRows.length > 0) {
         await tx
-          .select({ faseId: fasiSezioni.faseId })
-          .from(fasiSezioni)
-          .where(eq(fasiSezioni.faseId, id))
-          .for('update');
-        const sezMap = await loadFaseSezioniMap(tx, [id]);
-        const sezIds = sezMap.get(id) ?? [];
-        const candRows = sezIds.length > 0
-          ? await tx
-              .select({ id: candidati.id })
-              .from(candidati)
-              .where(and(eq(candidati.concorsoId, updated.concorsoId), inArray(candidati.sezioneId, sezIds)))
-          : await tx
-              .select({ id: candidati.id })
-              .from(candidati)
-              .where(eq(candidati.concorsoId, updated.concorsoId));
-        if (candRows.length > 0) {
-          await tx
-            .insert(candidatiFase)
-            .values(
-              candRows.map((c, i) => ({
-                tenantId: req.tenant!.id,
-                faseId: id,
-                candidatoId: c.id,
-                posizione: i + 1,
-              })),
-            )
-            .onConflictDoNothing({ target: [candidatiFase.faseId, candidatiFase.candidatoId] });
-        }
+          .insert(candidatiFase)
+          .values(
+            candRows.map((c, i) => ({
+              tenantId: req.tenant!.id,
+              faseId: id,
+              candidatoId: c.id,
+              posizione: i + 1,
+            })),
+          )
+          .onConflictDoNothing({ target: [candidatiFase.faseId, candidatiFase.candidatoId] });
       }
 
       await writeAudit(tx, req, 'fase.start', {
@@ -469,8 +532,7 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
       // Restituiamo la fase arricchita con sezioniIds: senza questo, il client
       // mapFase legge sezioniIds=undefined → sezioni_ids=[] e la fase appare
       // come "globale" finché non viene fatto un refresh hard (cache state).
-      const sezMap = await loadFaseSezioniMap(tx, [id]);
-      return { ...updated, sezioniIds: sezMap.get(id) ?? [] };
+      return { ...updated, sezioniIds: sezIds };
     });
   });
 
