@@ -92,6 +92,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             defaultValue:
               'Accesso riuscito, ma il caricamento della sessione è fallito. Ricarica la pagina.',
           }),
+          { cause: err },
         );
       }
       setState({ user, loading: false });
