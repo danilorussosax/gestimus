@@ -58,28 +58,35 @@ export const concorsiRoutes: FastifyPluginAsync = async (app) => {
   });
 
   // Conteggi sintetici del concorso per badge/header del workspace admin: query
-  // aggregate dedicate invece di scaricare 5 liste intere lato client. Le count
-  // girano nella stessa transazione (RLS per-tenant) sequenzialmente — il pool
-  // pg espone UNA connessione per tx, quindi niente query concorrenti.
+  // aggregate dedicate invece di scaricare 5 liste intere lato client.
+  // audit #4: i 5 count erano 5 SELECT sequenziali (il pool pg espone UNA
+  // connessione per tx → non parallelizzabili con Promise.all). Collassati in
+  // UNA sola query con subquery scalari → un solo round-trip. Le subquery
+  // girano sotto RLS (solo righe del tenant corrente). Resta una SELECT di
+  // esistenza separata per distinguere "concorso assente/altrui" (404) da
+  // "concorso esistente con 0 figli".
   app.get('/concorsi/:id/summary', { preHandler: [requireAuth] }, async (req, reply) => {
     const { id } = z.object({ id: uuid }).parse(req.params);
     return req.dbTx(async (tx) => {
       // Esistenza + isolamento tenant (RLS): concorso assente/altrui → 404.
       const [exists] = await tx.select({ id: concorsi.id }).from(concorsi).where(eq(concorsi.id, id)).limit(1);
       if (!exists) return reply.notFound();
-      const n = sql<number>`count(*)::int`;
-      const [cand]  = await tx.select({ n }).from(candidati).where(eq(candidati.concorsoId, id));
-      const [comm]  = await tx.select({ n }).from(commissari).where(eq(commissari.concorsoId, id));
-      const [commi] = await tx.select({ n }).from(commissioni).where(eq(commissioni.concorsoId, id));
-      const [fas]   = await tx.select({ n }).from(fasi).where(eq(fasi.concorsoId, id));
-      const [sez]   = await tx.select({ n }).from(sezioni).where(eq(sezioni.concorsoId, id));
+      const res = await tx.execute(sql`
+        SELECT
+          (SELECT count(*)::int FROM ${candidati}   WHERE ${candidati.concorsoId}   = ${id}) AS candidati,
+          (SELECT count(*)::int FROM ${commissari}  WHERE ${commissari.concorsoId}  = ${id}) AS commissari,
+          (SELECT count(*)::int FROM ${commissioni} WHERE ${commissioni.concorsoId} = ${id}) AS commissioni,
+          (SELECT count(*)::int FROM ${fasi}        WHERE ${fasi.concorsoId}        = ${id}) AS fasi,
+          (SELECT count(*)::int FROM ${sezioni}     WHERE ${sezioni.concorsoId}     = ${id}) AS sezioni
+      `);
+      const r = (res.rows[0] ?? {}) as Record<string, number | null>;
       return {
         concorsoId: id,
-        candidati:   cand?.n ?? 0,
-        commissari:  comm?.n ?? 0,
-        commissioni: commi?.n ?? 0,
-        fasi:        fas?.n ?? 0,
-        sezioni:     sez?.n ?? 0,
+        candidati:   Number(r.candidati ?? 0),
+        commissari:  Number(r.commissari ?? 0),
+        commissioni: Number(r.commissioni ?? 0),
+        fasi:        Number(r.fasi ?? 0),
+        sezioni:     Number(r.sezioni ?? 0),
       };
     });
   });

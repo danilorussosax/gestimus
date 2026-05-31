@@ -480,10 +480,16 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
       // delle sezioni). Il fallback su categoria copre i candidati assegnati
       // solo a una categoria di quelle sezioni (es. import esterno) che
       // altrimenti restavano esclusi silenziosamente.
+      // audit #3: FOR UPDATE difensivo. La transazione tiene già il lock sulla
+      // riga `fasi` (assertCanManageFase), quindi due start concorrenti sono di
+      // fatto serializzati e l'onConflictDoNothing sull'insert è la rete finale.
+      // Il lock qui sulle righe candidati_fase chiude comunque la finestra
+      // teorica tra questo check e l'insert sotto.
       const existing = await tx
         .select({ id: candidatiFase.id })
         .from(candidatiFase)
-        .where(eq(candidatiFase.faseId, id));
+        .where(eq(candidatiFase.faseId, id))
+        .for('update');
       let candRows: Array<{ id: string }> = [];
       if (existing.length === 0) {
         if (sezIds.length > 0) {

@@ -588,6 +588,45 @@ CREATE TRIGGER trg_clamp_voto
   FOR EACH ROW
   EXECUTE FUNCTION clamp_voto_valutazione();
 
+-- audit #2: backstop indipendente sull'upper bound del voto. Il clamp sopra
+-- normalizza silenziosamente in [0, scala]; un CHECK statico `voto <= scala`
+-- non è esprimibile (scala è in `fasi`, altra tabella). Se il clamp viene
+-- disabilitato o ha un bug, il DB accetterebbe voti > scala. Questo trigger
+-- è una RETE DI SICUREZZA separata: RAISE se voto > scala. Per via dell'ordine
+-- alfabetico dei trigger BEFORE ROW di Postgres, trg_clamp_voto ('c') gira
+-- PRIMA di trg_voto_upper_guard ('v'): in esercizio normale il voto è già
+-- clampato a scala quando arriva qui, quindi questo guard NON scatta mai e il
+-- comportamento osservabile resta identico (nessuna regressione). Scatta solo
+-- come backstop se il clamp non c'è. Essendo trigger separato, sopravvive alla
+-- disabilitazione del clamp (che era esattamente lo scenario di rischio).
+CREATE OR REPLACE FUNCTION guard_voto_upper_bound()
+RETURNS trigger
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  fase_scala integer;
+BEGIN
+  SELECT f.scala INTO fase_scala
+    FROM candidati_fase cf
+    JOIN fasi f ON f.id = cf.fase_id
+    WHERE cf.id = NEW.candidato_fase_id;
+  -- Stessa convenzione del clamp: scala assente → default 100.
+  IF fase_scala IS NULL THEN
+    fase_scala := 100;
+  END IF;
+  IF NEW.voto > fase_scala THEN
+    RAISE EXCEPTION 'voto % supera la scala della fase (%)', NEW.voto, fase_scala
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NEW;
+END $$;
+
+DROP TRIGGER IF EXISTS trg_voto_upper_guard ON valutazioni;
+CREATE TRIGGER trg_voto_upper_guard
+  BEFORE INSERT OR UPDATE ON valutazioni
+  FOR EACH ROW
+  EXECUTE FUNCTION guard_voto_upper_bound();
+
 -- Freeze: nessuna scrittura su valutazioni quando la fase è CONCLUSA
 CREATE OR REPLACE FUNCTION freeze_valutazione_fase_conclusa()
 RETURNS trigger

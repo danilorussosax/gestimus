@@ -231,7 +231,7 @@ export const concorsi = pgTable(
     nome: text('nome').notNull(),
     anno: integer('anno').notNull(),
     dataInizio: date('data_inizio'),
-    stato: text('stato'),
+    stato: text('stato').notNull().default('ATTIVO'),
     logo: text('logo'),
     anonimo: boolean('anonimo').notNull().default(false),
     iscrizioniAperte: boolean('iscrizioni_aperte').notNull().default(false),
@@ -244,7 +244,7 @@ export const concorsi = pgTable(
   },
   (t) => [
     check('concorsi_anno_check', sql`${t.anno} BETWEEN 1900 AND 2200`),
-    check('concorsi_stato_check', sql`${t.stato} IS NULL OR ${t.stato} IN ('ATTIVO','CONCLUSO')`),
+    check('concorsi_stato_check', sql`${t.stato} IN ('ATTIVO','CONCLUSO')`),
     index('idx_concorsi_tenant').on(t.tenantId),
   ],
 );
