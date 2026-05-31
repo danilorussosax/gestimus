@@ -68,6 +68,14 @@ export async function processEvents(batch = 10): Promise<{ processed: number; fa
         });
         continue;
       }
+      // CONTRATTO DI CONSEGNA "at-least-once":
+      // L'handler esegue il suo side-effect (es. invio email) PRIMA che l'update
+      // di stato a 'done' venga committato. Se l'update o il commit della tx
+      // fallisce, la transazione fa rollback ma il side-effect è GIÀ avvenuto:
+      // l'evento resta 'pending' e al tick successivo l'handler verrà rieseguito.
+      // → Gli handler DEVONO essere idempotenti (es. tracciare un emailSentAt o
+      // usare una chiave di dedupe): un handler può girare più di una volta se il
+      // commit successivo non va a buon fine. Non garantiamo exactly-once.
       try {
         await handler(ev);
         await tx.update(events)

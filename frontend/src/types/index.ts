@@ -6,6 +6,8 @@
 // incerto, verificare la rotta corrispondente in server/src/routes/*.ts.
 // =============================================================================
 
+import { z } from 'zod';
+
 /** Forma standard di un errore restituito dal backend. */
 export interface ApiError {
   error?: string;
@@ -16,30 +18,49 @@ export interface ApiError {
   statusCode?: number;
 }
 
-export type Role = 'commissario' | 'admin' | 'superadmin';
+// ───────────────────────── Auth (risposte critiche) ───────────────────────
+// Schemi zod per le risposte CRITICHE dell'auth (vedi src/api/auth.ts): vengono
+// .parse()-ate al confine dell'api layer così un drift di contratto col backend
+// (campo rinominato/mancante) fallisce SUBITO e in modo esplicito, invece di
+// propagare un oggetto malformato fino al render. I tipi sono derivati dagli
+// schemi (z.infer) per tenere validazione runtime e tipi compile-time allineati.
+
+export const roleSchema = z.enum(['commissario', 'admin', 'superadmin']);
+export type Role = z.infer<typeof roleSchema>;
 
 /** Utente autenticato (GET /auth/me). */
-export interface User {
-  id: string;
-  email: string;
-  role: Role;
-  attivo: boolean;
-  tenantId: string;
+export const userSchema = z.object({
+  id: z.string(),
+  email: z.string(),
+  role: roleSchema,
+  attivo: z.boolean(),
+  tenantId: z.string(),
   /** Presente solo per gli account di tipo commissario. */
-  commissarioId: string | null;
-  totpEnabled: boolean;
-}
+  commissarioId: z.string().nullable(),
+  totpEnabled: z.boolean(),
+});
+export type User = z.infer<typeof userSchema>;
 
 /** Risposta di POST /auth/login: o serve il 2FA, o la sessione è già emessa. */
-export interface LoginNeedsMfa {
-  mfaRequired: true;
-  challenge: string;
-}
-export interface LoginSession {
-  account: { id: string; email: string; role: Role; tenantId: string };
-  expiresAt: string;
-}
-export type LoginResponse = LoginNeedsMfa | LoginSession;
+export const loginNeedsMfaSchema = z.object({
+  mfaRequired: z.literal(true),
+  challenge: z.string(),
+});
+export type LoginNeedsMfa = z.infer<typeof loginNeedsMfaSchema>;
+
+export const loginSessionSchema = z.object({
+  account: z.object({
+    id: z.string(),
+    email: z.string(),
+    role: roleSchema,
+    tenantId: z.string(),
+  }),
+  expiresAt: z.string(),
+});
+export type LoginSession = z.infer<typeof loginSessionSchema>;
+
+export const loginResponseSchema = z.union([loginNeedsMfaSchema, loginSessionSchema]);
+export type LoginResponse = z.infer<typeof loginResponseSchema>;
 
 // ───────────────────────── Entità di dominio ──────────────────────────────
 // (interfacce best-effort dall'inventory della vecchia app; i singoli moduli

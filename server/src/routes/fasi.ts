@@ -125,7 +125,24 @@ const createBody = z.object({
     emptyToNull,
     z.enum(['autonoma', 'sincrona']).nullable(),
   ).optional(),
-  pesi: z.unknown().optional(),
+  // 3.2: `pesi` è una MAPPA legacy { [slugCriterio]: peso } usata da
+  // @gestimus/scoring (scoring.ts getCriteri: `Number(pesi[k]) || 0`).
+  // Lo scoring moderno usa l'entità `criteri`; `pesi` resta come mapping legacy
+  // (vedi commento "legacy mapping" in scoring.ts) e viene anche propagato
+  // tale-e-quale dal duplica concorso (concorsi.ts: `pesi: f.pesi`).
+  // Sostituiamo `z.unknown()` (che accetta QUALSIASI JSON, anche stringhe/numeri
+  // arbitrari) con un record permissivo: chiavi stringa, valori number|string
+  // (lo scoring fa `Number(...)` quindi tollera entrambi). `z.record` accetta già
+  // qualsiasi chiave stringa (niente whitelist di slug → non rompe criteri custom).
+  // È nullable (colonna jsonb nullable) e optional. Non rompe i payload validi
+  // esistenti (già oggetti slug→valore) ma rifiuta tipi chiaramente errati
+  // (un array o uno scalare al posto della mappa).
+  pesi: z
+    .preprocess(
+      emptyToNull,
+      z.record(z.string(), z.union([z.number(), z.string()])).nullable(),
+    )
+    .optional(),
   metodoMedia: z
     .preprocess(
       emptyToNull,
@@ -210,8 +227,17 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
         });
         return reply.code(201).send({ ...created, sezioniIds: sezioniIds ?? [] });
       } catch (err) {
-        const e = err as { code?: string; cause?: { code?: string } };
-        if ((e.code ?? e.cause?.code) === '23505') return reply.conflict('ordine già usato nel concorso');
+        // 1.6: mappare QUALSIASI 23505 a "ordine già usato" mentirebbe se in futuro
+        // venisse aggiunto un altro UNIQUE su `fasi`. Branchamo sul nome del vincolo:
+        // solo `uniq_fasi_concorso_ordine` produce il messaggio "ordine"; ogni altra
+        // violazione di unicità viene rilanciata (gestita dall'error handler generico).
+        const e = err as { code?: string; constraint?: string; cause?: { code?: string; constraint?: string } };
+        if ((e.code ?? e.cause?.code) === '23505') {
+          const constraint = e.constraint ?? e.cause?.constraint;
+          if (constraint === 'uniq_fasi_concorso_ordine') {
+            return reply.conflict('ordine già usato nel concorso');
+          }
+        }
         throw err;
       }
     });
@@ -291,11 +317,17 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     return req.dbTx(async (tx) => {
       const { sezioniIds, ...faseFields } = parsed.data;
-      // R15: i trigger DB congelano le VALUTAZIONI di una fase CONCLUSA, ma non i
-      // PARAMETRI con cui vengono interpretate. Modificare scala/metodoMedia/pesi/
-      // ammessi/modoValutazione/tiebreakStrategy dopo la conclusione riscrive
-      // silenziosamente una graduatoria già finalizzata (valore legale del verbale).
-      // Leggiamo lo stato sotto FOR UPDATE e rifiutiamo l'edit di questi campi.
+      // R15 / 1.3: i trigger DB congelano le VALUTAZIONI di una fase CONCLUSA, ma
+      // non i PARAMETRI con cui vengono interpretate. Modificare scala/metodoMedia/
+      // pesi/ammessi/modoValutazione/tiebreakStrategy dopo l'AVVIO della fase riscrive
+      // silenziosamente l'interpretazione di voti già espressi:
+      //   • IN_CORSO: cambiare `scala` mentre i commissari votano lascia le
+      //     valutazioni.voto esistenti incoerenti con la nuova scala (il trigger di
+      //     clamp scatta solo sulle write di valutazioni, NON sull'update della fase);
+      //   • CONCLUSA: riscrive una graduatoria già finalizzata (valore legale del verbale).
+      // I parametri di valutazione sono quindi immutabili da quando la fase lascia
+      // PIANIFICATA (cioè IN_CORSO o CONCLUSA). I campi non-scoring (es. nome) restano
+      // modificabili. Leggiamo lo stato sotto FOR UPDATE e rifiutiamo l'edit.
       const SCORING_FIELDS = ['scala', 'metodoMedia', 'pesi', 'ammessi', 'modoValutazione', 'tiebreakStrategy'];
       const lockRows = await tx
         .select({ stato: fasi.stato })
@@ -304,8 +336,9 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
         .limit(1)
         .for('update');
       if (lockRows.length === 0) return reply.notFound();
-      if (lockRows[0]!.stato === 'CONCLUSA' && SCORING_FIELDS.some((k) => k in faseFields)) {
-        return reply.code(409).send({ error: 'fase conclusa: i parametri di valutazione non sono più modificabili' });
+      const statoFase = lockRows[0]!.stato;
+      if (statoFase !== 'PIANIFICATA' && SCORING_FIELDS.some((k) => k in faseFields)) {
+        return reply.code(409).send({ error: 'fase avviata o conclusa: i parametri di valutazione non sono più modificabili' });
       }
       // Aggiorna i campi base solo se ne è stato passato almeno uno (oltre a sezioniIds)
       let updated;
@@ -521,14 +554,22 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
         targetType: 'fase',
         targetId: id,
       });
-      // NOTIFY ai client SSE
+      // NOTIFY ai client SSE.
+      // 5.3: il realtime è best-effort, NON critico. Un fallimento della pg_notify
+      // (payload troppo grande, problema di connessione) NON deve far abortire
+      // l'avvio della fase (che è già committato logicamente in questa tx): lo
+      // racchiudiamo in try/catch, logghiamo un warning e proseguiamo.
       const payload = JSON.stringify({
         action: 'start',
         faseId: id,
         startedAt: startedAt.toISOString(),
         tempoMinuti: updated.tempoMinuti,
       });
-      await tx.execute(sql`SELECT pg_notify(${faseChannel(id)}, ${payload})`);
+      try {
+        await tx.execute(sql`SELECT pg_notify(${faseChannel(id)}, ${payload})`);
+      } catch (notifyErr) {
+        req.log.warn({ err: notifyErr, faseId: id }, 'pg_notify fase.start fallita (realtime non critico)');
+      }
       // Restituiamo la fase arricchita con sezioniIds: senza questo, il client
       // mapFase legge sezioniIds=undefined → sezioni_ids=[] e la fase appare
       // come "globale" finché non viene fatto un refresh hard (cache state).
@@ -682,8 +723,14 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
         targetId: id,
         payload: { scoring, admittedCount: effectiveAdmitted?.length ?? null },
       });
+      // 5.3: realtime best-effort, vedi /start. Una pg_notify fallita non deve
+      // abortire la conclusione della fase.
       const payload = JSON.stringify({ action: 'conclude', faseId: id });
-      await tx.execute(sql`SELECT pg_notify(${faseChannel(id)}, ${payload})`);
+      try {
+        await tx.execute(sql`SELECT pg_notify(${faseChannel(id)}, ${payload})`);
+      } catch (notifyErr) {
+        req.log.warn({ err: notifyErr, faseId: id }, 'pg_notify fase.conclude fallita (realtime non critico)');
+      }
       // Include sezioniIds nel response (vedi commento in /start): senza,
       // il client perde lo scope di sezione della fase dopo il concludi.
       const sezMap = await loadFaseSezioniMap(tx, [id]);
@@ -752,14 +799,19 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
           .returning();
         if (!updated) return reply.notFound();
         await writeAudit(tx, req, 'fase.timer_start', { targetType: 'fase', targetId: id });
-        await tx.execute(
-          sql`SELECT pg_notify(${faseChannel(id)}, ${JSON.stringify({
-            action: 'timer.start',
-            faseId: id,
-            at: now.toISOString(),
-            candidatoFaseId: body.data.candidatoFaseId ?? null,
-          })})`,
-        );
+        // 5.3: realtime best-effort, vedi /start. Notify fallita → log e prosegui.
+        try {
+          await tx.execute(
+            sql`SELECT pg_notify(${faseChannel(id)}, ${JSON.stringify({
+              action: 'timer.start',
+              faseId: id,
+              at: now.toISOString(),
+              candidatoFaseId: body.data.candidatoFaseId ?? null,
+            })})`,
+          );
+        } catch (notifyErr) {
+          req.log.warn({ err: notifyErr, faseId: id }, 'pg_notify timer.start fallita (realtime non critico)');
+        }
         return updated;
       });
     },
@@ -789,9 +841,14 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
         .returning();
       if (!updated) return reply.notFound();
       await writeAudit(tx, req, 'fase.timer_pause', { targetType: 'fase', targetId: id });
-      await tx.execute(
-        sql`SELECT pg_notify(${faseChannel(id)}, ${JSON.stringify({ action: 'timer.pause', faseId: id })})`,
-      );
+      // 5.3: realtime best-effort, vedi /start. Notify fallita → log e prosegui.
+      try {
+        await tx.execute(
+          sql`SELECT pg_notify(${faseChannel(id)}, ${JSON.stringify({ action: 'timer.pause', faseId: id })})`,
+        );
+      } catch (notifyErr) {
+        req.log.warn({ err: notifyErr, faseId: id }, 'pg_notify timer.pause fallita (realtime non critico)');
+      }
       return updated;
     });
   });
@@ -818,9 +875,14 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
         .where(eq(fasi.id, id))
         .returning();
       await writeAudit(tx, req, 'fase.timer_resume', { targetType: 'fase', targetId: id });
-      await tx.execute(
-        sql`SELECT pg_notify(${faseChannel(id)}, ${JSON.stringify({ action: 'timer.resume', faseId: id })})`,
-      );
+      // 5.3: realtime best-effort, vedi /start. Notify fallita → log e prosegui.
+      try {
+        await tx.execute(
+          sql`SELECT pg_notify(${faseChannel(id)}, ${JSON.stringify({ action: 'timer.resume', faseId: id })})`,
+        );
+      } catch (notifyErr) {
+        req.log.warn({ err: notifyErr, faseId: id }, 'pg_notify timer.resume fallita (realtime non critico)');
+      }
       return updated;
     });
   });
@@ -842,9 +904,14 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
         .returning();
       if (!updated) return reply.notFound();
       await writeAudit(tx, req, 'fase.timer_reset', { targetType: 'fase', targetId: id });
-      await tx.execute(
-        sql`SELECT pg_notify(${faseChannel(id)}, ${JSON.stringify({ action: 'timer.reset', faseId: id })})`,
-      );
+      // 5.3: realtime best-effort, vedi /start. Notify fallita → log e prosegui.
+      try {
+        await tx.execute(
+          sql`SELECT pg_notify(${faseChannel(id)}, ${JSON.stringify({ action: 'timer.reset', faseId: id })})`,
+        );
+      } catch (notifyErr) {
+        req.log.warn({ err: notifyErr, faseId: id }, 'pg_notify timer.reset fallita (realtime non critico)');
+      }
       return updated;
     });
   });
@@ -942,13 +1009,18 @@ export const fasiRoutes: FastifyPluginAsync = async (app) => {
         targetId: id,
         payload: { seconds: body.data.seconds },
       });
-      await tx.execute(
-        sql`SELECT pg_notify(${faseChannel(id)}, ${JSON.stringify({
-          action: 'timer.bonus',
-          faseId: id,
-          seconds: body.data.seconds,
-        })})`,
-      );
+      // 5.3: realtime best-effort, vedi /start. Notify fallita → log e prosegui.
+      try {
+        await tx.execute(
+          sql`SELECT pg_notify(${faseChannel(id)}, ${JSON.stringify({
+            action: 'timer.bonus',
+            faseId: id,
+            seconds: body.data.seconds,
+          })})`,
+        );
+      } catch (notifyErr) {
+        req.log.warn({ err: notifyErr, faseId: id }, 'pg_notify timer.bonus fallita (realtime non critico)');
+      }
       return updated;
     });
   });

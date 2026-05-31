@@ -54,45 +54,47 @@ const critical = (node: ReactNode) => <RouteErrorBoundary>{node}</RouteErrorBoun
 
 export default function App() {
   return (
-    <Suspense fallback={<PageFallback />}>
-      <Routes>
-        {/* Pagine pubbliche (no login) */}
-        <Route path="/iscrizione" element={<Iscrizione />} />
-        <Route path="/iscrizione/conferma" element={<IscrizioneConferma />} />
-        <Route path="/privacy" element={<Privacy />} />
-        <Route path="/calendario" element={<CalendarioPubblico />} />
+    <RouteErrorBoundary>
+      <Suspense fallback={<PageFallback />}>
+        <Routes>
+          {/* Pagine pubbliche (no login) */}
+          <Route path="/iscrizione" element={<Iscrizione />} />
+          <Route path="/iscrizione/conferma" element={<IscrizioneConferma />} />
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/calendario" element={<CalendarioPubblico />} />
 
-        {/* Login pubblico-solo */}
-        <Route element={<PublicOnlyRoute />}>
-          <Route path="/login" element={<Login />} />
-        </Route>
+          {/* Login pubblico-solo */}
+          <Route element={<PublicOnlyRoute />}>
+            <Route path="/login" element={<Login />} />
+          </Route>
 
-        {/* Rotte autenticate sotto la shell condivisa */}
-        <Route element={<ProtectedRoute />}>
-          <Route element={<AppLayout />}>
-            <Route path="/" element={<HomeIndex />} />
-            <Route path="/account/security" element={<AccountSecurity />} />
-            <Route path="/commissario" element={critical(<Commissario />)} />
+          {/* Rotte autenticate sotto la shell condivisa */}
+          <Route element={<ProtectedRoute />}>
+            <Route element={<AppLayout />}>
+              <Route path="/" element={<HomeIndex />} />
+              <Route path="/account/security" element={<AccountSecurity />} />
+              <Route path="/commissario" element={critical(<Commissario />)} />
 
-            {/* Admin (≥ admin) */}
-            <Route path="/admin">
-              <Route index element={adminPage(critical(<AdminWorkspace />))} />
-              <Route path="dashboard" element={adminPage(<AdminDashboard />)} />
-              <Route path="statistiche" element={adminPage(critical(<AdminStatistiche />))} />
-              <Route path="impostazioni" element={adminPage(<AdminImpostazioni />)} />
-              <Route path="utenti" element={adminPage(<AdminUtenti />)} />
-              <Route path="manuale" element={adminPage(<AdminManuale />)} />
-            </Route>
+              {/* Admin (≥ admin) */}
+              <Route path="/admin">
+                <Route index element={adminPage(critical(<AdminWorkspace />))} />
+                <Route path="dashboard" element={adminPage(<AdminDashboard />)} />
+                <Route path="statistiche" element={adminPage(critical(<AdminStatistiche />))} />
+                <Route path="impostazioni" element={adminPage(<AdminImpostazioni />)} />
+                <Route path="utenti" element={adminPage(<AdminUtenti />)} />
+                <Route path="manuale" element={adminPage(<AdminManuale />)} />
+              </Route>
 
-            {/* Super-admin */}
-            <Route element={<ProtectedRoute minRole="superadmin" />}>
-              <Route path="/superadmin" element={<Superadmin />} />
+              {/* Super-admin */}
+              <Route element={<ProtectedRoute minRole="superadmin" />}>
+                <Route path="/superadmin" element={<Superadmin />} />
+              </Route>
             </Route>
           </Route>
-        </Route>
 
-        <Route path="*" element={<NotFound />} />
-      </Routes>
-    </Suspense>
+          <Route path="*" element={<NotFound />} />
+        </Routes>
+      </Suspense>
+    </RouteErrorBoundary>
   );
 }

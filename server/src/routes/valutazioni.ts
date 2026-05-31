@@ -48,18 +48,19 @@ export const valutazioniRoutes: FastifyPluginAsync = async (app) => {
       .object({ candidatoFaseId: uuid.optional(), commissarioId: uuid.optional() })
       .parse(req.query);
     const { limit, offset } = parsePagination(req.query);
+    // Un commissario puo leggere solo le proprie valutazioni: forziamo il filtro
+    // sul suo commissarioId, ignorando qualsiasi commissarioId passato dal client.
+    let effectiveCommissarioId = q.commissarioId;
+    if (req.account!.role === 'commissario') {
+      // commissarioId nullo per un commissario e' una misconfig: nessun risultato.
+      if (!req.account!.commissarioId) return [];
+      effectiveCommissarioId = req.account!.commissarioId;
+    }
     return req.dbTx(async (tx) => {
-      let where;
-      if (q.candidatoFaseId && q.commissarioId) {
-        where = and(
-          eq(valutazioni.candidatoFaseId, q.candidatoFaseId),
-          eq(valutazioni.commissarioId, q.commissarioId),
-        );
-      } else if (q.candidatoFaseId) {
-        where = eq(valutazioni.candidatoFaseId, q.candidatoFaseId);
-      } else if (q.commissarioId) {
-        where = eq(valutazioni.commissarioId, q.commissarioId);
-      }
+      const conds = [];
+      if (q.candidatoFaseId) conds.push(eq(valutazioni.candidatoFaseId, q.candidatoFaseId));
+      if (effectiveCommissarioId) conds.push(eq(valutazioni.commissarioId, effectiveCommissarioId));
+      const where = conds.length ? and(...conds) : undefined;
       const base = tx.select().from(valutazioni).$dynamic();
       const filtered = where ? base.where(where) : base;
       return filtered.limit(limit).offset(offset);

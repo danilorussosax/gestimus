@@ -10,8 +10,16 @@ import {
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { authApi } from '@/api/auth';
+import { HttpError } from '@/lib/api';
 import { setSentryUser } from '@/lib/sentry';
 import type { Role, User } from '@/types';
+
+/** Un errore di /auth/me è "non autenticato" solo se è un HttpError 401/403.
+ *  Qualsiasi altro caso (5xx, oppure rete/CORS → fetch lancia un TypeError
+ *  senza `.status`) è un guasto server e NON va trattato come logout. */
+function isUnauthenticatedError(err: unknown): boolean {
+  return err instanceof HttpError && (err.status === 401 || err.status === 403);
+}
 
 interface AuthState {
   user: User | null;
@@ -41,13 +49,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const { t } = useTranslation();
 
   // Bootstrap: la sessione vive in un cookie HttpOnly, quindi proviamo sempre
-  // GET /auth/me al mount. 401 → nessuna sessione (utente anonimo).
+  // GET /auth/me al mount. 401/403 → nessuna sessione (utente anonimo); un
+  // guasto server (5xx/rete) NON deve buttare fuori un utente potenzialmente
+  // loggato: lo logghiamo invece di mascherarlo da "logout".
   const refreshUser = useCallback(async () => {
     try {
       const user = await authApi.me();
       setState({ user, loading: false });
       return user;
-    } catch {
+    } catch (err) {
+      if (!isUnauthenticatedError(err)) {
+        // 5xx / rete / CORS: senza /auth/me non conosciamo l'identità, ma non
+        // è un logout. Segnaliamo l'errore invece di silenziarlo.
+        console.error('[auth] caricamento sessione fallito (guasto server):', err);
+      }
       setState({ user: null, loading: false });
       return null;
     }
@@ -63,12 +78,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if ('mfaRequired' in res) {
         return { kind: 'mfa', challenge: res.challenge };
       }
-      // Sessione emessa: carica il profilo completo da /auth/me.
-      const user = await authApi.me();
+      // Sessione emessa (cookie già impostato): carica il profilo da /auth/me.
+      // Se /auth/me fallisce per un guasto server (5xx/rete) il login è in
+      // realtà riuscito, quindi solleviamo un errore chiaro invece di propagare
+      // l'errore grezzo che farebbe sembrare fallito anche il login.
+      let user: User;
+      try {
+        user = await authApi.me();
+      } catch (err) {
+        if (isUnauthenticatedError(err)) throw err;
+        throw new Error(
+          t('auth.login_ok_session_failed', {
+            defaultValue:
+              'Accesso riuscito, ma il caricamento della sessione è fallito. Ricarica la pagina.',
+          }),
+        );
+      }
       setState({ user, loading: false });
       return { kind: 'ok', user };
     },
-    [],
+    [t],
   );
 
   const completeMfaLogin = useCallback<AuthContextValue['completeMfaLogin']>(

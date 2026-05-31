@@ -1,5 +1,12 @@
 import { http } from '@/lib/api';
-import type { LoginResponse, LoginSession, User } from '@/types';
+import {
+  loginResponseSchema,
+  loginSessionSchema,
+  userSchema,
+  type LoginResponse,
+  type LoginSession,
+  type User,
+} from '@/types';
 
 export interface TotpSetupResponse {
   secret: string;
@@ -11,15 +18,15 @@ export interface TotpSetupResponse {
 
 export const authApi = {
   /** POST /auth/login → { mfaRequired, challenge } | LoginSession. */
-  login: (email: string, password: string) =>
-    http.post<LoginResponse>('/auth/login', { email, password }),
+  login: async (email: string, password: string): Promise<LoginResponse> =>
+    loginResponseSchema.parse(await http.post('/auth/login', { email, password })),
 
   /** Step 2 (2FA): POST /auth/login/verify-totp con challenge + codice TOTP/recovery. */
-  verifyTotp: (challenge: string, code: string) =>
-    http.post<LoginSession>('/auth/login/verify-totp', { challenge, code }),
+  verifyTotp: async (challenge: string, code: string): Promise<LoginSession> =>
+    loginSessionSchema.parse(await http.post('/auth/login/verify-totp', { challenge, code })),
 
   /** GET /auth/me — utente loggato (404/401 se sessione assente). */
-  me: () => http.get<User>('/auth/me'),
+  me: async (): Promise<User> => userSchema.parse(await http.get('/auth/me')),
 
   /** POST /auth/logout — invalida la sessione server-side + cancella cookie. */
   logout: () => http.post<{ ok: boolean }>('/auth/logout'),

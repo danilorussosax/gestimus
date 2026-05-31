@@ -82,7 +82,17 @@ const createBody = z.object({
     )
     .max(200)
     .optional(),
-  tutore: z.unknown().optional(),
+  // Schema strutturato del tutore: STESSA shape di iscrizioni.ts (era
+  // z.unknown(), accettava JSON arbitrario). Mantenere allineato così candidati
+  // e iscrizioni validano il tutore in modo identico.
+  tutore: z
+    .object({
+      nome: z.string().max(255).optional(),
+      cognome: z.string().max(255).optional(),
+      email: z.string().email().optional(),
+      telefono: z.string().max(50).optional(),
+    })
+    .optional(),
   noteLibere: z.preprocess(emptyToNull, z.string().max(2000).nullable()).optional(),
   dataIscrizione: z.preprocess(emptyToNull, z.string().date().nullable()).optional(),
   sezioneId: z.preprocess(emptyToNull, uuid.nullable()).optional(),

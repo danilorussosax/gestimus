@@ -18,6 +18,23 @@ import { generateToken } from '../lib/token.js';
 import { replyValidationError } from '../lib/validation.js';
 
 
+// Membro di un gruppo (ensemble/orchestra): input pubblico anonimo → schema
+// strutturato (era z.unknown(): accettava elementi arbitrari, vettore di abuso
+// storage/DoS e nessuna garanzia di forma a valle). Rispecchia i campi del form
+// pubblico (pages/public/Iscrizione.tsx → membroRow: nome/cognome/strumento/
+// data_nascita), letti tali e quali dall'admin (IscrizioniTab). Tutti i campi
+// sono opzionali e con bound di lunghezza; .passthrough() mantiene lenient lo
+// schema per non rifiutare payload validi che portassero campi extra (es.
+// `ruolo`/codice fiscale del singolo componente in evoluzioni future).
+const memberSchema = z
+  .object({
+    nome: z.string().max(255).optional(),
+    cognome: z.string().max(255).optional(),
+    strumento: z.string().max(255).optional(),
+    data_nascita: z.string().max(32).optional(),
+  })
+  .passthrough();
+
 const iscrizioneCreateBody = z.object({
   concorsoId: uuid,
   // Anti-spam — STESSI nomi del form pubblico (js/views/iscrizione.js) per
@@ -80,7 +97,9 @@ const iscrizioneCreateBody = z.object({
   isGruppo: z.boolean().optional(),
   gruppoNome: z.string().max(255).optional(),
   tipoGruppo: z.enum(['ensemble', 'orchestra']).optional(),
-  membri: z.array(z.unknown()).optional(),
+  // N-csv: elementi tipizzati (era z.array(z.unknown())). Vedi memberSchema:
+  // oggetto strutturato + .passthrough() (bound a 100 componenti).
+  membri: z.array(memberSchema).max(100).optional(),
   // N86: oggetto tipizzato (era z.unknown()). La presenza di contenuto reale
   // per i minori è verificata nel business logic (un {} vuoto è truthy e
   // bypassava `!data.tutore`).
@@ -125,11 +144,42 @@ function csvRow(cells: unknown[]): string {
 }
 
 // Riassunto del programma musicale (jsonb) in una singola cella: "titolo — autore | …".
-function programmaBrief(programma: unknown): { brani: string; durataTot: number } {
+// `log` opzionale (req.log/app.log): se passato, emettiamo UN warn quando una
+// durata risulta non-finita, così i dati corrotti emergono nei log invece di
+// essere silenziosamente azzerati nel totale del CSV.
+type ProgrammaRow = { titolo?: string; autore?: string; durata_min?: number };
+function programmaBrief(
+  programma: unknown,
+  log?: { warn: (obj: object, msg: string) => void },
+): { brani: string; durataTot: number } {
   if (!Array.isArray(programma)) return { brani: '', durataTot: 0 };
-  const rows = programma as { titolo?: string; autore?: string; durata_min?: number }[];
-  const brani = rows.map((p) => `${p.titolo ?? ''} — ${p.autore ?? ''}`).join(' | ');
-  const durataTot = rows.reduce((acc, p) => acc + (Number(p.durata_min) || 0), 0);
+  const rows = programma as ProgrammaRow[];
+  const brani = rows.map((p: ProgrammaRow) => `${p.titolo ?? ''} — ${p.autore ?? ''}`).join(' | ');
+  // N-csv: NON usare `Number(x) || 0`. Number("abc") è NaN e `NaN || 0` diventa
+  // 0 silenziosamente, mascherando dati corrotti. Parsiamo esplicitamente e
+  // sommiamo solo i valori finiti; le durate non-finite (NaN/Infinity) vengono
+  // segnalate (una volta) invece di essere assorbite a zero.
+  let durataTot = 0;
+  let corruptSeen = false;
+  for (const p of rows) {
+    // `durata_min` arriva da jsonb non vincolato: trattiamo come "assente" solo
+    // null/undefined/stringa vuota (nessuna durata inserita); qualunque altro
+    // valore che non parsa a numero finito è un dato corrotto da segnalare.
+    const raw = p.durata_min as unknown;
+    if (raw == null || raw === '') continue;
+    const n = Number(raw);
+    if (Number.isFinite(n)) {
+      durataTot += n;
+    } else {
+      corruptSeen = true;
+    }
+  }
+  if (corruptSeen && log) {
+    log.warn(
+      { programma },
+      'iscrizioni CSV: durata_min non-finita nel programma, esclusa dal totale (dato corrotto)',
+    );
+  }
   return { brani, durataTot };
 }
 
@@ -735,7 +785,7 @@ export const iscrizioniAdminRoutes: FastifyPluginAsync = async (app) => {
 
       const lines = [csvRow(header)];
       for (const r of rows) {
-        const { brani, durataTot } = programmaBrief(r.programma);
+        const { brani, durataTot } = programmaBrief(r.programma, req.log);
         const gdpr = (r.consensiGdpr ?? {}) as { privacy?: boolean; immagini?: boolean; regolamento?: boolean };
         const tutore = (r.tutore ?? {}) as { nome?: string; cognome?: string; email?: string; telefono?: string };
         const tutoreNome = [tutore.nome, tutore.cognome].filter(Boolean).join(' ');

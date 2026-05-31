@@ -60,7 +60,8 @@ export async function createSession(
 /**
  * Valida un token di sessione (estratto dal cookie).
  * Auto-refresh: se la sessione è oltre la metà della sua TTL, estende l'expiresAt.
- * Auto-cleanup: sessioni scadute vengono cancellate.
+ * Le sessioni scadute (rolling) NON vengono cancellate qui (hot path): la pulizia
+ * è delegata al cron cleanupExpiredSessions.
  */
 export async function validateSessionToken(token: string): Promise<SessionValidation> {
   if (!token || token.length < 16) return { account: null, session: null, refreshed: false };
@@ -93,9 +94,12 @@ export async function validateSessionToken(token: string): Promise<SessionValida
     return { account: null, session: null, refreshed: false };
   }
 
-  // Scadenza (rolling)
+  // Scadenza (rolling). NON cancelliamo inline: questo metodo gira su OGNI
+  // richiesta nell'hot path di auth, e un utente che ripresenta un cookie scaduto
+  // innescherebbe una write per ogni richiesta. La pulizia delle righe scadute è
+  // delegata al cron (cleanupExpiredSessions, schedulato in index.ts). Qui basta
+  // trattare la sessione come non autenticata.
   if (session.expiresAt.getTime() < now) {
-    await dbSuper.delete(sessions).where(eq(sessions.id, sessionId));
     return { account: null, session: null, refreshed: false };
   }
 
