@@ -31,40 +31,62 @@ describe('Calendario / scheduling', () => {
     app = await createApp();
     await app.ready();
 
-    const login = await app.inject({
+    // Helper: il login DEVE riuscire e restituire il cookie. Un 429 (rate-limit
+    // login 10/15min) o un 401 silenzioso lascerebbe il cookie undefined e farebbe
+    // fallire l'intero file in modo opaco (richieste successive non autenticate).
+    const loginCookie = (
+      res: { statusCode: number; payload: string; cookies: Array<{ name: string; value: string }> },
+      label: string,
+    ): string => {
+      assert.equal(res.statusCode, 200, `login ${label} fallito (${res.statusCode}): ${res.payload}`);
+      const sc = res.cookies.find((c) => c.name === 'gestimus_session');
+      if (!sc) throw new Error(`login ${label}: cookie di sessione assente`);
+      return `gestimus_session=${sc.value}`;
+    };
+    // Helper: ogni create di setup deve dare 201 con id. Fail-fast col body
+    // d'errore invece di propagarsi in conteggi sballati downstream (es. slot 2≠3):
+    // se un POST falliva, .json().id era undefined e finiva silenziosamente in cfIds.
+    const mustCreate = (
+      res: { statusCode: number; payload: string; json: () => { id?: string } },
+      label: string,
+    ): string => {
+      assert.equal(res.statusCode, 201, `setup ${label} fallito (${res.statusCode}): ${res.payload}`);
+      const id = res.json().id;
+      if (!id) throw new Error(`setup ${label}: id mancante (status ${res.statusCode}, body ${res.payload})`);
+      return id;
+    };
+
+    cookie = loginCookie(await app.inject({
       method: 'POST', url: '/auth/login',
       headers: { host: 'ente1.gestimus.local', 'content-type': 'application/json' },
       payload: { email: 'admin@ente1.test', password: 'Admin123!' },
-    });
-    cookie = `gestimus_session=${login.cookies.find((c) => c.name === 'gestimus_session')!.value}`;
+    }), 'ente1');
 
-    const login2 = await app.inject({
+    cookie2 = loginCookie(await app.inject({
       method: 'POST', url: '/auth/login',
       headers: { host: 'ente2.gestimus.local', 'content-type': 'application/json' },
       payload: { email: 'admin@ente2.test', password: 'Admin123!' },
-    });
-    cookie2 = `gestimus_session=${login2.cookies.find((c) => c.name === 'gestimus_session')!.value}`;
+    }), 'ente2');
 
-    concorsoId = (await app.inject({ method: 'POST', url: '/api/concorsi', headers: H1(),
-      payload: { nome: 'Cal Test 2026', anno: 2026, stato: 'ATTIVO' } })).json().id;
-    sezioneId = (await app.inject({ method: 'POST', url: '/api/sezioni', headers: H1(),
-      payload: { concorsoId, nome: 'Cal Archi', ordine: 1 } })).json().id;
-    categoriaId = (await app.inject({ method: 'POST', url: '/api/categorie', headers: H1(),
-      payload: { sezioneId, nome: 'Cal Senior' } })).json().id;
-    faseId = (await app.inject({ method: 'POST', url: '/api/fasi', headers: H1(),
-      payload: { concorsoId, ordine: 1, nome: 'Cal Eliminatorie', scala: 100 } })).json().id;
+    concorsoId = mustCreate(await app.inject({ method: 'POST', url: '/api/concorsi', headers: H1(),
+      payload: { nome: 'Cal Test 2026', anno: 2026, stato: 'ATTIVO' } }), 'concorso');
+    sezioneId = mustCreate(await app.inject({ method: 'POST', url: '/api/sezioni', headers: H1(),
+      payload: { concorsoId, nome: 'Cal Archi', ordine: 1 } }), 'sezione');
+    categoriaId = mustCreate(await app.inject({ method: 'POST', url: '/api/categorie', headers: H1(),
+      payload: { sezioneId, nome: 'Cal Senior' } }), 'categoria');
+    faseId = mustCreate(await app.inject({ method: 'POST', url: '/api/fasi', headers: H1(),
+      payload: { concorsoId, ordine: 1, nome: 'Cal Eliminatorie', scala: 100 } }), 'fase');
 
     // 3 candidati in sezione/categoria, assegnati alla fase con posizioni 1,2,3.
     for (let i = 1; i <= 3; i++) {
-      const cand = (await app.inject({ method: 'POST', url: '/api/candidati', headers: H1(),
-        payload: { concorsoId, numeroCandidato: i, nome: `Cand${i}`, cognome: `Cognome${i}`, strumento: 'Violino', sezioneId, categoriaId } })).json();
-      const cf = await app.inject({ method: 'POST', url: '/api/candidati-fase', headers: H1(),
-        payload: { faseId, candidatoId: cand.id, posizione: i } });
-      cfIds.push(cf.json().id);
+      const candId = mustCreate(await app.inject({ method: 'POST', url: '/api/candidati', headers: H1(),
+        payload: { concorsoId, numeroCandidato: i, nome: `Cand${i}`, cognome: `Cognome${i}`, strumento: 'Violino', sezioneId, categoriaId } }), `candidato ${i}`);
+      cfIds.push(mustCreate(await app.inject({ method: 'POST', url: '/api/candidati-fase', headers: H1(),
+        payload: { faseId, candidatoId: candId, posizione: i } }), `candidato-fase ${i}`));
     }
 
-    concorsoEnte2Id = (await app.inject({ method: 'POST', url: '/api/concorsi', headers: H2(),
-      payload: { nome: 'Cal Test E2 2026', anno: 2026, stato: 'ATTIVO' } })).json().id;
+    concorsoEnte2Id = mustCreate(await app.inject({ method: 'POST', url: '/api/concorsi', headers: H2(),
+      payload: { nome: 'Cal Test E2 2026', anno: 2026, stato: 'ATTIVO' } }), 'concorso ente2');
   });
 
   after(async () => {
