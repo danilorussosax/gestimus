@@ -135,7 +135,7 @@ export const accountsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(403).send({ error: 'non puoi disattivare il tuo stesso account' });
     }
 
-    return req.dbTx(async (tx) => {
+    const outcome = await req.dbTx(async (tx) => {
       // N25: se viene assegnato un commissarioId, deve appartenere al tenant
       // corrente. La query gira sotto RLS (app.tenant_id) quindi un commissario
       // di altro tenant non è visibile → 0 righe → rifiuto esplicito.
@@ -203,12 +203,30 @@ export const accountsRoutes: FastifyPluginAsync = async (app) => {
         targetId: id,
         payload: parsed.data,
       });
-      // Disattivazione o cambio ruolo invalida le sessioni attive
-      if (parsed.data.attivo === false || parsed.data.role) {
-        await invalidateAllSessionsForAccount(id);
-      }
-      return publicAccount(updated);
+      // #3: l'invalidazione sessioni NON va più eseguita qui dentro. Gira su
+      // dbSuper (connessione/tx separata) e con autocommit immediato verrebbe
+      // persistita PRIMA del commit del PATCH: un rollback del tx lascerebbe le
+      // sessioni cancellate ma il cambio ruolo/disattivazione annullato. La
+      // rimandiamo a dopo il commit, segnalando se serve.
+      const mustInvalidate = parsed.data.attivo === false || parsed.data.role !== undefined;
+      return { account: publicAccount(updated), mustInvalidate };
     });
+    // L'inner callback ritorna l'oggetto reply solo sui percorsi d'errore
+    // (notFound/badRequest/409): in quei casi la reply è già configurata e va
+    // restituita così com'è. Il successo ritorna { account, mustInvalidate }.
+    if (!outcome || !('account' in outcome)) return outcome;
+    // #3: invalidazione STRETTAMENTE post-commit del PATCH. Disattivazione o
+    // cambio ruolo deve revocare le sessioni attive; l'errore è atteso e
+    // propagato (no fire-and-forget) così la disattivazione non resta "a metà".
+    if (outcome.mustInvalidate) {
+      try {
+        await invalidateAllSessionsForAccount(id);
+      } catch (err) {
+        req.log.error({ accountId: id, err: (err as Error).message }, 'account.update: invalidazione sessioni fallita dopo commit');
+        return reply.internalServerError('account aggiornato ma invalidazione sessioni fallita: riprova');
+      }
+    }
+    return outcome.account;
   });
 
   app.post('/:id/reset-password', { preHandler: [requireRole('admin')] }, async (req, reply) => {
@@ -216,20 +234,41 @@ export const accountsRoutes: FastifyPluginAsync = async (app) => {
     const parsed = resetPwdBody.safeParse(req.body);
     if (!parsed.success) return replyValidationError(reply, req, parsed.error);
     const passwordHash = await hashPassword(parsed.data.password);
-    return req.dbTx(async (tx) => {
+    // #3: l'invalidazione sessioni gira su dbSuper (connessione/tx separata dal
+    // dbTx della route → NON arruolabile nella stessa transazione). Va quindi
+    // eseguita STRETTAMENTE DOPO il commit del cambio password, non dentro il
+    // callback: dentro, la DELETE sessioni (autocommit immediato su dbSuper)
+    // verrebbe persistita prima del commit del nuovo hash, e un rollback del tx
+    // (es. writeAudit fallisce) lascerebbe le sessioni cancellate ma la password
+    // invariata. Post-commit l'ordine è corretto: prima la password è durabile,
+    // poi si invalidano le sessioni vecchie. L'errore di invalidazione è atteso
+    // e propagato (non fire-and-forget) → la finestra in cui sessioni con la
+    // vecchia password sopravvivono a un cambio riuscito resta chiusa.
+    const result = await req.dbTx(async (tx) => {
       const [updated] = await tx
         .update(accounts)
         .set({ passwordHash, updatedAt: new Date() })
         .where(eq(accounts.id, id))
         .returning();
-      if (!updated) return reply.notFound();
+      if (!updated) return { notFound: true as const };
       await writeAudit(tx, req, 'account.reset_password', {
         targetType: 'account',
         targetId: id,
       });
-      await invalidateAllSessionsForAccount(id);
-      return { ok: true };
+      return { notFound: false as const };
     });
+    if (result.notFound) return reply.notFound();
+    try {
+      await invalidateAllSessionsForAccount(id);
+    } catch (err) {
+      // La password è già cambiata e committata: NON possiamo annullarla. Se
+      // l'invalidazione fallisce restano sessioni con la vecchia password →
+      // rispondiamo 500 perché il client (admin) deve sapere che il reset NON è
+      // completo e va ritentato (l'invalidazione è idempotente).
+      req.log.error({ accountId: id, err: (err as Error).message }, 'reset-password: invalidazione sessioni fallita dopo commit');
+      return reply.internalServerError('password cambiata ma invalidazione sessioni fallita: riprova');
+    }
+    return { ok: true };
   });
 
   app.delete('/:id', { preHandler: [requireRole('admin')] }, async (req, reply) => {

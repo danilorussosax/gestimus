@@ -76,20 +76,43 @@ export function generateTotp(secretBase32: string, nowMs: number = Date.now()): 
 /**
  * Verifica un codice TOTP a 6 cifre con finestra ±`window` step (default ±1 =
  * tolleranza ±30s per clock skew). Confronto constant-time. `nowMs` iniettabile
- * per i test.
+ * per i test. Ritorna `true`/`false` (compat con i call site di setup/enable).
  */
 export function verifyTotp(secretBase32: string, token: string, window = 1, nowMs: number = Date.now()): boolean {
+  return verifyTotpStep(secretBase32, token, window, nowMs) !== null;
+}
+
+/**
+ * Variante di {@link verifyTotp} che, in caso di match, ritorna lo STEP (counter
+ * TOTP) accettato; `null` se nessun match. Lo step è monotòno nel tempo →
+ * permette al chiamante di rifiutare il replay di un codice già usato (RFC 6238
+ * §5: un codice TOTP DEVE essere accettato una sola volta nella sua finestra).
+ * La scansione resta constant-time per ogni candidato (timingSafeEqual).
+ */
+export function verifyTotpStep(
+  secretBase32: string,
+  token: string,
+  window = 1,
+  nowMs: number = Date.now(),
+): number | null {
   const t = (token || '').replace(/\D/g, '');
-  if (!/^\d{6}$/.test(t)) return false;
+  if (!/^\d{6}$/.test(t)) return null;
   const secret = base32Decode(secretBase32);
-  if (secret.length === 0) return false;
+  if (secret.length === 0) return null;
   const counter = Math.floor(nowMs / 1000 / STEP_SECONDS);
   const provided = Buffer.from(t);
   for (let i = -window; i <= window; i++) {
-    const expected = Buffer.from(hotp(secret, counter + i));
-    if (expected.length === provided.length && timingSafeEqual(expected, provided)) return true;
+    const step = counter + i;
+    const expected = Buffer.from(hotp(secret, step));
+    if (expected.length === provided.length && timingSafeEqual(expected, provided)) return step;
   }
-  return false;
+  return null;
+}
+
+/** Lo step TOTP corrente (counter) per un dato istante. Esposto per i call site
+ * che devono confrontare/persistere lo step accettato. */
+export function totpStepFor(nowMs: number = Date.now()): number {
+  return Math.floor(nowMs / 1000 / STEP_SECONDS);
 }
 
 /** Genera N recovery code one-time (10 char base32, leggibili). */
@@ -109,9 +132,15 @@ export function hashRecoveryCode(code: string): string {
 
 // --- Challenge MFA al login -------------------------------------------------
 // Dopo la verifica password, se l'account ha il 2FA attivo NON emettiamo subito
-// la sessione: restituiamo un challenge firmato HMAC (accountId+scadenza) che
-// prova "password corretta". La route verify-totp lo valida e, col codice TOTP,
-// emette la sessione. Self-contained (nessuno storage), TTL breve.
+// la sessione: restituiamo un challenge firmato HMAC (accountId+tenant+scadenza)
+// che prova "password corretta". La route verify-totp lo valida e, col codice
+// TOTP, emette la sessione. Self-contained (nessuno storage), TTL breve.
+//
+// SICUREZZA (cross-tenant replay): il payload firmato include il CONTESTO tenant
+// in cui il challenge è stato emesso (slug tenant, oppure il sentinel 'platform'
+// per il login super-admin). verify-totp confronta questo contesto con quello
+// della richiesta corrente → un challenge emesso sul subdomain del tenant A non
+// è spendibile sul subdomain del tenant B (o su platform) entro il TTL.
 
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
 
@@ -128,23 +157,44 @@ function challengeSig(payload: string): string {
   return challengeSigWith(MFA_HMAC_KEY, payload);
 }
 
-export function createMfaChallenge(accountId: string): string {
+// Sentinel per il contesto "platform" (login super-admin, req.tenant === null).
+// È un UUID-like riservato che non collide con un tenant.id reale.
+export const MFA_PLATFORM_CONTEXT = 'platform';
+
+export interface MfaChallengeClaims {
+  accountId: string;
+  /** Contesto tenant in cui il challenge è stato emesso: tenant.id oppure
+   *  {@link MFA_PLATFORM_CONTEXT} per il login super-admin. */
+  tenantCtx: string;
+}
+
+/**
+ * Emette un challenge MFA firmato che lega `accountId` AL CONTESTO `tenantCtx`
+ * (tenant.id o {@link MFA_PLATFORM_CONTEXT}). Formato: `accountId.tenantCtx.exp.sig`.
+ * Tutti i campi (UUID, sentinel, exp numerico) sono privi di `.` → split stabile.
+ */
+export function createMfaChallenge(accountId: string, tenantCtx: string): string {
   const exp = Date.now() + CHALLENGE_TTL_MS;
-  const payload = `${accountId}.${exp}`;
+  const payload = `${accountId}.${tenantCtx}.${exp}`;
   return `${payload}.${challengeSig(payload)}`;
 }
 
-export function verifyMfaChallenge(token: string): string | null {
+/**
+ * Valida firma + scadenza e ritorna le claim (accountId + tenantCtx). Il
+ * chiamante DEVE poi verificare che `tenantCtx` combaci col contesto della
+ * richiesta corrente (anti cross-tenant replay).
+ */
+export function verifyMfaChallenge(token: string): MfaChallengeClaims | null {
   const parts = (token || '').split('.');
-  if (parts.length !== 3) return null;
-  const [accountId, expStr, sig] = parts as [string, string, string];
+  if (parts.length !== 4) return null;
+  const [accountId, tenantCtx, expStr, sig] = parts as [string, string, string, string];
   const sigBuf = Buffer.from(sig);
   let ok = false;
   for (const key of MFA_HMAC_KEYS) {
-    const expBuf = Buffer.from(challengeSigWith(key, `${accountId}.${expStr}`));
+    const expBuf = Buffer.from(challengeSigWith(key, `${accountId}.${tenantCtx}.${expStr}`));
     if (sigBuf.length === expBuf.length && timingSafeEqual(sigBuf, expBuf)) { ok = true; break; }
   }
   if (!ok) return null;
   if (!/^\d+$/.test(expStr) || Number(expStr) < Date.now()) return null;
-  return accountId;
+  return { accountId, tenantCtx };
 }

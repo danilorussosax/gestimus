@@ -18,10 +18,24 @@ import {
   generateRecoveryCodes,
   generateTotpSecret,
   hashRecoveryCode,
+  MFA_PLATFORM_CONTEXT,
+  totpStepFor,
   totpUri,
   verifyMfaChallenge,
   verifyTotp,
+  verifyTotpStep,
 } from '../services/totp.js';
+
+const STEP_SECONDS = 30;
+
+/** Contesto tenant della richiesta per il challenge MFA: tenant.id sul subdomain
+ *  di un tenant, sentinel 'platform' per il login super-admin. Allinea il binding
+ *  del challenge alla stessa logica di risoluzione account di /login. */
+function mfaContextOf(req: FastifyRequest): string | null {
+  if (req.tenant) return req.tenant.id;
+  if (req.isSuperadmin) return MFA_PLATFORM_CONTEXT;
+  return null;
+}
 
 // M152: traccia forensica dei tentativi di login (successo e fallimento).
 // Best-effort: un errore di audit non deve mai far fallire il login. Tenant →
@@ -129,7 +143,11 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     // prova "password corretta"; il client lo riusa su /login/verify-totp col
     // codice TOTP (o un recovery code) per ottenere la sessione.
     if (account.totpEnabled && account.totpSecret) {
-      return { mfaRequired: true, challenge: createMfaChallenge(account.id) };
+      // Lega il challenge al contesto tenant corrente (anti cross-tenant replay).
+      // mfaContextOf() non è mai null qui: il ramo di risoluzione account sopra
+      // (req.tenant / req.isSuperadmin) è già passato, altrimenti avremmo 400.
+      const ctx = mfaContextOf(req)!;
+      return { mfaRequired: true, challenge: createMfaChallenge(account.id, ctx) };
     }
 
     return finishLogin(req, reply, account);
@@ -154,19 +172,55 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       .safeParse(req.body);
     if (!parsed.success) return reply.badRequest('challenge/code non validi');
 
-    const accountId = verifyMfaChallenge(parsed.data.challenge);
-    if (!accountId) return reply.code(401).send({ error: 'challenge scaduto o non valido, rifai il login' });
+    const claims = verifyMfaChallenge(parsed.data.challenge);
+    if (!claims) return reply.code(401).send({ error: 'challenge scaduto o non valido, rifai il login' });
 
-    const rows = await dbSuper.select().from(accounts).where(eq(accounts.id, accountId)).limit(1);
+    // Anti cross-tenant replay: il contesto firmato nel challenge DEVE coincidere
+    // col contesto della richiesta corrente. Senza questo controllo un challenge
+    // emesso sul subdomain del tenant A (TTL 5 min) sarebbe spendibile su un
+    // qualsiasi altro subdomain → sessione su tenant errato. Stessa logica di
+    // risoluzione contesto usata da /login.
+    const reqCtx = mfaContextOf(req);
+    if (!reqCtx || reqCtx !== claims.tenantCtx) {
+      return reply.code(401).send({ error: 'challenge non valido per questo contesto, rifai il login' });
+    }
+
+    const rows = await dbSuper.select().from(accounts).where(eq(accounts.id, claims.accountId)).limit(1);
     const account = rows[0];
     if (!account || !account.attivo || !account.totpEnabled || !account.totpSecret) {
       return reply.code(401).send({ error: 'credenziali non valide' });
     }
 
+    // Difesa in profondità: l'account risolto dal challenge deve appartenere al
+    // tenant del contesto (per il login tenant); per platform deve essere superadmin.
+    if (reqCtx === MFA_PLATFORM_CONTEXT) {
+      if (account.role !== 'superadmin') {
+        return reply.code(401).send({ error: 'credenziali non valide' });
+      }
+    } else if (account.tenantId !== reqCtx) {
+      return reply.code(401).send({ error: 'credenziali non valide' });
+    }
+
     const code = parsed.data.code.trim();
     let verified = false;
+    // Step TOTP accettato (per anti-replay). null = non un codice TOTP (recovery).
+    let acceptedStep: number | null = null;
     if (/^\d{6}$/.test(code)) {
-      verified = verifyTotp(account.totpSecret, code);
+      acceptedStep = verifyTotpStep(account.totpSecret, code);
+      if (acceptedStep !== null) {
+        // Anti-replay (RFC 6238 §5): un codice TOTP è valido ~60-90s (finestra
+        // ±1 step). Senza enforcement potrebbe essere riusato in quella finestra.
+        // `totpLastUsedAt` codifica lo step dell'ultimo codice accettato
+        // (timestamp = step·30s): rifiutiamo qualsiasi step <= a quello.
+        const lastStep = account.totpLastUsedAt
+          ? Math.floor(account.totpLastUsedAt.getTime() / 1000 / STEP_SECONDS)
+          : -1;
+        if (acceptedStep <= lastStep) {
+          await auditLogin(req, 'auth.login_failed', account.email, account.id);
+          return reply.code(401).send({ error: 'codice 2FA già utilizzato, attendi il successivo' });
+        }
+        verified = true;
+      }
     } else {
       // Recovery code: confronto sull'hash; se valido viene CONSUMATO (one-time).
       const codeHash = hashRecoveryCode(code);
@@ -182,7 +236,14 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(401).send({ error: 'codice 2FA non valido' });
     }
 
-    await dbSuper.update(accounts).set({ totpLastUsedAt: new Date() }).where(eq(accounts.id, account.id));
+    // Persisti lo step accettato (codificato in totpLastUsedAt) per bloccare il
+    // replay del medesimo codice. Per i recovery code (acceptedStep === null) usa
+    // l'istante corrente: non degrada la protezione TOTP (il recovery è one-time
+    // e già consumato sopra) e mantiene un last-used coerente.
+    const lastUsed = acceptedStep !== null
+      ? new Date(acceptedStep * STEP_SECONDS * 1000)
+      : new Date();
+    await dbSuper.update(accounts).set({ totpLastUsedAt: lastUsed }).where(eq(accounts.id, account.id));
     return finishLogin(req, reply, account);
   });
 
@@ -267,7 +328,12 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       .set({
         totpEnabled: true,
         totpRecoveryCodes: codes.map(hashRecoveryCode),
-        totpLastUsedAt: new Date(),
+        // NB: NON pre-seedare totpLastUsedAt con l'ora corrente. Questo campo ora
+        // codifica lo STEP dell'ultimo codice TOTP accettato per l'anti-replay
+        // (verify-totp): un valore wall-clock corrisponderebbe allo step corrente
+        // e farebbe rifiutare il PRIMO login 2FA col codice valido. NULL = nessun
+        // codice ancora consumato.
+        totpLastUsedAt: null,
         updatedAt: new Date(),
       })
       .where(eq(accounts.id, a.id));
