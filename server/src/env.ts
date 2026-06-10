@@ -87,6 +87,11 @@ function weakSecretReason(value: string): string | null {
 const SECRET_ENV_KEYS = [
   'SESSION_COOKIE_SECRET',
   'GESTIMUS_SECRET_KEY',
+  // Chiave master PRECEDENTE (rotazione): decifra SMTP/backup e verifica firme
+  // audit/MFA pre-rotazione. Se impostata in prod deve essere "vera" come la
+  // corrente — un placeholder debole qui vanificherebbe la rotazione. È optional,
+  // quindi il guard la salta quando assente (length === 0).
+  'GESTIMUS_SECRET_KEY_PREVIOUS',
   'PLATFORM_SMTP_PASSWORD',
 ] as const;
 

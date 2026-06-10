@@ -544,12 +544,17 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
 
     const updated = await dbSuper.transaction(async (tx) => {
       const [t] = await tx.update(tenants).set(update).where(eq(tenants.id, id)).returning();
+      // TOCTOU: findTenant() sopra è fuori transazione. Un DELETE concorrente del
+      // tenant lascerebbe 0 righe e `t` undefined → publicTenant(undefined) andava
+      // in 500. Ritorniamo null e gestiamo un 404 pulito.
+      if (!t) return null;
       // Copia i limiti del nuovo piano solo se il piano è effettivamente cambiato.
       if (planChanged && newPlan) {
         await applyPlanLimitsToTenantConfig(tx, id, newPlan);
       }
-      return t!;
+      return t;
     });
+    if (!updated) return reply.notFound();
     await auditChange(req, 'platform.tenant.update', updated, { changes: body });
     return publicTenant(updated);
   });
@@ -885,8 +890,11 @@ export const platformRoutes: FastifyPluginAsync = async (app) => {
     if (body.ordine !== undefined) update.ordine = body.ordine;
 
     const [updated] = await dbSuper.update(piani).set(update).where(eq(piani.key, key)).returning();
+    // findPiano() sopra è fuori transazione: un DELETE concorrente del piano
+    // lascerebbe 0 righe → publicPiano(undefined) in 500. 404 pulito.
+    if (!updated) return reply.notFound();
     await writePlatformAudit(req, 'platform.piano.update', { payload: { key, changes: body } });
-    return publicPiano(updated!);
+    return publicPiano(updated);
   });
 
   /**

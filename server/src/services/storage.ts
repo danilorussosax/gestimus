@@ -1,6 +1,6 @@
 import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
-import { join, normalize, resolve } from 'node:path';
+import { join, normalize, resolve, sep } from 'node:path';
 import { randomBytes } from 'node:crypto';
 import sharp from 'sharp';
 import { env } from '../env.js';
@@ -84,6 +84,27 @@ function uploadsRoot(): string {
   return resolve(env.UPLOADS_DIR);
 }
 
+// Difesa-in-profondità: verifica che `p` cada DENTRO `base` evitando il bug del
+// prefisso. `startsWith(base)` da solo è insicuro: "/app/uploads-secret/x"
+// .startsWith("/app/uploads") === true → una directory sorella col prefisso
+// uguale passerebbe il controllo. Confrontiamo col separatore finale (e accettiamo
+// l'uguaglianza esatta con la root). Ritorna il path normalizzato.
+export function assertInside(base: string, p: string): string {
+  const root = resolve(base);
+  const normalized = normalize(resolve(p));
+  if (normalized !== root && !normalized.startsWith(root + sep)) {
+    throw Object.assign(new Error('path fuori dalla directory consentita'), { code: 'INVALID_PATH' });
+  }
+  return normalized;
+}
+
+// Assert specifico per la uploads root: usato dai lettori di file (download) che
+// leggono path provenienti dal DB (storageKey/path), come rete di sicurezza nel
+// caso quei valori non fossero stati prodotti da saveFile().
+export function assertInsideUploads(p: string): string {
+  return assertInside(uploadsRoot(), p);
+}
+
 export function tenantUploadDir(tenantSlug: string, resource: ResourceKind, id: string): string {
   // Sanitize input: tenant slug e id sono validati a monte (subdomain + UUID),
   // ma normalizziamo come difesa-in-profondità
@@ -162,11 +183,9 @@ export async function saveFile(args: {
   const filename = `${randomBytes(8).toString('hex')}${ext}`;
   const absPath = join(dir, filename);
 
-  // Difesa contro path traversal: dopo join, il path deve restare dentro la dir
-  const normalized = normalize(absPath);
-  if (!normalized.startsWith(dir)) {
-    throw Object.assign(new Error('path traversal rilevato'), { code: 'INVALID_PATH' });
-  }
+  // Difesa contro path traversal: dopo join, il path deve restare dentro la dir.
+  // assertInside confronta col separatore finale (no bug del prefisso sorella).
+  const normalized = assertInside(dir, absPath);
 
   // M151: scrittura atomica — write su file temporaneo + rename. Un crash a
   // metà writeFile lascerebbe altrimenti un file parziale/corrotto al path
@@ -191,11 +210,9 @@ export async function saveFile(args: {
 }
 
 export async function deleteFile(path: string): Promise<void> {
-  const root = uploadsRoot();
-  const normalized = normalize(resolve(path));
-  if (!normalized.startsWith(root)) {
-    throw new Error('file fuori da uploads root, rifiuto delete');
-  }
+  // assertInsideUploads confronta col separatore finale: "/app/uploads-x"
+  // non passa più come se fosse dentro "/app/uploads".
+  const normalized = assertInsideUploads(path);
   await rm(normalized, { force: true });
 }
 

@@ -204,7 +204,9 @@ export async function registerTenantMiddleware(app: FastifyInstance): Promise<vo
     const found = await resolveTenantBySubdomain(subdomain);
 
     if (!found) {
-      reply.code(404).send({ error: `tenant '${subdomain}' non trovato` });
+      // Non riecheggiare lo slug richiesto: darebbe a un attaccante un oracolo di
+      // enumerazione (slug esistente vs no). Messaggio generico.
+      reply.code(404).send({ error: 'tenant non trovato' });
       return reply;
     }
 

@@ -7,7 +7,7 @@ import { uuid } from '../lib/zod-helpers.js';
 import { documentiEnte } from '../db/schema.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
-import { deleteFile, saveFile } from '../services/storage.js';
+import { assertInsideUploads, deleteFile, saveFile } from '../services/storage.js';
 import { env } from '../env.js';
 import { replyValidationError } from '../lib/validation.js';
 
@@ -166,7 +166,20 @@ export const documentiAdminRoutes: FastifyPluginAsync = async (app) => {
         targetId: id,
         payload: parsed.data,
       });
-      return updated;
+      // Coerente con GET/POST: niente storageKey nel payload (path FS interno).
+      return {
+        id: updated.id,
+        titolo: updated.titolo,
+        descrizione: updated.descrizione,
+        nomeFile: updated.nomeFile,
+        publicUrl: updated.publicUrl,
+        mimeType: updated.mimeType,
+        sizeBytes: updated.sizeBytes,
+        versione: updated.versione,
+        pubblicato: updated.pubblicato,
+        createdAt: updated.createdAt,
+        updatedAt: updated.updatedAt,
+      };
     });
   });
 
@@ -262,7 +275,16 @@ export const documentiPublicRoutes: FastifyPluginAsync = async (app) => {
           .limit(1);
         if (rows.length === 0) return reply.notFound();
         const doc = rows[0]!;
-        const buf = await readFile(doc.storageKey).catch(() => null);
+        // Endpoint PUBBLICO (no auth): storageKey arriva dal DB. Difesa-in-profondità
+        // contro path-traversal nel caso il valore non fosse stato prodotto da
+        // saveFile() (import/migrazione/manomissione): leggiamo solo dentro uploads.
+        let safePath: string;
+        try {
+          safePath = assertInsideUploads(doc.storageKey);
+        } catch {
+          return reply.notFound();
+        }
+        const buf = await readFile(safePath).catch(() => null);
         if (!buf) return reply.notFound();
         const safeName = (doc.nomeFile || 'documento').replace(/[^\w.\-]+/g, '_');
         reply.header('Content-Type', doc.mimeType || 'application/octet-stream');

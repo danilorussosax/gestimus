@@ -271,7 +271,9 @@ export async function createApp(): Promise<FastifyInstance> {
   app.get('/readyz', async (_req, reply) => {
     try {
       await pingDb();
-      return { ok: true, env: env.NODE_ENV, db: 'up' };
+      // Niente NODE_ENV nel body: /readyz è pubblico e in allowList del rate-limit;
+      // esporre l'ambiente aiuta solo la ricognizione di un attaccante.
+      return { ok: true, db: 'up' };
     } catch (err) {
       reply.log.error({ err }, 'readyz: DB non raggiungibile');
       return reply.code(503).send({ ok: false, db: 'down' });

@@ -168,23 +168,35 @@ describe('Cleanup tenant + backup pre-hard-delete (Fase 6 traccia B)', () => {
     assert.ok(typeof payload.backupSizeBytes === 'number');
   });
 
-  test('pruneOldBackups rimuove file più vecchi del retention', async () => {
-    // Scrivi un file "vecchio" simulato
-    const oldFile = join(ARCHIVE_DIR, `stale-${Date.now()}.json.gz`);
-    await writeFile(oldFile, Buffer.from('dummy'));
-    // Imposta mtime a 200 giorni fa
-    const oldTime = new Date(Date.now() - 200 * 86400_000);
-    await utimes(oldFile, oldTime, oldTime);
+  test('pruneOldBackups rimuove i vecchi ma TIENE sempre l’ultimo per slug', async () => {
+    // Due backup vecchi per LO STESSO slug, nomi conformi alla convention
+    // (<slug>-<iso>.json.gz) così il prune ne ricava lo slug. Il guard
+    // keep-latest-per-slug deve cancellare il più vecchio e PRESERVARE il più
+    // recente — anche se entrambi oltre la retention — così un tenant
+    // hard-deleted non resta senza alcuna copia DR.
+    const slugP = `pruneslug${Date.now()}`;
+    const olderFile = join(ARCHIVE_DIR, `${slugP}-2025-01-01T00-00-00-000Z.json.gz`);
+    const newerFile = join(ARCHIVE_DIR, `${slugP}-2025-06-01T00-00-00-000Z.json.gz`);
+    await writeFile(olderFile, Buffer.from('dummy-old'));
+    await writeFile(newerFile, Buffer.from('dummy-new'));
+    // mtime: entrambi oltre i 90gg di retention, ma newerFile più recente.
+    const t201 = new Date(Date.now() - 201 * 86400_000);
+    const t200 = new Date(Date.now() - 200 * 86400_000);
+    await utimes(olderFile, t201, t201);
+    await utimes(newerFile, t200, t200);
 
-    const st = await stat(oldFile);
-    const ageDays = (Date.now() - st.mtimeMs) / 86400_000;
-    assert.ok(ageDays > 150, `mtime impostata correttamente (age=${ageDays.toFixed(1)}gg)`);
-
-    const beforeCount = (await readdir(ARCHIVE_DIR)).length;
     const r = await pruneOldBackups(90);
-    assert.ok(r.deleted >= 1, `almeno un file vecchio rimosso (age=${ageDays.toFixed(1)}gg, deleted=${r.deleted})`);
-    const afterCount = (await readdir(ARCHIVE_DIR)).length;
-    assert.equal(afterCount, beforeCount - r.deleted);
+    assert.ok(r.deleted >= 1, `il backup più vecchio per slug è rimosso (deleted=${r.deleted})`);
+
+    const remaining = (await readdir(ARCHIVE_DIR)).filter((f) => f.startsWith(slugP));
+    assert.ok(
+      remaining.includes(`${slugP}-2025-06-01T00-00-00-000Z.json.gz`),
+      'l’ultimo backup per slug è preservato',
+    );
+    assert.ok(
+      !remaining.includes(`${slugP}-2025-01-01T00-00-00-000Z.json.gz`),
+      'il backup più vecchio per slug è stato cancellato',
+    );
   });
 
   test('endpoint POST /api/platform/jobs/cleanup-tenants → trigger manuale', async () => {

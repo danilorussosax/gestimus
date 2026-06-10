@@ -3,7 +3,7 @@ import { and, desc, eq, gte, inArray, max, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { uuid } from '../lib/zod-helpers.js';
 import { candidati, categorie, concorsi, iscrizioni, iscrizioniAllegati, sezioni } from '../db/schema.js';
-import { saveFile } from '../services/storage.js';
+import { assertInsideUploads, saveFile } from '../services/storage.js';
 import { readFile } from 'node:fs/promises';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { writeAudit } from '../services/audit.js';
@@ -91,7 +91,7 @@ const iscrizioneCreateBody = z.object({
     )
     .max(200)
     .optional(),
-  docentiPreparatori: z.array(z.string()).optional(),
+  docentiPreparatori: z.array(z.string().max(255)).max(20).optional(),
   sezioneId: uuid.optional(),
   categoriaId: uuid.optional(),
   isGruppo: z.boolean().optional(),
@@ -707,7 +707,16 @@ export const iscrizioniAdminRoutes: FastifyPluginAsync = async (app) => {
         .limit(1);
       if (rows.length === 0) return reply.notFound();
       const a = rows[0]!;
-      const buf = await readFile(a.path).catch(() => null);
+      // Difesa-in-profondità: a.path arriva dal DB (prodotto da saveFile, sempre
+      // dentro uploads). Confiniamo comunque la lettura alla uploads root nel caso
+      // il valore fosse stato scritto da un altro percorso (import/migrazione).
+      let safePath: string;
+      try {
+        safePath = assertInsideUploads(a.path);
+      } catch {
+        return reply.notFound();
+      }
+      const buf = await readFile(safePath).catch(() => null);
       if (!buf) return reply.notFound();
       const safeName = (a.nomeFile || 'allegato').replace(/[^\w.\-]+/g, '_');
       reply.header('Content-Type', a.mimeType || 'application/octet-stream');
@@ -719,7 +728,12 @@ export const iscrizioniAdminRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/', async (req) => {
     const q = z
-      .object({ concorsoId: uuid.optional(), stato: z.string().optional() })
+      .object({
+        concorsoId: uuid.optional(),
+        // stato vincolato all'enum: un valore fuori-enum prima passava come stringa
+        // libera e restituiva silenziosamente 0 risultati (confonde il client).
+        stato: z.enum(['BOZZA', 'INVIATA', 'EMAIL_VERIFICATA', 'APPROVATA', 'RIFIUTATA']).optional(),
+      })
       .parse(req.query);
     const { limit, offset } = parsePagination(req.query);
     return req.dbTx(async (tx) => {

@@ -68,7 +68,7 @@ const createBody = z.object({
   paese: z.preprocess(emptyToNull, z.string().max(100).nullable()).optional(),
   anniStudio: z.number().int().min(0).max(99).nullable().optional(),
   scuolaProvenienza: z.preprocess(emptyToNull, z.string().max(255).nullable()).optional(),
-  docentiPreparatori: z.array(z.string()).optional(),
+  docentiPreparatori: z.array(z.string().max(255)).max(20).optional(),
   // Programma musicale: schema delimitato (era z.unknown()). Stessa shape del
   // form iscrizione (titolo/autore/durata_min); z.object scarta extra, durata
   // coerced, max 200 brani. Difesa in profondità (admin, ma reso via JSX).

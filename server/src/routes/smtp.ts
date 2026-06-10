@@ -15,7 +15,15 @@ const smtpBody = z.object({
   secure: z.boolean().optional(),
   user: z.string().min(1).max(255),
   password: z.string().min(1).max(500),
-  from: z.string().min(1).max(255),
+  // No caratteri di controllo (CR/LF/TAB/NUL/...): il `from` finisce in un header
+  // SMTP. Nodemailer ripiega i CRLF, ma blocchiamo a monte tutta la classe di
+  // control char per evitare header-injection / comportamenti anomali su alcuni MTA.
+  from: z
+    .string()
+    .min(1)
+    .max(255)
+    // eslint-disable-next-line no-control-regex
+    .regex(/^[^\r\n\t\x00-\x1f\x7f]+$/, 'il campo "from" contiene caratteri non ammessi'),
 });
 
 /**

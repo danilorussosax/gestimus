@@ -2,7 +2,7 @@ import { eq, getTableColumns } from 'drizzle-orm';
 import { gunzip, createGzip } from 'node:zlib';
 import { promisify } from 'node:util';
 import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join, resolve, sep } from 'node:path';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { deriveKey, deriveKeysWithFallback } from './keys.js';
 import { dbSuper } from '../db/client.js';
@@ -386,7 +386,16 @@ export async function restoreTenant(filepath: string): Promise<{
   tenantSlug: string;
   tableCounts: Record<string, number>;
 }> {
-  const fileBuffer = await readFile(filepath);
+  // Confinamento: restoreTenant è documentato come "ops/script, non via HTTP",
+  // ma nulla lo impone a runtime. Se un domani venisse cablato a una route con un
+  // path anche solo parzialmente influenzato dal chiamante, readFile() diventerebbe
+  // un arbitrary-file-read. Accettiamo solo path dentro ARCHIVE_DIR.
+  const archiveBase = archiveDir();
+  const resolvedPath = resolve(filepath);
+  if (resolvedPath !== archiveBase && !resolvedPath.startsWith(archiveBase + sep)) {
+    throw new Error('restore: path fuori da ARCHIVE_DIR, rifiuto');
+  }
+  const fileBuffer = await readFile(resolvedPath);
   if (fileBuffer[0] !== ENC_VERSION_BYTE) {
     throw new Error(`restore: formato non supportato (version byte ${fileBuffer[0]})`);
   }
@@ -498,16 +507,36 @@ export async function pruneOldBackups(retentionDays: number): Promise<{ deleted:
   if (retentionDays <= 0) return { deleted: 0 };
   await ensureArchiveDir();
   const cutoff = Date.now() - retentionDays * 86400_000;
-  let deleted = 0;
-  const files = await readdir(archiveDir());
+  const files = (await readdir(archiveDir())).filter(isBackupFile);
+
+  // Raccogli (file, slug, mtime) per tutti i backup, poi calcola il file più
+  // recente PER SLUG. Questo è il backup che NON va mai cancellato dalla retention:
+  // per un tenant hard-deleted è l'unica copia DR rimasta. Senza questa guardia,
+  // con retention bassa o backup vecchi, il prune cancellerebbe l'ultima copia e
+  // il dato sparirebbe definitivamente.
+  const meta: { file: string; slug: string; mtimeMs: number }[] = [];
   for (const f of files) {
-    if (!isBackupFile(f)) continue;
-    const full = join(archiveDir(), f);
-    const st = await stat(full);
-    if (st.mtimeMs < cutoff) {
-      await unlink(full);
-      deleted += 1;
-    }
+    const st = await stat(join(archiveDir(), f));
+    const slug = BACKUP_FILENAME_RE.exec(f)?.[1] ?? 'unknown';
+    meta.push({ file: f, slug, mtimeMs: st.mtimeMs });
+  }
+  const latestPerSlug = new Map<string, string>();
+  for (const m of meta) {
+    const cur = latestPerSlug.get(m.slug);
+    const curMtime = cur ? meta.find((x) => x.file === cur)!.mtimeMs : -1;
+    if (m.mtimeMs > curMtime) latestPerSlug.set(m.slug, m.file);
+  }
+
+  let deleted = 0;
+  for (const m of meta) {
+    if (m.mtimeMs >= cutoff) continue;
+    // Mantieni sempre l'ultimo backup per slug, anche se oltre la retention.
+    if (latestPerSlug.get(m.slug) === m.file) continue;
+    await unlink(join(archiveDir(), m.file));
+    deleted += 1;
+    // M-3: traccia ogni cancellazione (quale slug ha perso quale copia) per
+    // diagnosi in caso di prune erroneo.
+    console.info(`[backup] prune: eliminato ${m.file} (slug=${m.slug})`);
   }
   return { deleted };
 }

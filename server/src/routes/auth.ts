@@ -1,5 +1,5 @@
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
 import { dbSuper } from '../db/client.js';
 import { accounts } from '../db/schema.js';
@@ -223,11 +223,19 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       }
     } else {
       // Recovery code: confronto sull'hash; se valido viene CONSUMATO (one-time).
+      // Consumo ATOMICO: read-filter-write separati permettevano a due richieste
+      // concorrenti con lo stesso codice di leggere entrambe l'array, vederlo
+      // presente, e completare entrambe il login (doppia sessione). array_remove +
+      // `= ANY(...)` nel WHERE rende rimozione e verifica una sola operazione DB:
+      // rowCount>0 ⇔ il codice era presente ed è stato rimosso adesso da NOI.
       const codeHash = hashRecoveryCode(code);
-      const remaining = (account.totpRecoveryCodes ?? []).filter((h) => h !== codeHash);
-      if (remaining.length < (account.totpRecoveryCodes ?? []).length) {
+      const consumed = await dbSuper
+        .update(accounts)
+        .set({ totpRecoveryCodes: sql`array_remove(${accounts.totpRecoveryCodes}, ${codeHash})` })
+        .where(and(eq(accounts.id, account.id), sql`${codeHash} = ANY(${accounts.totpRecoveryCodes})`))
+        .returning({ id: accounts.id });
+      if (consumed.length > 0) {
         verified = true;
-        await dbSuper.update(accounts).set({ totpRecoveryCodes: remaining }).where(eq(accounts.id, account.id));
       }
     }
 
