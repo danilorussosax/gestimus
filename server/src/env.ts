@@ -1,5 +1,9 @@
-import 'dotenv/config';
+import { config as dotenvConfig } from 'dotenv';
 import { z } from 'zod';
+
+// dotenv v17 stampa un banner informativo a ogni boot ("[dotenv@17.x]
+// injecting env..."): rumore nei log strutturati pino → quiet esplicito.
+dotenvConfig({ quiet: true });
 
 const schema = z.object({
   DATABASE_URL_APP: z.string().url(),

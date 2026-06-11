@@ -6,16 +6,27 @@
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
-    ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" },
-    "./scoring": { "types": "./dist/scoring.d.ts", "default": "./dist/scoring.js" },
-    "./tiebreak": { "types": "./dist/tiebreak.d.ts", "default": "./dist/tiebreak.js" }
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./scoring": {
+      "types": "./dist/scoring.d.ts",
+      "default": "./dist/scoring.js"
+    },
+    "./tiebreak": {
+      "types": "./dist/tiebreak.d.ts",
+      "default": "./dist/tiebreak.js"
+    }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsc -p .",
     "clean": "rm -rf dist"
   },
   "devDependencies": {
-    "typescript": "^5.6.0"
+    "typescript": "^6.0.3"
   }
 }
