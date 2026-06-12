@@ -1,5 +1,5 @@
 {
-  "last_sync_commit": "f6b65c778d2cbc8801bbaf81f5a53e6d3c39828c",
+  "last_sync_commit": "5601170e23e4555ab61d2f15ce906d5d29bc455e",
   "docs_enabled": false,
   "run_mode": "standard",
   "git_tier": "full",
@@ -33,5 +33,5 @@
     "has_summaries": true,
     "fingerprint": "c6e0f8a7ea75097b"
   },
-  "config_fingerprint": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  "config_fingerprint": "243fc19646917dffc77cacc21ae9a5b7d41d323e48c9e697910b67ca56cc4b01"
 }
